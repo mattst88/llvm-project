@@ -44,6 +44,14 @@ AlphaTargetMachine::AlphaTargetMachine(const Target &T, const Triple &TT,
   // Reconcile call-frame information across blocks so unwinding is correct at
   // any point, including within epilogues (see resetCFIToInitialState).
   setCFIFixup(true);
+  // Outline repeated instruction sequences from minsize functions.
+  // TargetPassConfig adds the pass only when Options.EnableMachineOutliner is
+  // set, and nothing sets it for Alpha: clang's -moutline is wired up per
+  // target and llc has no flag for it at all, so without this the pass can
+  // never run.  setSupportsDefaultOutlining then confines it to the functions
+  // shouldOutlineFromFunctionByDefault permits, which is the minsize ones.
+  this->Options.EnableMachineOutliner = true;
+  setSupportsDefaultOutlining(true);
   initAsmInfo();
 }
 
@@ -113,7 +121,12 @@ void AlphaPassConfig::addPreEmitPass2() {
   // and the store conditional, and a spill, a reload or a reordering placed
   // there makes the store conditional fail every time round the loop, so the
   // expansion has to come after register allocation and the post-RA scheduler
-  // -- and after anything later that could reintroduce one.
+  // -- and after anything later that could reintroduce one.  The machine
+  // outliner is such a pass: it runs between addPreEmitPass and
+  // addPreEmitPass2, and expanding before it would let it treat the loop as
+  // ordinary instructions and outline through it, putting a bsr and its return
+  // jump inside the reservation window, which the architecture allows to clear
+  // the lock flag.
   addPass(createAlphaExpandAtomicPseudo());
 }
 
