@@ -72,8 +72,19 @@
 # RUN: yaml2obj %s -o %t.arm.o -D MACHINE=EM_ARM
 # RUN: llvm-readelf --file-headers %t.arm.o | FileCheck %s -DMACHINE="ARM"
 
+## Alpha has two e_machine values: EM_OLD_ALPHA (41) is the one the gABI
+## assigned, and EM_ALPHA (0x9026) is the one every real Alpha object uses.
+## Both are spelled the way binutils readelf spells them, and one of those
+## names is a substring of the other, so these two checks are anchored: the
+## shared CHECK line above is not, and "Alpha" would otherwise match the line
+## naming "Digital Alpha (old)".
 # RUN: yaml2obj %s -o %t.alpha.o -D MACHINE=EM_ALPHA
-# RUN: llvm-readelf --file-headers %t.alpha.o | FileCheck %s -DMACHINE="EM_ALPHA"
+# RUN: llvm-readelf --file-headers %t.alpha.o | FileCheck %s --check-prefix=ALPHA
+# ALPHA: Machine: Alpha{{$}}
+
+# RUN: yaml2obj %s -o %t.alphastd.o -D MACHINE=EM_OLD_ALPHA
+# RUN: llvm-readelf --file-headers %t.alphastd.o | FileCheck %s --check-prefix=OLDALPHA
+# OLDALPHA: Machine: Digital Alpha (old){{$}}
 
 # RUN: yaml2obj %s -o %t.sh.o -D MACHINE=EM_SH
 # RUN: llvm-readelf --file-headers %t.sh.o | FileCheck %s -DMACHINE="Hitachi SH"
