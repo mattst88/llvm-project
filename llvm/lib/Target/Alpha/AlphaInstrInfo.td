@@ -2144,7 +2144,13 @@ def : InstAlias<"clr $dst", (BIS GPRC:$dst, R31, R31)>;
 def : InstAlias<"or $Ra, $Rb, $Rc", (BIS GPRC:$Rc, GPRC:$Ra, GPRC:$Rb)>;
 
 // Integer negate/sign-extend/complement, each with $31 as the first source.
+// The longword and trapping forms are spelled the same way; gcc emits negl
+// freely, so a disassembly of the platform's own libraries cannot be fed back
+// through this assembler without it.
+def : InstAlias<"negl $src, $dst", (SUBL GPRC:$dst, R31, GPRC:$src)>;
+def : InstAlias<"negl/v $src, $dst", (SUBLV GPRC:$dst, R31, GPRC:$src)>;
 def : InstAlias<"negq $src, $dst", (SUBQ GPRC:$dst, R31, GPRC:$src)>;
+def : InstAlias<"negq/v $src, $dst", (SUBQV GPRC:$dst, R31, GPRC:$src)>;
 def : InstAlias<"sextl $src, $dst", (ADDL GPRC:$dst, R31, GPRC:$src)>;
 def : InstAlias<"not $src, $dst", (ORNOT GPRC:$dst, R31, GPRC:$src)>;
 
@@ -2155,6 +2161,7 @@ def : InstAlias<"fmov $src, $dst", (CPYS FPRC:$dst, FPRC:$src, FPRC:$src)>;
 def : InstAlias<"fneg $src, $dst", (CPYSN FPRC:$dst, FPRC:$src, FPRC:$src)>;
 def : InstAlias<"fabs $src, $dst", (CPYS FPRC:$dst, F31, FPRC:$src)>;
 def : InstAlias<"fnop", (CPYS F31, F31, F31)>;
+def : InstAlias<"fclr $dst", (CPYS FPRC:$dst, F31, F31)>;
 def : InstAlias<"negs $src, $dst", (SUBS FPRC:$dst, F31, FPRC:$src)>;
 def : InstAlias<"negt $src, $dst", (SUBT FPRC:$dst, F31, FPRC:$src)>;
 
@@ -2374,3 +2381,7 @@ def : InstAlias<"andnot $Ra, $lit, $Rc", (BICi GPRC:$Rc, GPRC:$Ra, u8imm:$lit)>;
 // or: GNU as's name for the bis (logical or) instruction.
 def : InstAlias<"or $Ra, $Rb, $Rc", (BIS GPRC:$Rc, GPRC:$Ra, GPRC:$Rb)>;
 def : InstAlias<"or $Ra, $lit, $Rc", (BISi GPRC:$Rc, GPRC:$Ra, u8imm:$lit)>;
+
+// xornot is another name for eqv.
+def : InstAlias<"xornot $Ra, $Rb, $Rc", (EQV GPRC:$Rc, GPRC:$Ra, GPRC:$Rb)>;
+def : InstAlias<"xornot $Ra, $lit, $Rc", (EQVi GPRC:$Rc, GPRC:$Ra, u8imm:$lit)>;

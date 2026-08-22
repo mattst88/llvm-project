@@ -37,12 +37,22 @@
 # operate instruction with $31 / $f31.
 # CHECK: subq $31, $1, $2
         negq    $1, $2
+# CHECK: subl $31, $1, $2
+        negl    $1, $2
+# CHECK: subl/v $31, $1, $2
+        negl/v  $1, $2
+# CHECK: subq/v $31, $1, $2
+        negq/v  $1, $2
 # CHECK: addl $31, $1, $2
         sextl   $1, $2
 # CHECK: ornot $31, $1, $2
         not     $1, $2
 # CHECK: bis $1, $2, $3
         or      $1, $2, $3
+# CHECK: eqv $1, $2, $3
+        xornot  $1, $2, $3
+# CHECK: eqv $1, 5, $3
+        xornot  $1, 5, $3
 # CHECK: cpys $f1, $f1, $f2
         fmov    $f1, $f2
 # CHECK: cpysn $f1, $f1, $f2
@@ -51,6 +61,8 @@
         fabs    $f1, $f2
 # CHECK: cpys $f31, $f31, $f31
         fnop
+# CHECK: cpys $f31, $f31, $f3
+        fclr    $f3
 # CHECK: subs $f31, $f1, $f2
         negs    $f1, $f2
 # CHECK: subt $f31, $f1, $f2
