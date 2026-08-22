@@ -31,6 +31,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAlphaTarget() {
   initializeGlobalISel(PR);
   initializeAlphaTrapBarriersPass(PR);
   initializeAlphaExpandAtomicPseudoPass(PR);
+  initializeAlphaVerifyInvariantsPass(PR);
 }
 
 static Reloc::Model getEffectiveRelocModel(bool JIT,
@@ -155,6 +156,12 @@ void AlphaPassConfig::addPreEmitPass2() {
   // jump inside the reservation window, which the architecture allows to clear
   // the lock flag.
   addPass(createAlphaExpandAtomicPseudo());
+
+  // Last of all, and only when asked for: check the properties no test can
+  // observe -- the reservation window this pass just built, -mno-fp-regs, and
+  // the global pointer.  It has to follow the expansion, because before it the
+  // window is a single pseudo and there is nothing to look inside.
+  addPass(createAlphaVerifyInvariants());
 }
 
 bool AlphaPassConfig::addInstSelector() {

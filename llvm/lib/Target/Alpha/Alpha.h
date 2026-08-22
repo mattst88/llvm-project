@@ -36,6 +36,8 @@ FunctionPass *createAlphaTrapBarriers();
 void initializeAlphaTrapBarriersPass(PassRegistry &);
 FunctionPass *createAlphaExpandAtomicPseudo();
 void initializeAlphaExpandAtomicPseudoPass(PassRegistry &);
+FunctionPass *createAlphaVerifyInvariants();
+void initializeAlphaVerifyInvariantsPass(PassRegistry &);
 InstructionSelector *
 createAlphaInstructionSelector(const AlphaTargetMachine &TM,
                                const AlphaSubtarget &STI,

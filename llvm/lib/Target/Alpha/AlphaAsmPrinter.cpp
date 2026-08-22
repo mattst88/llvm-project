@@ -273,6 +273,12 @@ void AlphaAsmPrinter::emitInstruction(const MachineInstr *MI) {
   do {
     if (I->isBundle())
       continue;
+    // An instruction gated on a subtarget feature must not reach a subtarget
+    // without it.  TableGen already builds the predicate table; this is the
+    // only place every emitted instruction passes through, so it is where the
+    // check belongs.  It compiles away in a release build.
+    Alpha_MC::verifyInstructionPredicates(I->getOpcode(),
+                                          getSubtargetInfo().getFeatureBits());
     if (emitDirectCallText(*I))
       continue;
     MCInst OutMI;
