@@ -525,6 +525,11 @@ public:
   
   virtual void onLabelParsed(MCSymbol *Symbol) {}
 
+  /// Called with the terminator of each empty statement. A target whose syntax
+  /// gives meaning to a run of statement separators, such as IA-64's ";;"
+  /// stop, sees it here.
+  virtual void onEmptyStatement(const AsmToken &Terminator) {}
+
   /// Ensure that all previously parsed instructions have been emitted to the
   /// output streamer, if the target does not emit them immediately.
   virtual void flushPendingInstructions(MCStreamer &Out) {}

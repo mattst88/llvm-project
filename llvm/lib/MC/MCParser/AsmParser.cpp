@@ -1743,6 +1743,7 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
     if (getTok().getString().empty() || getTok().getString().front() == '\r' ||
         getTok().getString().front() == '\n')
       Out.addBlankLine();
+    getTargetParser().onEmptyStatement(getTok());
     Lex();
     return false;
   }
