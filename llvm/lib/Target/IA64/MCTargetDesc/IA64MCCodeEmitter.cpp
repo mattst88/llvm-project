@@ -15,6 +15,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/IA64BaseInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/MC/MCCodeEmitter.h"
@@ -69,6 +70,13 @@ public:
   uint64_t getPCRelOpValue(const MCInst &MI, unsigned OpNo,
                            SmallVectorImpl<MCFixup> &Fixups,
                            const MCSubtargetInfo &STI) const;
+
+  uint64_t getInc3OpValue(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &Fixups,
+                          const MCSubtargetInfo &STI) const;
+
+  uint64_t encodeAllocFrame(const MCInst &MI, uint64_t Insn,
+                            const MCSubtargetInfo &STI) const;
 };
 
 } // end anonymous namespace
@@ -122,6 +130,40 @@ uint64_t IA64MCCodeEmitter::getPCRelOpValue(const MCInst &MI, unsigned OpNo,
                                             const MCSubtargetInfo &STI) const {
   // The operand is a displacement in bytes between bundles.
   return static_cast<uint64_t>(MI.getOperand(OpNo).getImm() >> 4);
+}
+
+uint64_t IA64MCCodeEmitter::getInc3OpValue(const MCInst &MI, unsigned OpNo,
+                                           SmallVectorImpl<MCFixup> &Fixups,
+                                           const MCSubtargetInfo &STI) const {
+  // A sign and the magnitude: 16, 8, 4 and 1 are 0 to 3.
+  int64_t Inc = MI.getOperand(OpNo).getImm();
+  uint64_t Sign = Inc < 0 ? 4 : 0;
+  switch (Inc < 0 ? -Inc : Inc) {
+  case 16:
+    return Sign | 0;
+  case 8:
+    return Sign | 1;
+  case 4:
+    return Sign | 2;
+  case 1:
+    return Sign | 3;
+  }
+  llvm_unreachable("invalid fetchadd increment");
+}
+
+uint64_t IA64MCCodeEmitter::encodeAllocFrame(const MCInst &MI, uint64_t Insn,
+                                             const MCSubtargetInfo &STI) const {
+  // The operands after the destination are the numbers of input, local,
+  // output and rotating registers.
+  uint64_t Inputs = MI.getOperand(1).getImm();
+  uint64_t Locals = MI.getOperand(2).getImm();
+  uint64_t Outputs = MI.getOperand(3).getImm();
+  uint64_t Rotating = MI.getOperand(4).getImm();
+  uint64_t Sol = Inputs + Locals;
+  uint64_t Sof = Sol + Outputs;
+  assert(Sof <= IA64II::MaxFrameSize && Rotating % 8 == 0 && Rotating <= Sof &&
+         "invalid register stack frame");
+  return Insn | (Rotating / 8) << 27 | Sol << 20 | Sof << 13;
 }
 
 #include "IA64GenMCCodeEmitter.inc"

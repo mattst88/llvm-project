@@ -65,6 +65,10 @@ void IA64InstPrinter::printOperand(const MCInst *MI, int OpNum,
     llvm_unreachable("Invalid operand");
 }
 
+void IA64InstPrinter::printHint(const MCInst *MI, int OpNum, raw_ostream &O) {
+  O << IA64II::getHintName(MI->getOperand(OpNum).getImm());
+}
+
 void IA64InstPrinter::printMBType(const MCInst *MI, int OpNum, raw_ostream &O) {
   O << '@' << IA64II::getMBTypeName(MI->getOperand(OpNum).getImm());
 }

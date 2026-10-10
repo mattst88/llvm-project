@@ -10,6 +10,7 @@
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
@@ -63,6 +64,11 @@ class IA64AsmParser : public MCTargetAsmParser {
 
   bool parseOperand(OperandVector &Operands);
 
+  /// The operand of a memory access written without a locality hint.
+  std::unique_ptr<IA64Operand> defaultHintOperand();
+
+  bool validateInstruction(const MCInst &Inst, const OperandVector &Operands);
+
   IA64TargetStreamer &getTargetStreamer() {
     return static_cast<IA64TargetStreamer &>(
         *getParser().getStreamer().getTargetStreamer());
@@ -90,11 +96,18 @@ public:
 };
 
 class IA64Operand : public MCParsedAsmOperand {
-  enum KindTy { Token, Register, Immediate } Kind;
+public:
+  // Kinds after Immediate are mnemonic completers that are encoded as
+  // instruction operands.
+  enum KindTy { Token, Register, Immediate, Hint };
+
+private:
+  KindTy Kind;
   SMLoc StartLoc, EndLoc;
   StringRef Tok;
   MCRegister Reg;
   const MCExpr *Imm = nullptr;
+  unsigned Completer = 0;
 
 public:
   IA64Operand(KindTy K, SMLoc S, SMLoc E) : Kind(K), StartLoc(S), EndLoc(E) {}
@@ -145,6 +158,20 @@ public:
     std::optional<int64_t> V = getConstant();
     return V && isUInt<N>(*V);
   }
+  // The locality hint completers: loads have no .nt2, and stores only .nta.
+  bool isFetchHint() const { return Kind == Hint; }
+  bool isLoadHint() const { return Kind == Hint && Completer != 2; }
+  bool isStoreHint() const {
+    return Kind == Hint && (Completer == 0 || Completer == 3);
+  }
+  bool isInc3() const {
+    std::optional<int64_t> V = getConstant();
+    if (!V)
+      return false;
+    uint64_t Magnitude = *V < 0 ? -*V : *V;
+    return Magnitude == 1 || Magnitude == 4 || Magnitude == 8 ||
+           Magnitude == 16;
+  }
   bool isMask17() const {
     std::optional<int64_t> V = getConstant();
     return V && (isInt<17>(*V) || isUInt<17>(*V));
@@ -171,7 +198,9 @@ public:
   }
   void addImmOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "invalid number of operands");
-    if (std::optional<int64_t> V = getConstant())
+    if (Kind > Immediate)
+      Inst.addOperand(MCOperand::createImm(Completer));
+    else if (std::optional<int64_t> V = getConstant())
       Inst.addOperand(MCOperand::createImm(*V));
     else
       Inst.addOperand(MCOperand::createExpr(getImm()));
@@ -189,6 +218,9 @@ public:
       O << "Immediate ";
       MAI.printExpr(O, *Imm);
       break;
+    case Hint:
+      O << "Hint " << Completer;
+      break;
     }
   }
 
@@ -201,6 +233,12 @@ public:
                                                 SMLoc E) {
     auto Op = std::make_unique<IA64Operand>(Register, S, E);
     Op->Reg = Reg;
+    return Op;
+  }
+  static std::unique_ptr<IA64Operand> createCompleter(KindTy Kind,
+                                                      unsigned Value, SMLoc S) {
+    auto Op = std::make_unique<IA64Operand>(Kind, S, S);
+    Op->Completer = Value;
     return Op;
   }
   static std::unique_ptr<IA64Operand> createImm(const MCExpr *Val, SMLoc S,
@@ -218,6 +256,19 @@ public:
 #include "IA64GenAsmMatcher.inc"
 
 /// Register names are matched without regard to case.
+/// Strip operand completers off the end of a mnemonic.
+static void splitCompleters(
+    StringRef &Name,
+    SmallVectorImpl<std::pair<IA64Operand::KindTy, unsigned>> &Completers) {
+  // A memory access may end in a locality hint.
+  for (unsigned Value = 1; Value != 4; ++Value) {
+    if (Name.consume_back(IA64II::getHintName(Value))) {
+      Completers.push_back({IA64Operand::Hint, Value});
+      return;
+    }
+  }
+}
+
 static MCRegister matchRegister(StringRef Name) {
   std::string Lower = Name.lower();
   if (MCRegister Reg = MatchRegisterName(Lower))
@@ -274,6 +325,8 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 
   switch (Result) {
   case Match_Success:
+    if (validateInstruction(Inst, Operands))
+      return true;
     Inst.setLoc(IDLoc);
     Opcode = Inst.getOpcode();
     Out.emitInstruction(Inst, getSTI());
@@ -332,6 +385,34 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   }
   }
   llvm_unreachable("unknown match result");
+}
+
+std::unique_ptr<IA64Operand> IA64AsmParser::defaultHintOperand() {
+  return IA64Operand::createCompleter(IA64Operand::Hint, 0, SMLoc());
+}
+
+bool IA64AsmParser::validateInstruction(const MCInst &Inst,
+                                        const OperandVector &Operands) {
+  if (Inst.getOpcode() != IA64::ALLOC)
+    return false;
+
+  // Operands are the mnemonic, the predicate, the destination, "=" and
+  // ar.pfs; the four sizes follow.
+  auto Loc = [&](unsigned N) { return Operands[5 + N]->getStartLoc(); };
+  uint64_t Inputs = Inst.getOperand(1).getImm();
+  uint64_t Locals = Inst.getOperand(2).getImm();
+  uint64_t Outputs = Inst.getOperand(3).getImm();
+  uint64_t Rotating = Inst.getOperand(4).getImm();
+  uint64_t Size = Inputs + Locals + Outputs;
+  if (Size > IA64II::MaxFrameSize)
+    return Error(Loc(0), "register stack frame is larger than " +
+                             Twine(IA64II::MaxFrameSize) + " registers");
+  if (Rotating % 8)
+    return Error(Loc(3), "number of rotating registers must be a multiple "
+                         "of 8");
+  if (Rotating > Size)
+    return Error(Loc(3), "more rotating registers than the frame has");
+  return false;
 }
 
 bool IA64AsmParser::parseRegister(MCRegister &Reg, SMLoc &StartLoc,
@@ -401,7 +482,9 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     // can be used freely.
     StringRef Name = Tok.getIdentifier();
     if (StringSwitch<bool>(Name.lower())
-            .Cases({"ip", "pr", "pr.rot"}, true)
+            .Cases({"ip", "pr", "pr.rot", "psr", "psr.l", "psr.um"}, true)
+            .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
+            .Cases({"cpuid", "dtr", "itr"}, true)
             .Default(false)) {
       Operands.push_back(IA64Operand::createToken(Name, S));
       Parser.Lex();
@@ -444,8 +527,16 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
     Name = getContext().allocateString(Name.lower());
   }
 
+  SmallVector<std::pair<IA64Operand::KindTy, unsigned>, 3> Completers;
+  splitCompleters(Name, Completers);
+
   Operands.push_back(IA64Operand::createToken(Name, NameLoc));
   Operands.push_back(IA64Operand::createReg(QP, QPStart, QPEnd));
+  // Name may be a lower-cased copy, so compute the location from NameLoc.
+  SMLoc CompleterLoc =
+      SMLoc::getFromPointer(NameLoc.getPointer() + Name.size());
+  for (auto [Kind, Value] : Completers)
+    Operands.push_back(IA64Operand::createCompleter(Kind, Value, CompleterLoc));
 
   while (getLexer().isNot(AsmToken::EndOfStatement)) {
     if (parseOperand(Operands))
@@ -483,8 +574,16 @@ unsigned IA64AsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
 
   // Literal integers in instruction syntax, such as the "1" of
   // "add r1 = r2, r3, 1", are parsed as ordinary immediates.
-  if (Kind == MCK_1 && Op.getConstant() == 1)
-    return Match_Success;
+  switch (Kind) {
+  case MCK_1:
+    return Op.getConstant() == 1 ? Match_Success : Match_InvalidOperand;
+  case MCK_8:
+    return Op.getConstant() == 8 ? Match_Success : Match_InvalidOperand;
+  case MCK_16:
+    return Op.getConstant() == 16 ? Match_Success : Match_InvalidOperand;
+  default:
+    break;
+  }
   return Match_InvalidOperand;
 }
 

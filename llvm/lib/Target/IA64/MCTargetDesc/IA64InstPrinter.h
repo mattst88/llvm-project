@@ -35,6 +35,7 @@ public:
 
   void printOperand(const MCInst *MI, int OpNum, raw_ostream &O);
   void printQP(const MCInst *MI, int OpNum, raw_ostream &O) {}
+  void printHint(const MCInst *MI, int OpNum, raw_ostream &O);
   void printMBType(const MCInst *MI, int OpNum, raw_ostream &O);
   void printPCRel(const MCInst *MI, uint64_t Address, int OpNum,
                   raw_ostream &O);

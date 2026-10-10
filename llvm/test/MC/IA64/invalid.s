@@ -55,3 +55,66 @@
 	mov b6 = r4, 4096
 // CHECK: :[[#@LINE+1]]:15: error: target must be a multiple of 16 in [-4096, 4080]
 	mov b6 = r4, 24
+
+// M-unit operands. The hint has a number of 19 bits.
+// CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction
+	hint.m 0x80000
+
+// A load takes no .nt2 hint and a store only .nta.
+// CHECK: :[[#@LINE+1]]:5: error: invalid operand for instruction
+	ld8.nt2 r4 = [r5]
+// CHECK: :[[#@LINE+1]]:5: error: invalid operand for instruction
+	st8.nt1 [r4] = r5
+// CHECK: :[[#@LINE+1]]:5: error: invalid operand for instruction
+	add.nta r4 = r5, r6
+// CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction
+	flushrs.nta
+// CHECK: :[[#@LINE+1]]:17: error: invalid operand for instruction
+	ld8 r4 = [r5], 256
+// CHECK: :[[#@LINE+1]]:17: error: invalid operand for instruction
+	ld8 r4 = [r5], -257
+// CHECK: :[[#@LINE+1]]:17: error: invalid operand for instruction
+	st8 [r4] = r5, r6
+// CHECK: :[[#@LINE+1]]:23: error: invalid operand for instruction
+	ldfps f4, f5 = [r6], 16
+// CHECK: :[[#@LINE+1]]:23: error: invalid operand for instruction
+	ldfpd f4, f5 = [r6], 8
+// CHECK: :[[#@LINE+1]]:27: error: invalid operand for instruction
+	fetchadd8.acq r4 = [r5], 2
+// CHECK: :[[#@LINE+1]]:30: error: invalid operand for instruction
+	cmpxchg8.acq r4 = [r5], r6, ar.csd
+// CHECK: :[[#@LINE+1]]:6: error: invalid operand for instruction
+	mov cpuid[r5] = r4
+// CHECK: :[[#@LINE+1]]:6: error: invalid operand for instruction
+	sum 0x1000000
+// CHECK: :[[#@LINE+1]]:19: error: invalid operand for instruction
+	probe.r r4 = r5, 4
+// CHECK: :[[#@LINE+1]]:17: error: immediate must be an integer in [-128, 127]
+	mov.m ar.ccv = 128
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	break.m 0x200000
+
+// alloc describes a frame of at most 96 registers, and rotates them in
+// groups of eight.
+// CHECK: :[[#@LINE+1]]:30: error: number of rotating registers must be a multiple of 8
+	alloc r4 = ar.pfs, 2, 3, 4, 7
+// CHECK: :[[#@LINE+1]]:30: error: more rotating registers than the frame has
+	alloc r4 = ar.pfs, 2, 3, 4, 16
+// CHECK: :[[#@LINE+1]]:21: error: register stack frame is larger than 96 registers
+	alloc r4 = ar.pfs, 90, 3, 4, 0
+// CHECK: :[[#@LINE+1]]:13: error: invalid operand for instruction
+	alloc r4 = ar.lc, 2, 3, 4, 0
+
+// A register that is read from by its index needs the index.
+// CHECK: :[[#@LINE+1]]:2: error: too few operands for instruction
+	mov r4 = cpuid
+// CHECK: :[[#@LINE+1]]:2: error: too few operands for instruction
+	mov r4 = pmd[r5
+
+// As in the I-unit, a check's target is a whole number of bundles away.
+// CHECK: :[[#@LINE+1]]:14: error: target must be a multiple of 16 in [-16777216, 16777200]
+	chk.s.m r4, 8
+// CHECK: :[[#@LINE+1]]:15: error: target must be a multiple of 16 in [-16777216, 16777200]
+	chk.a.nc r4, 0x1000000
+// CHECK: :[[#@LINE+1]]:16: error: target must be a multiple of 16 in [-16777216, 16777200]
+	chk.a.clr f4, 17

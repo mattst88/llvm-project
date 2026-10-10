@@ -97,6 +97,7 @@ class UImm<int width> : Operand<i64> {
 def uimm5  : UImm<5>;
 def uimm6  : UImm<6>;
 def uimm8  : UImm<8>;
+def uimm19 : UImm<19>;
 def uimm21 : UImm<21>;
 
 // A bit position, encoded as its distance from bit 63.
@@ -202,6 +203,44 @@ class PCRel<int width> : Operand<OtherVT> {
 }
 def target25 : PCRel<21>;
 def tag13    : PCRel<9>;
+
+// The locality hint of a memory access is a completer on the mnemonic:
+// "ld8.nta". The parser splits it off, and it is optional. Loads cannot say
+// .nt2, and stores only .nta.
+class HintAsmOperand<string name> : AsmOperandClass {
+  let Name = name;
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "is"#name;
+  let IsOptional = 1;
+  let DefaultMethod = "defaultHintOperand";
+}
+class Hint<string name> : Operand<i64> {
+  let ParserMatchClass = HintAsmOperand<name>;
+  let PrintMethod = "printHint";
+  let DecoderMethod = "decode"#name;
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+def ldhint : Hint<"LoadHint">;
+def sthint : Hint<"StoreHint">;
+def lfhint : Hint<"FetchHint">;
+
+def simm9  : SImm<9, SImmNoDiagAsmOperand<9>>;
+def uimm2  : UImm<2>;
+def uimm7  : UImm<7>;
+def uimm24 : UImm<24>;
+
+// The fetchadd increment: +/-1, 4, 8 or 16.
+def Inc3AsmOperand : AsmOperandClass {
+  let Name = "Inc3";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isInc3";
+}
+def inc3 : Operand<i64> {
+  let ParserMatchClass = Inc3AsmOperand;
+  let EncoderMethod = "getInc3OpValue";
+  let DecoderMethod = "decodeInc3";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
 
 //===----------------------------------------------------------------------===//
 // Instruction classes
@@ -829,4 +868,522 @@ class I29<bits<6> x6, string mnemonic>
   bits<7> r3;
   let Inst{26-20} = r3;
   let Inst{12-6} = r1;
+}
+
+//===----------------------------------------------------------------------===//
+// M-unit formats (SDM volume 3, section 4.4)
+//===----------------------------------------------------------------------===//
+
+class MInst<dag outs, dag ins, string mnemonic, string operands>
+    : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let Unit = UnitM;
+  let DecoderNamespace = "M";
+}
+
+// Memory accesses carry a locality hint, written as the last mnemonic
+// completer. The forms with an immediate base update use the next major
+// opcode and spread the immediate over the bits that distinguish the other
+// forms.
+class MMemInst<bits<4> op, bits<6> x6, dag outs, dag ins, string mnemonic,
+               string operands>
+    : MInst<outs, ins, mnemonic, operands> {
+  bits<2> hint;
+  bits<7> r3;
+  let Opcode = op;
+  let Inst{35-30} = x6;
+  let Inst{29-28} = hint;
+  let Inst{26-20} = r3;
+  let AsmString = mnemonic#"${qp}${hint}\t"#operands;
+}
+class MMemRegInst<bits<4> op, bit m, bits<6> x6, bit x, dag outs, dag ins,
+                  string mnemonic, string operands>
+    : MMemInst<op, x6, outs, ins, mnemonic, operands> {
+  let Inst{36} = m;
+  let Inst{27} = x;
+}
+class MMemImmInst<bits<4> op, bits<6> x6, dag outs, dag ins, string mnemonic,
+                  string operands>
+    : MMemInst<op, x6, outs, ins, mnemonic, operands> {
+  bits<9> imm;
+  let Inst{36} = imm{8};
+  let Inst{27} = imm{7};
+  let Constraints = "$wb = $r3";
+}
+
+// M1: integer load.
+class M1<bits<6> x6, string mnemonic>
+    : MMemRegInst<4, 0, x6, 0, (outs GR:$r1), (ins GR:$r3, ldhint:$hint),
+                  mnemonic, "$r1 = [$r3]"> {
+  bits<7> r1;
+  let Inst{12-6} = r1;
+}
+// The 16-byte load puts the high half in ar.csd.
+class M1_16<bits<6> x6, string mnemonic>
+    : MMemRegInst<4, 0, x6, 1, (outs GR:$r1), (ins GR:$r3, ldhint:$hint),
+                  mnemonic, "$r1, ar.csd = [$r3]"> {
+  bits<7> r1;
+  let Inst{12-6} = r1;
+}
+
+// M2: integer load, incrementing the base by a register.
+class M2<bits<6> x6, string mnemonic>
+    : MMemRegInst<4, 1, x6, 0, (outs GR:$r1, GR:$wb),
+                  (ins GR:$r3, GR:$r2, ldhint:$hint), mnemonic,
+                  "$r1 = [$r3], $r2"> {
+  bits<7> r1;
+  bits<7> r2;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = r1;
+  let Constraints = "$wb = $r3";
+}
+
+// M3: integer load, incrementing the base by an immediate.
+class M3<bits<6> x6, string mnemonic>
+    : MMemImmInst<5, x6, (outs GR:$r1, GR:$wb),
+                  (ins GR:$r3, simm9:$imm, ldhint:$hint), mnemonic,
+                  "$r1 = [$r3], $imm"> {
+  bits<7> r1;
+  let Inst{19-13} = imm{6-0};
+  let Inst{12-6} = r1;
+}
+
+// M4: integer store.
+class M4<bits<6> x6, string mnemonic>
+    : MMemRegInst<4, 0, x6, 0, (outs), (ins GR:$r3, GR:$r2, sthint:$hint),
+                  mnemonic, "[$r3] = $r2"> {
+  bits<7> r2;
+  let Inst{19-13} = r2;
+}
+class M4_16<bits<6> x6, string mnemonic>
+    : MMemRegInst<4, 0, x6, 1, (outs), (ins GR:$r3, GR:$r2, sthint:$hint),
+                  mnemonic, "[$r3] = $r2, ar.csd"> {
+  bits<7> r2;
+  let Inst{19-13} = r2;
+}
+
+// M5: integer store, incrementing the base by an immediate.
+class M5<bits<6> x6, string mnemonic>
+    : MMemImmInst<5, x6, (outs GR:$wb),
+                  (ins GR:$r3, GR:$r2, simm9:$imm, sthint:$hint), mnemonic,
+                  "[$r3] = $r2, $imm"> {
+  bits<7> r2;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = imm{6-0};
+}
+
+// M6: floating-point load.
+class M6<bits<6> x6, string mnemonic>
+    : MMemRegInst<6, 0, x6, 0, (outs FR:$f1), (ins GR:$r3, ldhint:$hint),
+                  mnemonic, "$f1 = [$r3]"> {
+  bits<7> f1;
+  let Inst{12-6} = f1;
+}
+
+// M7: floating-point load, incrementing the base by a register.
+class M7<bits<6> x6, string mnemonic>
+    : MMemRegInst<6, 1, x6, 0, (outs FR:$f1, GR:$wb),
+                  (ins GR:$r3, GR:$r2, ldhint:$hint), mnemonic,
+                  "$f1 = [$r3], $r2"> {
+  bits<7> f1;
+  bits<7> r2;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = f1;
+  let Constraints = "$wb = $r3";
+}
+
+// M8: floating-point load, incrementing the base by an immediate.
+class M8<bits<6> x6, string mnemonic>
+    : MMemImmInst<7, x6, (outs FR:$f1, GR:$wb),
+                  (ins GR:$r3, simm9:$imm, ldhint:$hint), mnemonic,
+                  "$f1 = [$r3], $imm"> {
+  bits<7> f1;
+  let Inst{19-13} = imm{6-0};
+  let Inst{12-6} = f1;
+}
+
+// M9: floating-point store.
+class M9<bits<6> x6, string mnemonic>
+    : MMemRegInst<6, 0, x6, 0, (outs), (ins GR:$r3, FR:$f2, sthint:$hint),
+                  mnemonic, "[$r3] = $f2"> {
+  bits<7> f2;
+  let Inst{19-13} = f2;
+}
+
+// M10: floating-point store, incrementing the base by an immediate.
+class M10<bits<6> x6, string mnemonic>
+    : MMemImmInst<7, x6, (outs GR:$wb),
+                  (ins GR:$r3, FR:$f2, simm9:$imm, sthint:$hint), mnemonic,
+                  "[$r3] = $f2, $imm"> {
+  bits<7> f2;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = imm{6-0};
+}
+
+// M11: floating-point load pair.
+class M11<bits<6> x6, string mnemonic>
+    : MMemRegInst<6, 0, x6, 1, (outs FR:$f1, FR:$f2),
+                  (ins GR:$r3, ldhint:$hint), mnemonic, "$f1, $f2 = [$r3]"> {
+  bits<7> f1;
+  bits<7> f2;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+
+// M12: floating-point load pair, incrementing the base by the size loaded.
+class M12<bits<6> x6, string mnemonic, int size>
+    : MMemRegInst<6, 1, x6, 1, (outs FR:$f1, FR:$f2, GR:$wb),
+                  (ins GR:$r3, ldhint:$hint), mnemonic,
+                  "$f1, $f2 = [$r3], "#size> {
+  bits<7> f1;
+  bits<7> f2;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+  let Constraints = "$wb = $r3";
+}
+
+// M13: line prefetch.
+class M13<bits<6> x6, string mnemonic>
+    : MMemRegInst<6, 0, x6, 0, (outs), (ins GR:$r3, lfhint:$hint), mnemonic,
+                  "[$r3]">;
+
+// M14: line prefetch, incrementing the base by a register.
+class M14<bits<6> x6, string mnemonic>
+    : MMemRegInst<6, 1, x6, 0, (outs GR:$wb),
+                  (ins GR:$r3, GR:$r2, lfhint:$hint), mnemonic,
+                  "[$r3], $r2"> {
+  bits<7> r2;
+  let Inst{19-13} = r2;
+  let Constraints = "$wb = $r3";
+}
+
+// M15: line prefetch, incrementing the base by an immediate.
+class M15<bits<6> x6, string mnemonic>
+    : MMemImmInst<7, x6, (outs GR:$wb),
+                  (ins GR:$r3, simm9:$imm, lfhint:$hint), mnemonic,
+                  "[$r3], $imm"> {
+  let Inst{19-13} = imm{6-0};
+}
+
+// M16: exchange and compare-and-exchange. The compare value is in ar.ccv,
+// and the high half of the 16-byte form is in ar.csd.
+class M16<bits<6> x6, string mnemonic, string implicit = "">
+    : MMemRegInst<4, 0, x6, 1, (outs GR:$r1),
+                  (ins GR:$r3, GR:$r2, ldhint:$hint), mnemonic,
+                  "$r1 = [$r3], $r2"#implicit> {
+  bits<7> r1;
+  bits<7> r2;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = r1;
+}
+
+// M17: fetch and add immediate.
+class M17<bits<6> x6, string mnemonic>
+    : MMemRegInst<4, 0, x6, 1, (outs GR:$r1),
+                  (ins GR:$r3, inc3:$inc, ldhint:$hint), mnemonic,
+                  "$r1 = [$r3], $inc"> {
+  bits<7> r1;
+  bits<3> inc;
+  let Inst{15-13} = inc;
+  let Inst{12-6} = r1;
+}
+
+// M18: move a GR to an FR (setf); M19: move an FR to a GR (getf).
+class M18<bits<6> x6, string mnemonic>
+    : MInst<(outs FR:$f1), (ins GR:$r2), mnemonic, "$f1 = $r2"> {
+  bits<7> f1;
+  bits<7> r2;
+  let Opcode = 6;
+  let Inst{36} = 0;
+  let Inst{35-30} = x6;
+  let Inst{27} = 1;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = f1;
+}
+class M19<bits<6> x6, string mnemonic>
+    : MInst<(outs GR:$r1), (ins FR:$f2), mnemonic, "$r1 = $f2"> {
+  bits<7> r1;
+  bits<7> f2;
+  let Opcode = 4;
+  let Inst{36} = 0;
+  let Inst{35-30} = x6;
+  let Inst{27} = 1;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = r1;
+}
+
+// The speculation checks have major opcodes 0 and 1 and are distinguished
+// by x3. M20 and M21: control speculation check.
+class MChkSInst<bits<3> x3, RegisterClass rc, string mnemonic>
+    : MInst<(outs), (ins rc:$r2, target25:$target), mnemonic,
+            "$r2, $target"> {
+  bits<7> r2;
+  bits<21> target;
+  let Opcode = 1;
+  let Inst{36} = target{20};
+  let Inst{35-33} = x3;
+  let Inst{32-20} = target{19-7};
+  let Inst{19-13} = r2;
+  let Inst{12-6} = target{6-0};
+}
+class M20<string mnemonic> : MChkSInst<1, GR, mnemonic>;
+class M21<string mnemonic> : MChkSInst<3, FR, mnemonic>;
+
+// M22 and M23: check a data-speculative load.
+class MChkAInst<bits<3> x3, RegisterClass rc, string mnemonic>
+    : MInst<(outs), (ins rc:$r1, target25:$target), mnemonic,
+            "$r1, $target"> {
+  bits<7> r1;
+  bits<21> target;
+  let Opcode = 0;
+  let Inst{36} = target{20};
+  let Inst{35-33} = x3;
+  let Inst{32-13} = target{19-0};
+  let Inst{12-6} = r1;
+}
+class M22<bits<3> x3, string mnemonic> : MChkAInst<x3, GR, mnemonic>;
+class M23<bits<3> x3, string mnemonic> : MChkAInst<x3, FR, mnemonic>;
+
+// The rest of major opcode 0 has x3 = 0 and is distinguished by x4 and x2.
+class MSys0Inst<bits<4> x4, bits<2> x2, dag outs, dag ins, string mnemonic,
+                string operands>
+    : MInst<outs, ins, mnemonic, operands> {
+  let Opcode = 0;
+  let Inst{35-33} = 0;
+  let Inst{32-31} = x2;
+  let Inst{30-27} = x4;
+}
+// The rest of major opcode 1 also has x3 = 0 and is distinguished by x6.
+class MSys1Inst<bits<6> x6, dag outs, dag ins, string mnemonic,
+                string operands>
+    : MInst<outs, ins, mnemonic, operands> {
+  let Opcode = 1;
+  let Inst{35-33} = 0;
+  let Inst{32-27} = x6;
+}
+
+// M24: memory management and serialization, without operands.
+class M24<bits<4> x4, bits<2> x2, string mnemonic>
+    : MSys0Inst<x4, x2, (outs), (ins), mnemonic, "">;
+
+// M25: register stack flush and load. These have no qualifying predicate.
+class M25<bits<4> x4, string mnemonic>
+    : IA64Inst<(outs), (ins), mnemonic, "", []> {
+  let Unit = UnitM;
+  let DecoderNamespace = "M";
+  let Opcode = 0;
+  let Inst{35-33} = 0;
+  let Inst{32-31} = 0;
+  let Inst{30-27} = x4;
+  let Inst{5-0} = 0;
+}
+
+// M26 and M27: invalidate one entry of the advanced load table.
+class MInvalaInst<bits<4> x4, RegisterClass rc, string mnemonic>
+    : MSys0Inst<x4, 1, (outs), (ins rc:$r1), mnemonic, "$r1"> {
+  bits<7> r1;
+  let Inst{12-6} = r1;
+}
+class M26<string mnemonic> : MInvalaInst<2, GR, mnemonic>;
+class M27<string mnemonic> : MInvalaInst<3, FR, mnemonic>;
+
+// M28: flush cache.
+class M28<bit x, string mnemonic>
+    : MSys1Inst<0x30, (outs), (ins GR:$r3), mnemonic, "$r3"> {
+  bits<7> r3;
+  let Inst{36} = x;
+  let Inst{26-20} = r3;
+}
+
+// M29: move to an application register.
+class M29<string mnemonic>
+    : MSys1Inst<0x2a, (outs AR:$ar3), (ins GR:$r2), mnemonic, "$ar3 = $r2"> {
+  bits<7> ar3;
+  bits<7> r2;
+  let Inst{26-20} = ar3;
+  let Inst{19-13} = r2;
+}
+
+// M30: move immediate8 to an application register.
+class M30<string mnemonic>
+    : MSys0Inst<8, 2, (outs AR:$ar3), (ins simm8:$imm), mnemonic,
+                "$ar3 = $imm"> {
+  bits<7> ar3;
+  bits<8> imm;
+  let Inst{36} = imm{7};
+  let Inst{26-20} = ar3;
+  let Inst{19-13} = imm{6-0};
+}
+
+// M31: move from an application register.
+class M31<string mnemonic>
+    : MSys1Inst<0x22, (outs GR:$r1), (ins AR:$ar3), mnemonic, "$r1 = $ar3"> {
+  bits<7> r1;
+  bits<7> ar3;
+  let Inst{26-20} = ar3;
+  let Inst{12-6} = r1;
+}
+
+// M32: move to a control register; M33: move from one.
+class M32<string mnemonic>
+    : MSys1Inst<0x2c, (outs CR:$cr3), (ins GR:$r2), mnemonic, "$cr3 = $r2"> {
+  bits<7> cr3;
+  bits<7> r2;
+  let Inst{26-20} = cr3;
+  let Inst{19-13} = r2;
+}
+class M33<string mnemonic>
+    : MSys1Inst<0x24, (outs GR:$r1), (ins CR:$cr3), mnemonic, "$r1 = $cr3"> {
+  bits<7> r1;
+  bits<7> cr3;
+  let Inst{26-20} = cr3;
+  let Inst{12-6} = r1;
+}
+
+// M34: allocate a register stack frame. It is written with the input, local,
+// output and rotating register counts, and encoded as the frame size, the
+// size of locals (inputs plus locals) and the rotating count divided by 8.
+// Inputs and locals cannot be separated when decoding, so a decoded alloc
+// has no inputs.
+class M34<string mnemonic>
+    : MInst<(outs GR:$r1),
+            (ins uimm7:$inputs, uimm7:$locals, uimm7:$outputs, uimm7:$rotating),
+            mnemonic, "$r1 = ar.pfs, $inputs, $locals, $outputs, $rotating"> {
+  bits<7> r1;
+  let Opcode = 1;
+  let Inst{35-33} = 6;
+  let Inst{12-6} = r1;
+  let PostEncoderMethod = "encodeAllocFrame";
+  let DecoderMethod = "decodeAlloc";
+  let hasCompleteDecoder = 0;
+}
+
+// M35: move to the processor status register; M36: move from it.
+class M35<bits<6> x6, string mnemonic, string dest>
+    : MSys1Inst<x6, (outs), (ins GR:$r2), mnemonic, dest#" = $r2"> {
+  bits<7> r2;
+  let Inst{19-13} = r2;
+}
+class M36<bits<6> x6, string mnemonic, string source>
+    : MSys1Inst<x6, (outs GR:$r1), (ins), mnemonic, "$r1 = "#source> {
+  bits<7> r1;
+  let Inst{12-6} = r1;
+}
+
+// M37: break; M48: nop and hint.
+class M37<bits<4> x4, string mnemonic>
+    : MSys0Inst<x4, 0, (outs), (ins uimm21:$imm), mnemonic, "$imm"> {
+  bits<21> imm;
+  let Inst{36} = imm{20};
+  let Inst{25-6} = imm{19-0};
+}
+class M48<bit y, string mnemonic> : M37<1, mnemonic> {
+  let Inst{26} = y;
+}
+// hint.m has a 19-bit immediate, two bits fewer than the other units. The
+// SDM originally gave it all 21 bits; bits 11:10 were later taken to
+// distinguish it from the moves to data access hint registers, which is what
+// GNU as implements.
+class M48Hint<string mnemonic>
+    : MSys0Inst<1, 0, (outs), (ins uimm19:$imm), mnemonic, "$imm"> {
+  bits<19> imm;
+  let Inst{36} = imm{18};
+  let Inst{26} = 1;
+  let Inst{25-12} = imm{17-4};
+  let Inst{11-10} = 0;
+  let Inst{9-6} = imm{3-0};
+}
+
+// M38: probe access; M39: the same with an immediate privilege level.
+class M38<bits<6> x6, string mnemonic>
+    : MSys1Inst<x6, (outs GR:$r1), (ins GR:$r3, GR:$r2), mnemonic,
+                "$r1 = $r3, $r2"> {
+  bits<7> r1;
+  bits<7> r2;
+  bits<7> r3;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = r1;
+}
+class M39<bits<6> x6, string mnemonic>
+    : MSys1Inst<x6, (outs GR:$r1), (ins GR:$r3, uimm2:$imm), mnemonic,
+                "$r1 = $r3, $imm"> {
+  bits<7> r1;
+  bits<7> r3;
+  bits<2> imm;
+  let Inst{26-20} = r3;
+  let Inst{14-13} = imm;
+  let Inst{12-6} = r1;
+}
+
+// M40: probe access and fault.
+class M40<bits<6> x6, string mnemonic>
+    : MSys1Inst<x6, (outs), (ins GR:$r3, uimm2:$imm), mnemonic,
+                "$r3, $imm"> {
+  bits<7> r3;
+  bits<2> imm;
+  let Inst{26-20} = r3;
+  let Inst{14-13} = imm;
+}
+
+// M41: insert a translation cache entry.
+class M41<bits<6> x6, string mnemonic>
+    : MSys1Inst<x6, (outs), (ins GR:$r2), mnemonic, "$r2"> {
+  bits<7> r2;
+  let Inst{19-13} = r2;
+}
+
+// M42: move to an indirect register file, or insert a translation register;
+// M43: move from an indirect register file.
+class M42<bits<6> x6, string mnemonic, string file>
+    : MSys1Inst<x6, (outs), (ins GR:$r3, GR:$r2), mnemonic,
+                file#"[$r3] = $r2"> {
+  bits<7> r2;
+  bits<7> r3;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+}
+class M43<bits<6> x6, string mnemonic, string file>
+    : MSys1Inst<x6, (outs GR:$r1), (ins GR:$r3), mnemonic,
+                "$r1 = "#file#"[$r3]"> {
+  bits<7> r1;
+  bits<7> r3;
+  let Inst{26-20} = r3;
+  let Inst{12-6} = r1;
+}
+
+// M44: set and reset the user or system mask.
+class M44<bits<4> x4, string mnemonic>
+    : MInst<(outs), (ins uimm24:$imm), mnemonic, "$imm"> {
+  bits<24> imm;
+  let Opcode = 0;
+  let Inst{36} = imm{23};
+  let Inst{35-33} = 0;
+  let Inst{32-31} = imm{22-21};
+  let Inst{30-27} = x4;
+  let Inst{26-6} = imm{20-0};
+}
+
+// M45: purge translation entries.
+class M45<bits<6> x6, string mnemonic>
+    : MSys1Inst<x6, (outs), (ins GR:$r3, GR:$r2), mnemonic, "$r3, $r2"> {
+  bits<7> r2;
+  bits<7> r3;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+}
+
+// M46: translation access.
+class M46<bits<6> x6, string mnemonic>
+    : MSys1Inst<x6, (outs GR:$r1), (ins GR:$r3), mnemonic, "$r1 = $r3"> {
+  bits<7> r1;
+  bits<7> r3;
+  let Inst{26-20} = r3;
+  let Inst{12-6} = r1;
+}
+
+// M47: purge a translation cache entry.
+class M47<string mnemonic>
+    : MSys1Inst<0x34, (outs), (ins GR:$r3), mnemonic, "$r3"> {
+  bits<7> r3;
+  let Inst{26-20} = r3;
 }

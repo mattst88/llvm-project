@@ -272,3 +272,211 @@ def CZX1_L : I29<0x18, "czx1.l">;
 def CZX2_L : I29<0x19, "czx2.l">;
 def CZX1_R : I29<0x1c, "czx1.r">;
 def CZX2_R : I29<0x1d, "czx2.r">;
+
+//===----------------------------------------------------------------------===//
+// Memory access
+//===----------------------------------------------------------------------===//
+
+// Load kinds: plain, control-speculative (.s), data-speculative (.a), both
+// (.sa), check loads that clear or keep the ALAT entry (.c.clr, .c.nc), and
+// the bias and ordered forms (.bias, .acq, .c.clr.acq). The low two bits of
+// x6 encode the size and the rest the kind.
+class MemKind<string name, int enc> {
+  string Name = name;
+  int Code = enc;
+}
+class MemSize<string name, int enc> {
+  string Name = name;
+  int Code = enc;
+}
+defvar IntSizes = [MemSize<"1", 0>, MemSize<"2", 1>, MemSize<"4", 2>,
+                   MemSize<"8", 3>];
+defvar FPSizes = [MemSize<"e", 0>, MemSize<"8", 1>, MemSize<"s", 2>,
+                  MemSize<"d", 3>];
+defvar FPLoadKinds = [MemKind<"", 0>, MemKind<".s", 1>, MemKind<".a", 2>,
+                      MemKind<".sa", 3>, MemKind<".c.clr", 8>,
+                      MemKind<".c.nc", 9>];
+defvar IntLoadKinds = !listconcat(FPLoadKinds,
+                                  [MemKind<".bias", 4>, MemKind<".acq", 5>,
+                                   MemKind<".c.clr.acq", 10>]);
+
+multiclass IntLoad<bits<6> x6, string mnemonic> {
+  def "" : M1<x6, mnemonic>;
+  def _r : M2<x6, mnemonic>;
+  def _i : M3<x6, mnemonic>;
+}
+foreach K = IntLoadKinds in
+  foreach S = IntSizes in
+    defm LD#S.Name#!toupper(!subst(".", "_", K.Name))
+        : IntLoad<!add(!shl(K.Code, 2), S.Code), "ld"#S.Name#K.Name>;
+// The fill restores a register and its NaT bit from a spill.
+defm LD8_FILL : IntLoad<0x1b, "ld8.fill">;
+def LD16     : M1_16<0x28, "ld16">;
+def LD16_ACQ : M1_16<0x2c, "ld16.acq">;
+
+multiclass IntStore<bits<6> x6, string mnemonic> {
+  def "" : M4<x6, mnemonic>;
+  def _i : M5<x6, mnemonic>;
+}
+foreach S = IntSizes in {
+  defm ST#S.Name       : IntStore<!add(0x30, S.Code), "st"#S.Name>;
+  defm ST#S.Name#_REL  : IntStore<!add(0x34, S.Code), "st"#S.Name#".rel">;
+}
+defm ST8_SPILL : IntStore<0x3b, "st8.spill">;
+def ST16     : M4_16<0x30, "st16">;
+def ST16_REL : M4_16<0x34, "st16.rel">;
+
+multiclass FPLoad<bits<6> x6, string mnemonic> {
+  def "" : M6<x6, mnemonic>;
+  def _r : M7<x6, mnemonic>;
+  def _i : M8<x6, mnemonic>;
+}
+foreach K = FPLoadKinds in
+  foreach S = FPSizes in
+    defm LDF#!toupper(S.Name)#!toupper(!subst(".", "_", K.Name))
+        : FPLoad<!add(!shl(K.Code, 2), S.Code), "ldf"#S.Name#K.Name>;
+defm LDF_FILL : FPLoad<0x1b, "ldf.fill">;
+
+let mayStore = 1 in
+multiclass FPStore<bits<6> x6, string mnemonic> {
+  def "" : M9<x6, mnemonic>;
+  def _i : M10<x6, mnemonic>;
+}
+foreach S = FPSizes in
+  defm STF#!toupper(S.Name) : FPStore<!add(0x30, S.Code), "stf"#S.Name>;
+defm STF_SPILL : FPStore<0x3b, "stf.spill">;
+
+// FP pair loads fill two registers from adjacent memory. There is no
+// extended-precision form.
+let mayLoad = 1 in
+foreach K = FPLoadKinds in
+  foreach S = !tail(FPSizes) in {
+    defvar Name = "LDFP"#!toupper(S.Name)#!toupper(!subst(".", "_", K.Name));
+    def Name    : M11<!add(!shl(K.Code, 2), S.Code), "ldfp"#S.Name#K.Name>;
+    def Name#_i : M12<!add(!shl(K.Code, 2), S.Code), "ldfp"#S.Name#K.Name,
+                      !if(!eq(S.Name, "s"), 8, 16)>;
+  }
+
+multiclass Fetch<bits<6> x6, string mnemonic> {
+  def "" : M13<x6, mnemonic>;
+  def _r : M14<x6, mnemonic>;
+  def _i : M15<x6, mnemonic>;
+}
+defm LFETCH            : Fetch<0x2c, "lfetch">;
+defm LFETCH_EXCL       : Fetch<0x2d, "lfetch.excl">;
+defm LFETCH_FAULT      : Fetch<0x2e, "lfetch.fault">;
+defm LFETCH_FAULT_EXCL : Fetch<0x2f, "lfetch.fault.excl">;
+
+foreach S = IntSizes in {
+  def CMPXCHG#S.Name#_ACQ : M16<!add(0x00, S.Code), "cmpxchg"#S.Name#".acq",
+                                ", ar.ccv">;
+  def CMPXCHG#S.Name#_REL : M16<!add(0x04, S.Code), "cmpxchg"#S.Name#".rel",
+                                ", ar.ccv">;
+  def XCHG#S.Name         : M16<!add(0x08, S.Code), "xchg"#S.Name>;
+}
+def CMP8XCHG16_ACQ : M16<0x20, "cmp8xchg16.acq", ", ar.csd, ar.ccv">;
+def CMP8XCHG16_REL : M16<0x24, "cmp8xchg16.rel", ", ar.csd, ar.ccv">;
+
+def FETCHADD4_ACQ : M17<0x12, "fetchadd4.acq">;
+def FETCHADD8_ACQ : M17<0x13, "fetchadd8.acq">;
+def FETCHADD4_REL : M17<0x16, "fetchadd4.rel">;
+def FETCHADD8_REL : M17<0x17, "fetchadd8.rel">;
+
+//===----------------------------------------------------------------------===//
+// Transfers between the general and floating-point registers
+//===----------------------------------------------------------------------===//
+
+def SETF_SIG : M18<0x1c, "setf.sig">;
+def SETF_EXP : M18<0x1d, "setf.exp">;
+def SETF_S   : M18<0x1e, "setf.s">;
+def SETF_D   : M18<0x1f, "setf.d">;
+def GETF_SIG : M19<0x1c, "getf.sig">;
+def GETF_EXP : M19<0x1d, "getf.exp">;
+def GETF_S   : M19<0x1e, "getf.s">;
+def GETF_D   : M19<0x1f, "getf.d">;
+
+//===----------------------------------------------------------------------===//
+// M-unit miscellany
+//===----------------------------------------------------------------------===//
+
+def CHK_S_M      : M20<"chk.s.m">;
+def CHK_S_F      : M21<"chk.s">;
+def CHK_A_NC     : M22<4, "chk.a.nc">;
+def CHK_A_CLR    : M22<5, "chk.a.clr">;
+def CHK_A_NC_F   : M23<6, "chk.a.nc">;
+def CHK_A_CLR_F  : M23<7, "chk.a.clr">;
+
+def INVALA   : M24<0, 1, "invala">;
+def FWB      : M24<0, 2, "fwb">;
+def MF       : M24<2, 2, "mf">;
+def MF_A     : M24<3, 2, "mf.a">;
+def SRLZ_D   : M24<0, 3, "srlz.d">;
+def SRLZ_I   : M24<1, 3, "srlz.i">;
+def SYNC_I   : M24<3, 3, "sync.i">;
+def FLUSHRS  : M25<0xc, "flushrs">;
+def LOADRS   : M25<0xa, "loadrs">;
+def INVALA_E   : M26<"invala.e">;
+def INVALA_E_F : M27<"invala.e">;
+def FC       : M28<0, "fc">;
+def FC_I     : M28<1, "fc.i">;
+
+def MOV_M_AR      : M29<"mov.m">;
+def MOV_M_ARi     : M30<"mov.m">;
+def MOV_M_FROM_AR : M31<"mov.m">;
+def MOV_CR        : M32<"mov">;
+def MOV_FROM_CR   : M33<"mov">;
+def ALLOC         : M34<"alloc">;
+def MOV_PSR_L       : M35<0x2d, "mov", "psr.l">;
+def MOV_PSR_UM      : M35<0x29, "mov", "psr.um">;
+def MOV_FROM_PSR    : M36<0x25, "mov", "psr">;
+def MOV_FROM_PSR_UM : M36<0x21, "mov", "psr.um">;
+
+def BREAK_M : M37<0, "break.m">;
+def NOP_M   : M48<0, "nop.m">;
+def HINT_M  : M48Hint<"hint.m">;
+
+def PROBE_R   : M38<0x38, "probe.r">;
+def PROBE_W   : M38<0x39, "probe.w">;
+def PROBE_Ri  : M39<0x18, "probe.r">;
+def PROBE_Wi  : M39<0x19, "probe.w">;
+def PROBE_RW_FAULT : M40<0x31, "probe.rw.fault">;
+def PROBE_R_FAULT  : M40<0x32, "probe.r.fault">;
+def PROBE_W_FAULT  : M40<0x33, "probe.w.fault">;
+
+def ITC_D : M41<0x2e, "itc.d">;
+def ITC_I : M41<0x2f, "itc.i">;
+
+// The indirect register files: region, data and instruction breakpoint,
+// protection key, and performance monitor configuration and data registers,
+// and the processor identification registers, which can only be read.
+def MOV_RR  : M42<0x00, "mov", "rr">;
+def MOV_DBR : M42<0x01, "mov", "dbr">;
+def MOV_IBR : M42<0x02, "mov", "ibr">;
+def MOV_PKR : M42<0x03, "mov", "pkr">;
+def MOV_PMC : M42<0x04, "mov", "pmc">;
+def MOV_PMD : M42<0x05, "mov", "pmd">;
+def ITR_D   : M42<0x0e, "itr.d", "dtr">;
+def ITR_I   : M42<0x0f, "itr.i", "itr">;
+def MOV_FROM_RR    : M43<0x10, "mov", "rr">;
+def MOV_FROM_DBR   : M43<0x11, "mov", "dbr">;
+def MOV_FROM_IBR   : M43<0x12, "mov", "ibr">;
+def MOV_FROM_PKR   : M43<0x13, "mov", "pkr">;
+def MOV_FROM_PMC   : M43<0x14, "mov", "pmc">;
+def MOV_FROM_PMD   : M43<0x15, "mov", "pmd">;
+def MOV_FROM_CPUID : M43<0x17, "mov", "cpuid">;
+
+def SUM : M44<4, "sum">;
+def RUM : M44<5, "rum">;
+def SSM : M44<6, "ssm">;
+def RSM : M44<7, "rsm">;
+
+def PTC_L  : M45<0x09, "ptc.l">;
+def PTC_G  : M45<0x0a, "ptc.g">;
+def PTC_GA : M45<0x0b, "ptc.ga">;
+def PTR_D  : M45<0x0c, "ptr.d">;
+def PTR_I  : M45<0x0d, "ptr.i">;
+def THASH  : M46<0x1a, "thash">;
+def TTAG   : M46<0x1b, "ttag">;
+def TPA    : M46<0x1e, "tpa">;
+def TAK    : M46<0x1f, "tak">;
+def PTC_E  : M47<"ptc.e">;

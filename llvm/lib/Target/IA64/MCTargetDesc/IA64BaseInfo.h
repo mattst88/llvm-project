@@ -47,6 +47,24 @@ enum : unsigned {
   StopAfter = 1,
 };
 
+/// The most registers a register stack frame can have.
+const unsigned MaxFrameSize = 96;
+
+/// The completer for the locality hint of a memory access.
+inline const char *getHintName(uint64_t Hint) {
+  switch (Hint) {
+  case 0:
+    return "";
+  case 1:
+    return ".nt1";
+  case 2:
+    return ".nt2";
+  case 3:
+    return ".nta";
+  }
+  return nullptr;
+}
+
 /// The byte permutations of mux1, by their encoding. Returns null for a
 /// reserved value.
 inline const char *getMBTypeName(uint64_t Value) {
