@@ -7,9 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64InstPrinter.h"
+#include "IA64BaseInfo.h"
+#include "IA64MCTargetDesc.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -24,7 +28,21 @@ using namespace llvm;
 void IA64InstPrinter::printInst(const MCInst *MI, uint64_t Address,
                                 StringRef Annot, const MCSubtargetInfo &STI,
                                 raw_ostream &O) {
-  printInstruction(MI, Address, O);
+  // The qualifying predicate is written in front of the mnemonic, and left
+  // out when it is p0.
+  const MCInstrDesc &Desc = MII.get(MI->getOpcode());
+  int QP = Desc.findFirstPredOperandIdx();
+  if (QP >= 0 && MI->getOperand(QP).getReg() != IA64::P0) {
+    SmallString<64> Buf;
+    raw_svector_ostream OS(Buf);
+    printInstruction(MI, Address, OS);
+    O << "\t(" << getRegisterName(MI->getOperand(QP).getReg()) << ") "
+      << StringRef(Buf).ltrim('\t');
+  } else {
+    printInstruction(MI, Address, O);
+  }
+  if (MI->getFlags() & IA64II::StopAfter)
+    O << " ;;";
   printAnnotation(O, Annot);
 }
 
