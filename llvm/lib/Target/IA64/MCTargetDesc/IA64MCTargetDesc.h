@@ -16,7 +16,17 @@
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
+class MCCodeEmitter;
+class MCContext;
+class MCInstrInfo;
 class Target;
+
+MCCodeEmitter *createIA64MCCodeEmitter(const MCInstrInfo &MCII, MCContext &Ctx);
+
+namespace IA64 {
+/// The bytes the code emitter writes for one 41-bit instruction slot.
+constexpr unsigned SlotBytes = 6;
+} // end namespace IA64
 } // end namespace llvm
 
 // Defines symbolic names for IA64 registers.

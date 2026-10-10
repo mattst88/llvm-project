@@ -67,4 +67,5 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64TargetMC() {
   TargetRegistry::RegisterMCRegInfo(T, createIA64MCRegisterInfo);
   TargetRegistry::RegisterMCSubtargetInfo(T, createIA64MCSubtargetInfo);
   TargetRegistry::RegisterMCInstPrinter(T, createIA64MCInstPrinter);
+  TargetRegistry::RegisterMCCodeEmitter(T, createIA64MCCodeEmitter);
 }

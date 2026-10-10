@@ -6,6 +6,7 @@ tablegen(LLVM IA64GenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM IA64GenCallingConv.inc -gen-callingconv)
 tablegen(LLVM IA64GenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM IA64GenInstrInfo.inc -gen-instr-info)
+tablegen(LLVM IA64GenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM IA64GenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM IA64GenSubtargetInfo.inc -gen-subtarget)
 
