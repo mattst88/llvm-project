@@ -68,6 +68,9 @@ class IA64AsmParser : public MCTargetAsmParser {
   std::unique_ptr<IA64Operand> defaultHintOperand();
   /// The operand of a floating-point instruction that names no status field.
   std::unique_ptr<IA64Operand> defaultStatusFieldOperand();
+  /// The operands of a branch written without ".many" and without ".clr".
+  std::unique_ptr<IA64Operand> defaultBranchPrefetchOperand();
+  std::unique_ptr<IA64Operand> defaultBranchDeallocOperand();
 
   bool validateInstruction(const MCInst &Inst, const OperandVector &Operands);
 
@@ -101,7 +104,16 @@ class IA64Operand : public MCParsedAsmOperand {
 public:
   // Kinds after Immediate are mnemonic completers that are encoded as
   // instruction operands.
-  enum KindTy { Token, Register, Immediate, Hint, StatusField };
+  enum KindTy {
+    Token,
+    Register,
+    Immediate,
+    Hint,
+    StatusField,
+    BranchWhether,
+    BranchPrefetch,
+    BranchDealloc
+  };
 
 private:
   KindTy Kind;
@@ -167,6 +179,9 @@ public:
     return Kind == Hint && (Completer == 0 || Completer == 3);
   }
   bool isStatusField() const { return Kind == StatusField; }
+  bool isBranchWhether() const { return Kind == BranchWhether; }
+  bool isBranchPrefetch() const { return Kind == BranchPrefetch; }
+  bool isBranchDealloc() const { return Kind == BranchDealloc; }
   bool isInc3() const {
     std::optional<int64_t> V = getConstant();
     if (!V)
@@ -227,6 +242,15 @@ public:
     case StatusField:
       O << "StatusField " << Completer;
       break;
+    case BranchWhether:
+      O << "BranchWhether " << Completer;
+      break;
+    case BranchPrefetch:
+      O << "BranchPrefetch " << Completer;
+      break;
+    case BranchDealloc:
+      O << "BranchDealloc " << Completer;
+      break;
     }
   }
 
@@ -266,6 +290,27 @@ public:
 static void splitCompleters(
     StringRef &Name,
     SmallVectorImpl<std::pair<IA64Operand::KindTy, unsigned>> &Completers) {
+  // A branch mnemonic ends in the whether hint, the prefetch hint and the
+  // deallocation hint, in that order. Only the first is required.
+  if (Name.starts_with("br.")) {
+    std::optional<unsigned> Whether, Prefetch, Dealloc;
+    if (Name.consume_back(".clr"))
+      Dealloc = 1;
+    if (Name.consume_back(".few"))
+      Prefetch = 0;
+    else if (Name.consume_back(".many"))
+      Prefetch = 1;
+    for (unsigned Value = 0; Value != 4 && !Whether; ++Value)
+      if (Name.consume_back(IA64II::getBranchWhetherName(Value)))
+        Whether = Value;
+    if (Whether)
+      Completers.push_back({IA64Operand::BranchWhether, *Whether});
+    if (Prefetch)
+      Completers.push_back({IA64Operand::BranchPrefetch, *Prefetch});
+    if (Dealloc)
+      Completers.push_back({IA64Operand::BranchDealloc, *Dealloc});
+    return;
+  }
   // A memory access may end in a locality hint.
   for (unsigned Value = 1; Value != 4; ++Value) {
     if (Name.consume_back(IA64II::getHintName(Value))) {
@@ -405,6 +450,14 @@ std::unique_ptr<IA64Operand> IA64AsmParser::defaultHintOperand() {
 
 std::unique_ptr<IA64Operand> IA64AsmParser::defaultStatusFieldOperand() {
   return IA64Operand::createCompleter(IA64Operand::StatusField, 0, SMLoc());
+}
+
+std::unique_ptr<IA64Operand> IA64AsmParser::defaultBranchPrefetchOperand() {
+  return IA64Operand::createCompleter(IA64Operand::BranchPrefetch, 0, SMLoc());
+}
+
+std::unique_ptr<IA64Operand> IA64AsmParser::defaultBranchDeallocOperand() {
+  return IA64Operand::createCompleter(IA64Operand::BranchDealloc, 0, SMLoc());
 }
 
 bool IA64AsmParser::validateInstruction(const MCInst &Inst,

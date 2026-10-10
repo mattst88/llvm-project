@@ -37,6 +37,9 @@ public:
   void printQP(const MCInst *MI, int OpNum, raw_ostream &O) {}
   void printHint(const MCInst *MI, int OpNum, raw_ostream &O);
   void printStatusField(const MCInst *MI, int OpNum, raw_ostream &O);
+  void printBranchWhether(const MCInst *MI, int OpNum, raw_ostream &O);
+  void printBranchPrefetch(const MCInst *MI, int OpNum, raw_ostream &O);
+  void printBranchDealloc(const MCInst *MI, int OpNum, raw_ostream &O);
   void printMBType(const MCInst *MI, int OpNum, raw_ostream &O);
   void printPCRel(const MCInst *MI, uint64_t Address, int OpNum,
                   raw_ostream &O);

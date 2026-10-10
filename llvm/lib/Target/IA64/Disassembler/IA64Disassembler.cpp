@@ -296,6 +296,9 @@ DecodeStatus IA64Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
     if (Result == Fail)
       Result = decodeInstruction(DecoderTableA48, MI, Insn, Address, this, STI);
     break;
+  case IA64II::UnitB:
+    Result = decodeInstruction(DecoderTableB48, MI, Insn, Address, this, STI);
+    break;
   case IA64II::UnitF:
     Result = decodeInstruction(DecoderTableF48, MI, Insn, Address, this, STI);
     break;

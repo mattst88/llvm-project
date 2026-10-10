@@ -143,3 +143,61 @@
 	fchkf 0x1000000
 // CHECK: :[[#@LINE+1]]:11: error: target must be a multiple of 16 in [-16777216, 16777200]
 	fchkf.s1 4
+
+// B-unit operands. A branch names its whether hint, then optionally its
+// prefetch hint and ".clr"; brp spells its hints as part of the mnemonic.
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	br.cond 16
+// CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction
+	br.cond.few 16
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	br.cond.sptk.clr.few 16
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	br.cond.few.sptk 16
+// CHECK: :[[#@LINE+1]]:15: error: invalid operand for instruction
+	br.call.sptk 16
+// CHECK: :[[#@LINE+1]]:15: error: invalid operand for instruction
+	br.call.sptk r4 = 16
+// CHECK: :[[#@LINE+1]]:14: error: invalid operand for instruction
+	br.ret.sptk r4
+// CHECK: :[[#@LINE+1]]:2: error: too few operands for instruction
+	br.ret.sptk.many
+// CHECK: :[[#@LINE+1]]:11: error: invalid operand for instruction
+	brp.loop b6, 16
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	brp.sptk.few 16, 32
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	ld8.clr r4 = [r5]
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	epc.few
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	break.b 0x200000
+// The counted and modulo-scheduled loop branches, brp and the instructions
+// that change privileged state take no qualifying predicate.
+// CHECK: :[[#@LINE+1]]:3: error: invalid operand for instruction
+	(p6) br.cloop.sptk 16
+// CHECK: :[[#@LINE+1]]:3: error: invalid operand for instruction
+	(p6) br.ctop.sptk 16
+// CHECK: :[[#@LINE+1]]:3: error: invalid operand for instruction
+	(p6) brp.sptk 16, 32
+// CHECK: :[[#@LINE+1]]:3: error: invalid operand for instruction
+	(p6) cover
+// CHECK: :[[#@LINE+1]]:3: error: invalid operand for instruction
+	(p6) rfi
+// Branch targets and brp tags are checked the same way.
+// CHECK: :[[#@LINE+1]]:15: error: target must be a multiple of 16 in [-16777216, 16777200]
+	br.cond.sptk 8
+// CHECK: :[[#@LINE+1]]:15: error: target must be a multiple of 16 in [-16777216, 16777200]
+	br.cond.sptk 0x1000000
+// CHECK: :[[#@LINE+1]]:20: error: target must be a multiple of 16 in [-16777216, 16777200]
+	br.call.sptk b0 = -0x1000010
+// CHECK: :[[#@LINE+1]]:20: error: target must be a multiple of 16 in [-16777216, 16777200]
+	(p6) br.cond.sptk 8
+// CHECK: :[[#@LINE+1]]:16: error: target must be a multiple of 16 in [-16777216, 16777200]
+	br.cloop.sptk 20
+// CHECK: :[[#@LINE+1]]:15: error: target must be a multiple of 16 in [-4096, 4080]
+	brp.sptk 16, 4096
+// CHECK: :[[#@LINE+1]]:11: error: target must be a multiple of 16 in [-16777216, 16777200]
+	brp.sptk 8, 32
+// CHECK: :[[#@LINE+1]]:19: error: target must be a multiple of 16 in [-4096, 4080]
+	brp.ret.sptk b0, -4112

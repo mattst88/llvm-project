@@ -80,6 +80,22 @@ void IA64InstPrinter::printMBType(const MCInst *MI, int OpNum, raw_ostream &O) {
   O << '@' << IA64II::getMBTypeName(MI->getOperand(OpNum).getImm());
 }
 
+void IA64InstPrinter::printBranchWhether(const MCInst *MI, int OpNum,
+                                         raw_ostream &O) {
+  O << IA64II::getBranchWhetherName(MI->getOperand(OpNum).getImm());
+}
+
+void IA64InstPrinter::printBranchPrefetch(const MCInst *MI, int OpNum,
+                                          raw_ostream &O) {
+  O << (MI->getOperand(OpNum).getImm() ? ".many" : ".few");
+}
+
+void IA64InstPrinter::printBranchDealloc(const MCInst *MI, int OpNum,
+                                         raw_ostream &O) {
+  if (MI->getOperand(OpNum).getImm())
+    O << ".clr";
+}
+
 void IA64InstPrinter::printPCRel(const MCInst *MI, uint64_t Address, int OpNum,
                                  raw_ostream &O) {
   const MCOperand &MO = MI->getOperand(OpNum);

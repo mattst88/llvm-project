@@ -50,6 +50,21 @@ enum : unsigned {
 /// The most registers a register stack frame can have.
 const unsigned MaxFrameSize = 96;
 
+/// The completer for whether a branch is predicted taken, statically or
+/// dynamically.
+inline const char *getBranchWhetherName(uint64_t Whether) {
+  switch (Whether) {
+  case 0:
+    return ".sptk";
+  case 1:
+    return ".spnt";
+  case 2:
+    return ".dptk";
+  default:
+    return ".dpnt";
+  }
+}
+
 /// The completer for the locality hint of a memory access.
 inline const char *getHintName(uint64_t Hint) {
   switch (Hint) {

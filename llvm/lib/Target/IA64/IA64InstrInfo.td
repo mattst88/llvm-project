@@ -583,3 +583,57 @@ def FCHKF : F14<"fchkf">;
 def BREAK_F : F15<0, "break.f">;
 def NOP_F   : F16<0, "nop.f">;
 def HINT_F  : F16<1, "hint.f">;
+
+//===----------------------------------------------------------------------===//
+// B-unit instructions
+//===----------------------------------------------------------------------===//
+
+def BR_COND  : B1<0, "br.cond">;
+def BR_WEXIT : B1<2, "br.wexit">;
+def BR_WTOP  : B1<3, "br.wtop">;
+def BR_CLOOP : B2<5, "br.cloop">;
+def BR_CEXIT : B2<6, "br.cexit">;
+def BR_CTOP  : B2<7, "br.ctop">;
+def BR_CALL  : B3<"br.call">;
+
+let isBranch = 1, isIndirectBranch = 1 in {
+  def BR_COND_B : B4<0x20, 0, "br.cond">;
+  def BR_IA     : B4<0x20, 1, "br.ia">;
+}
+let isReturn = 1 in
+def BR_RET    : B4<0x21, 4, "br.ret">;
+def BR_CALL_B : B5<"br.call">;
+
+// Branch predict hints for IP-relative and indirect branches: the whether
+// hint and the importance hint.
+class PredictHint<string name, bits<2> wh, bit ih> {
+  string Name = name;
+  bits<2> Wh = wh;
+  bit Ih = ih;
+}
+foreach H = [PredictHint<"sptk", 0, 0>, PredictHint<"loop", 1, 0>,
+             PredictHint<"dptk", 2, 0>, PredictHint<"exit", 3, 0>,
+             PredictHint<"sptk.imp", 0, 1>, PredictHint<"loop.imp", 1, 1>,
+             PredictHint<"dptk.imp", 2, 1>, PredictHint<"exit.imp", 3, 1>] in
+def BRP_#!toupper(!subst(".", "_", H.Name)) : B6<H.Wh, H.Ih, "brp."#H.Name>;
+foreach H = [PredictHint<"sptk", 0, 0>, PredictHint<"dptk", 2, 0>,
+             PredictHint<"sptk.imp", 0, 1>, PredictHint<"dptk.imp", 2, 1>] in {
+  def BRP_B_#!toupper(!subst(".", "_", H.Name))
+      : B7<0x10, H.Wh, H.Ih, "brp."#H.Name>;
+  def BRP_RET_#!toupper(!subst(".", "_", H.Name))
+      : B7<0x11, H.Wh, H.Ih, "brp.ret."#H.Name>;
+}
+
+def COVER     : B8<0x02, "cover">;
+def CLRRRB    : B8<0x04, "clrrrb">;
+def CLRRRB_PR : B8<0x05, "clrrrb.pr">;
+def RFI       : B8<0x08, "rfi">;
+def BSW_0     : B8<0x0c, "bsw.0">;
+def BSW_1     : B8<0x0d, "bsw.1">;
+def EPC       : B8<0x10, "epc">;
+def VMSW_0    : B8<0x18, "vmsw.0">;
+def VMSW_1    : B8<0x19, "vmsw.1">;
+
+def BREAK_B : B9<0, 0, "break.b">;
+def NOP_B   : B9<2, 0, "nop.b">;
+def HINT_B  : B9<2, 1, "hint.b">;

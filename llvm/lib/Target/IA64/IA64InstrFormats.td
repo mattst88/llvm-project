@@ -239,6 +239,32 @@ def sfield : Operand<i64> {
   let OperandType = "OPERAND_IMMEDIATE";
 }
 
+// A branch takes up to three completers: the whether hint, ".sptk"; the
+// prefetch hint, ".few" or ".many"; and the deallocation hint, ".clr". Only
+// the whether hint is required.
+class BranchCompleterAsmOperand<string name> : AsmOperandClass {
+  let Name = name;
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "is"#name;
+}
+class BranchCompleter<string name, AsmOperandClass opclass> : Operand<i64> {
+  let ParserMatchClass = opclass;
+  let PrintMethod = "print"#name;
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+def BranchWhetherAsmOperand : BranchCompleterAsmOperand<"BranchWhether">;
+def BranchPrefetchAsmOperand : BranchCompleterAsmOperand<"BranchPrefetch"> {
+  let IsOptional = 1;
+  let DefaultMethod = "defaultBranchPrefetchOperand";
+}
+def BranchDeallocAsmOperand : BranchCompleterAsmOperand<"BranchDealloc"> {
+  let IsOptional = 1;
+  let DefaultMethod = "defaultBranchDeallocOperand";
+}
+def bwh : BranchCompleter<"BranchWhether", BranchWhetherAsmOperand>;
+def bph : BranchCompleter<"BranchPrefetch", BranchPrefetchAsmOperand>;
+def bdh : BranchCompleter<"BranchDealloc", BranchDeallocAsmOperand>;
+
 def simm9  : SImm<9, SImmNoDiagAsmOperand<9>>;
 def uimm2  : UImm<2>;
 def uimm7  : UImm<7>;
@@ -1623,4 +1649,162 @@ class F15<bits<6> x6, string mnemonic>
 }
 class F16<bit y, string mnemonic> : F15<1, mnemonic> {
   let Inst{26} = y;
+}
+
+//===----------------------------------------------------------------------===//
+// B-unit formats (SDM volume 3, section 4.5)
+//===----------------------------------------------------------------------===//
+
+// Counted loop branches, branch predicts and the B8 instructions have no
+// qualifying predicate, so the base class has none.
+class BInst<dag outs, dag ins, string mnemonic, string operands>
+    : IA64Inst<outs, ins, mnemonic, operands, []> {
+  let Unit = UnitB;
+  let DecoderNamespace = "B";
+}
+class BQPInst<dag outs, dag ins, string mnemonic, string operands>
+    : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let Unit = UnitB;
+  let DecoderNamespace = "B";
+}
+
+// Fields common to all branches. The formats add the operands, ending with
+// the three completers.
+class BranchFields {
+  bits<2> wh;
+  bit ph;
+  bit dh;
+}
+defvar BranchCompleters = (ins bwh:$wh, bph:$ph, bdh:$dh);
+
+// B1: IP-relative branch.
+class B1<bits<3> btype, string mnemonic>
+    : BQPInst<(outs), !con((ins target25:$target), BranchCompleters),
+              mnemonic, "$target">, BranchFields {
+  bits<21> target;
+  let Opcode = 4;
+  let Inst{36} = target{20};
+  let Inst{35} = dh;
+  let Inst{34-33} = wh;
+  let Inst{32-13} = target{19-0};
+  let Inst{12} = ph;
+  let Inst{8-6} = btype;
+  let AsmString = mnemonic#"${qp}${wh}${ph}${dh}\t$target";
+  let isBranch = 1;
+  let isTerminator = 1;
+}
+
+// B2: IP-relative counted branch, which tests ar.lc or ar.ec instead of a
+// predicate.
+class B2<bits<3> btype, string mnemonic>
+    : BInst<(outs), !con((ins target25:$target), BranchCompleters), mnemonic,
+            "$target">, BranchFields {
+  bits<21> target;
+  let Opcode = 4;
+  let Inst{36} = target{20};
+  let Inst{35} = dh;
+  let Inst{34-33} = wh;
+  let Inst{32-13} = target{19-0};
+  let Inst{12} = ph;
+  let Inst{8-6} = btype;
+  let Inst{5-0} = 0;
+  let AsmString = mnemonic#"${wh}${ph}${dh}\t$target";
+  let isBranch = 1;
+  let isTerminator = 1;
+}
+
+// B3: IP-relative call.
+class B3<string mnemonic>
+    : BQPInst<(outs BR:$b1), !con((ins target25:$target), BranchCompleters),
+              mnemonic, "$b1 = $target">, BranchFields {
+  bits<3> b1;
+  bits<21> target;
+  let Opcode = 5;
+  let Inst{36} = target{20};
+  let Inst{35} = dh;
+  let Inst{34-33} = wh;
+  let Inst{32-13} = target{19-0};
+  let Inst{12} = ph;
+  let Inst{8-6} = b1;
+  let AsmString = mnemonic#"${qp}${wh}${ph}${dh}\t$b1 = $target";
+  let isCall = 1;
+}
+
+// B4: indirect branch and return.
+class B4<bits<6> x6, bits<3> btype, string mnemonic>
+    : BQPInst<(outs), !con((ins BR:$b2), BranchCompleters), mnemonic, "$b2">,
+      BranchFields {
+  bits<3> b2;
+  let Opcode = 0;
+  let Inst{35} = dh;
+  let Inst{34-33} = wh;
+  let Inst{32-27} = x6;
+  let Inst{15-13} = b2;
+  let Inst{12} = ph;
+  let Inst{8-6} = btype;
+  let AsmString = mnemonic#"${qp}${wh}${ph}${dh}\t$b2";
+  let isTerminator = 1;
+}
+
+// B5: indirect call. Its hint field is three bits, with the low bit set in
+// all four defined encodings.
+class B5<string mnemonic>
+    : BQPInst<(outs BR:$b1), !con((ins BR:$b2), BranchCompleters), mnemonic,
+              "$b1 = $b2">, BranchFields {
+  bits<3> b1;
+  bits<3> b2;
+  let Opcode = 1;
+  let Inst{35} = dh;
+  let Inst{34-33} = wh;
+  let Inst{32} = 1;
+  let Inst{15-13} = b2;
+  let Inst{12} = ph;
+  let Inst{8-6} = b1;
+  let AsmString = mnemonic#"${qp}${wh}${ph}${dh}\t$b1 = $b2";
+  let isCall = 1;
+}
+
+// B6: IP-relative branch predict at a tag; B7: indirect branch predict.
+// There are few enough hints to make them part of the mnemonic.
+class B6<bits<2> wh, bit ih, string mnemonic>
+    : BInst<(outs), (ins target25:$target, tag13:$tag), mnemonic,
+            "$target, $tag"> {
+  bits<21> target;
+  bits<9> tag;
+  let Opcode = 7;
+  let Inst{36} = target{20};
+  let Inst{35} = ih;
+  let Inst{34-33} = tag{8-7};
+  let Inst{32-13} = target{19-0};
+  let Inst{12-6} = tag{6-0};
+  let Inst{4-3} = wh;
+}
+class B7<bits<6> x6, bits<2> wh, bit ih, string mnemonic>
+    : BInst<(outs), (ins BR:$b2, tag13:$tag), mnemonic, "$b2, $tag"> {
+  bits<3> b2;
+  bits<9> tag;
+  let Opcode = 2;
+  let Inst{35} = ih;
+  let Inst{34-33} = tag{8-7};
+  let Inst{32-27} = x6;
+  let Inst{15-13} = b2;
+  let Inst{12-6} = tag{6-0};
+  let Inst{4-3} = wh;
+}
+
+// B8: the instructions without operands.
+class B8<bits<6> x6, string mnemonic> : BInst<(outs), (ins), mnemonic, ""> {
+  let Opcode = 0;
+  let Inst{32-27} = x6;
+  let Inst{5-0} = 0;
+}
+
+// B9: break, nop and hint.
+class B9<bits<4> op, bits<6> x6, string mnemonic>
+    : BQPInst<(outs), (ins uimm21:$imm), mnemonic, "$imm"> {
+  bits<21> imm;
+  let Opcode = op;
+  let Inst{36} = imm{20};
+  let Inst{32-27} = x6;
+  let Inst{25-6} = imm{19-0};
 }
