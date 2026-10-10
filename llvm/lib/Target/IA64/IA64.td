@@ -36,7 +36,20 @@ def IA64InstPrinter : AsmWriter {
   string AsmWriterClassName = "InstPrinter";
 }
 
+def IA64AsmParser : AsmParser {
+  let ShouldEmitMatchRegisterAltName = 1;
+}
+
+// Completers are part of the mnemonic, as in "cmp.eq.unc", so a period does
+// not break a token; "=" and the brackets of a memory operand are tokens of
+// their own.
+def IA64AsmParserVariant : AsmParserVariant {
+  let TokenizingCharacters = "[]=";
+}
+
 def IA64 : Target {
   let InstructionSet = IA64InstrInfo;
+  let AssemblyParsers = [IA64AsmParser];
+  let AssemblyParserVariants = [IA64AsmParserVariant];
   let AssemblyWriters = [IA64InstPrinter];
 }

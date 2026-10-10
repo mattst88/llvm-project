@@ -9,6 +9,7 @@
 #include "IA64MCTargetDesc.h"
 #include "IA64InstPrinter.h"
 #include "IA64MCAsmInfo.h"
+#include "IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -60,6 +61,16 @@ static MCInstPrinter *createIA64MCInstPrinter(const Triple &TT,
   return new IA64InstPrinter(MAI, MII, MRI);
 }
 
+static MCTargetStreamer *createIA64AsmTargetStreamer(MCStreamer &S,
+                                                     formatted_raw_ostream &OS,
+                                                     MCInstPrinter *InstPrint) {
+  return new IA64TargetAsmStreamer(S, OS);
+}
+
+static MCTargetStreamer *createIA64NullTargetStreamer(MCStreamer &S) {
+  return new IA64TargetStreamer(S);
+}
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64TargetMC() {
   Target &T = getTheIA64Target();
   TargetRegistry::RegisterMCAsmInfo(T, createIA64MCAsmInfo);
@@ -68,4 +79,6 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64TargetMC() {
   TargetRegistry::RegisterMCSubtargetInfo(T, createIA64MCSubtargetInfo);
   TargetRegistry::RegisterMCInstPrinter(T, createIA64MCInstPrinter);
   TargetRegistry::RegisterMCCodeEmitter(T, createIA64MCCodeEmitter);
+  TargetRegistry::RegisterAsmTargetStreamer(T, createIA64AsmTargetStreamer);
+  TargetRegistry::RegisterNullTargetStreamer(T, createIA64NullTargetStreamer);
 }

@@ -2,6 +2,7 @@ add_llvm_component_group(IA64)
 
 set(LLVM_TARGET_DEFINITIONS IA64.td)
 
+tablegen(LLVM IA64GenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM IA64GenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM IA64GenCallingConv.inc -gen-callingconv)
 tablegen(LLVM IA64GenDAGISel.inc -gen-dag-isel)
@@ -39,5 +40,6 @@ add_llvm_target(IA64CodeGen
   IA64
   )
 
+add_subdirectory(AsmParser)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
