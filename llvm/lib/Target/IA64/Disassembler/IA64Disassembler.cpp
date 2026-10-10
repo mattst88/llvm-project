@@ -49,6 +49,9 @@ class IA64Disassembler : public MCDisassembler {
   uint64_t getSlot(unsigned N) const;
 
 public:
+  /// The L slot of the MLX bundle being decoded, for the X-unit operands.
+  uint64_t getLongSlot() const { return getSlot(1); }
+
   IA64Disassembler(const MCSubtargetInfo &STI, MCContext &Ctx)
       : MCDisassembler(STI, Ctx) {}
 
@@ -171,6 +174,33 @@ static DecodeStatus decodePCRel(MCInst &MI, uint64_t Imm, uint64_t Address,
   return MCDisassembler::Success;
 }
 
+/// The X-unit operands. Imm holds the X slot's bits in place; the rest are
+/// in the bundle's L slot.
+static uint64_t getLongSlot(const MCDisassembler *Decoder) {
+  return static_cast<const IA64Disassembler *>(Decoder)->getLongSlot();
+}
+
+static DecodeStatus decodeImm64(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                const MCDisassembler *Decoder) {
+  MI.addOperand(MCOperand::createImm(Imm | getLongSlot(Decoder) << 22));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeUImm62(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  MI.addOperand(MCOperand::createImm(Imm | getLongSlot(Decoder) << 21));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeLongPCRel(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                    const MCDisassembler *Decoder) {
+  // The L slot holds bits 58:20 of the displacement above two unused bits.
+  // Scaling the 60-bit bundle displacement to bytes fills all 64 bits.
+  Imm |= (getLongSlot(Decoder) >> 2) << 20;
+  MI.addOperand(MCOperand::createImm(static_cast<int64_t>(Imm << 4)));
+  return MCDisassembler::Success;
+}
+
 /// The locality hint of a load, which cannot be .nt2.
 static DecodeStatus decodeLoadHint(MCInst &MI, uint64_t Imm, uint64_t Address,
                                    const MCDisassembler *Decoder) {
@@ -286,6 +316,13 @@ DecodeStatus IA64Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
   uint64_t Insn = getSlot(SlotNo);
   DecodeStatus Result = Fail;
   switch (T.Slots[SlotNo]) {
+  case IA64II::UnitL:
+    // The L and X slots are one instruction, decoded from the X slot.
+    Insn = getSlot(2);
+    SlotNo = 2;
+    Size = 10;
+    Result = decodeInstruction(DecoderTableX48, MI, Insn, Address, this, STI);
+    break;
   case IA64II::UnitI:
     Result = decodeInstruction(DecoderTableI48, MI, Insn, Address, this, STI);
     if (Result == Fail)

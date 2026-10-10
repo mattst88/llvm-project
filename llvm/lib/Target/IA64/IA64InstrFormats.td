@@ -204,6 +204,28 @@ class PCRel<int width> : Operand<OtherVT> {
 def target25 : PCRel<21>;
 def tag13    : PCRel<9>;
 
+// X-unit operands, which are too wide for one slot: the L slot of the bundle
+// holds the bits that do not fit in the X slot, and the decoders read them
+// from there.
+def Imm64AsmOperand : AsmOperandClass {
+  let Name = "Imm64";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isImm";
+}
+def imm64 : Operand<i64> {
+  let ParserMatchClass = Imm64AsmOperand;
+  let DecoderMethod = "decodeImm64";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+def uimm62 : Operand<i64> {
+  let ParserMatchClass = UImmAsmOperand<62>;
+  let DecoderMethod = "decodeUImm62";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+def target64 : PCRel<60> {
+  let DecoderMethod = "decodeLongPCRel";
+}
+
 // The locality hint of a memory access is a completer on the mnemonic:
 // "ld8.nta". The parser splits it off, and it is optional. Loads cannot say
 // .nt2, and stores only .nta.
@@ -1807,4 +1829,85 @@ class B9<bits<4> op, bits<6> x6, string mnemonic>
   let Inst{36} = imm{20};
   let Inst{32-27} = x6;
   let Inst{25-6} = imm{19-0};
+}
+
+//===----------------------------------------------------------------------===//
+// X-unit formats
+//===----------------------------------------------------------------------===//
+
+// An X-unit instruction occupies the last two slots of an MLX bundle. Inst
+// is the X slot, the second of them; the code emitter and the disassembler
+// handle the L slot, which holds only immediate bits. Size must agree with
+// Inst, so it covers only the X slot; the unit implies the second slot.
+class XInst<dag outs, dag ins, string mnemonic, string operands>
+    : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let Unit = UnitX;
+  let DecoderNamespace = "X";
+}
+
+// X1 and X5: break.x, nop.x and hint.x. The L slot holds imm{61-21}.
+class XMiscInst<bits<6> x6, string mnemonic>
+    : XInst<(outs), (ins uimm62:$imm), mnemonic, "$imm"> {
+  bits<62> imm;
+  let Opcode = 0;
+  let Inst{36} = imm{20};
+  let Inst{35-33} = 0;
+  let Inst{32-27} = x6;
+  let Inst{25-6} = imm{19-0};
+}
+class X1<string mnemonic> : XMiscInst<0, mnemonic> {
+  let Inst{26} = 0;
+}
+class X5<bit y, string mnemonic> : XMiscInst<1, mnemonic> {
+  let Inst{26} = y;
+}
+
+// X2: move long immediate. The L slot holds imm{62-22}.
+class X2<string mnemonic>
+    : XInst<(outs GR:$r1), (ins imm64:$imm), mnemonic, "$r1 = $imm"> {
+  bits<7> r1;
+  bits<64> imm;
+  let Opcode = 6;
+  let Inst{36} = imm{63};
+  let Inst{35-27} = imm{15-7};
+  let Inst{26-22} = imm{20-16};
+  let Inst{21} = imm{21};
+  let Inst{20} = 0;
+  let Inst{19-13} = imm{6-0};
+  let Inst{12-6} = r1;
+}
+
+// X3: long branch. The displacement is 60 bits in units of bundles, and
+// bits 40:2 of the L slot hold target{58-20}.
+class X3<bits<3> btype, string mnemonic>
+    : XInst<(outs), !con((ins target64:$target), BranchCompleters), mnemonic,
+            "$target">, BranchFields {
+  bits<60> target;
+  let Opcode = 12;
+  let Inst{36} = target{59};
+  let Inst{35} = dh;
+  let Inst{34-33} = wh;
+  let Inst{32-13} = target{19-0};
+  let Inst{12} = ph;
+  let Inst{8-6} = btype;
+  let AsmString = mnemonic#"${qp}${wh}${ph}${dh}\t$target";
+  let isBranch = 1;
+  let isTerminator = 1;
+}
+
+// X4: long call.
+class X4<string mnemonic>
+    : XInst<(outs BR:$b1), !con((ins target64:$target), BranchCompleters),
+            mnemonic, "$b1 = $target">, BranchFields {
+  bits<3> b1;
+  bits<60> target;
+  let Opcode = 13;
+  let Inst{36} = target{59};
+  let Inst{35} = dh;
+  let Inst{34-33} = wh;
+  let Inst{32-13} = target{19-0};
+  let Inst{12} = ph;
+  let Inst{8-6} = b1;
+  let AsmString = mnemonic#"${qp}${wh}${ph}${dh}\t$b1 = $target";
+  let isCall = 1;
 }

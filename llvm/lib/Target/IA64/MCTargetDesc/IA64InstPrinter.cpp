@@ -106,5 +106,9 @@ void IA64InstPrinter::printPCRel(const MCInst *MI, uint64_t Address, int OpNum,
   if (PrintBranchImmAsAddress)
     O << formatHex(alignDown(Address, IA64II::BundleBytes) + Disp);
   else
-    O << '.' << (Disp < 0 ? '-' : '+') << (Disp < 0 ? -Disp : Disp);
+    // A long branch reaches all of the address space, so the magnitude
+    // may not fit.
+    O << '.' << (Disp < 0 ? '-' : '+')
+      << (Disp < 0 ? -static_cast<uint64_t>(Disp)
+                   : static_cast<uint64_t>(Disp));
 }

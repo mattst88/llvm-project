@@ -201,3 +201,28 @@
 	brp.sptk 8, 32
 // CHECK: :[[#@LINE+1]]:19: error: target must be a multiple of 16 in [-4096, 4080]
 	brp.ret.sptk b0, -4112
+
+// X-unit operands. Only cond and call have long forms, and a long branch
+// reaches any bundle.
+// CHECK: :[[#@LINE+1]]:11: error: invalid operand for instruction
+	brl.cond 16
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	brl.wexit.sptk 16
+// CHECK: :[[#@LINE+1]]:16: error: target must be a multiple of 16
+	brl.cond.sptk 8
+// CHECK: :[[#@LINE+1]]:16: error: invalid operand for instruction
+	brl.cond.sptk b6
+// CHECK: :[[#@LINE+1]]:16: error: invalid operand for instruction
+	brl.call.sptk 16
+// CHECK: :[[#@LINE+1]]:16: error: invalid operand for instruction
+	brl.call.sptk r4 = 16
+// CHECK: :[[#@LINE+1]]:12: error: invalid operand for instruction
+	movl r4 = r5
+// CHECK: :[[#@LINE+1]]:2: error: too few operands for instruction
+	movl r4
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	break.x 0x4000000000000000
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	break.x -1
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	nop.x.sptk 0

@@ -26,6 +26,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
 
@@ -34,10 +35,12 @@ using namespace llvm;
 namespace {
 
 class IA64MCCodeEmitter : public MCCodeEmitter {
+  const MCInstrInfo &MCII;
   MCContext &Ctx;
 
 public:
-  IA64MCCodeEmitter(const MCInstrInfo &, MCContext &Ctx) : Ctx(Ctx) {}
+  IA64MCCodeEmitter(const MCInstrInfo &MCII, MCContext &Ctx)
+      : MCII(MCII), Ctx(Ctx) {}
 
   void encodeInstruction(const MCInst &MI, SmallVectorImpl<char> &CB,
                          SmallVectorImpl<MCFixup> &Fixups,
@@ -77,6 +80,8 @@ public:
 
   uint64_t encodeAllocFrame(const MCInst &MI, uint64_t Insn,
                             const MCSubtargetInfo &STI) const;
+
+  uint64_t getLongSlot(const MCInst &MI) const;
 };
 
 } // end anonymous namespace
@@ -85,9 +90,35 @@ void IA64MCCodeEmitter::encodeInstruction(const MCInst &MI,
                                           SmallVectorImpl<char> &CB,
                                           SmallVectorImpl<MCFixup> &Fixups,
                                           const MCSubtargetInfo &STI) const {
+  // An X-unit instruction is two slots, and the L slot comes first.
+  if (IA64II::getUnit(MCII.get(MI.getOpcode()).TSFlags) == IA64II::UnitX) {
+    uint64_t Long = getLongSlot(MI);
+    for (unsigned I = 0; I != IA64::SlotBytes; ++I)
+      CB.push_back(static_cast<char>(Long >> (8 * I)));
+  }
   uint64_t Slot = getBinaryCodeForInstr(MI, Fixups, STI);
   for (unsigned I = 0; I != IA64::SlotBytes; ++I)
     CB.push_back(static_cast<char>(Slot >> (8 * I)));
+}
+
+uint64_t IA64MCCodeEmitter::getLongSlot(const MCInst &MI) const {
+  // The L slot holds the immediate bits that the X slot has no room for.
+  switch (MI.getOpcode()) {
+  case IA64::MOVL:
+    return (static_cast<uint64_t>(MI.getOperand(1).getImm()) >> 22) &
+           IA64II::SlotMask;
+  case IA64::BRL_COND:
+  case IA64::BRL_CALL: {
+    // Bits 58:20 of the displacement in bundles, above two unused bits.
+    unsigned OpNo = MI.getOpcode() == IA64::BRL_CALL ? 1 : 0;
+    uint64_t Bundles = static_cast<uint64_t>(MI.getOperand(OpNo).getImm()) >> 4;
+    return ((Bundles >> 20) & maskTrailingOnes<uint64_t>(39)) << 2;
+  }
+  default:
+    // break.x, nop.x and hint.x.
+    return (static_cast<uint64_t>(MI.getOperand(0).getImm()) >> 21) &
+           IA64II::SlotMask;
+  }
 }
 
 uint64_t

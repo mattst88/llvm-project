@@ -637,3 +637,16 @@ def VMSW_1    : B8<0x19, "vmsw.1">;
 def BREAK_B : B9<0, 0, "break.b">;
 def NOP_B   : B9<2, 0, "nop.b">;
 def HINT_B  : B9<2, 1, "hint.b">;
+
+//===----------------------------------------------------------------------===//
+// X-unit instructions
+//===----------------------------------------------------------------------===//
+
+def MOVL : X2<"movl">;
+
+def BRL_COND : X3<0, "brl.cond">;
+def BRL_CALL : X4<"brl.call">;
+
+def BREAK_X : X1<"break.x">;
+def NOP_X   : X5<0, "nop.x">;
+def HINT_X  : X5<1, "hint.x">;

@@ -292,7 +292,7 @@ static void splitCompleters(
     SmallVectorImpl<std::pair<IA64Operand::KindTy, unsigned>> &Completers) {
   // A branch mnemonic ends in the whether hint, the prefetch hint and the
   // deallocation hint, in that order. Only the first is required.
-  if (Name.starts_with("br.")) {
+  if (Name.starts_with("br.") || Name.starts_with("brl.")) {
     std::optional<unsigned> Whether, Prefetch, Dealloc;
     if (Name.consume_back(".clr"))
       Dealloc = 1;
@@ -408,6 +408,7 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_InvalidSImm22:
   case Match_InvalidPCRel9:
   case Match_InvalidPCRel21:
+  case Match_InvalidPCRel60:
   case Match_InvalidCount1To3:
   case Match_InvalidCount1To4: {
     // The failing operand may be one that the statement omitted.
@@ -434,6 +435,8 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     case Match_InvalidPCRel21:
       return Error(ErrorLoc,
                    "target must be a multiple of 16 in [-16777216, 16777200]");
+    case Match_InvalidPCRel60:
+      return Error(ErrorLoc, "target must be a multiple of 16");
     case Match_InvalidCount1To3:
       return Error(ErrorLoc, "shift count must be an integer in [1, 3]");
     default:
