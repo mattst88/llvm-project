@@ -183,6 +183,13 @@ StringRef llvm::object::getELFRelocationTypeName(uint32_t Machine,
       break;
     }
     break;
+  case ELF::EM_IA_64:
+    switch (Type) {
+#include "llvm/BinaryFormat/ELFRelocs/IA64.def"
+    default:
+      break;
+    }
+    break;
   default:
     break;
   }
@@ -248,6 +255,8 @@ uint32_t llvm::object::getELFRelativeRelocationType(uint32_t Machine) {
     break;
   case ELF::EM_LOONGARCH:
     return ELF::R_LARCH_RELATIVE;
+  case ELF::EM_IA_64:
+    return ELF::R_IA64_REL64LSB;
   default:
     break;
   }
@@ -273,6 +282,12 @@ StringRef llvm::object::getELFSectionTypeName(uint32_t Machine, unsigned Type) {
     break;
   case ELF::EM_X86_64:
     switch (Type) { STRINGIFY_ENUM_CASE(ELF, SHT_X86_64_UNWIND); }
+    break;
+  case ELF::EM_IA_64:
+    switch (Type) {
+      STRINGIFY_ENUM_CASE(ELF, SHT_IA_64_EXT);
+      STRINGIFY_ENUM_CASE(ELF, SHT_IA_64_UNWIND);
+    }
     break;
   case ELF::EM_MIPS:
   case ELF::EM_MIPS_RS3_LE:

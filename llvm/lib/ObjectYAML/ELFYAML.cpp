@@ -586,6 +586,13 @@ void ScalarBitSetTraits<ELFYAML::ELF_EF>::bitset(IO &IO,
     BCaseMask(EF_SPARCV9_PSO, EF_SPARCV9_MM);
     BCaseMask(EF_SPARCV9_TSO, EF_SPARCV9_MM);
     break;
+  case ELF::EM_IA_64:
+    BCase(EF_IA_64_ABI64);
+    BCase(EF_IA_64_REDUCEDFP);
+    BCase(EF_IA_64_CONS_GP);
+    BCase(EF_IA_64_NOFUNCDESC_CONS_GP);
+    BCase(EF_IA_64_ABSOLUTE);
+    break;
   case ELF::EM_XTENSA:
     BCase(EF_XTENSA_XT_INSN);
     BCaseMask(EF_XTENSA_MACH_NONE, EF_XTENSA_MACH);
@@ -703,6 +710,10 @@ void ScalarEnumerationTraits<ELFYAML::ELF_SHT>::enumeration(
   case ELF::EM_X86_64:
     ECase(SHT_X86_64_UNWIND);
     break;
+  case ELF::EM_IA_64:
+    ECase(SHT_IA_64_EXT);
+    ECase(SHT_IA_64_UNWIND);
+    break;
   case ELF::EM_MIPS:
     ECase(SHT_MIPS_REGINFO);
     ECase(SHT_MIPS_OPTIONS);
@@ -769,6 +780,10 @@ void ScalarBitSetTraits<ELFYAML::ELF_SHF>::bitset(IO &IO,
     break;
   case ELF::EM_HEXAGON:
     BCase(SHF_HEX_GPREL);
+    break;
+  case ELF::EM_IA_64:
+    BCase(SHF_IA_64_SHORT);
+    BCase(SHF_IA_64_NORECOV);
     break;
   case ELF::EM_MIPS:
     BCase(SHF_MIPS_NODUPES);
@@ -924,6 +939,9 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
     break;
   case ELF::EM_XTENSA:
 #include "llvm/BinaryFormat/ELFRelocs/Xtensa.def"
+    break;
+  case ELF::EM_IA_64:
+#include "llvm/BinaryFormat/ELFRelocs/IA64.def"
     break;
   default:
     // Nothing to do.

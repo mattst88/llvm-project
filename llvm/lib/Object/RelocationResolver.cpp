@@ -441,6 +441,38 @@ static uint64_t resolveHexagon(uint64_t Type, uint64_t Offset, uint64_t S,
   llvm_unreachable("Invalid relocation type");
 }
 
+static bool supportsIA64(uint64_t Type) {
+  switch (Type) {
+  case ELF::R_IA64_DIR32LSB:
+  case ELF::R_IA64_DIR64LSB:
+  case ELF::R_IA64_SECREL32LSB:
+  case ELF::R_IA64_SECREL64LSB:
+  case ELF::R_IA64_PCREL32LSB:
+  case ELF::R_IA64_PCREL64LSB:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static uint64_t resolveIA64(uint64_t Type, uint64_t Offset, uint64_t S,
+                            uint64_t /*LocData*/, int64_t Addend) {
+  switch (Type) {
+  case ELF::R_IA64_DIR32LSB:
+  case ELF::R_IA64_SECREL32LSB:
+    return (S + Addend) & 0xFFFFFFFF;
+  case ELF::R_IA64_DIR64LSB:
+  case ELF::R_IA64_SECREL64LSB:
+    return S + Addend;
+  case ELF::R_IA64_PCREL32LSB:
+    return (S + Addend - Offset) & 0xFFFFFFFF;
+  case ELF::R_IA64_PCREL64LSB:
+    return S + Addend - Offset;
+  default:
+    llvm_unreachable("Invalid relocation type");
+  }
+}
+
 static bool supportsRISCV(uint64_t Type) {
   switch (Type) {
   case ELF::R_RISCV_NONE:
@@ -838,6 +870,8 @@ getRelocationResolver(const ObjectFile &Obj) {
         return {supportsSparc64, resolveSparc64};
       case Triple::amdgpu:
         return {supportsAmdgpu, resolveAmdgpu};
+      case Triple::ia64:
+        return {supportsIA64, resolveIA64};
       case Triple::riscv64:
       case Triple::riscv64be:
         return {supportsRISCV, resolveRISCV};

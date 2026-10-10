@@ -1394,6 +1394,11 @@ constexpr EnumStringDef<unsigned, 2> ElfARMSectionFlagsDefs[] = {
     ENUM_ENT(SHF_ARM_PURECODE, "y")};
 constexpr auto ElfARMSectionFlags = BUILD_ENUM_STRINGS(ElfARMSectionFlagsDefs);
 
+constexpr EnumStringDef<unsigned, 2> ElfIA64SectionFlagsDefs[] = {
+    ENUM_ENT(SHF_IA_64_SHORT, "p"), ENUM_ENT(SHF_IA_64_NORECOV, "p")};
+constexpr auto ElfIA64SectionFlags =
+    BUILD_ENUM_STRINGS(ElfIA64SectionFlagsDefs);
+
 constexpr EnumStringDef<unsigned, 2> ElfHexagonSectionFlagsDefs[] = {
     ENUM_ENT(SHF_HEX_GPREL, "")};
 constexpr auto ElfHexagonSectionFlags =
@@ -1438,6 +1443,10 @@ getSectionFlagsForTarget(unsigned EOSAbi, unsigned EMachine) {
     break;
   case EM_HEXAGON:
     for (const auto &Entry : EnumStrings(ElfHexagonSectionFlags))
+      Ret.push_back(&Entry);
+    break;
+  case EM_IA_64:
+    for (const auto &Entry : EnumStrings(ElfIA64SectionFlags))
       Ret.push_back(&Entry);
     break;
   case EM_MIPS:
@@ -1525,6 +1534,12 @@ static StringRef segmentTypeToString(unsigned Arch, unsigned Type) {
       LLVM_READOBJ_ENUM_CASE(ELF, PT_MIPS_ABIFLAGS);
     }
     break;
+  case ELF::EM_IA_64:
+    switch (Type) {
+      LLVM_READOBJ_ENUM_CASE(ELF, PT_IA_64_ARCHEXT);
+      LLVM_READOBJ_ENUM_CASE(ELF, PT_IA_64_UNWIND);
+    }
+    break;
   case ELF::EM_RISCV:
     switch (Type) { LLVM_READOBJ_ENUM_CASE(ELF, PT_RISCV_ATTRIBUTES); }
   }
@@ -1570,6 +1585,10 @@ static std::string getGNUPtType(unsigned Arch, unsigned Type) {
   // E.g. "PT_MIPS_REGINFO" -> "REGINFO".
   if (Seg.consume_front("PT_MIPS_"))
     return Seg.str();
+
+  // E.g. "PT_IA_64_UNWIND" -> "IA_64_UNWIND".
+  if (Seg.consume_front("PT_IA_64_"))
+    return ("IA_64_" + Seg).str();
 
   // E.g. "PT_RISCV_ATTRIBUTES"
   if (Seg.consume_front("PT_RISCV_"))
@@ -1782,6 +1801,16 @@ constexpr EnumStringDef<unsigned, 2> ElfHeaderXtensaFlagsDefs[] = {
 };
 constexpr auto ElfHeaderXtensaFlags =
     BUILD_ENUM_STRINGS(ElfHeaderXtensaFlagsDefs);
+
+constexpr EnumStringDef<unsigned, 2> ElfHeaderIA64FlagsDefs[] = {
+    ENUM_ENT(EF_IA_64_ABI64, "64-bit"),
+    ENUM_ENT(EF_IA_64_REDUCEDFP, "reduced fp model"),
+    ENUM_ENT(EF_IA_64_CONS_GP, "constant gp"),
+    ENUM_ENT(EF_IA_64_NOFUNCDESC_CONS_GP,
+             "no function descriptors, constant gp"),
+    ENUM_ENT(EF_IA_64_ABSOLUTE, "absolute"),
+};
+constexpr auto ElfHeaderIA64Flags = BUILD_ENUM_STRINGS(ElfHeaderIA64FlagsDefs);
 
 constexpr EnumStringDef<unsigned, 2> ElfSymOtherFlagsDefs[] = {
     ENUM_ENT_1(STV_INTERNAL),
@@ -3769,6 +3798,8 @@ template <class ELFT> void GNUELFDumper<ELFT>::printFileHeaders() {
     ElfFlags = printFlags(e.e_flags, EnumStrings(ElfHeaderLoongArchFlags),
                           unsigned(ELF::EF_LOONGARCH_ABI_MODIFIER_MASK),
                           unsigned(ELF::EF_LOONGARCH_OBJABI_MASK));
+  else if (e.e_machine == EM_IA_64)
+    ElfFlags = printFlags(e.e_flags, EnumStrings(ElfHeaderIA64Flags));
   else if (e.e_machine == EM_XTENSA)
     ElfFlags = printFlags(e.e_flags, EnumStrings(ElfHeaderXtensaFlags),
                           unsigned(ELF::EF_XTENSA_MACH));
@@ -7671,6 +7702,8 @@ template <class ELFT> void LLVMELFDumper<ELFT>::printFileHeaders() {
       W.printFlags("Flags", E.e_flags, EnumStrings(ElfHeaderLoongArchFlags),
                    unsigned(ELF::EF_LOONGARCH_ABI_MODIFIER_MASK),
                    unsigned(ELF::EF_LOONGARCH_OBJABI_MASK));
+    else if (E.e_machine == EM_IA_64)
+      W.printFlags("Flags", E.e_flags, EnumStrings(ElfHeaderIA64Flags));
     else if (E.e_machine == EM_XTENSA)
       W.printFlags("Flags", E.e_flags, EnumStrings(ElfHeaderXtensaFlags),
                    unsigned(ELF::EF_XTENSA_MACH));

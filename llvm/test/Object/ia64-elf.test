@@ -1,0 +1,73 @@
+## An object whose e_machine is EM_IA_64 is recognised as an IA-64 one: the
+## format is named elf64-ia64-little, as binutils names it, and the
+## architecture maps back to the ia64 triple.  The processor-specific header
+## flags, section types, section flags and segment types have names.
+
+# RUN: yaml2obj %s -o %t
+# RUN: llvm-readobj --file-headers --sections --program-headers %t \
+# RUN:   | FileCheck %s
+# RUN: llvm-readelf --file-headers --sections --program-headers %t \
+# RUN:   | FileCheck %s --check-prefix=GNU
+# RUN: obj2yaml %t | FileCheck %s --check-prefix=YAML
+
+# CHECK: Format: elf64-ia64-little
+# CHECK: Arch: ia64
+# CHECK: Machine: EM_IA_64 (0x32)
+# CHECK:      Flags [ (0x50)
+# CHECK-NEXT:   EF_IA_64_ABI64 (0x10)
+# CHECK-NEXT:   EF_IA_64_CONS_GP (0x40)
+# CHECK-NEXT: ]
+# CHECK:      Name: .sdata
+# CHECK-NEXT: Type: SHT_PROGBITS
+# CHECK-NEXT: Flags [ (0x10000003)
+# CHECK-NEXT:   SHF_ALLOC (0x2)
+# CHECK-NEXT:   SHF_IA_64_SHORT (0x10000000)
+# CHECK-NEXT:   SHF_WRITE (0x1)
+# CHECK-NEXT: ]
+# CHECK:      Name: .IA_64.unwind
+# CHECK-NEXT: Type: SHT_IA_64_UNWIND (0x70000001)
+# CHECK:      Name: .IA_64.archext
+# CHECK-NEXT: Type: SHT_IA_64_EXT (0x70000000)
+# CHECK:      Type: PT_IA_64_UNWIND (0x70000001)
+# CHECK:      Type: PT_IA_64_ARCHEXT (0x70000000)
+
+# GNU: Machine: Intel IA-64
+# GNU: Flags: 0x50, 64-bit, constant gp
+# GNU: .sdata PROGBITS {{.*}} WAp
+# GNU: .IA_64.unwind IA_64_UNWIND
+# GNU: .IA_64.archext IA_64_EXT
+# GNU: IA_64_UNWIND
+# GNU: IA_64_ARCHEXT
+
+# YAML: Machine: EM_IA_64
+# YAML: Flags: [ EF_IA_64_ABI64, EF_IA_64_CONS_GP ]
+# YAML: Flags: [ SHF_WRITE, SHF_ALLOC, SHF_IA_64_SHORT ]
+# YAML: Type: SHT_IA_64_UNWIND
+# YAML: Type: SHT_IA_64_EXT
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS64
+  Data:    ELFDATA2LSB
+  Type:    ET_EXEC
+  Machine: EM_IA_64
+  Flags:   [ EF_IA_64_ABI64, EF_IA_64_CONS_GP ]
+Sections:
+  - Name:  .sdata
+    Type:  SHT_PROGBITS
+    Flags: [ SHF_WRITE, SHF_ALLOC, SHF_IA_64_SHORT ]
+    Size:  8
+  - Name:  .IA_64.unwind
+    Type:  SHT_IA_64_UNWIND
+    Flags: [ SHF_ALLOC ]
+    Size:  24
+  - Name:  .IA_64.archext
+    Type:  SHT_IA_64_EXT
+    Size:  8
+ProgramHeaders:
+  - Type:     0x70000001 ## PT_IA_64_UNWIND
+    FirstSec: .IA_64.unwind
+    LastSec:  .IA_64.unwind
+  - Type:     0x70000000 ## PT_IA_64_ARCHEXT
+    FirstSec: .IA_64.archext
+    LastSec:  .IA_64.archext

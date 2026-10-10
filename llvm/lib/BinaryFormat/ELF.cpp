@@ -226,6 +226,8 @@ uint16_t ELF::convertTripleArchTypeToEMachine(Triple::ArchType ArchType) {
     return EM_CSKY;
   case Triple::hexagon:
     return EM_HEXAGON;
+  case Triple::ia64:
+    return EM_IA_64;
   case Triple::loongarch32:
   case Triple::loongarch64:
     return EM_LOONGARCH;

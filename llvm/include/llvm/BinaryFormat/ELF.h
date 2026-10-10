@@ -1090,6 +1090,22 @@ enum {
 #include "ELFRelocs/LoongArch.def"
 };
 
+// IA-64 specific e_flags
+enum : unsigned {
+  EF_IA_64_MASKOS = 0x0000000f,    // OS-specific flags
+  EF_IA_64_ABI64 = 0x00000010,     // 64-bit ABI
+  EF_IA_64_REDUCEDFP = 0x00000020, // Only the low 32 FP registers are used
+  EF_IA_64_CONS_GP = 0x00000040,   // gp is constant across calls
+  EF_IA_64_NOFUNCDESC_CONS_GP = 0x00000080, // gp is constant, no descriptors
+  EF_IA_64_ABSOLUTE = 0x00000100,           // Loaded at a fixed address
+  EF_IA_64_ARCH = 0xff000000,               // Architecture version mask
+};
+
+// ELF Relocation types for IA-64
+enum {
+#include "ELFRelocs/IA64.def"
+};
+
 // Xtensa specific e_flags
 enum : unsigned {
   // Four-bit Xtensa machine type mask.
@@ -1228,6 +1244,9 @@ enum : unsigned {
   // https://github.com/ARM-software/abi-aa/blob/main/memtagabielf64/memtagabielf64.rst#7section-types
   SHT_AARCH64_MEMTAG_GLOBALS_STATIC = 0x70000007U,
   SHT_AARCH64_MEMTAG_GLOBALS_DYNAMIC = 0x70000008U,
+  SHT_IA_64_EXT = 0x70000000,    // Product-specific extension bits
+  SHT_IA_64_UNWIND = 0x70000001, // Unwind table
+
   SHT_HEX_ORDERED = 0x70000000,   // Link editor is to sort the entries in
                                   // this section based on their sizes
   SHT_X86_64_UNWIND = 0x70000001, // Unwind information
@@ -1324,6 +1343,12 @@ enum : unsigned {
   // All sections with the GPREL flag are grouped into a global data area
   // for faster accesses
   SHF_HEX_GPREL = 0x10000000,
+
+  // The section is addressed gp-relative with a 22-bit immediate.
+  SHF_IA_64_SHORT = 0x10000000,
+
+  // The section holds speculative instructions without recovery code.
+  SHF_IA_64_NORECOV = 0x20000000,
 
   // Section contains text/data which may be replicated in other sections.
   // Linker must retain only one copy.
@@ -1609,6 +1634,10 @@ enum {
   PT_ARM_UNWIND = 0x70000001,
   // MTE memory tag segment type
   PT_AARCH64_MEMTAG_MTE = 0x70000002,
+
+  // IA-64 program header types.
+  PT_IA_64_ARCHEXT = 0x70000000, // Architecture extension bits
+  PT_IA_64_UNWIND = 0x70000001,  // Unwind table
 
   // MIPS program header types.
   PT_MIPS_REGINFO = 0x70000000,  // Register usage information.
