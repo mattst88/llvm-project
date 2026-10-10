@@ -54,6 +54,21 @@ public:
   uint64_t getImmMinus1OpValue(const MCInst &MI, unsigned OpNo,
                                SmallVectorImpl<MCFixup> &Fixups,
                                const MCSubtargetInfo &STI) const;
+
+  template <int64_t N>
+  uint64_t getReversedImmOpValue(const MCInst &MI, unsigned OpNo,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const {
+    return static_cast<uint64_t>(N - MI.getOperand(OpNo).getImm());
+  }
+
+  uint64_t getPmpyshrCountOpValue(const MCInst &MI, unsigned OpNo,
+                                  SmallVectorImpl<MCFixup> &Fixups,
+                                  const MCSubtargetInfo &STI) const;
+
+  uint64_t getPCRelOpValue(const MCInst &MI, unsigned OpNo,
+                           SmallVectorImpl<MCFixup> &Fixups,
+                           const MCSubtargetInfo &STI) const;
 };
 
 } // end anonymous namespace
@@ -83,6 +98,30 @@ IA64MCCodeEmitter::getImmMinus1OpValue(const MCInst &MI, unsigned OpNo,
                                        SmallVectorImpl<MCFixup> &Fixups,
                                        const MCSubtargetInfo &STI) const {
   return static_cast<uint64_t>(MI.getOperand(OpNo).getImm() - 1);
+}
+
+uint64_t
+IA64MCCodeEmitter::getPmpyshrCountOpValue(const MCInst &MI, unsigned OpNo,
+                                          SmallVectorImpl<MCFixup> &Fixups,
+                                          const MCSubtargetInfo &STI) const {
+  switch (MI.getOperand(OpNo).getImm()) {
+  case 0:
+    return 0;
+  case 7:
+    return 1;
+  case 15:
+    return 2;
+  case 16:
+    return 3;
+  }
+  llvm_unreachable("invalid pmpyshr2 count");
+}
+
+uint64_t IA64MCCodeEmitter::getPCRelOpValue(const MCInst &MI, unsigned OpNo,
+                                            SmallVectorImpl<MCFixup> &Fixups,
+                                            const MCSubtargetInfo &STI) const {
+  // The operand is a displacement in bytes between bundles.
+  return static_cast<uint64_t>(MI.getOperand(OpNo).getImm() >> 4);
 }
 
 #include "IA64GenMCCodeEmitter.inc"

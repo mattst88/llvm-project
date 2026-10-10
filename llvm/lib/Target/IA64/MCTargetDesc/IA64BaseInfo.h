@@ -47,6 +47,25 @@ enum : unsigned {
   StopAfter = 1,
 };
 
+/// The byte permutations of mux1, by their encoding. Returns null for a
+/// reserved value.
+inline const char *getMBTypeName(uint64_t Value) {
+  switch (Value) {
+  case 0x0:
+    return "brcst";
+  case 0x8:
+    return "mix";
+  case 0x9:
+    return "shuf";
+  case 0xa:
+    return "alt";
+  case 0xb:
+    return "rev";
+  default:
+    return nullptr;
+  }
+}
+
 /// One of the bundle templates of SDM volume 3, table 4-2. A template fixes
 /// the unit each slot goes to and where the bundle holds a stop. The low bit
 /// of the 5-bit template field is a stop after slot 2; the table is indexed

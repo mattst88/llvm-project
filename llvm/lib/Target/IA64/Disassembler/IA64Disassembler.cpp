@@ -96,6 +96,18 @@ static DecodeStatus DecodePRRegisterClass(MCInst &MI, uint64_t RegNo,
   return decodeRegister<IA64::P0, 64>(MI, RegNo);
 }
 
+static DecodeStatus DecodeBRRegisterClass(MCInst &MI, uint64_t RegNo,
+                                          uint64_t Address,
+                                          const MCDisassembler *Decoder) {
+  return decodeRegister<IA64::B0, 8>(MI, RegNo);
+}
+
+static DecodeStatus DecodeARRegisterClass(MCInst &MI, uint64_t RegNo,
+                                          uint64_t Address,
+                                          const MCDisassembler *Decoder) {
+  return decodeRegister<IA64::AR0, 128>(MI, RegNo);
+}
+
 template <unsigned N>
 static DecodeStatus decodeSImm(MCInst &MI, uint64_t Imm, uint64_t Address,
                                const MCDisassembler *Decoder) {
@@ -106,6 +118,44 @@ static DecodeStatus decodeSImm(MCInst &MI, uint64_t Imm, uint64_t Address,
 static DecodeStatus decodeImmPlus1(MCInst &MI, uint64_t Imm, uint64_t Address,
                                    const MCDisassembler *Decoder) {
   MI.addOperand(MCOperand::createImm(Imm + 1));
+  return MCDisassembler::Success;
+}
+
+template <int64_t N>
+static DecodeStatus decodeReversedImm(MCInst &MI, uint64_t Imm,
+                                      uint64_t Address,
+                                      const MCDisassembler *Decoder) {
+  MI.addOperand(MCOperand::createImm(N - static_cast<int64_t>(Imm)));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodePmpyshrCount(MCInst &MI, uint64_t Imm,
+                                       uint64_t Address,
+                                       const MCDisassembler *Decoder) {
+  static const uint8_t Counts[] = {0, 7, 15, 16};
+  MI.addOperand(MCOperand::createImm(Counts[Imm & 3]));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeMBType(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  if (!IA64II::getMBTypeName(Imm))
+    return MCDisassembler::Fail;
+  MI.addOperand(MCOperand::createImm(Imm));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeFeatureBit(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                     const MCDisassembler *Decoder) {
+  MI.addOperand(MCOperand::createImm(Imm + 32));
+  return MCDisassembler::Success;
+}
+
+/// An IP-relative displacement of N bits, counted in bundles.
+template <unsigned N>
+static DecodeStatus decodePCRel(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                const MCDisassembler *Decoder) {
+  MI.addOperand(MCOperand::createImm(SignExtend64<N>(Imm) * 16));
   return MCDisassembler::Success;
 }
 
@@ -172,6 +222,10 @@ DecodeStatus IA64Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
   DecodeStatus Result = Fail;
   switch (T.Slots[SlotNo]) {
   case IA64II::UnitI:
+    Result = decodeInstruction(DecoderTableI48, MI, Insn, Address, this, STI);
+    if (Result == Fail)
+      Result = decodeInstruction(DecoderTableA48, MI, Insn, Address, this, STI);
+    break;
   case IA64II::UnitM:
     Result = decodeInstruction(DecoderTableA48, MI, Insn, Address, this, STI);
     break;

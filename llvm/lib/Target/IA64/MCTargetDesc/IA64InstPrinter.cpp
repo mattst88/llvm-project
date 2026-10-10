@@ -17,6 +17,8 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Format.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
@@ -61,4 +63,21 @@ void IA64InstPrinter::printOperand(const MCInst *MI, int OpNum,
     MAI.printExpr(O, *MO.getExpr());
   else
     llvm_unreachable("Invalid operand");
+}
+
+void IA64InstPrinter::printMBType(const MCInst *MI, int OpNum, raw_ostream &O) {
+  O << '@' << IA64II::getMBTypeName(MI->getOperand(OpNum).getImm());
+}
+
+void IA64InstPrinter::printPCRel(const MCInst *MI, uint64_t Address, int OpNum,
+                                 raw_ostream &O) {
+  const MCOperand &MO = MI->getOperand(OpNum);
+  if (!MO.isImm())
+    return printOperand(MI, OpNum, O);
+  // The displacement is from the bundle that holds the instruction.
+  int64_t Disp = MO.getImm();
+  if (PrintBranchImmAsAddress)
+    O << formatHex(alignDown(Address, IA64II::BundleBytes) + Disp);
+  else
+    O << '.' << (Disp < 0 ? '-' : '+') << (Disp < 0 ? -Disp : Disp);
 }

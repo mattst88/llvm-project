@@ -84,6 +84,125 @@ def count2   : Count<4>;
 // Multimedia shift-and-add does not allow a count of 4.
 def count2mm : Count<3>;
 
+// An unsigned immediate, encoded as written.
+class UImmAsmOperand<int width> : AsmOperandClass {
+  let Name = "UImm"#width;
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isUImm<"#width#">";
+}
+class UImm<int width> : Operand<i64> {
+  let ParserMatchClass = UImmAsmOperand<width>;
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+def uimm5  : UImm<5>;
+def uimm6  : UImm<6>;
+def uimm8  : UImm<8>;
+def uimm21 : UImm<21>;
+
+// A bit position, encoded as its distance from bit 63.
+def cpos6 : Operand<i64> {
+  let ParserMatchClass = UImmAsmOperand<6>;
+  let EncoderMethod = "getReversedImmOpValue<63>";
+  let DecoderMethod = "decodeReversedImm<63>";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+// The count of a multimedia left shift, encoded as its distance from 31.
+def ccount5 : Operand<i64> {
+  let ParserMatchClass = UImmAsmOperand<5>;
+  let EncoderMethod = "getReversedImmOpValue<31>";
+  let DecoderMethod = "decodeReversedImm<31>";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+
+// A field length of 1 to Max, encoded less one.
+class LenAsmOperand<int max> : AsmOperandClass {
+  let Name = "Len1To"#max;
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isImmInRange<1, "#max#">";
+}
+class Len<int max> : Operand<i64> {
+  let ParserMatchClass = LenAsmOperand<max>;
+  let EncoderMethod = "getImmMinus1OpValue";
+  let DecoderMethod = "decodeImmPlus1";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+def len4 : Len<16>;
+def len6 : Len<64>;
+
+// Wider signed immediates. Bit 0 of the "mov pr = r2, mask17" mask and the
+// low 16 bits of the "mov pr.rot = imm44" immediate are not encoded.
+class SImmNoDiagAsmOperand<int width> : AsmOperandClass {
+  let Name = "SImm"#width;
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isSImm<"#width#">";
+}
+def simm1  : SImm<1, SImmNoDiagAsmOperand<1>>;
+def simm44 : SImm<44, SImmNoDiagAsmOperand<44>>;
+
+// The predicate mask may be written as a signed or unsigned 17-bit number.
+def Mask17AsmOperand : AsmOperandClass {
+  let Name = "Mask17";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isMask17";
+}
+def mask17 : SImm<17, Mask17AsmOperand>;
+
+// The shift count of pmpyshr2, which can only be 0, 7, 15 or 16.
+def PmpyshrCountAsmOperand : AsmOperandClass {
+  let Name = "PmpyshrCount";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isPmpyshrCount";
+}
+def pmpyshr_count : Operand<i64> {
+  let ParserMatchClass = PmpyshrCountAsmOperand;
+  let EncoderMethod = "getPmpyshrCountOpValue";
+  let DecoderMethod = "decodePmpyshrCount";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+
+// The byte permutation of mux1: @brcst, @mix, @shuf, @alt or @rev.
+def MBTypeAsmOperand : AsmOperandClass {
+  let Name = "MBType";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isMBType";
+}
+def mbtype4 : Operand<i64> {
+  let ParserMatchClass = MBTypeAsmOperand;
+  let PrintMethod = "printMBType";
+  let DecoderMethod = "decodeMBType";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+
+// The bit number of a processor feature test, 32 to 63.
+def FeatureBitAsmOperand : AsmOperandClass {
+  let Name = "FeatureBit";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isImmInRange<32, 63>";
+}
+def tfimm5 : Operand<i64> {
+  let ParserMatchClass = FeatureBitAsmOperand;
+  let DecoderMethod = "decodeFeatureBit";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+
+// An IP-relative target. Targets are bundles, so the encoding drops the low
+// four bits of the displacement.
+class PCRelAsmOperand<int width> : AsmOperandClass {
+  let Name = "PCRel"#width;
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isPCRel<"#width#">";
+  let DiagnosticType = "InvalidPCRel"#width;
+}
+class PCRel<int width> : Operand<OtherVT> {
+  let ParserMatchClass = PCRelAsmOperand<width>;
+  let PrintMethod = "printPCRel";
+  let EncoderMethod = "getPCRelOpValue";
+  let DecoderMethod = "decodePCRel<"#width#">";
+  let OperandType = "OPERAND_PCREL";
+}
+def target25 : PCRel<21>;
+def tag13    : PCRel<9>;
+
 //===----------------------------------------------------------------------===//
 // Instruction classes
 //===----------------------------------------------------------------------===//
@@ -311,5 +430,403 @@ class A10<bits<4> x4, string mnemonic>
   let Inst{28-27} = count;
   let Inst{26-20} = r3;
   let Inst{19-13} = r2;
+  let Inst{12-6} = r1;
+}
+
+//===----------------------------------------------------------------------===//
+// I-unit formats (SDM volume 3, section 4.3)
+//===----------------------------------------------------------------------===//
+
+class IInst<dag outs, dag ins, string mnemonic, string operands>
+    : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let Unit = UnitI;
+  let DecoderNamespace = "I";
+}
+
+// The multimedia and variable shift instructions share major opcode 7 and
+// these extension fields. Most add a third, x2c, in bits 31:30.
+class IMMInst<bit za, bits<2> x2a, bit zb, bits<2> x2b, dag outs, dag ins,
+              string mnemonic, string operands>
+    : IInst<outs, ins, mnemonic, operands> {
+  bits<7> r1;
+  let Opcode = 7;
+  let Inst{36} = za;
+  let Inst{35-34} = x2a;
+  let Inst{33} = zb;
+  let Inst{32} = 0;
+  let Inst{29-28} = x2b;
+  let Inst{12-6} = r1;
+}
+
+// I1: multimedia multiply and shift.
+class I1<bits<2> x2b, string mnemonic>
+    : IMMInst<0, 0, 1, x2b, (outs GR:$r1),
+              (ins GR:$r2, GR:$r3, pmpyshr_count:$count), mnemonic,
+              "$r1 = $r2, $r3, $count"> {
+  bits<7> r2;
+  bits<7> r3;
+  bits<2> count;
+  let Inst{31-30} = count;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+}
+
+// I2: multimedia multiply, mix and pack; I7: shift left, variable.
+class I2<bit za, bits<2> x2a, bit zb, bits<2> x2c, bits<2> x2b,
+         string mnemonic>
+    : IMMInst<za, x2a, zb, x2b, (outs GR:$r1), (ins GR:$r2, GR:$r3), mnemonic,
+              "$r1 = $r2, $r3"> {
+  bits<7> r2;
+  bits<7> r3;
+  let Inst{31-30} = x2c;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+}
+class I7<bit za, bit zb, string mnemonic> : I2<za, 0, zb, 1, 0, mnemonic>;
+
+// I3: multimedia mux1.
+class I3<string mnemonic>
+    : IMMInst<0, 3, 0, 2, (outs GR:$r1), (ins GR:$r2, mbtype4:$mbtype),
+              mnemonic, "$r1 = $r2, $mbtype"> {
+  bits<7> r2;
+  bits<4> mbtype;
+  let Inst{31-30} = 2;
+  let Inst{23-20} = mbtype;
+  let Inst{19-13} = r2;
+}
+
+// I4: multimedia mux2.
+class I4<string mnemonic>
+    : IMMInst<0, 3, 1, 2, (outs GR:$r1), (ins GR:$r2, uimm8:$mhtype),
+              mnemonic, "$r1 = $r2, $mhtype"> {
+  bits<7> r2;
+  bits<8> mhtype;
+  let Inst{31-30} = 2;
+  let Inst{27-20} = mhtype;
+  let Inst{19-13} = r2;
+}
+
+// I5: shift right, variable. The value is in r3 and the count in r2.
+class I5<bit za, bit zb, bits<2> x2b, string mnemonic>
+    : IMMInst<za, 0, zb, x2b, (outs GR:$r1), (ins GR:$r3, GR:$r2), mnemonic,
+              "$r1 = $r3, $r2"> {
+  bits<7> r2;
+  bits<7> r3;
+  let Inst{31-30} = 0;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+}
+
+// I6: multimedia shift right, fixed.
+class I6<bit za, bit zb, bits<2> x2b, string mnemonic>
+    : IMMInst<za, 1, zb, x2b, (outs GR:$r1), (ins GR:$r3, uimm5:$count),
+              mnemonic, "$r1 = $r3, $count"> {
+  bits<7> r3;
+  bits<5> count;
+  let Inst{31-30} = 0;
+  let Inst{26-20} = r3;
+  let Inst{18-14} = count;
+}
+
+// I8: multimedia shift left, fixed.
+class I8<bit za, bit zb, string mnemonic>
+    : IMMInst<za, 3, zb, 1, (outs GR:$r1), (ins GR:$r2, ccount5:$count),
+              mnemonic, "$r1 = $r2, $count"> {
+  bits<7> r2;
+  bits<5> count;
+  let Inst{31-30} = 1;
+  let Inst{24-20} = count;
+  let Inst{19-13} = r2;
+}
+
+// I9: bit count.
+class I9<bits<2> x2c, string mnemonic>
+    : IMMInst<0, 1, 1, 1, (outs GR:$r1), (ins GR:$r3), mnemonic,
+              "$r1 = $r3"> {
+  bits<7> r3;
+  let Inst{31-30} = x2c;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = 0;
+}
+
+// I10: shift right pair.
+class I10<string mnemonic>
+    : IInst<(outs GR:$r1), (ins GR:$r2, GR:$r3, uimm6:$count), mnemonic,
+            "$r1 = $r2, $r3, $count"> {
+  bits<7> r1;
+  bits<7> r2;
+  bits<7> r3;
+  bits<6> count;
+  let Opcode = 5;
+  let Inst{35-34} = 3;
+  let Inst{33} = 0;
+  let Inst{32-27} = count;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = r1;
+}
+
+// I11: extract.
+class I11<bit y, string mnemonic>
+    : IInst<(outs GR:$r1), (ins GR:$r3, uimm6:$pos, len6:$len), mnemonic,
+            "$r1 = $r3, $pos, $len"> {
+  bits<7> r1;
+  bits<7> r3;
+  bits<6> pos;
+  bits<6> len;
+  let Opcode = 5;
+  let Inst{35-34} = 1;
+  let Inst{33} = 0;
+  let Inst{32-27} = len;
+  let Inst{26-20} = r3;
+  let Inst{19-14} = pos;
+  let Inst{13} = y;
+  let Inst{12-6} = r1;
+}
+
+// I12: zero and deposit.
+class I12<string mnemonic>
+    : IInst<(outs GR:$r1), (ins GR:$r2, cpos6:$pos, len6:$len), mnemonic,
+            "$r1 = $r2, $pos, $len"> {
+  bits<7> r1;
+  bits<7> r2;
+  bits<6> pos;
+  bits<6> len;
+  let Opcode = 5;
+  let Inst{35-34} = 1;
+  let Inst{33} = 1;
+  let Inst{32-27} = len;
+  let Inst{26} = 0;
+  let Inst{25-20} = pos;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = r1;
+}
+
+// I13: zero and deposit immediate8.
+class I13<string mnemonic>
+    : IInst<(outs GR:$r1), (ins simm8:$imm, cpos6:$pos, len6:$len), mnemonic,
+            "$r1 = $imm, $pos, $len"> {
+  bits<7> r1;
+  bits<8> imm;
+  bits<6> pos;
+  bits<6> len;
+  let Opcode = 5;
+  let Inst{36} = imm{7};
+  let Inst{35-34} = 1;
+  let Inst{33} = 1;
+  let Inst{32-27} = len;
+  let Inst{26} = 1;
+  let Inst{25-20} = pos;
+  let Inst{19-13} = imm{6-0};
+  let Inst{12-6} = r1;
+}
+
+// I14: deposit immediate1.
+class I14<string mnemonic>
+    : IInst<(outs GR:$r1), (ins simm1:$imm, GR:$r3, cpos6:$pos, len6:$len),
+            mnemonic, "$r1 = $imm, $r3, $pos, $len"> {
+  bits<7> r1;
+  bits<7> r3;
+  bit imm;
+  bits<6> pos;
+  bits<6> len;
+  let Opcode = 5;
+  let Inst{36} = imm;
+  let Inst{35-34} = 3;
+  let Inst{33} = 1;
+  let Inst{32-27} = len;
+  let Inst{26-20} = r3;
+  let Inst{19-14} = pos;
+  let Inst{12-6} = r1;
+}
+
+// I15: deposit.
+class I15<string mnemonic>
+    : IInst<(outs GR:$r1), (ins GR:$r2, GR:$r3, cpos6:$pos, len4:$len),
+            mnemonic, "$r1 = $r2, $r3, $pos, $len"> {
+  bits<7> r1;
+  bits<7> r2;
+  bits<7> r3;
+  bits<6> pos;
+  bits<4> len;
+  let Opcode = 4;
+  let Inst{36-31} = pos;
+  let Inst{30-27} = len;
+  let Inst{26-20} = r3;
+  let Inst{19-13} = r2;
+  let Inst{12-6} = r1;
+}
+
+// The bit, NaT and feature tests write two predicates.
+class ITestInst<bit tb, bit ta, bit c, dag ins, string mnemonic,
+                string operands>
+    : IInst<(outs PR:$p1, PR:$p2), ins, mnemonic, operands> {
+  bits<6> p1;
+  bits<6> p2;
+  let Opcode = 5;
+  let Inst{36} = tb;
+  let Inst{35-34} = 0;
+  let Inst{33} = ta;
+  let Inst{32-27} = p2;
+  let Inst{12} = c;
+  let Inst{11-6} = p1;
+}
+
+// I16: test bit.
+class I16<bit tb, bit ta, bit c, string mnemonic>
+    : ITestInst<tb, ta, c, (ins GR:$r3, uimm6:$pos), mnemonic,
+                "$p1, $p2 = $r3, $pos"> {
+  bits<7> r3;
+  bits<6> pos;
+  let Inst{26-20} = r3;
+  let Inst{19-14} = pos;
+  let Inst{13} = 0;
+}
+
+// I17: test NaT.
+class I17<bit tb, bit ta, bit c, string mnemonic>
+    : ITestInst<tb, ta, c, (ins GR:$r3), mnemonic, "$p1, $p2 = $r3"> {
+  bits<7> r3;
+  let Inst{26-20} = r3;
+  let Inst{19} = 0;
+  let Inst{13} = 1;
+}
+
+// I30: test feature.
+class I30<bit tb, bit ta, bit c, string mnemonic>
+    : ITestInst<tb, ta, c, (ins tfimm5:$imm), mnemonic, "$p1, $p2 = $imm"> {
+  bits<6> imm;
+  let Inst{26-20} = 0;
+  let Inst{19} = 1;
+  let Inst{18-14} = imm{4-0};
+  let Inst{13} = 1;
+}
+
+// The remaining I-unit instructions share major opcode 0 and the extension
+// field x3. Those with x3 = 0 have a second extension field, x6.
+class IMiscInst<bits<3> x3, dag outs, dag ins, string mnemonic,
+                string operands>
+    : IInst<outs, ins, mnemonic, operands> {
+  let Opcode = 0;
+  let Inst{35-33} = x3;
+}
+class IMisc6Inst<bits<6> x6, dag outs, dag ins, string mnemonic,
+                 string operands>
+    : IMiscInst<0, outs, ins, mnemonic, operands> {
+  let Inst{32-27} = x6;
+}
+
+// I18: nop and hint; I19: break.
+class I19<bits<6> x6, string mnemonic>
+    : IMisc6Inst<x6, (outs), (ins uimm21:$imm), mnemonic, "$imm"> {
+  bits<21> imm;
+  let Inst{36} = imm{20};
+  let Inst{25-6} = imm{19-0};
+}
+class I18<bit y, string mnemonic> : I19<1, mnemonic> {
+  let Inst{26} = y;
+}
+
+// I20: integer speculation check.
+class I20<string mnemonic>
+    : IMiscInst<1, (outs), (ins GR:$r2, target25:$target), mnemonic,
+                "$r2, $target"> {
+  bits<7> r2;
+  bits<21> target;
+  let Inst{36} = target{20};
+  let Inst{32-20} = target{19-7};
+  let Inst{19-13} = r2;
+  let Inst{12-6} = target{6-0};
+}
+
+// I21: move to a branch register, with a hint about the branch that will use
+// it and that branch's address.
+class I21<bit x, bits<2> wh, bit ih, string mnemonic>
+    : IMiscInst<7, (outs BR:$b1), (ins GR:$r2, tag13:$tag), mnemonic,
+                "$b1 = $r2, $tag"> {
+  bits<3> b1;
+  bits<7> r2;
+  bits<9> tag;
+  let Inst{32-24} = tag;
+  let Inst{23} = ih;
+  let Inst{22} = x;
+  let Inst{21-20} = wh;
+  let Inst{19-13} = r2;
+  let Inst{8-6} = b1;
+}
+
+// I22: move from a branch register.
+class I22<string mnemonic>
+    : IMisc6Inst<0x31, (outs GR:$r1), (ins BR:$b2), mnemonic, "$r1 = $b2"> {
+  bits<7> r1;
+  bits<3> b2;
+  let Inst{15-13} = b2;
+  let Inst{12-6} = r1;
+}
+
+// I23: move to the predicates under a mask.
+class I23<string mnemonic>
+    : IMiscInst<3, (outs), (ins GR:$r2, mask17:$mask), mnemonic,
+                "pr = $r2, $mask"> {
+  bits<7> r2;
+  bits<17> mask;
+  let Inst{36} = mask{16};
+  let Inst{31-24} = mask{15-8};
+  let Inst{19-13} = r2;
+  let Inst{12-6} = mask{7-1};
+}
+
+// I24: move an immediate to the rotating predicates.
+class I24<string mnemonic>
+    : IMiscInst<2, (outs), (ins simm44:$imm), mnemonic, "pr.rot = $imm"> {
+  bits<44> imm;
+  let Inst{36} = imm{43};
+  let Inst{32-6} = imm{42-16};
+}
+
+// I25: move from the predicates or the instruction pointer.
+class I25<bits<6> x6, string mnemonic, string source>
+    : IMisc6Inst<x6, (outs GR:$r1), (ins), mnemonic, "$r1 = "#source> {
+  bits<7> r1;
+  let Inst{12-6} = r1;
+}
+
+// I26: move to an application register.
+class I26<string mnemonic>
+    : IMisc6Inst<0x2a, (outs AR:$ar3), (ins GR:$r2), mnemonic,
+                 "$ar3 = $r2"> {
+  bits<7> ar3;
+  bits<7> r2;
+  let Inst{26-20} = ar3;
+  let Inst{19-13} = r2;
+}
+
+// I27: move immediate8 to an application register.
+class I27<string mnemonic>
+    : IMisc6Inst<0x0a, (outs AR:$ar3), (ins simm8:$imm), mnemonic,
+                 "$ar3 = $imm"> {
+  bits<7> ar3;
+  bits<8> imm;
+  let Inst{36} = imm{7};
+  let Inst{26-20} = ar3;
+  let Inst{19-13} = imm{6-0};
+}
+
+// I28: move from an application register.
+class I28<string mnemonic>
+    : IMisc6Inst<0x32, (outs GR:$r1), (ins AR:$ar3), mnemonic,
+                 "$r1 = $ar3"> {
+  bits<7> r1;
+  bits<7> ar3;
+  let Inst{26-20} = ar3;
+  let Inst{12-6} = r1;
+}
+
+// I29: sign and zero extension, and compute zero index.
+class I29<bits<6> x6, string mnemonic>
+    : IMisc6Inst<x6, (outs GR:$r1), (ins GR:$r3), mnemonic, "$r1 = $r3"> {
+  bits<7> r1;
+  bits<7> r3;
+  let Inst{26-20} = r3;
   let Inst{12-6} = r1;
 }

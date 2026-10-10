@@ -129,9 +129,33 @@ public:
   bool isQP() const {
     return Kind == Register && Reg >= IA64::P0 && Reg <= IA64::P63;
   }
+  /// An IP-relative target with N bits in the encoding: a constant must be
+  /// a whole number of bundles that fits; anything else is left to a fixup.
+  template <unsigned N> bool isPCRel() const {
+    if (Kind != Immediate)
+      return false;
+    std::optional<int64_t> V = getConstant();
+    return !V || isShiftedInt<N, 4>(*V);
+  }
   template <unsigned N> bool isSImm() const {
     std::optional<int64_t> V = getConstant();
     return V && isInt<N>(*V);
+  }
+  template <unsigned N> bool isUImm() const {
+    std::optional<int64_t> V = getConstant();
+    return V && isUInt<N>(*V);
+  }
+  bool isMask17() const {
+    std::optional<int64_t> V = getConstant();
+    return V && (isInt<17>(*V) || isUInt<17>(*V));
+  }
+  bool isPmpyshrCount() const {
+    std::optional<int64_t> V = getConstant();
+    return V && (*V == 0 || *V == 7 || *V == 15 || *V == 16);
+  }
+  bool isMBType() const {
+    std::optional<int64_t> V = getConstant();
+    return V && *V >= 0 && IA64II::getMBTypeName(*V);
   }
   template <int64_t Lo, int64_t Hi> bool isImmInRange() const {
     std::optional<int64_t> V = getConstant();
@@ -272,6 +296,8 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_InvalidSImm8:
   case Match_InvalidSImm14:
   case Match_InvalidSImm22:
+  case Match_InvalidPCRel9:
+  case Match_InvalidPCRel21:
   case Match_InvalidCount1To3:
   case Match_InvalidCount1To4: {
     // The failing operand may be one that the statement omitted.
@@ -292,6 +318,12 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     case Match_InvalidSImm22:
       return Error(ErrorLoc,
                    "immediate must be an integer in [-2097152, 2097151]");
+    case Match_InvalidPCRel9:
+      return Error(ErrorLoc,
+                   "target must be a multiple of 16 in [-4096, 4080]");
+    case Match_InvalidPCRel21:
+      return Error(ErrorLoc,
+                   "target must be a multiple of 16 in [-16777216, 16777200]");
     case Match_InvalidCount1To3:
       return Error(ErrorLoc, "shift count must be an integer in [1, 3]");
     default:
@@ -341,11 +373,38 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     Operands.push_back(IA64Operand::createToken("]", S));
     Parser.Lex();
     return false;
+  case AsmToken::At: {
+    // "@name" is one of the mux1 permutations.
+    Parser.Lex();
+    StringRef Name;
+    SMLoc E = Parser.getTok().getEndLoc();
+    if (Parser.parseIdentifier(Name))
+      return Error(S, "expected a name after '@'");
+    for (unsigned Value = 0; Value != 16; ++Value) {
+      const char *Known = IA64II::getMBTypeName(Value);
+      if (!Known || !Name.equals_insensitive(Known))
+        continue;
+      Operands.push_back(IA64Operand::createImm(
+          MCConstantExpr::create(Value, getContext()), S, E));
+      return false;
+    }
+    return Error(S, "unknown operand '@" + Name + "'");
+  }
   case AsmToken::Identifier: {
     MCRegister Reg;
     SMLoc E;
     if (tryParseRegister(Reg, S, E).isSuccess()) {
       Operands.push_back(IA64Operand::createReg(Reg, S, E));
+      return false;
+    }
+    // Names that are part of an instruction's syntax and not registers that
+    // can be used freely.
+    StringRef Name = Tok.getIdentifier();
+    if (StringSwitch<bool>(Name.lower())
+            .Cases({"ip", "pr", "pr.rot"}, true)
+            .Default(false)) {
+      Operands.push_back(IA64Operand::createToken(Name, S));
+      Parser.Lex();
       return false;
     }
     break;
