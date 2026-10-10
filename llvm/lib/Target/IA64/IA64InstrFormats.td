@@ -89,13 +89,16 @@ def count2mm : Count<3>;
 //===----------------------------------------------------------------------===//
 
 // An instruction occupies one 41-bit bundle slot. Bits 40:37 hold the major
-// opcode, and bits 5:0 the qualifying predicate where there is one.
+// opcode, and bits 5:0 the qualifying predicate, if any. TableGen requires a
+// whole number of bytes, so the slot is the low 41 bits of a 6-byte encoding.
 class IA64Inst<dag outs, dag ins, string mnemonic, string operands,
                list<dag> pattern>
     : Instruction {
-  field bits<41> Inst;
-  field bits<41> SoftFail = 0;
+  field bits<48> Inst;
+  field bits<48> SoftFail = 0;
   let Namespace = "IA64";
+  let Size = 6;
+  let Inst{47-41} = 0;
 
   bits<4> Opcode = 0;
   let Inst{40-37} = Opcode;
