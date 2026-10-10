@@ -262,6 +262,12 @@ Makes programs 10x faster by doing Special New Thing.
 
 ### Changes to the Hexagon Backend
 
+### Changes to the IA-64 Backend
+
+* An experimental IA-64 (Itanium) backend was added, targeting
+  `ia64-unknown-linux-gnu`.  It is not built by default; use
+  `-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=IA64` to enable it.
+
 ### Changes to the LoongArch Backend
 
 ### Changes to the MIPS Backend

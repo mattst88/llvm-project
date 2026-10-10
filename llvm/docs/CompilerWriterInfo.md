@@ -30,7 +30,16 @@ welcome.
 
 ### Itanium (ia64)
 
-* [Itanium documentation](http://developer.intel.com/design/itanium2/documentation.htm)
+Intel no longer hosts these at a stable URL, so they are named by title and
+document number, which is what a copy of them is filed under.
+
+* Intel Itanium Architecture Software Developer's Manual, revision 2.3, Intel
+  Corporation.  Volume 1: Application Architecture (245317), Volume 2: System
+  Architecture (245318), Volume 3: Intel Itanium Instruction Set Reference
+  (323207).
+
+* Intel Itanium Architecture Assembly Language Reference Guide, Intel
+  Corporation, order number 248801.
 
 ### Lanai
 
@@ -148,6 +157,10 @@ Refer to {doc}`AMDGPUUsage` for additional documentation.
 * [Procedure Call Standard for the ARM Architecture](https://developer.arm.com/docs/ihi0042/latest)
 * [ELF for the ARM Architecture](http://infocenter.arm.com/help/topic/com.arm.doc.ihi0044e/IHI0044E_aaelf.pdf)
 * [ELF for the ARM 64-bit Architecture (AArch64)](http://infocenter.arm.com/help/topic/com.arm.doc.ihi0056a/IHI0056A_aaelf64.pdf)
+* Itanium Software Conventions and Runtime Architecture Guide, Intel
+  Corporation, document number 245358
+* Intel Itanium Processor-specific Application Binary Interface (ABI), Intel
+  Corporation, document number 245370
 * [System z ELF ABI Supplement](http://legacy.redhat.com/pub/redhat/linux/7.1/es/os/s390x/doc/lzsabi0.pdf)
 
 ### macOS
