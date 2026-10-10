@@ -1,0 +1,42 @@
+add_llvm_component_group(IA64)
+
+set(LLVM_TARGET_DEFINITIONS IA64.td)
+
+tablegen(LLVM IA64GenAsmWriter.inc -gen-asm-writer)
+tablegen(LLVM IA64GenCallingConv.inc -gen-callingconv)
+tablegen(LLVM IA64GenDAGISel.inc -gen-dag-isel)
+tablegen(LLVM IA64GenInstrInfo.inc -gen-instr-info)
+tablegen(LLVM IA64GenRegisterInfo.inc -gen-register-info)
+tablegen(LLVM IA64GenSubtargetInfo.inc -gen-subtarget)
+
+add_public_tablegen_target(IA64CommonTableGen)
+
+add_llvm_target(IA64CodeGen
+  IA64AsmPrinter.cpp
+  IA64FrameLowering.cpp
+  IA64InstrInfo.cpp
+  IA64ISelDAGToDAG.cpp
+  IA64ISelLowering.cpp
+  IA64RegisterInfo.cpp
+  IA64Subtarget.cpp
+  IA64TargetMachine.cpp
+
+  LINK_COMPONENTS
+  IA64Desc
+  IA64Info
+  AsmPrinter
+  CodeGen
+  CodeGenTypes
+  Core
+  MC
+  SelectionDAG
+  Support
+  Target
+  TargetParser
+
+  ADD_TO_COMPONENT
+  IA64
+  )
+
+add_subdirectory(MCTargetDesc)
+add_subdirectory(TargetInfo)

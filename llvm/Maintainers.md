@@ -279,6 +279,11 @@ iajbar@qti.qualcomm.com (email), [iajbar](https://github.com/iajbar) \
 Ankit Aggarwal \
 aankit@qti.qualcomm.com (email), [aankit-ca](https://github.com/aankit-ca)
 
+#### IA-64 backend
+
+Matt Turner \
+mattst88@gmail.com (email), [mattst88](https://github.com/mattst88) (GitHub)
+
 #### Lanai backend
 
 Jacques Pienaar \
