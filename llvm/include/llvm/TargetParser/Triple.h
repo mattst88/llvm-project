@@ -62,6 +62,7 @@ public:
     csky,        // CSKY: csky
     dxil,        // DXIL 32-bit DirectX bytecode
     hexagon,     // Hexagon: hexagon
+    ia64,        // IA-64: Intel Itanium
     loongarch32, // LoongArch (32-bit): loongarch32
     loongarch64, // LoongArch (64-bit): loongarch64
     m68k,        // M68k: Motorola 680x0 family
@@ -1195,6 +1196,9 @@ public:
 
   /// Tests whether the target is SystemZ.
   bool isSystemZ() const { return getArch() == Triple::systemz; }
+
+  /// Tests whether the target is IA-64 (Itanium).
+  bool isIA64() const { return getArch() == Triple::ia64; }
 
   /// Tests whether the target is x86 (32- or 64-bit).
   bool isX86() const {

@@ -69,6 +69,8 @@ StringRef Triple::getArchTypeName(ArchType Kind) {
     return "dxil";
   case hexagon:
     return "hexagon";
+  case ia64:
+    return "ia64";
   case hsail64:
     return "hsail64";
   case hsail:
@@ -295,6 +297,9 @@ StringRef Triple::getArchTypePrefix(ArchType Kind) {
   case hexagon:
     return "hexagon";
 
+  case ia64:
+    return "ia64";
+
   // Intrinsics use amdgcn prefix.
   case amdgpu:
     return "amdgcn";
@@ -487,6 +492,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
       .Case("riscv32be", riscv32be)
       .Case("riscv64be", riscv64be)
       .Case("hexagon", hexagon)
+      .Case("ia64", ia64)
       .Case("sparc", sparc)
       .Case("sparcel", sparcel)
       .Case("sparcv9", sparcv9)
@@ -641,6 +647,7 @@ Triple::ArchType Triple::parseArch(StringRef ArchName) {
           .Case("riscv32be", Triple::riscv32be)
           .Case("riscv64be", Triple::riscv64be)
           .Case("hexagon", Triple::hexagon)
+          .Case("ia64", Triple::ia64)
           .Cases({"s390x", "systemz"}, Triple::systemz)
           .Case("sparc", Triple::sparc)
           .Case("sparcel", Triple::sparcel)
@@ -975,6 +982,7 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::hexagon:
   case Triple::hsail64:
   case Triple::hsail:
+  case Triple::ia64:
   case Triple::kalimba:
   case Triple::lanai:
   case Triple::loongarch32:
@@ -1783,6 +1791,7 @@ unsigned Triple::getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::bpfeb:
   case llvm::Triple::bpfel:
   case llvm::Triple::hsail64:
+  case llvm::Triple::ia64:
   case llvm::Triple::loongarch64:
   case llvm::Triple::mips64:
   case llvm::Triple::mips64el:
@@ -1844,6 +1853,7 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::avr:
   case Triple::bpfeb:
   case Triple::bpfel:
+  case Triple::ia64:
   case Triple::msp430:
   case Triple::systemz:
   case Triple::ve:
@@ -1979,6 +1989,7 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::bpfeb:
   case Triple::bpfel:
   case Triple::hsail64:
+  case Triple::ia64:
   case Triple::loongarch64:
   case Triple::mips64:
   case Triple::mips64el:
@@ -2085,6 +2096,7 @@ Triple Triple::getBigEndianArchVariant() const {
   case Triple::hexagon:
   case Triple::hsail64:
   case Triple::hsail:
+  case Triple::ia64:
   case Triple::kalimba:
   case Triple::loongarch32:
   case Triple::loongarch64:
@@ -2223,6 +2235,7 @@ bool Triple::isLittleEndian() const {
   case Triple::hexagon:
   case Triple::hsail64:
   case Triple::hsail:
+  case Triple::ia64:
   case Triple::kalimba:
   case Triple::loongarch32:
   case Triple::loongarch64:
@@ -2576,6 +2589,9 @@ LongDoubleFormat Triple::getDefaultLongDoubleFormat() const {
         (isOSNetBSD() && isPPC32()))
       return LongDoubleFormat::IEEEdouble;
     return LongDoubleFormat::PPCDoubleDouble;
+  case ia64:
+    // The 80-bit extended format, held in 16 bytes.
+    return LongDoubleFormat::X87DoubleExtended;
   case x86:
   case x86_64:
     // Android and OHOS use IEEE double on 32-bit and IEEE quad on 64-bit.

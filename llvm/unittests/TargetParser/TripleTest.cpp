@@ -86,6 +86,19 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::Darwin, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("ia64-unknown-linux-gnu");
+  EXPECT_EQ(Triple::ia64, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::Linux, T.getOS());
+  EXPECT_EQ(Triple::GNU, T.getEnvironment());
+  EXPECT_TRUE(T.isIA64());
+  EXPECT_TRUE(T.isArch64Bit());
+  EXPECT_TRUE(T.isLittleEndian());
+  EXPECT_TRUE(T.isOSBinFormatELF());
+  EXPECT_EQ(Triple::UnknownArch, T.get32BitArchVariant().getArch());
+  EXPECT_EQ(Triple::ia64, T.get64BitArchVariant().getArch());
+  EXPECT_EQ(Triple::UnknownArch, T.getBigEndianArchVariant().getArch());
+
   T = Triple("i386-pc-elfiamcu");
   EXPECT_EQ(Triple::x86, T.getArch());
   EXPECT_EQ(Triple::PC, T.getVendor());
@@ -1723,6 +1736,10 @@ TEST(TripleTest, DefaultLongDoubleFormat) {
             Triple("powerpc-unknown-netbsd").getDefaultLongDoubleFormat());
   EXPECT_EQ(LongDoubleFormat::PPCDoubleDouble,
             Triple("powerpc64-unknown-netbsd").getDefaultLongDoubleFormat());
+
+  // IA-64 uses the same 80-bit extended format as x87.
+  EXPECT_EQ(LongDoubleFormat::X87DoubleExtended,
+            Triple("ia64-unknown-linux-gnu").getDefaultLongDoubleFormat());
 
   // X86 defaults to x87 80-bit extended precision, independent of environment.
   EXPECT_EQ(LongDoubleFormat::X87DoubleExtended,
