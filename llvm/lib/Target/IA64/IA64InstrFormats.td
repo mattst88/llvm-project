@@ -67,6 +67,18 @@ def simm8  : SImm<8, SImm8AsmOperand>;
 def simm14 : SImm<14, SImm14AsmOperand>;
 def simm22 : SImm<22, SImm22AsmOperand>;
 
+// The immediate of a compare pseudo-op that is assembled as "less than": the
+// written value is one more than the encoded immediate. Unsigned compares
+// cannot take zero, which would wrap.
+class SImm8Minus1AsmOperand<string name> : AsmOperandClass {
+  let Name = name;
+  let RenderMethod = "addImmMinus1Operands";
+  let PredicateMethod = "is"#name;
+  let DiagnosticType = "Invalid"#name;
+}
+def simm8m1   : SImm<8, SImm8Minus1AsmOperand<"SImm8Minus1">>;
+def simm8m1nz : SImm<8, SImm8Minus1AsmOperand<"SImm8Minus1NonZero">>;
+
 // A shift count of 1 to Max, encoded less one.
 class CountAsmOperand<int max> : AsmOperandClass {
   let Name = "Count1To"#max;

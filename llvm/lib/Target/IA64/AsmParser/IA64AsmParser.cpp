@@ -172,6 +172,15 @@ public:
     std::optional<int64_t> V = getConstant();
     return V && isUInt<N>(*V);
   }
+  // The immediate of a compare pseudo-op that is assembled as a "less than"
+  // compare against the immediate minus one.
+  bool isSImm8Minus1() const {
+    std::optional<int64_t> V = getConstant();
+    return V && *V >= -127 && *V <= 128;
+  }
+  bool isSImm8Minus1NonZero() const {
+    return isSImm8Minus1() && *getConstant();
+  }
   // The locality hint completers: loads have no .nt2, and stores only .nta.
   bool isFetchHint() const { return Kind == Hint; }
   bool isLoadHint() const { return Kind == Hint && Completer != 2; }
@@ -222,6 +231,11 @@ public:
       Inst.addOperand(MCOperand::createImm(*V));
     else
       Inst.addOperand(MCOperand::createExpr(getImm()));
+  }
+
+  void addImmMinus1Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "invalid number of operands");
+    Inst.addOperand(MCOperand::createImm(*getConstant() - 1));
   }
 
   void print(raw_ostream &O, const MCAsmInfo &MAI) const override {
@@ -292,7 +306,8 @@ static void splitCompleters(
     SmallVectorImpl<std::pair<IA64Operand::KindTy, unsigned>> &Completers) {
   // A branch mnemonic ends in the whether hint, the prefetch hint and the
   // deallocation hint, in that order. Only the first is required.
-  if (Name.starts_with("br.") || Name.starts_with("brl.")) {
+  if (Name == "br" || Name == "brl" || Name.starts_with("br.") ||
+      Name.starts_with("brl.")) {
     std::optional<unsigned> Whether, Prefetch, Dealloc;
     if (Name.consume_back(".clr"))
       Dealloc = 1;
@@ -303,6 +318,13 @@ static void splitCompleters(
     for (unsigned Value = 0; Value != 4 && !Whether; ++Value)
       if (Name.consume_back(IA64II::getBranchWhetherName(Value)))
         Whether = Value;
+    // Without a branch type, "br" and "brl" are pseudo-ops for an
+    // unconditional branch, as in both "br" and "br.sptk.many".
+    if (Name == "br" || Name == "brl") {
+      Name = Name == "br" ? "br.cond" : "brl.cond";
+      if (!Whether)
+        Whether = 0;
+    }
     if (Whether)
       Completers.push_back({IA64Operand::BranchWhether, *Whether});
     if (Prefetch)
@@ -384,6 +406,15 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_Success:
     if (validateInstruction(Inst, Operands))
       return true;
+    // "add" with an immediate and an r0-r3 base prefers addl; the matcher
+    // only reaches addl for an immediate that does not fit in adds.
+    if (Inst.getOpcode() == IA64::ADDS &&
+        static_cast<IA64Operand &>(*Operands[0]).getToken() == "add" &&
+        getContext()
+            .getRegisterInfo()
+            ->getRegClass(IA64::GR0_3RegClassID)
+            .contains(Inst.getOperand(2).getReg()))
+      Inst.setOpcode(IA64::ADDL);
     Inst.setLoc(IDLoc);
     Opcode = Inst.getOpcode();
     Out.emitInstruction(Inst, getSTI());
@@ -406,6 +437,8 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_InvalidSImm8:
   case Match_InvalidSImm14:
   case Match_InvalidSImm22:
+  case Match_InvalidSImm8Minus1:
+  case Match_InvalidSImm8Minus1NonZero:
   case Match_InvalidPCRel9:
   case Match_InvalidPCRel21:
   case Match_InvalidPCRel60:
@@ -429,6 +462,11 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     case Match_InvalidSImm22:
       return Error(ErrorLoc,
                    "immediate must be an integer in [-2097152, 2097151]");
+    case Match_InvalidSImm8Minus1:
+      return Error(ErrorLoc, "immediate must be an integer in [-127, 128]");
+    case Match_InvalidSImm8Minus1NonZero:
+      return Error(ErrorLoc,
+                   "immediate must be a nonzero integer in [-127, 128]");
     case Match_InvalidPCRel9:
       return Error(ErrorLoc,
                    "target must be a multiple of 16 in [-4096, 4080]");
@@ -618,6 +656,27 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
       Parser.Lex();
   }
   Parser.Lex(); // Consume the EndOfStatement.
+
+  // A shift by a constant is a pseudo-op for dep.z or extr of the remaining
+  // bits.
+  StringRef Field = StringSwitch<StringRef>(Name)
+                        .Case("shl", "dep.z")
+                        .Case("shr", "extr")
+                        .Case("shr.u", "extr.u")
+                        .Default("");
+  if (!Field.empty()) {
+    auto &Count = static_cast<IA64Operand &>(*Operands.back());
+    if (Count.getConstant() && !Count.isUImm<6>())
+      return Error(Count.getStartLoc(),
+                   "shift count must be an integer in [0, 63]");
+    if (Count.isUImm<6>()) {
+      SMLoc Loc = Count.getStartLoc();
+      const MCExpr *Length =
+          MCConstantExpr::create(64 - *Count.getConstant(), getContext());
+      Operands[0] = IA64Operand::createToken(Field, NameLoc);
+      Operands.push_back(IA64Operand::createImm(Length, Loc, Loc));
+    }
+  }
   return false;
 }
 

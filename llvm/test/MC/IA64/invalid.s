@@ -226,3 +226,49 @@
 	break.x -1
 // CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
 	nop.x.sptk 0
+
+// The pseudo-ops.
+// CHECK: :[[#@LINE+1]]:17: error: invalid operand for instruction
+	add r4 = 8192, r5
+// CHECK: :[[#@LINE+1]]:11: error: immediate must be an integer in [-2097152, 2097151]
+	add r4 = 2097152, r0
+// CHECK: :[[#@LINE+1]]:11: error: immediate must be an integer in [-2097152, 2097151]
+	mov r4 = 2097152
+// CHECK: :[[#@LINE+1]]:2: error: too few operands for instruction
+	mov.imp b6 = r4
+// CHECK: :[[#@LINE+1]]:15: error: shift count must be an integer in [0, 63]
+	shl r4 = r5, 64
+// CHECK: :[[#@LINE+1]]:17: error: shift count must be an integer in [0, 63]
+	shr.u r4 = r5, -1
+// CHECK: :[[#@LINE+1]]:18: error: immediate must be an integer in [-127, 128]
+	cmp.le p6, p7 = 129, r5
+// CHECK: :[[#@LINE+1]]:22: error: immediate must be an integer in [-127, 128]
+	cmp.gt.unc p6, p7 = -128, r5
+// CHECK: :[[#@LINE+1]]:19: error: immediate must be a nonzero integer in [-127, 128]
+	cmp.leu p6, p7 = 0, r5
+// CHECK: :[[#@LINE+1]]:20: error: immediate must be a nonzero integer in [-127, 128]
+	cmp4.gtu p6, p7 = 129, r5
+// CHECK: :[[#@LINE+1]]:18: error: immediate must be an integer in [-128, 127]
+	cmp.ne p6, p7 = 128, r5
+// CHECK: :[[#@LINE+1]]:25: error: invalid operand for instruction
+	cmp.lt.or p6, p7 = r4, r5
+// CHECK: :[[#@LINE+1]]:23: error: invalid operand for instruction
+	cmp.lt.orcm p6, p7 = 10, r5
+// CHECK: :[[#@LINE+1]]:28: error: invalid operand for instruction
+	cmp.ge.andcm p6, p7 = r4, r5
+// CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction
+	br b6, 16
+// CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction
+	br.few r4
+// CHECK: :[[#@LINE+1]]:6: error: invalid operand for instruction
+	brl b6
+// CHECK: :[[#@LINE+1]]:23: error: invalid operand for instruction
+	fadd.s3 f4 = f5, f6, f7
+// CHECK: :[[#@LINE+1]]:16: error: invalid operand for instruction
+	fabs f4 = f5, f6
+// CHECK: :[[#@LINE+1]]:25: error: invalid operand for instruction
+	fclass.nm p6, p7 = f4, 0x200
+// CHECK: :[[#@LINE+1]]:22: error: invalid operand for instruction
+	xmpy.l f4 = f5, f6, f7
+// CHECK: :[[#@LINE+1]]:28: error: invalid operand for instruction
+	tbit.nz.orcm p6, p7 = r4, 64
