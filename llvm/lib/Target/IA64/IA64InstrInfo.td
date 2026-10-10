@@ -480,3 +480,106 @@ def TTAG   : M46<0x1b, "ttag">;
 def TPA    : M46<0x1e, "tpa">;
 def TAK    : M46<0x1f, "tak">;
 def PTC_E  : M47<"ptc.e">;
+
+//===----------------------------------------------------------------------===//
+// F-unit instructions
+//===----------------------------------------------------------------------===//
+
+// Fused multiply-add at the status field's precision, single, double, and
+// parallel single.
+multiclass FMulAdd<bits<4> op, string name> {
+  def "" : F1<op, 0, "f"#name>;
+  def _S : F1<op, 1, "f"#name#".s">;
+  def _D : F1<!add(op, 1), 0, "f"#name#".d">;
+  // The same instructions for an explicit fadd that must not be turned into
+  // a multiply: their addend cannot be f0.
+  let isCodeGenOnly = 1 in {
+    def _SUM : F1<op, 0, "f"#name, FRAddend>;
+    def _S_SUM : F1<op, 1, "f"#name#".s", FRAddend>;
+    def _D_SUM : F1<!add(op, 1), 0, "f"#name#".d", FRAddend>;
+  }
+}
+defm FMA  : FMulAdd<0x8, "ma">;
+defm FMS  : FMulAdd<0xa, "ms">;
+defm FNMA : FMulAdd<0xc, "nma">;
+def FPMA  : F1<0x9, 1, "fpma">;
+def FPMS  : F1<0xb, 1, "fpms">;
+def FPNMA : F1<0xd, 1, "fpnma">;
+
+def XMA_L  : F2<0, "xma.l">;
+def XMA_HU : F2<2, "xma.hu">;
+def XMA_H  : F2<3, "xma.h">;
+def FSELECT : F3<"fselect">;
+
+multiclass FCompare<bit rb, bit ra, string name> {
+  def "" : F4<rb, ra, 0, "fcmp."#name>;
+  def _UNC : F4<rb, ra, 1, "fcmp."#name#".unc">;
+}
+defm FCMP_EQ    : FCompare<0, 0, "eq">;
+defm FCMP_LT    : FCompare<1, 0, "lt">;
+defm FCMP_LE    : FCompare<0, 1, "le">;
+defm FCMP_UNORD : FCompare<1, 1, "unord">;
+
+def FCLASS_M     : F5<0, "fclass.m">;
+def FCLASS_M_UNC : F5<1, "fclass.m.unc">;
+
+def FRCPA    : F6<0, "frcpa">;
+def FPRCPA   : F6<1, "fprcpa">;
+def FRSQRTA  : F7<0, "frsqrta">;
+def FPRSQRTA : F7<1, "fprsqrta">;
+
+multiclass FMinMax<bits<4> op, string prefix> {
+  def MIN  : F8<op, 0x14, prefix#"min">;
+  def MAX  : F8<op, 0x15, prefix#"max">;
+  def AMIN : F8<op, 0x16, prefix#"amin">;
+  def AMAX : F8<op, 0x17, prefix#"amax">;
+}
+defm F  : FMinMax<0, "f">;
+defm FP : FMinMax<1, "fp">;
+
+def FPCMP_EQ    : F8<1, 0x30, "fpcmp.eq">;
+def FPCMP_LT    : F8<1, 0x31, "fpcmp.lt">;
+def FPCMP_LE    : F8<1, 0x32, "fpcmp.le">;
+def FPCMP_UNORD : F8<1, 0x33, "fpcmp.unord">;
+def FPCMP_NEQ   : F8<1, 0x34, "fpcmp.neq">;
+def FPCMP_NLT   : F8<1, 0x35, "fpcmp.nlt">;
+def FPCMP_NLE   : F8<1, 0x36, "fpcmp.nle">;
+def FPCMP_ORD   : F8<1, 0x37, "fpcmp.ord">;
+
+def FMERGE_S   : F9<0, 0x10, "fmerge.s">;
+def FMERGE_NS  : F9<0, 0x11, "fmerge.ns">;
+def FMERGE_SE  : F9<0, 0x12, "fmerge.se">;
+def FPMERGE_S  : F9<1, 0x10, "fpmerge.s">;
+def FPMERGE_NS : F9<1, 0x11, "fpmerge.ns">;
+def FPMERGE_SE : F9<1, 0x12, "fpmerge.se">;
+def FPACK      : F9<0, 0x28, "fpack">;
+def FAND       : F9<0, 0x2c, "fand">;
+def FANDCM     : F9<0, 0x2d, "fandcm">;
+def FOR        : F9<0, 0x2e, "for">;
+def FXOR       : F9<0, 0x2f, "fxor">;
+def FSWAP      : F9<0, 0x34, "fswap">;
+def FSWAP_NL   : F9<0, 0x35, "fswap.nl">;
+def FSWAP_NR   : F9<0, 0x36, "fswap.nr">;
+def FMIX_LR    : F9<0, 0x39, "fmix.lr">;
+def FMIX_R     : F9<0, 0x3a, "fmix.r">;
+def FMIX_L     : F9<0, 0x3b, "fmix.l">;
+def FSXT_R     : F9<0, 0x3c, "fsxt.r">;
+def FSXT_L     : F9<0, 0x3d, "fsxt.l">;
+
+multiclass FToFixed<bits<4> op, string prefix> {
+  def FX        : F10<op, 0x18, prefix#"cvt.fx">;
+  def FXU       : F10<op, 0x19, prefix#"cvt.fxu">;
+  def FX_TRUNC  : F10<op, 0x1a, prefix#"cvt.fx.trunc">;
+  def FXU_TRUNC : F10<op, 0x1b, prefix#"cvt.fxu.trunc">;
+}
+defm FCVT_  : FToFixed<0, "f">;
+defm FPCVT_ : FToFixed<1, "fp">;
+def FCVT_XF : F11<"fcvt.xf">;
+
+def FSETC : F12<"fsetc">;
+def FCLRF : F13<"fclrf">;
+def FCHKF : F14<"fchkf">;
+
+def BREAK_F : F15<0, "break.f">;
+def NOP_F   : F16<0, "nop.f">;
+def HINT_F  : F16<1, "hint.f">;

@@ -108,6 +108,11 @@ def FR : RegisterClass<"IA64", [f64, f32], 64, (add
   (sequence "F%u", 16, 31),    // preserved
   F0, F1)>;                    // 0.0 and 1.0 (reserved)
 
+// Valid fma addends. With f0 as the addend the instruction is a plain
+// multiply, and a zero product keeps its own sign, whereas adding 0.0 would
+// make it positive.
+def FRAddend : RegisterClass<"IA64", [f64, f32], 64, (sub FR, F0)>;
+
 def PR : RegisterClass<"IA64", [i1], 8, (add
   (sequence "P%u", 6, 15),     // scratch
   (sequence "P%u", 1, 5),      // preserved

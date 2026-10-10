@@ -118,3 +118,28 @@
 	chk.a.nc r4, 0x1000000
 // CHECK: :[[#@LINE+1]]:16: error: target must be a multiple of 16 in [-16777216, 16777200]
 	chk.a.clr f4, 17
+
+// F-unit operands. There are four status fields, and only an instruction
+// that can raise a floating-point exception names one.
+// CHECK: :[[#@LINE+1]]:2: error: unrecognized instruction mnemonic
+	fma.s4 f4 = f5, f6, f7
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	fmerge.s.s1 f4 = f5, f6
+// CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction
+	fcvt.xf.s1 f4 = f5
+// CHECK: :[[#@LINE+1]]:5: error: invalid operand for instruction
+	ld8.s1 r4 = [r5]
+// CHECK: :[[#@LINE+1]]:24: error: invalid operand for instruction
+	fclass.m p6, p7 = f4, 0x200
+// CHECK: :[[#@LINE+1]]:8: error: invalid operand for instruction
+	fsetc 128, 0
+// CHECK: :[[#@LINE+1]]:19: error: invalid operand for instruction
+	fcmp.eq p6, p7 = r4, f5
+// CHECK: :[[#@LINE+1]]:2: error: too few operands for instruction
+	fma f4 = f5, f6
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	break.f 0x200000
+// CHECK: :[[#@LINE+1]]:8: error: target must be a multiple of 16 in [-16777216, 16777200]
+	fchkf 0x1000000
+// CHECK: :[[#@LINE+1]]:11: error: target must be a multiple of 16 in [-16777216, 16777200]
+	fchkf.s1 4

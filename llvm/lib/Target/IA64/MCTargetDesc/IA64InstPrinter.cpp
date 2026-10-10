@@ -69,6 +69,13 @@ void IA64InstPrinter::printHint(const MCInst *MI, int OpNum, raw_ostream &O) {
   O << IA64II::getHintName(MI->getOperand(OpNum).getImm());
 }
 
+void IA64InstPrinter::printStatusField(const MCInst *MI, int OpNum,
+                                       raw_ostream &O) {
+  // The main status field, .s0, is what an instruction without one uses.
+  if (int64_t SF = MI->getOperand(OpNum).getImm())
+    O << ".s" << SF;
+}
+
 void IA64InstPrinter::printMBType(const MCInst *MI, int OpNum, raw_ostream &O) {
   O << '@' << IA64II::getMBTypeName(MI->getOperand(OpNum).getImm());
 }

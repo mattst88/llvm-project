@@ -224,9 +224,25 @@ def ldhint : Hint<"LoadHint">;
 def sthint : Hint<"StoreHint">;
 def lfhint : Hint<"FetchHint">;
 
+// The FP status field is also a completer, "fma.s1". It defaults to .s0, the
+// main status field.
+def StatusFieldAsmOperand : AsmOperandClass {
+  let Name = "StatusField";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isStatusField";
+  let IsOptional = 1;
+  let DefaultMethod = "defaultStatusFieldOperand";
+}
+def sfield : Operand<i64> {
+  let ParserMatchClass = StatusFieldAsmOperand;
+  let PrintMethod = "printStatusField";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+
 def simm9  : SImm<9, SImmNoDiagAsmOperand<9>>;
 def uimm2  : UImm<2>;
 def uimm7  : UImm<7>;
+def uimm9  : UImm<9>;
 def uimm24 : UImm<24>;
 
 // The fetchadd increment: +/-1, 4, 8 or 16.
@@ -1386,4 +1402,225 @@ class M47<string mnemonic>
     : MSys1Inst<0x34, (outs), (ins GR:$r3), mnemonic, "$r3"> {
   bits<7> r3;
   let Inst{26-20} = r3;
+}
+
+//===----------------------------------------------------------------------===//
+// F-unit formats (SDM volume 3, section 4.6)
+//===----------------------------------------------------------------------===//
+
+class FInst<dag outs, dag ins, string mnemonic, string operands>
+    : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let Unit = UnitF;
+  let DecoderNamespace = "F";
+}
+
+// An instruction that names its status field, as the last completer of the
+// mnemonic.
+class FSFInst<dag oops, dag iops, string mnemonic, string operands>
+    : FInst<oops, !con(iops, (ins sfield:$sf)), mnemonic, operands> {
+  bits<2> sf;
+  let Inst{35-34} = sf;
+  let AsmString = mnemonic#"${qp}${sf}"#
+                  !if(!empty(operands), "", "\t"#operands);
+}
+
+// F1: floating-point multiply and add, f1 = f3 * f4 + f2.
+class F1<bits<4> op, bit x, string mnemonic, RegisterClass Addend = FR>
+    : FSFInst<(outs FR:$f1), (ins FR:$f3, FR:$f4, Addend:$f2), mnemonic,
+              "$f1 = $f3, $f4, $f2"> {
+  bits<7> f1;
+  bits<7> f2;
+  bits<7> f3;
+  bits<7> f4;
+  let Opcode = op;
+  let Inst{36} = x;
+  let Inst{33-27} = f4;
+  let Inst{26-20} = f3;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+
+// F2: fixed-point multiply and add; F3: parallel select. They share major
+// opcode 0xE and have no status field.
+class FOpEInst<bit x, string mnemonic>
+    : FInst<(outs FR:$f1), (ins FR:$f3, FR:$f4, FR:$f2), mnemonic,
+            "$f1 = $f3, $f4, $f2"> {
+  bits<7> f1;
+  bits<7> f2;
+  bits<7> f3;
+  bits<7> f4;
+  let Opcode = 0xe;
+  let Inst{36} = x;
+  let Inst{33-27} = f4;
+  let Inst{26-20} = f3;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+class F2<bits<2> x2, string mnemonic> : FOpEInst<1, mnemonic> {
+  let Inst{35-34} = x2;
+}
+class F3<string mnemonic> : FOpEInst<0, mnemonic>;
+
+// F4: floating-point compare.
+class F4<bit rb, bit ra, bit ta, string mnemonic>
+    : FSFInst<(outs PR:$p1, PR:$p2), (ins FR:$f2, FR:$f3), mnemonic,
+              "$p1, $p2 = $f2, $f3"> {
+  bits<6> p1;
+  bits<6> p2;
+  bits<7> f2;
+  bits<7> f3;
+  let Opcode = 4;
+  let Inst{36} = rb;
+  let Inst{33} = ra;
+  let Inst{32-27} = p2;
+  let Inst{26-20} = f3;
+  let Inst{19-13} = f2;
+  let Inst{12} = ta;
+  let Inst{11-6} = p1;
+}
+
+// F5: floating-point class. The low two bits of the 9-bit class mask are
+// stored separately from the rest.
+class F5<bit ta, string mnemonic>
+    : FInst<(outs PR:$p1, PR:$p2), (ins FR:$f2, uimm9:$fclass), mnemonic,
+            "$p1, $p2 = $f2, $fclass"> {
+  bits<6> p1;
+  bits<6> p2;
+  bits<7> f2;
+  bits<9> fclass;
+  let Opcode = 5;
+  let Inst{34-33} = fclass{1-0};
+  let Inst{32-27} = p2;
+  let Inst{26-20} = fclass{8-2};
+  let Inst{19-13} = f2;
+  let Inst{12} = ta;
+  let Inst{11-6} = p1;
+}
+
+// F6: reciprocal approximation; F7: reciprocal square root approximation.
+// The major opcode is 0 for the scalar form and 1 for the parallel form, as
+// in all following formats.
+class F6<bits<4> op, string mnemonic>
+    : FSFInst<(outs FR:$f1, PR:$p2), (ins FR:$f2, FR:$f3), mnemonic,
+              "$f1, $p2 = $f2, $f3"> {
+  bits<7> f1;
+  bits<6> p2;
+  bits<7> f2;
+  bits<7> f3;
+  let Opcode = op;
+  let Inst{36} = 0;
+  let Inst{33} = 1;
+  let Inst{32-27} = p2;
+  let Inst{26-20} = f3;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+class F7<bits<4> op, string mnemonic>
+    : FSFInst<(outs FR:$f1, PR:$p2), (ins FR:$f3), mnemonic,
+              "$f1, $p2 = $f3"> {
+  bits<7> f1;
+  bits<6> p2;
+  bits<7> f3;
+  let Opcode = op;
+  let Inst{36} = 1;
+  let Inst{33} = 1;
+  let Inst{32-27} = p2;
+  let Inst{26-20} = f3;
+  let Inst{12-6} = f1;
+}
+
+// F8: minimum, maximum and parallel compare.
+class F8<bits<4> op, bits<6> x6, string mnemonic>
+    : FSFInst<(outs FR:$f1), (ins FR:$f2, FR:$f3), mnemonic,
+              "$f1 = $f2, $f3"> {
+  bits<7> f1;
+  bits<7> f2;
+  bits<7> f3;
+  let Opcode = op;
+  let Inst{33} = 0;
+  let Inst{32-27} = x6;
+  let Inst{26-20} = f3;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+
+// F9: merge, mix, sign extend, pack, swap and the logical operations.
+class F9<bits<4> op, bits<6> x6, string mnemonic>
+    : FInst<(outs FR:$f1), (ins FR:$f2, FR:$f3), mnemonic,
+            "$f1 = $f2, $f3"> {
+  bits<7> f1;
+  bits<7> f2;
+  bits<7> f3;
+  let Opcode = op;
+  let Inst{33} = 0;
+  let Inst{32-27} = x6;
+  let Inst{26-20} = f3;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+
+// F10: convert floating-point to fixed-point; F11: convert a signed integer
+// to floating-point, which raises no exceptions.
+class F10<bits<4> op, bits<6> x6, string mnemonic>
+    : FSFInst<(outs FR:$f1), (ins FR:$f2), mnemonic, "$f1 = $f2"> {
+  bits<7> f1;
+  bits<7> f2;
+  let Opcode = op;
+  let Inst{33} = 0;
+  let Inst{32-27} = x6;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+class F11<string mnemonic>
+    : FInst<(outs FR:$f1), (ins FR:$f2), mnemonic, "$f1 = $f2"> {
+  bits<7> f1;
+  bits<7> f2;
+  let Opcode = 0;
+  let Inst{33} = 0;
+  let Inst{32-27} = 0x1c;
+  let Inst{19-13} = f2;
+  let Inst{12-6} = f1;
+}
+
+// F12: set the controls of a status field; F13: clear its flags.
+class F12<string mnemonic>
+    : FSFInst<(outs), (ins uimm7:$amask, uimm7:$omask), mnemonic,
+              "$amask, $omask"> {
+  bits<7> amask;
+  bits<7> omask;
+  let Opcode = 0;
+  let Inst{33} = 0;
+  let Inst{32-27} = 0x04;
+  let Inst{26-20} = omask;
+  let Inst{19-13} = amask;
+}
+class F13<string mnemonic> : FSFInst<(outs), (ins), mnemonic, ""> {
+  let Opcode = 0;
+  let Inst{33} = 0;
+  let Inst{32-27} = 0x05;
+}
+
+// F14: check the flags of a status field and branch to recovery code.
+class F14<string mnemonic>
+    : FSFInst<(outs), (ins target25:$target), mnemonic, "$target"> {
+  bits<21> target;
+  let Opcode = 0;
+  let Inst{36} = target{20};
+  let Inst{33} = 0;
+  let Inst{32-27} = 0x08;
+  let Inst{25-6} = target{19-0};
+}
+
+// F15: break; F16: nop and hint.
+class F15<bits<6> x6, string mnemonic>
+    : FInst<(outs), (ins uimm21:$imm), mnemonic, "$imm"> {
+  bits<21> imm;
+  let Opcode = 0;
+  let Inst{36} = imm{20};
+  let Inst{33} = 0;
+  let Inst{32-27} = x6;
+  let Inst{25-6} = imm{19-0};
+}
+class F16<bit y, string mnemonic> : F15<1, mnemonic> {
+  let Inst{26} = y;
 }

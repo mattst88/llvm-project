@@ -66,6 +66,8 @@ class IA64AsmParser : public MCTargetAsmParser {
 
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
+  /// The operand of a floating-point instruction that names no status field.
+  std::unique_ptr<IA64Operand> defaultStatusFieldOperand();
 
   bool validateInstruction(const MCInst &Inst, const OperandVector &Operands);
 
@@ -99,7 +101,7 @@ class IA64Operand : public MCParsedAsmOperand {
 public:
   // Kinds after Immediate are mnemonic completers that are encoded as
   // instruction operands.
-  enum KindTy { Token, Register, Immediate, Hint };
+  enum KindTy { Token, Register, Immediate, Hint, StatusField };
 
 private:
   KindTy Kind;
@@ -164,6 +166,7 @@ public:
   bool isStoreHint() const {
     return Kind == Hint && (Completer == 0 || Completer == 3);
   }
+  bool isStatusField() const { return Kind == StatusField; }
   bool isInc3() const {
     std::optional<int64_t> V = getConstant();
     if (!V)
@@ -221,6 +224,9 @@ public:
     case Hint:
       O << "Hint " << Completer;
       break;
+    case StatusField:
+      O << "StatusField " << Completer;
+      break;
     }
   }
 
@@ -266,6 +272,12 @@ static void splitCompleters(
       Completers.push_back({IA64Operand::Hint, Value});
       return;
     }
+  }
+  // A floating-point instruction may end in a status field.
+  if (Name.size() > 3 && Name.drop_back().ends_with(".s") &&
+      Name.back() >= '0' && Name.back() <= '3') {
+    Completers.push_back({IA64Operand::StatusField, Name.back() - '0'});
+    Name = Name.drop_back(3);
   }
 }
 
@@ -389,6 +401,10 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 
 std::unique_ptr<IA64Operand> IA64AsmParser::defaultHintOperand() {
   return IA64Operand::createCompleter(IA64Operand::Hint, 0, SMLoc());
+}
+
+std::unique_ptr<IA64Operand> IA64AsmParser::defaultStatusFieldOperand() {
+  return IA64Operand::createCompleter(IA64Operand::StatusField, 0, SMLoc());
 }
 
 bool IA64AsmParser::validateInstruction(const MCInst &Inst,
