@@ -45,6 +45,51 @@ foreach i = 0-7 in
   def B#i : IA64Reg<i, "b"#i, !if(!eq(i, 0), ["rp"], [])>,
             DwarfRegNum<[!add(i, 320)]>;
 
+// Application registers. The architected ones are known by name; the rest
+// only by number.
+class ARName<int i> {
+  string Name = !cond(
+    !lt(i, 8):   "ar.k"#i,
+    !eq(i, 16):  "ar.rsc",      !eq(i, 17):  "ar.bsp",
+    !eq(i, 18):  "ar.bspstore", !eq(i, 19):  "ar.rnat",
+    !eq(i, 21):  "ar.fcr",      !eq(i, 24):  "ar.eflag",
+    !eq(i, 25):  "ar.csd",      !eq(i, 26):  "ar.ssd",
+    !eq(i, 27):  "ar.cflg",     !eq(i, 28):  "ar.fsr",
+    !eq(i, 29):  "ar.fir",      !eq(i, 30):  "ar.fdr",
+    !eq(i, 32):  "ar.ccv",      !eq(i, 36):  "ar.unat",
+    !eq(i, 40):  "ar.fpsr",     !eq(i, 44):  "ar.itc",
+    !eq(i, 45):  "ar.ruc",      !eq(i, 64):  "ar.pfs",
+    !eq(i, 65):  "ar.lc",       !eq(i, 66):  "ar.ec",
+    true:        "ar"#i);
+}
+foreach i = 0-127 in
+  def AR#i : IA64Reg<i, ARName<i>.Name,
+                     !if(!eq(ARName<i>.Name, "ar"#i), [], ["ar"#i])>,
+             DwarfRegNum<[!add(i, 334)]>;
+
+// Control registers.
+class CRName<int i> {
+  string Name = !cond(
+    !eq(i, 0):   "cr.dcr",      !eq(i, 1):   "cr.itm",
+    !eq(i, 2):   "cr.iva",      !eq(i, 8):   "cr.pta",
+    !eq(i, 16):  "cr.ipsr",     !eq(i, 17):  "cr.isr",
+    !eq(i, 19):  "cr.iip",      !eq(i, 20):  "cr.ifa",
+    !eq(i, 21):  "cr.itir",     !eq(i, 22):  "cr.iipa",
+    !eq(i, 23):  "cr.ifs",      !eq(i, 24):  "cr.iim",
+    !eq(i, 25):  "cr.iha",      !eq(i, 26):  "cr.iib0",
+    !eq(i, 27):  "cr.iib1",     !eq(i, 64):  "cr.lid",
+    !eq(i, 65):  "cr.ivr",      !eq(i, 66):  "cr.tpr",
+    !eq(i, 67):  "cr.eoi",      !eq(i, 68):  "cr.irr0",
+    !eq(i, 69):  "cr.irr1",     !eq(i, 70):  "cr.irr2",
+    !eq(i, 71):  "cr.irr3",     !eq(i, 72):  "cr.itv",
+    !eq(i, 73):  "cr.pmv",      !eq(i, 74):  "cr.cmcv",
+    !eq(i, 80):  "cr.lrr0",     !eq(i, 81):  "cr.lrr1",
+    true:        "cr"#i);
+}
+foreach i = 0-127 in
+  def CR#i : IA64Reg<i, CRName<i>.Name,
+                     !if(!eq(CRName<i>.Name, "cr"#i), [], ["cr"#i])>;
+
 // Allocation order: the scratch registers first, then the preserved static
 // ones, then the stacked registers, with the fixed-purpose registers last.
 def GR : RegisterClass<"IA64", [i64], 64, (add
@@ -75,3 +120,13 @@ def BR : RegisterClass<"IA64", [i64], 64, (add
   (sequence "B%u", 6, 7),      // scratch
   (sequence "B%u", 1, 5),      // preserved
   B0)>;                        // return address
+
+// The only base registers addl accepts.
+def GR0_3 : RegisterClass<"IA64", [i64], 64, (add R2, R3, R0, R1)>;
+
+// The application and control registers are never allocated; the classes
+// exist for the assembler and disassembler.
+let isAllocatable = 0 in {
+def AR : RegisterClass<"IA64", [i64], 64, (sequence "AR%u", 0, 127)>;
+def CR : RegisterClass<"IA64", [i64], 64, (sequence "CR%u", 0, 127)>;
+}
