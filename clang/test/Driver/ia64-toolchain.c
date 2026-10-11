@@ -53,3 +53,12 @@
 // RUN: %clang --target=ia64-unknown-linux-gnu -mno-sdata -G 16 -### -c %s \
 // RUN:   2>&1 | FileCheck %s --check-prefix=SDATA16
 // SDATA16: "-msmall-data-limit" "16"
+
+// A program that is one module says so with -mconstant-gp.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=NO-CONSTANT-GP
+// NO-CONSTANT-GP-NOT: constant-gp
+// RUN: %clang --target=ia64-unknown-linux-gnu -mconstant-gp -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=CONSTANT-GP
+// CONSTANT-GP: "-target-feature" "+constant-gp"

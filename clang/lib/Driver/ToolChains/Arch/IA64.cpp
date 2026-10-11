@@ -93,6 +93,9 @@ void ia64::getIA64TargetFeatures(const Driver &D, const llvm::Triple &Triple,
     if (Args.hasArg(R.Option))
       Features.push_back(R.Feature);
 
+  if (Args.hasArg(options::OPT_mconstant_gp))
+    Features.push_back("+constant-gp");
+
   for (const Arg *A : Args.filtered(options::OPT_mfixed_range_EQ)) {
     A->claim();
     addFixedRanges(D, Args, A, Features);

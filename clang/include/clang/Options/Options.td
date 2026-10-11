@@ -7625,6 +7625,9 @@ foreach i = {4-5} in
 def mfixed_range_EQ : Joined<["-"], "mfixed-range=">, Group<m_Group>,
   HelpText<"Reserve the registers of each range, as in f12-f15,f32-f127 "
            "(IA-64 only)">;
+def mconstant_gp : Flag<["-"], "mconstant-gp">, Group<m_Group>,
+  HelpText<"Assume that every function called by name has the global "
+           "pointer of its caller (IA-64 only)">;
 def msdata : Flag<["-"], "msdata">, Group<m_Group>,
   HelpText<"Keep small objects where the global pointer reaches them "
            "(IA-64 only)">;
