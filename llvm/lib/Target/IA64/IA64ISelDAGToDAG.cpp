@@ -46,6 +46,7 @@ public:
 
   // Compare instruction forms, by the kind of compare operands.
   enum CompareForm { Register, Immediate, FloatingPoint };
+  bool selectMinMax(SDNode *Node);
   CompareForm selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                             const SDLoc &DL, SmallVectorImpl<SDValue> &Ops);
 
@@ -374,6 +375,8 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
         {IA64::SELECT, IA64::SELECTi, IA64::SELECTf},
         {IA64::SELECT_FR, IA64::SELECT_FRi, IA64::SELECT_FRf}};
     MVT VT = Node->getSimpleValueType(0);
+    if (selectMinMax(Node))
+      return;
     SmallVector<SDValue, 6> Ops = {Node->getOperand(3), Node->getOperand(2)};
     CompareForm Form = selectCompare(
         Node->getOperand(0), Node->getOperand(1),
@@ -384,6 +387,55 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   }
 
   SelectCode(Node);
+}
+
+// fmin is "f2 < f3 ? f2 : f3" and fmax is "f3 < f2 ? f2 : f3", so each is
+// its second operand when the two have no order and when they are equal,
+// which of two zeroes may be either. The choices that are one or the other
+// are those of a compare that is false of equal values and of unordered
+// ones, or of one that is true of both, which is such a compare with the
+// choices the other way around.
+bool IA64DAGToDAGISel::selectMinMax(SDNode *Node) {
+  SDValue Lesser = Node->getOperand(0), Greater = Node->getOperand(1);
+  SDValue True = Node->getOperand(2), False = Node->getOperand(3);
+  MVT VT = Node->getSimpleValueType(0);
+  if (!VT.isFloatingPoint() || Lesser.getValueType() != VT)
+    return false;
+
+  // Canonicalize to "Lesser < Greater ? True : False".
+  switch (cast<CondCodeSDNode>(Node->getOperand(4))->get()) {
+  case ISD::SETOLT:
+  case ISD::SETLT:
+    break;
+  case ISD::SETOGT:
+  case ISD::SETGT:
+    std::swap(Lesser, Greater);
+    break;
+  case ISD::SETULE:
+  case ISD::SETLE:
+    std::swap(Lesser, Greater);
+    std::swap(True, False);
+    break;
+  case ISD::SETUGE:
+  case ISD::SETGE:
+    std::swap(True, False);
+    break;
+  default:
+    return false;
+  }
+
+  unsigned Opcode;
+  if (True == Lesser && False == Greater)
+    Opcode = IA64::FMIN;
+  else if (True == Greater && False == Lesser)
+    Opcode = IA64::FMAX;
+  else
+    return false;
+  SDLoc DL(Node);
+  CurDAG->SelectNodeTo(Node, Opcode, VT,
+                       {True, False, CurDAG->getTargetConstant(0, DL, MVT::i64),
+                        CurDAG->getRegister(IA64::P0, MVT::i1)});
+  return true;
 }
 
 FunctionPass *llvm::createIA64ISelDag(IA64TargetMachine &TM,
