@@ -329,6 +329,11 @@ public:
     NextTags.clear();
     flush(/*Stop=*/false);
     NextTags = std::move(Tags);
+    // A label may be redefined at its current position.
+    if (Symbol->isDefined() && !Symbol->isVariable() &&
+        Symbol->getFragment() == getCurrentFragment() &&
+        Symbol->getOffset() == getCurFragSize())
+      return;
     MCELFStreamer::emitLabel(Symbol, Loc);
   }
   void initSections(const MCSubtargetInfo &STI) override {
