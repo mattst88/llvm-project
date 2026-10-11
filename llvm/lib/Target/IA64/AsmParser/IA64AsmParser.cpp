@@ -105,6 +105,8 @@ class IA64AsmParser : public MCTargetAsmParser {
   /// directive, which no other directive may interrupt.
   unsigned Awaited = 0;
   bool AwaitedByMask = false;
+  /// Whether ".handlerdata" has ended the unwind information.
+  bool HandlerData = false;
 
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
@@ -991,6 +993,7 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
     LabelledStates.clear();
     AwaitsInstruction = SMLoc();
     Awaited = 0;
+    HandlerData = false;
     getTargetStreamer().emitProc(ProcEntries);
     return ParseStatus::Success;
   }
@@ -1314,6 +1317,9 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     SpillSP,
     SpillPSP,
     RestoreReg,
+    Personality,
+    UnwEntry,
+    HandlerDataDirective,
   };
   std::string Lower = Name.lower();
   DirectiveTy Directive =
@@ -1322,7 +1328,7 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
           .Case(".body", Body)
           .Case(".fframe", FFrame)
           .Case(".vframe", VFrame)
-          .Case(".vframesp", VFrameSP)
+          .Cases({".vframesp", ".vframepsp"}, VFrameSP)
           .Case(".spill", Spill)
           .Case(".save", Save)
           .Case(".savesp", SaveSP)
@@ -1340,6 +1346,9 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
           .Cases({".spillsp", ".spillsp.p"}, SpillSP)
           .Cases({".spillpsp", ".spillpsp.p"}, SpillPSP)
           .Cases({".restorereg", ".restorereg.p"}, RestoreReg)
+          .Case(".personality", Personality)
+          .Case(".unwentry", UnwEntry)
+          .Case(".handlerdata", HandlerDataDirective)
           .Default(None);
   if (Directive == None)
     return ParseStatus::NoMatch;
@@ -1347,12 +1356,42 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
   SMLoc Loc = getTok().getLoc();
   if (ProcEntries.empty())
     return Error(NameLoc, Lower + " outside of a procedure");
+  if (HandlerData)
+    return Error(NameLoc, Lower + " after .handlerdata");
   IA64TargetStreamer &TS = getTargetStreamer();
   // A mask directive covers as many instructions as it has registers.
   if (Awaited != 0 && AwaitedByMask) {
     Awaited = 0;
     return Error(std::exchange(AwaitsInstruction, SMLoc()),
                  "fewer instructions follow than this has registers");
+  }
+
+  if (Directive == Personality) {
+    MCSymbol *Routine;
+    if (getParser().parseSymbol(Routine))
+      return Error(Loc, "expected a symbol");
+    if (parseEOL())
+      return ParseStatus::Failure;
+    TS.emitPersonality(Routine);
+    return ParseStatus::Success;
+  }
+
+  if (Directive == UnwEntry) {
+    if (parseEOL())
+      return ParseStatus::Failure;
+    TS.emitUnwEntry();
+    return ParseStatus::Success;
+  }
+
+  if (Directive == HandlerDataDirective) {
+    if (parseEOL())
+      return ParseStatus::Failure;
+    if (AwaitsInstruction.isValid())
+      return Error(std::exchange(AwaitsInstruction, SMLoc()),
+                   "no instruction follows for this to tell of");
+    HandlerData = true;
+    TS.emitHandlerData();
+    return ParseStatus::Success;
   }
 
   if (Directive == Body) {
@@ -1537,6 +1576,10 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     TS.emitVFrame(GR);
     break;
   case VFrameSP:
+    // An offset from psp cannot locate the saved sp, so GNU as treats it as
+    // an offset from sp.
+    if (Lower == ".vframepsp")
+      Warning(NameLoc, ".vframepsp is taken to be .vframesp");
     if (parseUnwindOffset(Value, 0, 4) || parseEOL())
       return ParseStatus::Failure;
     TS.emitVFrameSP(Value);

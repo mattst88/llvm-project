@@ -155,6 +155,9 @@ public:
     OpenFragment = nullptr;
   }
 
+  /// Leave the last bundle's instruction group unchanged, whatever follows.
+  void leaveGroup() { OpenFragment = nullptr; }
+
   /// Create a mark for the next instruction, or for the one \p Ahead of it.
   /// The mark gets a position only once the instruction is bundled.
   unsigned markNextInstruction(unsigned Ahead = 0) {
@@ -565,6 +568,8 @@ void IA64TargetELFStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {
   S.bindMarks(nullptr);
   Records.clear();
   S.clearMarks();
+  Personality = nullptr;
+  ForceEntry = InfoEmitted = false;
   ProcStart = S.getContext().createTempSymbol();
   S.emitLabel(ProcStart, SMLoc());
   this->Entries.assign(Entries.begin(), Entries.end());
@@ -588,10 +593,35 @@ void IA64TargetELFStreamer::emitEndp() {
   }
   Entries.clear();
 
+  if (InfoEmitted)
+    return;
   S.bindMarks(End);
   emitUnwindInfo(End);
   Records.clear();
   S.clearMarks();
+}
+
+void IA64TargetELFStreamer::emitPersonality(const MCSymbol *Routine) {
+  Personality = Routine;
+}
+
+void IA64TargetELFStreamer::emitUnwEntry() { ForceEntry = true; }
+
+void IA64TargetELFStreamer::emitHandlerData() {
+  auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
+  // The unwind information covers the code up to here. Unlike the end of
+  // the procedure, this does not end an instruction group, and neither does
+  // the section change it makes.
+  S.flush(false);
+  S.leaveGroup();
+  MCSymbol *End = S.getContext().createTempSymbol();
+  S.emitLabel(End, SMLoc());
+  S.bindMarks(End);
+  ForceEntry = true;
+  emitUnwindInfo(End, /*Stay=*/true);
+  Records.clear();
+  S.clearMarks();
+  InfoEmitted = true;
 }
 
 void IA64TargetELFStreamer::addUnwindRecord(UnwindRecord::KindTy Kind,
@@ -786,33 +816,6 @@ void IA64TargetELFStreamer::emitRestoreReg(unsigned Reg, unsigned QP) {
   addUnwindRecord(UnwindRecord::X2, QP << 8 | Reg, 0);
 }
 
-/// The sections that hold the unwind table and the unwind information for
-/// the code of \p Text. They have the names that GNU as gives them, which a
-/// linker script may depend on.
-static std::pair<MCSectionELF *, MCSectionELF *>
-getUnwindSections(MCContext &Ctx, const MCSectionELF &Text) {
-  StringRef Name = Text.getName();
-  std::string Table = ".IA_64.unwind", Info = ".IA_64.unwind_info";
-  if (Name.consume_front(".gnu.linkonce.t.")) {
-    Table = ".gnu.linkonce.ia64unw.";
-    Info = ".gnu.linkonce.ia64unwi.";
-  }
-  if (Name != ".text") {
-    Table += Name;
-    Info += Name;
-  }
-  // They go where the code goes, if that is in a group.
-  unsigned Flags = ELF::SHF_ALLOC;
-  if (Text.getGroup())
-    Flags |= ELF::SHF_GROUP;
-  return {Ctx.getELFSection(
-              Table, ELF::SHT_IA_64_UNWIND, Flags | ELF::SHF_LINK_ORDER, 0,
-              Text.getGroup(), Text.isComdat(), MCSection::NonUniqueID,
-              static_cast<const MCSymbolELF *>(Text.getBeginSymbol())),
-          Ctx.getELFSection(Info, ELF::SHT_PROGBITS, Flags, 0, Text.getGroup(),
-                            Text.isComdat(), MCSection::NonUniqueID, nullptr)};
-}
-
 std::optional<uint64_t>
 IA64TargetELFStreamer::getFragmentOffset(const MCFragment &Fragment,
                                          bool Remember) {
@@ -868,17 +871,21 @@ IA64TargetELFStreamer::getFragmentOffset(const MCFragment &Fragment,
   return Offset;
 }
 
-void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
+void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End, bool Stay) {
   auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
   MCContext &Ctx = S.getContext();
 
-  // A prologue that tells of nothing saved, alone or with a body after it,
-  // is what a procedure without unwind information is taken to be anyway.
+  // A prologue with an empty save mask, alone or followed by a body, is what
+  // a procedure without unwind information is assumed to be anyway. If an
+  // entry is still required, it has no descriptors.
   if (Records.empty() ||
       (Records[0].Kind == UnwindRecord::Prologue && Records[0].Args[0] == 0 &&
        (Records.size() == 1 ||
-        (Records.size() == 2 && Records[1].Kind == UnwindRecord::Body))))
-    return;
+        (Records.size() == 2 && Records[1].Kind == UnwindRecord::Body)))) {
+    if (!Personality && !ForceEntry)
+      return;
+    Records.clear();
+  }
 
   // The unwinder counts in slots, three per bundle. Slot distances must be
   // known now, since the size of the encoded descriptors depends on them.
@@ -1085,9 +1092,18 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
   S.emitValueToAlignment(Align(8), 0, 1, 0);
   MCSymbol *InfoSym = Ctx.createTempSymbol();
   S.emitLabel(InfoSym, SMLoc());
-  // The version, no flags, and the length in words of what follows.
-  S.emitIntValue(uint64_t(1) << 48 | Info.size() / 8, 8);
+  // The version, the EHANDLER and UHANDLER flags when there is a personality
+  // routine, and the descriptor length in 8-byte words.
+  S.emitIntValue(uint64_t(1) << 48 | uint64_t(Personality ? 3 : 0) << 32 |
+                     Info.size() / 8,
+                 8);
   S.emitBytes(Info);
+  // The personality routine is reached through the linkage table (GOT).
+  if (Personality)
+    S.emitValue(
+        MCSpecifierExpr::create(MCSymbolRefExpr::create(Personality, Ctx),
+                                IA64::S_LTOFF_FPTR, Ctx),
+        8);
 
   // The linker sorts the table by address.
   S.switchSection(TableSection);
@@ -1097,6 +1113,10 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
                                         IA64::S_SEGREL, Ctx),
                 8);
   S.popSection();
+  // With ".handlerdata", stay in the info section, leaving the code section
+  // as the one to return to.
+  if (Stay)
+    S.switchSection(InfoSection);
 }
 
 MCStreamer *llvm::createIA64ELFStreamer(const Triple &T, MCContext &Ctx,

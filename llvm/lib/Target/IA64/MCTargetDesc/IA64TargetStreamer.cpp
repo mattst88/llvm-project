@@ -11,11 +11,13 @@
 #include "IA64MCTargetDesc.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/Support/FormattedStream.h"
 
 using namespace llvm;
@@ -118,6 +120,37 @@ void IA64TargetStreamer::emitSpillPSP(unsigned Reg, uint64_t Offset,
                                       unsigned QP) {}
 
 void IA64TargetStreamer::emitRestoreReg(unsigned Reg, unsigned QP) {}
+
+void IA64TargetStreamer::emitPersonality(const MCSymbol *Routine) {}
+
+void IA64TargetStreamer::emitUnwEntry() {}
+
+void IA64TargetStreamer::emitHandlerData() {}
+
+std::pair<MCSectionELF *, MCSectionELF *>
+IA64TargetStreamer::getUnwindSections(MCContext &Ctx,
+                                      const MCSectionELF &Text) {
+  StringRef Name = Text.getName();
+  std::string Table = ".IA_64.unwind", Info = ".IA_64.unwind_info";
+  if (Name.consume_front(".gnu.linkonce.t.")) {
+    Table = ".gnu.linkonce.ia64unw.";
+    Info = ".gnu.linkonce.ia64unwi.";
+  }
+  if (Name != ".text") {
+    Table += Name;
+    Info += Name;
+  }
+  // The unwind sections join the code's section group, if it has one.
+  unsigned Flags = ELF::SHF_ALLOC;
+  if (Text.getGroup())
+    Flags |= ELF::SHF_GROUP;
+  return {Ctx.getELFSection(
+              Table, ELF::SHT_IA_64_UNWIND, Flags | ELF::SHF_LINK_ORDER, 0,
+              Text.getGroup(), Text.isComdat(), MCSection::NonUniqueID,
+              static_cast<const MCSymbolELF *>(Text.getBeginSymbol())),
+          Ctx.getELFSection(Info, ELF::SHT_PROGBITS, Flags, 0, Text.getGroup(),
+                            Text.isComdat(), MCSection::NonUniqueID, nullptr)};
+}
 
 IA64TargetAsmStreamer::IA64TargetAsmStreamer(MCStreamer &S,
                                              formatted_raw_ostream &OS)
@@ -277,4 +310,23 @@ void IA64TargetAsmStreamer::emitSpillPSP(unsigned Reg, uint64_t Offset,
 void IA64TargetAsmStreamer::emitRestoreReg(unsigned Reg, unsigned QP) {
   printSpill(".restorereg", Reg, QP);
   OS << '\n';
+}
+
+void IA64TargetAsmStreamer::emitPersonality(const MCSymbol *Routine) {
+  OS << "\t.personality\t";
+  Routine->print(OS, &getStreamer().getContext().getAsmInfo());
+  OS << '\n';
+}
+
+void IA64TargetAsmStreamer::emitUnwEntry() { OS << "\t.unwentry\n"; }
+
+void IA64TargetAsmStreamer::emitHandlerData() {
+  MCStreamer &S = getStreamer();
+  OS << "\t.handlerdata\n";
+  // The directive implies the section switch, so switch without printing;
+  // the switch back to the code section is then printed.
+  S.switchSectionNoPrint(
+      getUnwindSections(S.getContext(), static_cast<const MCSectionELF &>(
+                                            *S.getCurrentSectionOnly()))
+          .second);
 }

@@ -247,3 +247,32 @@ g:
 // CHECK: :[[#@LINE+1]]:2: error: no instruction follows for this to tell of
 	.restorereg r4
 	.endp g
+
+// The personality routine and the data for it.
+// CHECK: :[[#@LINE+1]]:2: error: .personality outside of a procedure
+	.personality routine
+// CHECK: :[[#@LINE+1]]:2: error: .unwentry outside of a procedure
+	.unwentry
+// CHECK: :[[#@LINE+1]]:2: error: .handlerdata outside of a procedure
+	.handlerdata
+	.proc h
+h:
+// CHECK: :[[#@LINE+1]]:14: error: expected a symbol
+	.personality
+// CHECK: :[[#@LINE+1]]:12: error: expected newline
+	.unwentry 1
+	.prologue
+	nop 0
+// CHECK: :[[#@LINE+1]]:2: error: no instruction follows for this to tell of
+	.save rp, r3
+	.handlerdata
+	.handlerdata
+// CHECK: :[[#@LINE+1]]:2: error: .handlerdata after .handlerdata
+	.handlerdata
+// CHECK: :[[#@LINE+1]]:2: error: .body after .handlerdata
+	.body
+// CHECK: :[[#@LINE+1]]:2: error: .personality after .handlerdata
+	.personality routine
+// The code is not the section that the procedure ends in.
+// CHECK: :[[#@LINE+1]]:7: error: symbol 'h' is not defined in its procedure
+	.endp

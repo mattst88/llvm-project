@@ -15,7 +15,9 @@
 
 namespace llvm {
 class formatted_raw_ostream;
+class MCContext;
 class MCRegister;
+class MCSectionELF;
 class MCSymbol;
 
 class IA64TargetStreamer : public MCTargetStreamer {
@@ -175,6 +177,26 @@ public:
   /// \p QP is true. Assembly writes this as ".restorereg" and
   /// ".restorereg.p".
   virtual void emitRestoreReg(unsigned Reg, unsigned QP = 0);
+
+  /// Set the procedure's personality routine to \p Routine. Assembly writes
+  /// this as ".personality".
+  virtual void emitPersonality(const MCSymbol *Routine);
+
+  /// Give the procedure an unwind table entry even if it has no unwind
+  /// directives. Assembly writes this as ".unwentry".
+  virtual void emitUnwEntry();
+
+  /// End the procedure's unwind information. What follows, up to the next
+  /// section change, goes after it in the unwind info section as language
+  /// specific data for the personality routine. Assembly writes this as
+  /// ".handlerdata".
+  virtual void emitHandlerData();
+
+protected:
+  /// The unwind table and unwind info sections for the code in \p Text.
+  /// They use GNU as's names, which linker scripts may depend on.
+  static std::pair<MCSectionELF *, MCSectionELF *>
+  getUnwindSections(MCContext &Ctx, const MCSectionELF &Text);
 };
 
 class IA64TargetAsmStreamer : public IA64TargetStreamer {
@@ -215,6 +237,9 @@ public:
   void emitSpillSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
   void emitSpillPSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
   void emitRestoreReg(unsigned Reg, unsigned QP) override;
+  void emitPersonality(const MCSymbol *Routine) override;
+  void emitUnwEntry() override;
+  void emitHandlerData() override;
 };
 
 } // end namespace llvm

@@ -55,6 +55,9 @@ public:
   void emitSpillSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
   void emitSpillPSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
   void emitRestoreReg(unsigned Reg, unsigned QP) override;
+  void emitPersonality(const MCSymbol *Routine) override;
+  void emitUnwEntry() override;
+  void emitHandlerData() override;
 
 private:
   /// A parsed unwind directive and the instruction it applies to. A region
@@ -112,7 +115,9 @@ private:
   /// Add a Spill record for each register in \p Mask, for consecutive
   /// instructions starting \p Ahead past the next one.
   void addSpills(unsigned Kind, unsigned Mask, unsigned &Ahead);
-  void emitUnwindInfo(MCSymbol *End);
+  /// Emit the unwind info for the current procedure, which ends at \p End.
+  /// \p Stay leaves the unwind info section as the current section.
+  void emitUnwindInfo(MCSymbol *End, bool Stay = false);
   /// Whether the open prologue's save mask covers \p Bit.
   bool isInPrologueMask(unsigned Bit) const;
 
@@ -130,6 +135,11 @@ private:
   /// The start of the current procedure.
   MCSymbol *ProcStart = nullptr;
   SmallVector<UnwindRecord, 16> Records;
+  const MCSymbol *Personality = nullptr;
+  /// Whether the procedure needs an unwind table entry even without unwind
+  /// directives, and whether its entry has already been emitted.
+  bool ForceEntry = false;
+  bool InfoEmitted = false;
 };
 
 MCStreamer *createIA64ELFStreamer(const Triple &T, MCContext &Ctx,
