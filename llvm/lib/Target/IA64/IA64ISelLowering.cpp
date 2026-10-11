@@ -520,23 +520,45 @@ SDValue IA64TargetLowering::LowerGlobalTLSAddress(SDValue Op,
     return LowerCallTo(CLI).first;
   };
 
+  // A link-time constant offset is added to its base with a single add if
+  // it fits in 22 bits, which is assumed unless -mtls-size says otherwise.
+  // A 14-bit offset lets the add use any base register; a 64-bit one is
+  // materialized first.
+  unsigned Size = getTargetMachine().Options.TLSSize;
+  Size = Size == 0 ? 22 : Size <= 14 ? 14 : Size <= 22 ? 22 : 64;
+  auto Known = [&](unsigned Flags, SDValue Base) {
+    return DAG.getNode(Size == 14 ? IA64ISD::TLSOFF14 : IA64ISD::TLSOFF, DL,
+                       MVT::i64, Sym(Flags), Base);
+  };
+
   SDValue Addr;
   switch (getTargetMachine().getTLSModel(GV)) {
   case TLSModel::LocalExec:
-    Addr = DAG.getNode(IA64ISD::TLSOFF, DL, MVT::i64, Sym(IA64::S_TPREL),
-                       ThreadPointer());
+    if (Size == 64)
+      Addr = DAG.getNode(
+          ISD::ADD, DL, MVT::i64,
+          DAG.getNode(IA64ISD::TLSOFF64, DL, MVT::i64, Sym(IA64::S_TPREL)),
+          ThreadPointer());
+    else
+      Addr = Known(IA64::S_TPREL, ThreadPointer());
     break;
   case TLSModel::InitialExec:
     Addr = DAG.getNode(ISD::ADD, DL, MVT::i64,
                        loadLinkageTableEntry(Sym(IA64::S_LTOFF_TPREL), DL, DAG),
                        ThreadPointer());
     break;
-  case TLSModel::LocalDynamic:
-    Addr = DAG.getNode(
-        IA64ISD::TLSOFF, DL, MVT::i64, Sym(IA64::S_DTPREL),
+  case TLSModel::LocalDynamic: {
+    SDValue Module =
         GetAddr(loadLinkageTableEntry(Sym(IA64::S_LTOFF_DTPMOD), DL, DAG),
-                DAG.getConstant(0, DL, MVT::i64)));
+                DAG.getConstant(0, DL, MVT::i64));
+    if (Size == 64)
+      Addr = DAG.getNode(
+          ISD::ADD, DL, MVT::i64,
+          loadLinkageTableEntry(Sym(IA64::S_LTOFF_DTPREL), DL, DAG), Module);
+    else
+      Addr = Known(IA64::S_DTPREL, Module);
     break;
+  }
   case TLSModel::GeneralDynamic:
     Addr = GetAddr(loadLinkageTableEntry(Sym(IA64::S_LTOFF_DTPMOD), DL, DAG),
                    loadLinkageTableEntry(Sym(IA64::S_LTOFF_DTPREL), DL, DAG));

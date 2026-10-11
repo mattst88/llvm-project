@@ -32,6 +32,11 @@ def IA64gprel64 : SDNode<"IA64ISD::GPREL64", SDTIntUnaryOp>;
 // base.
 def IA64tlsoff : SDNode<"IA64ISD::TLSOFF", SDTIntBinOp>;
 
+// The same with an offset known to fit in 14 bits, and the bare 64-bit
+// offset when nothing is known about it.
+def IA64tlsoff14 : SDNode<"IA64ISD::TLSOFF14", SDTIntBinOp>;
+def IA64tlsoff64 : SDNode<"IA64ISD::TLSOFF64", SDTIntUnaryOp>;
+
 // The stack pointer on entry.
 def IA64frameaddr
     : SDNode<"IA64ISD::FRAMEADDR", SDTypeProfile<1, 0, [SDTCisVT<0, i64>]>>;
@@ -339,3 +344,6 @@ def : Pat<(IA64gprel64 tconstpool:$sym), (ADD (MOVL tconstpool:$sym), R1)>;
 def : Pat<(IA64ltoff tglobaltlsaddr:$sym), (ADDL tglobaltlsaddr:$sym, R1)>;
 def : Pat<(IA64tlsoff tglobaltlsaddr:$sym, GR0_3:$base),
           (ADDL tglobaltlsaddr:$sym, GR0_3:$base)>;
+def : Pat<(IA64tlsoff14 tglobaltlsaddr:$sym, GR:$base),
+          (ADDS tglobaltlsaddr:$sym, GR:$base)>;
+def : Pat<(IA64tlsoff64 tglobaltlsaddr:$sym), (MOVL tglobaltlsaddr:$sym)>;
