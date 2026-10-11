@@ -174,3 +174,27 @@ define i64 @variable_offset(i64 %a) {
   %r = call i64 getelementptr inbounds ([4 x ptr], ptr @descriptors, i64 0, i64 2)(i64 %a)
   ret i64 %r
 }
+
+; A call returns to the bundle after it, and an unwinder has to find that
+; address in the function that made the call, so a call is never the last
+; instruction of a function.
+
+declare void @never() noreturn
+
+define internal void @inside() noreturn noinline {
+; CHECK-LABEL: inside:
+; CHECK:         br.call.sptk.many b0 = never ;;
+; CHECK-NEXT:    mov r1 = r32 ;;
+; CHECK-NEXT:    .endp inside
+  call void @never()
+  unreachable
+}
+
+define void @ends_with_call() {
+; CHECK-LABEL: ends_with_call:
+; CHECK:         br.call.sptk.many b0 = inside ;;
+; CHECK-NEXT:    break.f 0 ;;
+; CHECK-NEXT:    .endp ends_with_call
+  call void @inside()
+  unreachable
+}

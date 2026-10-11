@@ -13,6 +13,12 @@
 //
 // The branch's whether hint (dptk/dpnt) comes from the branch probability.
 //
+// The pass also keeps a function from ending in a call. A call returns to
+// the following bundle, and an unwinder attributes that address to the
+// calling function, which would be wrong if the next function started
+// there. A noreturn call may be the last instruction, so an unreachable
+// break.f is appended after it.
+//
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
@@ -85,6 +91,21 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
       MI.eraseFromParent();
       Changed = true;
     }
+  }
+
+  for (MachineBasicBlock &MBB : reverse(MF)) {
+    auto Last = MBB.getLastNonDebugInstr();
+    while (Last != MBB.end() && Last->isMetaInstruction())
+      Last = Last == MBB.begin() ? MBB.end() : prev_nodbg(Last, MBB.begin());
+    if (Last == MBB.end())
+      continue;
+    if (Last->isCall() && !Last->isReturn()) {
+      BuildMI(MF.back(), MF.back().end(), DebugLoc(), TII.get(IA64::BREAK_F))
+          .addImm(0)
+          .addReg(IA64::P0);
+      Changed = true;
+    }
+    break;
   }
   return Changed;
 }
