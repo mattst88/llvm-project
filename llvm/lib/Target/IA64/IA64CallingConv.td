@@ -17,6 +17,9 @@ def CC_IA64 : CallingConv<[
   // since the callee reads it from memory.
   CCIfArgVarArg<CCIfType<[f32, f64], CCBitConvertToType<i64>>>,
 
+  // 16-byte aligned arguments start at an even slot.
+  CCIfType<[i64], CCIfSplit<CCCustom<"CC_IA64_SkipOddSlot">>>,
+
   CCIfType<[i64], CCAssignToReg<[R32, R33, R34, R35, R36, R37, R38, R39]>>,
 
   // An FP argument still takes a slot, and while slots remain it goes in the

@@ -25,11 +25,29 @@
 
 using namespace llvm;
 
+static const MCPhysReg Slots[] = {IA64::R32, IA64::R33, IA64::R34, IA64::R35,
+                                  IA64::R36, IA64::R37, IA64::R38, IA64::R39};
+
+// Argument slots are numbered across the registers and on into the stack,
+// whose first slot is 16-byte aligned. Skip the next slot if it is odd, so a
+// 16-byte-aligned argument starts at an even slot. The argument itself is
+// not allocated here.
+static bool CC_IA64_SkipOddSlot(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                                CCValAssign::LocInfo &LocInfo,
+                                ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  if (ArgFlags.getNonZeroOrigAlign() < Align(16))
+    return false;
+  unsigned Slot = State.getFirstUnallocated(Slots);
+  if (Slot == std::size(Slots))
+    Slot += State.getStackSize() / 8;
+  if (Slot % 2 != 0 && !State.AllocateReg(Slots))
+    State.AllocateStack(8, Align(8));
+  return false;
+}
+
 static bool CC_IA64_FP(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
                        CCValAssign::LocInfo &LocInfo, ISD::ArgFlagsTy &ArgFlags,
                        CCState &State) {
-  static const MCPhysReg Slots[] = {IA64::R32, IA64::R33, IA64::R34, IA64::R35,
-                                    IA64::R36, IA64::R37, IA64::R38, IA64::R39};
   static const MCPhysReg FRs[] = {IA64::F8,  IA64::F9,  IA64::F10, IA64::F11,
                                   IA64::F12, IA64::F13, IA64::F14, IA64::F15};
   // Past the eighth slot, FP arguments go on the stack even if FP registers
@@ -294,8 +312,6 @@ SDValue IA64TargetLowering::LowerFormalArguments(
   // another, so those that came in registers are written below the ones
   // that did not. The last two of them fit in the scratch area and the
   // frame has the rest at its top.
-  static const MCPhysReg Slots[] = {IA64::R32, IA64::R33, IA64::R34, IA64::R35,
-                                    IA64::R36, IA64::R37, IA64::R38, IA64::R39};
   unsigned First = CCInfo.getFirstUnallocated(Slots);
   auto SlotOffset = [](unsigned Slot) { return -8 * int64_t(8 - Slot); };
   SmallVector<SDValue, 8> Stores;
