@@ -31,6 +31,11 @@ public:
   /// ".mmi".
   virtual void emitTemplate(unsigned Index);
 
+  /// Let \p Symbol be the slot of the next instruction: the address of its
+  /// bundle and in the low bits which of the three it is. Assembly writes
+  /// this as "[symbol:]".
+  virtual void emitTag(MCSymbol *Symbol, SMLoc Loc = SMLoc());
+
   /// Begin a procedure with entry points \p Entries. Assembly writes this as
   /// ".proc".
   virtual void emitProc(ArrayRef<MCSymbol *> Entries);
@@ -185,6 +190,7 @@ public:
 
   void emitStop() override;
   void emitTemplate(unsigned Index) override;
+  void emitTag(MCSymbol *Symbol, SMLoc Loc) override;
   void emitProc(ArrayRef<MCSymbol *> Entries) override;
   void emitEndp() override;
   void emitPrologue(unsigned Mask, unsigned GRSave) override;

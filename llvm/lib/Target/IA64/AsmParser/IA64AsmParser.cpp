@@ -59,7 +59,7 @@ class IA64AsmParser : public MCTargetAsmParser {
 
   // A statement may open with a qualifying predicate: "(p6) add ...".
   bool tokenIsStartOfStatement(AsmToken::TokenKind Token) override {
-    return Token == AsmToken::LParen;
+    return Token == AsmToken::LParen || Token == AsmToken::LBrac;
   }
 
   void onEmptyStatement(const AsmToken &Terminator) override;
@@ -749,6 +749,39 @@ bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
 bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
                                      SMLoc NameLoc, OperandVector &Operands) {
   MCAsmParser &Parser = getParser();
+
+  // "[name:]" is a tag: a symbol for the slot of the next instruction, which
+  // may follow on the same line. The generic parser has consumed the bracket
+  // and passed it as the name.
+  while (Name == "[") {
+    SMLoc SymLoc = Parser.getTok().getLoc();
+    MCSymbol *Sym;
+    // A local label of a digit would have to be defined at once to be
+    // referred to backwards, and a tag is not until its instruction is in
+    // a bundle.
+    if ((Parser.getTok().isNot(AsmToken::Identifier) &&
+         Parser.getTok().isNot(AsmToken::String)) ||
+        Parser.parseSymbol(Sym))
+      return Error(SymLoc, "expected a symbol");
+    if (Parser.parseToken(AsmToken::Colon, "expected ':'") ||
+        Parser.parseToken(AsmToken::RBrac, "expected ']'"))
+      return true;
+    if (Parser.checkForValidSection())
+      return true;
+    getTargetStreamer().emitTag(Sym, SymLoc);
+    if (parseOptionalToken(AsmToken::EndOfStatement))
+      return false;
+    NameLoc = Parser.getTok().getLoc();
+    if (parseOptionalToken(AsmToken::LBrac)) {
+      Name = "[";
+    } else if (parseOptionalToken(AsmToken::LParen)) {
+      Name = "(";
+    } else {
+      if (Parser.parseIdentifier(Name) || Name.starts_with("."))
+        return Error(NameLoc, "expected an instruction after the tag");
+      Name = getContext().allocateString(Name.lower());
+    }
+  }
 
   // Data directives have no leading dot, so they arrive as instructions.
   ParseStatus Directive = parseDataDirective(Name);

@@ -83,6 +83,9 @@ class IA64ELFStreamer : public MCELFStreamer {
     /// region whose first instruction it is, or -1.
     int Mark;
     int StartMark;
+    /// The tags, which are symbols for the slot that this one comes to be
+    /// in and not for a bundle.
+    SmallVector<std::pair<MCSymbol *, SMLoc>, 1> Tags;
   };
 
   /// A position in the instruction stream that the unwind information refers
@@ -108,6 +111,8 @@ class IA64ELFStreamer : public MCELFStreamer {
   /// The marks for the upcoming instructions, next one first, or -1.
   SmallVector<int, 4> NextMarks;
   int NextStartMark = -1;
+  /// The tags that the next instruction is to have.
+  SmallVector<std::pair<MCSymbol *, SMLoc>, 1> NextTags;
 
   /// Where the last instruction ended, if only labels followed it.
   MCFragment *LastFragment = nullptr;
@@ -201,11 +206,16 @@ public:
     Marks.clear();
     NextMarks.clear();
     NextStartMark = -1;
+    NextTags.clear();
     LastFragment = nullptr;
     MCELFStreamer::reset();
   }
 
   void emitTemplate(unsigned Index) { NextTemplate = Index; }
+
+  void emitTag(MCSymbol *Symbol, SMLoc Loc) {
+    NextTags.emplace_back(Symbol, Loc);
+  }
 
   void emitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) override;
 
@@ -328,8 +338,9 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   assert(Units != 0 && "instruction has no unit");
   Pending.push_back({Inst, &STI, Units,
                      (Inst.getFlags() & IA64II::StopAfter) != 0, NextTemplate,
-                     NextMarks.empty() ? -1 : NextMarks.front(),
-                     NextStartMark});
+                     NextMarks.empty() ? -1 : NextMarks.front(), NextStartMark,
+                     std::move(NextTags)});
+  NextTags.clear();
   NextTemplate = -1;
   if (!NextMarks.empty())
     NextMarks.erase(NextMarks.begin());
@@ -431,6 +442,9 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
     }
     if (PI.Mark != -1)
       Marks[PI.Mark] = {GetBundleSym(), Slot};
+    for (auto [Tag, Loc] : PI.Tags)
+      MCELFStreamer::emitLabelAtPos(Tag, Loc, *getCurrentFragment(),
+                                    BundleOffset + Slot);
     for (unsigned I = 0; I != Code.size(); I += IA64::SlotBytes) {
       if (I != 0)
         ++Slot;
@@ -497,6 +511,11 @@ void IA64ELFStreamer::flush(bool Stop) {
   auto Break = [&] {
     if (Stop)
       LastFragment = nullptr;
+    // A tag with no following instruction becomes a label at the current
+    // position.
+    for (auto [Tag, Loc] : NextTags)
+      MCELFStreamer::emitLabel(Tag, Loc);
+    NextTags.clear();
   };
   if (Pending.empty()) {
     if (Stop)
@@ -531,6 +550,10 @@ void IA64TargetELFStreamer::emitStop() {
 
 void IA64TargetELFStreamer::emitTemplate(unsigned Index) {
   static_cast<IA64ELFStreamer &>(getStreamer()).emitTemplate(Index);
+}
+
+void IA64TargetELFStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {
+  static_cast<IA64ELFStreamer &>(getStreamer()).emitTag(Symbol, Loc);
 }
 
 void IA64TargetELFStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {
