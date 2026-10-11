@@ -424,7 +424,9 @@ foreach K = IntLoadKinds in
   foreach S = IntSizes in
     defm LD#S.Name#!toupper(!subst(".", "_", K.Name))
         : IntLoad<!add(!shl(K.Code, 2), S.Code), "ld"#S.Name#K.Name>;
-// The fill restores a register and its NaT bit from a spill.
+// ld8.fill restores a register and its NaT bit saved by st8.spill. The NaT
+// bit is held in ar.unat in between.
+let Uses = [AR36] in
 defm LD8_FILL : IntLoad<0x1b, "ld8.fill">;
 def LD8_MOV : M1Mov<0x03, "ld8.mov">;
 def LD16     : M1_16<0x28, "ld16">;
@@ -439,10 +441,14 @@ foreach S = IntSizes in {
   defm ST#S.Name       : IntStore<!add(0x30, S.Code), "st"#S.Name>;
   defm ST#S.Name#_REL  : IntStore<!add(0x34, S.Code), "st"#S.Name#".rel">;
 }
+let Defs = [AR36] in
 defm ST8_SPILL : IntStore<0x3b, "st8.spill">;
+let mayStore = 1 in {
 def ST16     : M4_16<0x30, "st16">;
 def ST16_REL : M4_16<0x34, "st16.rel">;
+}
 
+let mayLoad = 1 in
 multiclass FPLoad<bits<6> x6, string mnemonic> {
   def "" : M6<x6, mnemonic>;
   def _r : M7<x6, mnemonic>;

@@ -58,10 +58,14 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // ar.pfs, which calls and returns exchange with the current frame marker.
   Reserved.set(IA64::AR64);
 
-  // The last two locals are kept back so that the prologue always has
-  // somewhere to save ar.pfs and the return link.
-  Reserved.set(IA64::R118);
-  Reserved.set(IA64::R119);
+  // ar.unat, the NaT bits of spilled GRs.
+  Reserved.set(IA64::AR36);
+
+  // The last five locals are kept back so that the prologue always has
+  // somewhere to save ar.pfs, the return link and ar.unat, and to keep the
+  // stack pointer as it was on entry and as the prologue left it.
+  for (unsigned Reg = IA64::R115; Reg <= IA64::R119; ++Reg)
+    Reserved.set(Reg);
 
   return Reserved;
 }

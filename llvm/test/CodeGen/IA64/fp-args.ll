@@ -108,9 +108,10 @@ define double @minus_zero() {
 define double @across(double %a) {
 ; CHECK-LABEL: across:
 ; CHECK:       adds r12 = -16, r12 ;;
-; CHECK-NEXT:  .body
 ; CHECK-NEXT:  adds r2 = 16, r12 ;;
+; CHECK-NEXT:  .save.f 0x1
 ; CHECK-NEXT:  stf.spill [r2] = f2
+; CHECK-NEXT:  .body
 ; CHECK:       mov f2 = f8
 ; CHECK:       br.call.sptk.many b0 = x ;;
 ; CHECK:       mov f8 = f2

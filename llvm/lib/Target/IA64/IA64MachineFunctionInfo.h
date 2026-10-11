@@ -19,6 +19,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   Register SavedPFS;
   Register SavedRP;
 
+  // The local holding ar.unat on entry, if the function spills a general
+  // register and so modifies it.
+  Register SavedUNAT;
+
   // The local holding the incoming stack pointer, if SP moves after the
   // prologue.
   Register FramePointer;
@@ -44,6 +48,8 @@ public:
   void setSavedPFS(Register Reg) { SavedPFS = Reg; }
   Register getSavedRP() const { return SavedRP; }
   void setSavedRP(Register Reg) { SavedRP = Reg; }
+  Register getSavedUNAT() const { return SavedUNAT; }
+  void setSavedUNAT(Register Reg) { SavedUNAT = Reg; }
   Register getFramePointer() const { return FramePointer; }
   void setFramePointer(Register Reg) { FramePointer = Reg; }
   Register getBasePointer() const { return BasePointer; }

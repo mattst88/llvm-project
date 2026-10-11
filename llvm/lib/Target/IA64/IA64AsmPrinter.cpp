@@ -245,6 +245,24 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
       TS.emitSave(IA64TargetStreamer::UR_RP,
                   MI.getOperand(0).getReg() - IA64::R0);
     break;
+  case IA64::MOV_FROM_AR:
+    if (MI.getOperand(1).getReg() == IA64::AR36)
+      TS.emitSave(IA64TargetStreamer::UR_UNAT,
+                  MI.getOperand(0).getReg() - IA64::R0);
+    break;
+  // Callee-saved registers spilled to memory are at the location the
+  // unwinder expects, so only the mask is recorded.
+  case IA64::ST8_SPILL:
+    TS.emitSaveG(1u << (MI.getOperand(1).getReg() - IA64::R4));
+    break;
+  case IA64::STF_SPILL: {
+    MCRegister Reg = MI.getOperand(1).getReg();
+    if (Reg <= IA64::F5)
+      TS.emitSaveF(1u << (Reg - IA64::F2));
+    else
+      TS.emitSaveGF(0, 1u << (Reg - IA64::F16 + 4));
+    break;
+  }
   case IA64::ADDS:
     // A copy of sp made before sp moves locates the frame from then on.
     if (MI.getOperand(0).getReg() != IA64::R12) {

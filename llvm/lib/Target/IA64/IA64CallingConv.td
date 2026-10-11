@@ -42,10 +42,16 @@ def RetCC_IA64 : CallingConv<[
 
 // Stacked registers are preserved across calls by the RSE, not by the
 // callee, so they are listed in the call-preserved mask rather than here.
-def CSR_IA64 : CalleeSavedRegs<(add (sequence "R%u", 4, 7),
-                                    (sequence "F%u", 2, 5),
-                                    (sequence "F%u", 16, 31),
-                                    (sequence "B%u", 1, 5),
+//
+// The unwinder computes the save location of memory-spilled registers
+// solely from which ones are saved: GRs lowest, BRs above them, FRs above
+// those, each kind in register number order, ending where the frame begins.
+// The first register listed here gets the first slot, and slots are
+// allocated downwards.
+def CSR_IA64 : CalleeSavedRegs<(add (sequence "F%u", 31, 16),
+                                    (sequence "F%u", 5, 2),
+                                    (sequence "B%u", 5, 1),
+                                    (sequence "R%u", 7, 4),
                                     (sequence "P%u", 1, 5),
                                     (sequence "P%u", 16, 63))>;
 

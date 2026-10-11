@@ -53,15 +53,22 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   bool SaveRP = MF.getFrameInfo().hasCalls();
+  // Spilling a GR puts its NaT bit in ar.unat, which is callee-saved.
+  bool SaveUNAT = any_of(MF.getFrameInfo().getCalleeSavedInfo(),
+                         [](const CalleeSavedInfo &CS) {
+                           return IA64::GRRegClass.contains(CS.getReg());
+                         });
   // Objects in a realigned frame are addressed from sp, or from a base
   // pointer copy of it if sp moves.
   bool Realign = TRI.hasStackRealignment(MF);
   bool NeedsBP = Realign && MF.getFrameInfo().hasVarSizedObjects();
-  if (Locals != Inputs || Outputs != 0 || SaveRP || hasFP(MF)) {
+  if (Locals != Inputs || Outputs != 0 || SaveRP || SaveUNAT || hasFP(MF)) {
     Register SavedPFS = IA64::R32 + Locals++;
     FI->setSavedPFS(SavedPFS);
     if (SaveRP)
       FI->setSavedRP(IA64::R32 + Locals++);
+    if (SaveUNAT)
+      FI->setSavedUNAT(IA64::R32 + Locals++);
     if (hasFP(MF))
       FI->setFramePointer(IA64::R32 + Locals++);
     if (NeedsBP)
@@ -81,6 +88,11 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
       if (!MBB.isLiveIn(IA64::B0))
         MBB.addLiveIn(IA64::B0);
     }
+    if (SaveUNAT)
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_AR), FI->getSavedUNAT())
+          .addReg(IA64::AR36)
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameSetup);
     // If sp moves in the body, the frame is located from the incoming sp.
     if (FI->getFramePointer())
       BuildMI(MBB, MBBI, DL, TII.get(IA64::ADDS), FI->getFramePointer())
@@ -93,6 +105,8 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
       Other.addLiveIn(SavedPFS);
       if (SaveRP)
         Other.addLiveIn(FI->getSavedRP());
+      if (SaveUNAT)
+        Other.addLiveIn(FI->getSavedUNAT());
       if (FI->getFramePointer())
         Other.addLiveIn(FI->getFramePointer());
       if (NeedsBP)
@@ -147,6 +161,13 @@ void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   const auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  // All GR fills are done by now, which was the last use of the NaT bits of
+  // this function's spills.
+  if (FI->getSavedUNAT())
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR), IA64::AR36)
+        .addReg(FI->getSavedUNAT(), RegState::Kill)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
   if (FI->getFramePointer())
     BuildMI(MBB, MBBI, DL, TII.get(IA64::ADDS), IA64::R12)
         .addImm(0)
@@ -204,16 +225,77 @@ MachineBasicBlock::iterator IA64FrameLowering::eliminateCallFramePseudoInstr(
   return MBB.erase(I);
 }
 
+// Callee-saved registers are spilled in full, GRs with their NaT bit and FRs
+// as all 82 bits, regardless of what this function keeps in them.
+bool IA64FrameLowering::spillCalleeSavedRegisters(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+    ArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
+  const TargetInstrInfo &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
+  DebugLoc DL;
+  for (const CalleeSavedInfo &CS : CSI) {
+    MCRegister Reg = CS.getReg();
+    unsigned Opc;
+    if (IA64::GRRegClass.contains(Reg))
+      Opc = IA64::ST8_SPILL;
+    else if (IA64::FRRegClass.contains(Reg))
+      Opc = IA64::STF_SPILL;
+    else
+      report_fatal_error("IA64 cannot save a register of this class yet");
+    BuildMI(MBB, MI, DL, TII.get(IA64::ADDS), IA64::R2)
+        .addImm(0)
+        .addFrameIndex(CS.getFrameIdx())
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameSetup);
+    BuildMI(MBB, MI, DL, TII.get(Opc))
+        .addReg(IA64::R2, RegState::Kill)
+        .addReg(Reg, RegState::Kill)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameSetup);
+  }
+  return true;
+}
+
+bool IA64FrameLowering::restoreCalleeSavedRegisters(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+    MutableArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
+  const TargetInstrInfo &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
+  DebugLoc DL = MI != MBB.end() ? MI->getDebugLoc() : DebugLoc();
+  for (const CalleeSavedInfo &CS : reverse(CSI)) {
+    MCRegister Reg = CS.getReg();
+    // A GR can hold its own fill address.
+    bool IsGR = IA64::GRRegClass.contains(Reg);
+    MCRegister Addr = IsGR ? Reg : MCRegister(IA64::R2);
+    BuildMI(MBB, MI, DL, TII.get(IA64::ADDS), Addr)
+        .addImm(0)
+        .addFrameIndex(CS.getFrameIdx())
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
+    BuildMI(MBB, MI, DL, TII.get(IsGR ? IA64::LD8_FILL : IA64::LDF_FILL), Reg)
+        .addReg(Addr, RegState::Kill)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
+  }
+  return true;
+}
+
 StackOffset
 IA64FrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
                                           Register &FrameReg) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   int64_t Offset = MFI.getObjectOffset(FI) + ScratchAreaSize;
   const auto *FuncInfo = MF.getInfo<IA64MachineFunctionInfo>();
-  // Only what the caller put on the stack is where the stack pointer was
-  // when it has since been aligned: the rest is where the stack pointer is.
+  // In a realigned frame only the caller's stack arguments are at fixed
+  // offsets from the incoming sp; everything else is relative to the aligned
+  // sp. Callee-save slots also use the incoming sp, since the unwinder looks
+  // for them there.
   bool Realigned = MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF);
-  if (Realigned && !MFI.isFixedObjectIndex(FI)) {
+  bool IsSave =
+      MFI.isCalleeSavedInfoValid() &&
+      any_of(MFI.getCalleeSavedInfo(),
+             [&](const CalleeSavedInfo &CS) { return CS.getFrameIdx() == FI; });
+  if (Realigned && !MFI.isFixedObjectIndex(FI) && !IsSave) {
     FrameReg = FuncInfo->getBasePointer();
     if (!FrameReg)
       FrameReg = IA64::R12;

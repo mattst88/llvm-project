@@ -1,32 +1,40 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
 
-; More values at once than there are registers: 23 scratch ones, 86 inputs
+; More values at once than there are registers: 23 scratch ones, 83 inputs
 ; and locals, eight outputs, which come after the locals, and the four
-; preserved ones, which have to be saved first. Two values go to the frame,
-; and their sixteen bytes are the scratch area the caller provides. Memory is addressed through a register, so each store to the
-; frame needs its address in r2 first, while a load can put the address in
-; the register it is about to fill.
+; preserved ones, which have to be saved first, with their NaT bits and so
+; with a copy of where those are kept. Two values go to the frame, and their
+; sixteen bytes are the scratch area the caller provides. Memory is addressed
+; through a register, so each store to the frame needs its address in r2
+; first, while a load can put the address in the register it is about to
+; fill.
 
 define void @spill(ptr %p, ptr %q) {
 ; CHECK-LABEL: spill:
-; CHECK:         alloc r118 = ar.pfs, 2, 85, 8, 0
+; CHECK:         alloc r115 = ar.pfs, 2, 83, 8, 0
+; CHECK-NEXT:    .save ar.unat, r116
+; CHECK-NEXT:    mov r116 = ar.unat
 ; CHECK-NEXT:    .fframe 32
 ; CHECK-NEXT:    adds r12 = -32, r12 ;;
-; CHECK-NEXT:    .body
 ; CHECK-NEXT:    adds r2 = 40, r12 ;;
-; CHECK-NEXT:    st8 [r2] = r4
+; CHECK-NEXT:    .save.g 0x8
+; CHECK-NEXT:    st8.spill [r2] = r7
 ; CHECK-NEXT:    adds r2 = 32, r12 ;;
-; CHECK-NEXT:    st8 [r2] = r5
+; CHECK-NEXT:    .save.g 0x4
+; CHECK-NEXT:    st8.spill [r2] = r6
 ; CHECK-NEXT:    adds r2 = 24, r12 ;;
-; CHECK-NEXT:    st8 [r2] = r6
+; CHECK-NEXT:    .save.g 0x2
+; CHECK-NEXT:    st8.spill [r2] = r5
 ; CHECK-NEXT:    adds r2 = 16, r12 ;;
-; CHECK-NEXT:    st8 [r2] = r7
+; CHECK-NEXT:    .save.g 0x1
+; CHECK-NEXT:    st8.spill [r2] = r4
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    ld8 r14 = [r32]
 ; CHECK-NEXT:    mov r2 = r12 ;;
 ; CHECK-NEXT:    st8 [r2] = r14
-; CHECK:         ld8 r117 = [r32]
-; CHECK-NEXT:    ld8 r119 = [r32]
-; CHECK:         ld8 r126 = [r32]
+; CHECK:         ld8 r114 = [r32]
+; CHECK-NEXT:    ld8 r117 = [r32]
+; CHECK:         ld8 r124 = [r32]
 ; CHECK-NEXT:    ld8 r4 = [r32]
 ; CHECK:         ld8 r7 = [r32]
 ; CHECK-NEXT:    ld8 r14 = [r32]
@@ -41,10 +49,11 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    ld8 r14 = [r14] ;;
 ; CHECK-NEXT:    st8 [r33] = r14
 ; CHECK-NEXT:    st8 [r33] = r32
-; CHECK-NEXT:    adds r7 = 16, r12 ;;
-; CHECK-NEXT:    ld8 r7 = [r7]
-; CHECK:         adds r4 = 40, r12 ;;
-; CHECK-NEXT:    ld8 r4 = [r4]
+; CHECK-NEXT:    adds r4 = 16, r12 ;;
+; CHECK-NEXT:    ld8.fill r4 = [r4]
+; CHECK:         adds r7 = 40, r12 ;;
+; CHECK-NEXT:    ld8.fill r7 = [r7]
+; CHECK-NEXT:    mov ar.unat = r116
 ; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    adds r12 = 32, r12
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
@@ -166,9 +175,6 @@ define void @spill(ptr %p, ptr %q) {
   %v115 = load volatile i64, ptr %p
   %v116 = load volatile i64, ptr %p
   %v117 = load volatile i64, ptr %p
-  %v118 = load volatile i64, ptr %p
-  %v119 = load volatile i64, ptr %p
-  %v120 = load volatile i64, ptr %p
   store volatile i64 %v0, ptr %q
   store volatile i64 %v1, ptr %q
   store volatile i64 %v2, ptr %q
@@ -287,8 +293,5 @@ define void @spill(ptr %p, ptr %q) {
   store volatile i64 %v115, ptr %q
   store volatile i64 %v116, ptr %q
   store volatile i64 %v117, ptr %q
-  store volatile i64 %v118, ptr %q
-  store volatile i64 %v119, ptr %q
-  store volatile i64 %v120, ptr %q
   ret void
 }
