@@ -85,6 +85,9 @@ class IA64ELFStreamer : public MCELFStreamer {
     unsigned Units;
     /// Whether it must be in the last slot of a bundle.
     bool LastSlot;
+    /// Whether it must be in the first slot of a bundle, with a stop after it
+    /// there.
+    bool FirstSlot;
     bool Stop;
     /// The template a directive gave the bundle this instruction starts, or
     /// -1.
@@ -152,8 +155,9 @@ class IA64ELFStreamer : public MCELFStreamer {
     return Symbol;
   }
 
-  /// Write the first of \p Insts into one bundle and return how many it took.
-  size_t emitBundle(MutableArrayRef<PendingInst> Insts);
+  /// Emit leading instructions of \p Insts as one bundle and return how many
+  /// it used. \p Braced is whether the source wrote the bundle in braces.
+  size_t emitBundle(MutableArrayRef<PendingInst> Insts, bool Braced);
 
 public:
   IA64ELFStreamer(MCContext &Ctx, std::unique_ptr<MCAsmBackend> MAB,
@@ -480,9 +484,20 @@ static bool isFirstInGroup(unsigned Opcode) {
          Opcode == IA64::LOADRS;
 }
 
+/// Whether the instruction inserts or purges translations. It must end its
+/// group, and it is given the first slot of a bundle with a stop after it.
+static bool isFirstSlot(unsigned Opcode) {
+  return Opcode == IA64::ITC_D || Opcode == IA64::ITC_I ||
+         Opcode == IA64::PTC_G || Opcode == IA64::PTC_GA;
+}
+
 /// Whether a stop must immediately follow the instruction.
 static bool isLastInGroup(unsigned Opcode) {
   switch (Opcode) {
+  case IA64::ITC_D:
+  case IA64::ITC_I:
+  case IA64::PTC_G:
+  case IA64::PTC_GA:
   case IA64::COVER:
   case IA64::CLRRRB:
   case IA64::CLRRRB_PR:
@@ -545,7 +560,7 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   }
   bool LastSlot = (MCII->get(Inst.getOpcode()).TSFlags & IA64II::LastSlot) != 0;
   Pending.push_back(
-      {Inst, &STI, Units, LastSlot,
+      {Inst, &STI, Units, LastSlot, isFirstSlot(Inst.getOpcode()),
        (Inst.getFlags() & IA64II::StopAfter) != 0 ||
            isLastInGroup(Inst.getOpcode()),
        NextTemplate,
@@ -559,7 +574,8 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   NextStartMark = -1;
 }
 
-size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
+size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts,
+                                   bool Braced) {
   constexpr unsigned MII = 0, MISemiI = 1, MMI = 4, MSemiMI = 5;
   constexpr uint64_t Nop = 0x8000000, NopB = uint64_t(2) << 37;
 
@@ -609,6 +625,8 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   SmallString<12> Code;
   size_t Taken = 0;
   bool EndStop = false;
+  // Whether a mid-bundle stop is followed only by padding.
+  bool MidStopIsLast = false;
   MCSymbol *BundleSym = nullptr;
   auto GetBundleSym = [&] {
     if (!BundleSym)
@@ -624,6 +642,8 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   for (unsigned Slot = 0; Slot != 3 && (Taken == 0 || !AtEnd()); ++Slot) {
     PendingInst &PI = Insts[Taken];
     IA64II::Unit Unit = IA64II::BundleTemplates[Index].Slots[Slot];
+    if (PI.FirstSlot && Slot != 0)
+      break;
     if (!slotTakes(IA64II::BundleTemplates[Index], Slot, PI))
       continue;
 
@@ -672,9 +692,29 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
     LastEndSlot = Slot + 1;
     F->setHasInstructions(*PI.STI);
     ++Taken;
+    MidStopIsLast = false;
 
     if (!PI.Stop)
       continue;
+    // The stop goes after slot 0, whatever template was chosen and whether
+    // or not anything follows.
+    if (PI.FirstSlot) {
+      // An explicit template on a braced bundle cannot be replaced.
+      if (Braced && Explicit && Index != MMI && Index != MSemiMI)
+        getContext().reportError(
+            PI.Inst.getLoc(),
+            Twine("instruction has to end its group, and the ") +
+                IA64II::BundleTemplates[Index].Name +
+                " template has no stop after its first slot");
+      Index = MSemiMI;
+      MidStopIsLast = true;
+      continue;
+    }
+    // The next instruction must start a bundle, so this one ends its bundle.
+    if (!AtEnd() && Insts[Taken].FirstSlot) {
+      EndStop = true;
+      break;
+    }
     if (AtEnd() || Slot == 2) {
       EndStop = true;
       break;
@@ -723,7 +763,7 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
                                         Slots[1] << 46);
   support::endian::write64le(Bytes + 8, Slots[1] >> 18 | Slots[2] << 23);
   appendContents(ArrayRef(Bytes));
-  OpenFragment = EndStop ? nullptr : F;
+  OpenFragment = EndStop || MidStopIsLast ? nullptr : F;
   OpenOffset = BundleOffset;
   // Headroom was reserved, so the bundle is at the offset the fixups use.
   assert(getCurrentFragment() == F && "bundle went to another fragment");
@@ -759,7 +799,7 @@ void IA64ELFStreamer::flush(bool Stop, bool KeepLast) {
   size_t Done = 0;
   while (!Insts.empty()) {
     bool Braced = InBundle && Done >= BraceStart;
-    size_t Taken = emitBundle(Insts);
+    size_t Taken = emitBundle(Insts, Braced);
     Done += Taken;
     Insts = Insts.drop_front(Taken);
     if (Braced && !Insts.empty()) {

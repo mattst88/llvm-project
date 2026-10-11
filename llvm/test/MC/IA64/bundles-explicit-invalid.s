@@ -41,6 +41,29 @@
 l:
 }
 
+// An instruction that changes the translations ends its group, and of the
+// templates only MMI has a stop after its first slot.
+{ .mii
+// CHECK: :[[#@LINE+1]]:2: error: instruction has to end its group, and the MII template has no stop after its first slot
+	itc.d r4
+	nop 0
+	nop 0
+}
+{ .mfi
+// CHECK: :[[#@LINE+1]]:2: error: instruction has to end its group, and the MFI template has no stop after its first slot
+	ptc.g r4, r5 ;;
+}
+{ .mmi
+	itc.i r4
+	nop 0
+	nop 0
+}
+// A template that is not in braces is advice, and gives way.
+	.mii
+	itc.i r4
+	nop 0
+	nop 0 ;;
+
 // CHECK: :[[#@LINE+1]]:1: warning: no bundle is open
 }
 {
