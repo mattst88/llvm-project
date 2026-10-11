@@ -68,6 +68,14 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
   setOperationAction(ISD::ConstantFP, MVT::f64, Legal);
 
+  // There is no instruction that divides or takes a square root, only ones
+  // that start an approximation of the reciprocal.
+  for (MVT VT : {MVT::f32, MVT::f64}) {
+    for (unsigned Opc : {ISD::FDIV, ISD::FREM, ISD::FSQRT})
+      setOperationAction(Opc, VT, LibCall);
+    setOperationAction(ISD::FSINCOS, VT, Expand);
+  }
+
   // Compares write predicates; materialized as a value, the result is 0 or 1.
   setBooleanContents(ZeroOrOneBooleanContent);
 

@@ -109,6 +109,42 @@ def : Pat<(xor GR:$r3, imm8:$imm), (XORi imm8:$imm, GR:$r3)>;
 def : Pat<(and (not GR:$r3), imm8:$imm), (ANDCMi imm8:$imm, GR:$r3)>;
 
 //===----------------------------------------------------------------------===//
+// Floating-point arithmetic
+//===----------------------------------------------------------------------===//
+
+// FP arithmetic is all fma: an add multiplies by f1 (1.0) and a multiply
+// adds f0 (0.0). It rounds to the result's precision using status field 0.
+foreach T = [["f32", "_S"], ["f64", "_D"]] in {
+  defvar VT = !cast<ValueType>(T[0]);
+  defvar FMA = !cast<Instruction>("FMA"#T[1]);
+  defvar FMS = !cast<Instruction>("FMS"#T[1]);
+  defvar FNMA = !cast<Instruction>("FNMA"#T[1]);
+  def : Pat<(VT (fadd FR:$a, FR:$b)), (FMA FR:$a, (VT F1), FR:$b, 0)>;
+  def : Pat<(VT (fsub FR:$a, FR:$b)), (FMS FR:$a, (VT F1), FR:$b, 0)>;
+  def : Pat<(VT (fmul FR:$a, FR:$b)), (FMA FR:$a, FR:$b, (VT F0), 0)>;
+  def : Pat<(VT (fneg (fmul FR:$a, FR:$b))),
+            (FNMA FR:$a, FR:$b, (VT F0), 0)>;
+  def : Pat<(VT (fma FR:$a, FR:$b, FR:$c)), (FMA FR:$a, FR:$b, FR:$c, 0)>;
+  def : Pat<(VT (fma FR:$a, FR:$b, (fneg FR:$c))),
+            (FMS FR:$a, FR:$b, FR:$c, 0)>;
+  def : Pat<(VT (fma (fneg FR:$a), FR:$b, FR:$c)),
+            (FNMA FR:$a, FR:$b, FR:$c, 0)>;
+
+  // fmerge.s takes the sign from the first operand and the exponent and
+  // significand from the second; fmerge.ns inverts the sign. f0 has a clear
+  // sign bit.
+  def : Pat<(VT (fneg FR:$f)), (FMERGE_NS FR:$f, FR:$f)>;
+  def : Pat<(VT (fabs FR:$f)), (FMERGE_S (VT F0), FR:$f)>;
+  def : Pat<(VT (fneg (fabs FR:$f))), (FMERGE_NS (VT F0), FR:$f)>;
+  foreach ST = [f32, f64] in {
+    def : Pat<(VT (fcopysign FR:$mag, (ST FR:$sign))),
+              (FMERGE_S FR:$sign, FR:$mag)>;
+    def : Pat<(VT (fcopysign FR:$mag, (fneg (ST FR:$sign)))),
+              (FMERGE_NS FR:$sign, FR:$mag)>;
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Shifts
 //===----------------------------------------------------------------------===//
 

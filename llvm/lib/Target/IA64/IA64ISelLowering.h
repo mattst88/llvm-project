@@ -46,6 +46,12 @@ public:
 
   unsigned getJumpTableEncoding() const override;
 
+  // The FP multiply instruction is fma.
+  bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
+                                  EVT VT) const override {
+    return VT == MVT::f32 || VT == MVT::f64;
+  }
+
   bool isFPImmLegal(const APFloat &Imm, EVT VT,
                     bool ForCodeSize) const override {
     return VT == MVT::f32 || VT == MVT::f64;
