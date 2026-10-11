@@ -223,6 +223,8 @@ def m_sparc_Features_Group : OptionGroup<"<sparc features group>">,
 // These are explicitly handled.
 def m_hexagon_Features_HVX_Group : OptionGroup<"<hexagon features group>">,
                                    Group<m_Group>, DocName<"Hexagon HVX">;
+def m_ia64_Ignored_Group : OptionGroup<"<ia64 ignored group>">,
+                           Group<m_Group>, DocName<"IA-64">;
 def m_m68k_Features_Group: OptionGroup<"<m68k features group>">,
                            Group<m_Group>, DocName<"M68k">;
 def m_mips_Features_Group : OptionGroup<"<mips features group>">,
@@ -7625,6 +7627,34 @@ foreach i = {4-5} in
 def mfixed_range_EQ : Joined<["-"], "mfixed-range=">, Group<m_Group>,
   HelpText<"Reserve the registers of each range, as in f12-f15,f32-f127 "
            "(IA-64 only)">;
+// GCC IA-64 code generation options that do not affect correctness; ignored.
+foreach Name = ["gnu-as", "gnu-ld", "register-names", "no-register-names",
+                "dwarf2-asm", "no-dwarf2-asm", "early-stop-bits",
+                "no-early-stop-bits", "volatile-asm-stop",
+                "no-volatile-asm-stop", "inline-float-divide-min-latency",
+                "inline-float-divide-max-throughput",
+                "no-inline-float-divide", "inline-int-divide-min-latency",
+                "inline-int-divide-max-throughput", "no-inline-int-divide",
+                "inline-sqrt-min-latency", "inline-sqrt-max-throughput",
+                "no-inline-sqrt"] in
+  def : Flag<["-"], "m"#Name>, Group<m_ia64_Ignored_Group>;
+// GCC IA-64 scheduling and speculation options, each with a -mno- form; also
+// ignored.
+foreach Name = ["sched-br-data-spec", "sched-ar-data-spec",
+                "sched-control-spec", "sched-br-in-data-spec",
+                "sched-ar-in-data-spec", "sched-in-control-spec",
+                "sched-spec-ldc", "sched-spec-control-ldc",
+                "sched-prefer-non-data-spec-insns",
+                "sched-prefer-non-control-spec-insns",
+                "sched-count-spec-in-critical-path",
+                "sched-stop-bits-after-every-cycle",
+                "sched-fp-mem-deps-zero-cost",
+                "sched-max-memory-insns-hard-limit",
+                "sel-sched-dont-check-control-spec"] in {
+  def : Flag<["-"], "m"#Name>, Group<m_ia64_Ignored_Group>;
+  def : Flag<["-"], "mno-"#Name>, Group<m_ia64_Ignored_Group>;
+}
+def : Joined<["-"], "msched-max-memory-insns=">, Group<m_ia64_Ignored_Group>;
 def mconstant_gp : Flag<["-"], "mconstant-gp">, Group<m_Group>,
   HelpText<"Assume that every function called by name has the global "
            "pointer of its caller (IA-64 only)">;

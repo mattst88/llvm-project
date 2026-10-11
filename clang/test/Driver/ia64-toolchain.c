@@ -79,3 +79,45 @@
 // RUN: not %clang --target=ia64-unknown-linux-gnu -mtune=pentium \
 // RUN:   -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=TUNE-BAD
 // TUNE-BAD: error: unknown target CPU 'pentium'
+
+// What gcc is told about how to write the code, and that changes nothing
+// about what the code does, is taken and no more is said of it. It is not
+// taken for another target.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -Werror -fsyntax-only %s \
+// RUN:   -mgnu-as -mgnu-ld -mregister-names -mno-register-names \
+// RUN:   -mdwarf2-asm -mno-dwarf2-asm -mearly-stop-bits -mno-early-stop-bits \
+// RUN:   -mvolatile-asm-stop -mno-volatile-asm-stop \
+// RUN:   -minline-float-divide-min-latency \
+// RUN:   -minline-float-divide-max-throughput -mno-inline-float-divide \
+// RUN:   -minline-int-divide-min-latency -minline-int-divide-max-throughput \
+// RUN:   -mno-inline-int-divide -minline-sqrt-min-latency \
+// RUN:   -minline-sqrt-max-throughput -mno-inline-sqrt
+// RUN: %clang --target=ia64-unknown-linux-gnu -Werror -fsyntax-only %s \
+// RUN:   -msched-br-data-spec -mno-sched-br-data-spec -msched-ar-data-spec \
+// RUN:   -mno-sched-ar-data-spec -msched-control-spec \
+// RUN:   -mno-sched-control-spec -msched-br-in-data-spec \
+// RUN:   -mno-sched-br-in-data-spec -msched-ar-in-data-spec \
+// RUN:   -mno-sched-ar-in-data-spec -msched-in-control-spec \
+// RUN:   -mno-sched-in-control-spec -msched-spec-ldc -mno-sched-spec-ldc \
+// RUN:   -msched-spec-control-ldc -mno-sched-spec-control-ldc \
+// RUN:   -msched-prefer-non-data-spec-insns \
+// RUN:   -mno-sched-prefer-non-data-spec-insns \
+// RUN:   -msched-prefer-non-control-spec-insns \
+// RUN:   -mno-sched-prefer-non-control-spec-insns \
+// RUN:   -msched-count-spec-in-critical-path \
+// RUN:   -mno-sched-count-spec-in-critical-path \
+// RUN:   -msched-stop-bits-after-every-cycle \
+// RUN:   -mno-sched-stop-bits-after-every-cycle \
+// RUN:   -msched-fp-mem-deps-zero-cost -mno-sched-fp-mem-deps-zero-cost \
+// RUN:   -msched-max-memory-insns=2 -msched-max-memory-insns-hard-limit \
+// RUN:   -mno-sched-max-memory-insns-hard-limit \
+// RUN:   -msel-sched-dont-check-control-spec \
+// RUN:   -mno-sel-sched-dont-check-control-spec
+// RUN: not %clang --target=x86_64-unknown-linux-gnu -fsyntax-only %s \
+// RUN:   -msched-max-memory-insns=2 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=IGNORED-SCHED
+// IGNORED-SCHED: error: unsupported option '-msched-max-memory-insns=' for target
+// RUN: not %clang --target=x86_64-unknown-linux-gnu -fsyntax-only %s \
+// RUN:   -mno-inline-int-divide 2>&1 | FileCheck %s --check-prefix=IGNORED
+// IGNORED: error: unsupported option '-mno-inline-int-divide' for target

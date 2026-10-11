@@ -2043,6 +2043,9 @@ void Clang::AddPPCTargetArgs(const ArgList &Args,
 
 void Clang::AddIA64TargetArgs(const ArgList &Args,
                               ArgStringList &CmdArgs) const {
+  // Accept and ignore GCC options that have no effect here.
+  Args.ClaimAllArgs(options::OPT_m_ia64_Ignored_Group);
+
   // Objects of up to 8 bytes are short data by default. -G changes the limit
   // and -mno-sdata sets it to 0.
   const char *Limit = "8";
