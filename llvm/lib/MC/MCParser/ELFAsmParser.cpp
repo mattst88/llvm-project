@@ -310,9 +310,12 @@ static unsigned parseSectionFlags(const Triple &TT, StringRef flagsStr,
         return -1U;
       break;
     case 's':
-      if (TT.getArch() != Triple::hexagon)
+      if (TT.getArch() == Triple::hexagon)
+        flags |= ELF::SHF_HEX_GPREL;
+      else if (TT.getArch() == Triple::ia64)
+        flags |= ELF::SHF_IA_64_SHORT;
+      else
         return -1U;
-      flags |= ELF::SHF_HEX_GPREL;
       break;
     case 'G':
       flags |= ELF::SHF_GROUP;
