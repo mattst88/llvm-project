@@ -67,6 +67,10 @@ gen_arch_intrinsics("IntrinsicsHexagon") {
   intrinsic_prefix = "hexagon"
 }
 
+gen_arch_intrinsics("IntrinsicsIA64") {
+  intrinsic_prefix = "ia64"
+}
+
 gen_arch_intrinsics("IntrinsicsLoongArch") {
   intrinsic_prefix = "loongarch"
 }
@@ -139,6 +143,7 @@ group("public_tablegen") {
     ":IntrinsicsBPF",
     ":IntrinsicsDirectX",
     ":IntrinsicsHexagon",
+    ":IntrinsicsIA64",
     ":IntrinsicsLoongArch",
     ":IntrinsicsMips",
     ":IntrinsicsNVPTX",

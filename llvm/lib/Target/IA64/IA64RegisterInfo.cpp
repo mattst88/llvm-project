@@ -61,6 +61,12 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // ar.unat, the NaT bits of spilled GRs.
   Reserved.set(IA64::AR36);
 
+  // RSE state: ar.rsc, ar.bsp, ar.bspstore and ar.rnat.
+  Reserved.set(IA64::AR16);
+  Reserved.set(IA64::AR17);
+  Reserved.set(IA64::AR18);
+  Reserved.set(IA64::AR19);
+
   // The last five locals are kept back so that the prologue always has
   // somewhere to save ar.pfs, the return link and ar.unat, and to keep the
   // stack pointer as it was on entry and as the prologue left it.

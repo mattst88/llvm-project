@@ -586,6 +586,9 @@ def MF_A     : M24<3, 2, "mf.a">;
 def SRLZ_D   : M24<0, 3, "srlz.d">;
 def SRLZ_I   : M24<1, 3, "srlz.i">;
 def SYNC_I   : M24<3, 3, "sync.i">;
+// flushrs writes the dirty stacked registers of earlier frames to the backing
+// store, updating ar.bspstore and ar.rnat.
+let hasSideEffects = 1, Defs = [AR18, AR19] in
 def FLUSHRS  : M25<0xc, "flushrs">;
 def LOADRS   : M25<0xa, "loadrs">;
 def INVALA_E   : M26<"invala.e">;

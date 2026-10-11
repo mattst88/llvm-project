@@ -347,3 +347,7 @@ def : Pat<(IA64tlsoff tglobaltlsaddr:$sym, GR0_3:$base),
 def : Pat<(IA64tlsoff14 tglobaltlsaddr:$sym, GR:$base),
           (ADDS tglobaltlsaddr:$sym, GR:$base)>;
 def : Pat<(IA64tlsoff64 tglobaltlsaddr:$sym), (MOVL tglobaltlsaddr:$sym)>;
+
+// RSE operations used by unwinders.
+def : Pat<(int_ia64_bsp), (MOV_FROM_AR AR17)>;
+def : Pat<(int_ia64_flushrs), (FLUSHRS)>;

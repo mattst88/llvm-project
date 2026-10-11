@@ -120,10 +120,21 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         return false;
       };
 
-      // An alloc is the first instruction of its group, and a call or a
-      // return is not in the group of one. A branch to another function is
-      // neither, though it is in place of both.
-      if (MI.getOpcode() == IA64::ALLOC ||
+      // alloc, calls and returns change RSE state without declaring it, and a
+      // read of the RSE registers sees the change only from a later group.
+      auto ReadsRSE = [](const MachineInstr &MI) {
+        if (MI.getOpcode() != IA64::MOV_FROM_AR)
+          return false;
+        Register AR = MI.getOperand(1).getReg();
+        return AR == IA64::AR16 || AR == IA64::AR17 || AR == IA64::AR18 ||
+               AR == IA64::AR19;
+      };
+
+      // alloc and flushrs must be first in their group. A call or return
+      // must not share a group with an alloc; a tail call is exempt, though
+      // it acts as both.
+      if (MI.getOpcode() == IA64::ALLOC || MI.getOpcode() == IA64::FLUSHRS ||
+          ReadsRSE(MI) ||
           (NewFrame && (MI.isCall() || MI.isReturn()) &&
            MI.getOpcode() != IA64::BR_TAIL) ||
           any_of(MI.operands(), [&](const MachineOperand &MO) {
@@ -141,9 +152,10 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       }
       Last = &MI;
 
-      // A call returns to the next bundle, which starts a group whether
-      // there is a stop or not, so say so.
-      if (MI.isCall())
+      // A call returns to the next bundle, which starts a new group with or
+      // without a stop, so record one. The rest of a flushrs's group would
+      // see the register stack state from before the flush.
+      if (MI.isCall() || MI.getOpcode() == IA64::FLUSHRS)
         EndGroup();
     }
     EndGroup();
