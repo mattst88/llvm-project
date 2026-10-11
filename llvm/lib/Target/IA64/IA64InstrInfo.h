@@ -32,8 +32,34 @@ enum : uint8_t {
 } // namespace IA64
 
 namespace IA64CC {
-// The conditions of an integer compare. Each is next to its opposite.
-enum CondCode : unsigned { EQ, NE, LT, GE, GT, LE, LTU, GEU, GTU, LEU };
+// Compare conditions, integer then FP. Each is next to its inverse; for FP
+// that is the one that differs in its result for unordered operands.
+enum CondCode : unsigned {
+  EQ,
+  NE,
+  LT,
+  GE,
+  GT,
+  LE,
+  LTU,
+  GEU,
+  GTU,
+  LEU,
+  OEQ,
+  UNE,
+  OLT,
+  UGE,
+  OLE,
+  UGT,
+  OGT,
+  ULE,
+  OGE,
+  ULT,
+  UO,
+  ORD,
+};
+
+inline bool isFloatingPoint(CondCode CC) { return CC >= OEQ; }
 
 inline CondCode getOpposite(CondCode CC) { return CondCode(CC ^ 1); }
 
@@ -83,6 +109,9 @@ public:
                         int *BytesAdded = nullptr) const override;
   bool
   reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+
+  /// Whether \p MI is a conditional branch on a compare result.
+  static bool isConditionalBranch(const MachineInstr &MI);
 
   /// Compare \p LHS with \p RHS, a register or a constant, before \p I.
   /// It leaves p6 set if \p CC holds and p7 if it does not.

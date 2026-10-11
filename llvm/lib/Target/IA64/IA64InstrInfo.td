@@ -56,17 +56,20 @@ def CALL_IND : IA64Pseudo<(outs),
                                variable_ops),
                           "#CALL_IND", []>;
 
-// A compare writes a predicate and its complement, and what depends on the
-// outcome is an instruction that one of them qualifies. Until the registers
-// are assigned the two are one instruction, so that nothing has to keep a
-// predicate alive and a condition can be reversed by saying so. The pair is
-// always p6 and p7. The condition is an IA64CC::CondCode, and the second
-// operand of the compare is a register or a constant.
+// A compare writes a predicate and its complement, and its user is an
+// instruction predicated on one of them. Until register allocation the
+// compare and its user are a single pseudo, so no predicate has to stay live
+// and a condition can be inverted just by changing the condition code. The
+// predicate pair is always p6/p7. The condition is an IA64CC::CondCode, and
+// the second compare operand is a register or an immediate. The "f" forms
+// compare FP registers.
 let Defs = [P6, P7] in {
 def SETCC  : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, GR:$rhs),
                         "#SETCC", []>;
 def SETCCi : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, i64imm:$rhs),
                         "#SETCCi", []>;
+def SETCCf : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
+                        "#SETCCf", []>;
 
 // Select: $r1 is tied to $false and overwritten with $true under the
 // predicate.
@@ -79,6 +82,24 @@ def SELECTi : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$false, GR:$true, i64imm:$cc, GR:$lhs,
                               i64imm:$rhs),
                          "#SELECTi", []>;
+def SELECTf : IA64Pseudo<(outs GR:$r1),
+                         (ins GR:$false, GR:$true, i64imm:$cc, FR:$lhs,
+                              FR:$rhs),
+                         "#SELECTf", []>;
+
+// The same, selecting between FP registers.
+def SELECT_FR  : IA64Pseudo<(outs FR:$r1),
+                            (ins FR:$false, FR:$true, i64imm:$cc, GR:$lhs,
+                                 GR:$rhs),
+                            "#SELECT_FR", []>;
+def SELECT_FRi : IA64Pseudo<(outs FR:$r1),
+                            (ins FR:$false, FR:$true, i64imm:$cc, GR:$lhs,
+                                 i64imm:$rhs),
+                            "#SELECT_FRi", []>;
+def SELECT_FRf : IA64Pseudo<(outs FR:$r1),
+                            (ins FR:$false, FR:$true, i64imm:$cc, FR:$lhs,
+                                 FR:$rhs),
+                            "#SELECT_FRf", []>;
 }
 
 // A conditional branch, predicated on the compare. It is not expanded until
@@ -91,6 +112,9 @@ def BRCCi : IA64Pseudo<(outs),
                        (ins brtarget:$target, i64imm:$cc, GR:$lhs,
                             i64imm:$rhs),
                        "#BRCCi", []>;
+def BRCCf : IA64Pseudo<(outs),
+                       (ins brtarget:$target, i64imm:$cc, FR:$lhs, FR:$rhs),
+                       "#BRCCf", []>;
 }
 }
 

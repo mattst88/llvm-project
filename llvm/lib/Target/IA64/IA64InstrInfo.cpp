@@ -142,6 +142,50 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
                                 MachineBasicBlock::iterator I,
                                 const DebugLoc &DL, IA64CC::CondCode CC,
                                 Register LHS, const MachineOperand &RHS) const {
+  if (IA64CC::isFloatingPoint(CC)) {
+    // The encoded conditions are eq, lt, le and unord; all but unord are
+    // false for unordered operands. The others swap the operands or the
+    // result predicates.
+    unsigned Opcode;
+    bool Invert = (CC - IA64CC::OEQ) & 1, Swap = false;
+    switch (CC) {
+    case IA64CC::OEQ:
+    case IA64CC::UNE:
+      Opcode = IA64::FCMP_EQ;
+      break;
+    case IA64CC::OGT:
+    case IA64CC::ULE:
+      Swap = true;
+      [[fallthrough]];
+    case IA64CC::OLT:
+    case IA64CC::UGE:
+      Opcode = IA64::FCMP_LT;
+      break;
+    case IA64CC::OGE:
+    case IA64CC::ULT:
+      Swap = true;
+      [[fallthrough]];
+    case IA64CC::OLE:
+    case IA64CC::UGT:
+      Opcode = IA64::FCMP_LE;
+      break;
+    case IA64CC::UO:
+    case IA64CC::ORD:
+      Opcode = IA64::FCMP_UNORD;
+      break;
+    default:
+      llvm_unreachable("Not the condition of a floating-point compare");
+    }
+    BuildMI(MBB, I, DL, get(Opcode))
+        .addReg(Invert ? IA64::P7 : IA64::P6, RegState::Define)
+        .addReg(Invert ? IA64::P6 : IA64::P7, RegState::Define)
+        .addReg(Swap ? RHS.getReg() : LHS)
+        .addReg(Swap ? LHS : RHS.getReg())
+        .addImm(0)
+        .addReg(IA64::P0);
+    return;
+  }
+
   bool IsImm = RHS.isImm();
   unsigned Opcode;
   // Whether the encoded compare is the inverse of the requested one, and
@@ -174,6 +218,8 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
     // r > s is s < r, and an immediate is already on the left.
     Swap = !IsImm;
     break;
+  default:
+    llvm_unreachable("Not the condition of an integer compare");
   }
   switch (CC) {
   case IA64CC::EQ:
@@ -191,6 +237,8 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
   case IA64CC::LEU:
     Opcode = IsImm ? IA64::CMP_LTUi : IA64::CMP_LTU;
     break;
+  default:
+    llvm_unreachable("Not the condition of an integer compare");
   }
 
   MachineInstrBuilder MIB =
@@ -274,7 +322,8 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     return true;
   }
   case IA64::SETCC:
-  case IA64::SETCCi: {
+  case IA64::SETCCi:
+  case IA64::SETCCf: {
     // Set the result to 0, then to 1 under p6. The result may be an operand
     // register, so the compare goes first; they can still share an
     // instruction group, since a write after a read is not a dependency.
@@ -293,15 +342,30 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     break;
   }
   case IA64::SELECT:
-  case IA64::SELECTi: {
+  case IA64::SELECTi:
+  case IA64::SELECTf:
+  case IA64::SELECT_FR:
+  case IA64::SELECT_FRi:
+  case IA64::SELECT_FRf: {
     Register Dst = MI.getOperand(0).getReg();
+    Register True = MI.getOperand(2).getReg();
+    // The value kept when the predicate is false may be undef.
+    auto Kept =
+        RegState::Implicit | getUndefRegState(MI.getOperand(1).isUndef());
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(3).getImm()),
                 MI.getOperand(4).getReg(), MI.getOperand(5));
-    BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
-        .addImm(0)
-        .addReg(MI.getOperand(2).getReg())
-        .addReg(IA64::P6)
-        .addReg(Dst, RegState::Implicit);
+    if (IA64::FRRegClass.contains(Dst))
+      BuildMI(MBB, MI, DL, get(IA64::FMERGE_S), Dst)
+          .addReg(True)
+          .addReg(True)
+          .addReg(IA64::P6)
+          .addReg(Dst, Kept);
+    else
+      BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
+          .addImm(0)
+          .addReg(True)
+          .addReg(IA64::P6)
+          .addReg(Dst, Kept);
     break;
   }
   }
@@ -309,8 +373,15 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   return true;
 }
 
-static bool isConditionalBranch(const MachineInstr &MI) {
-  return MI.getOpcode() == IA64::BRCC || MI.getOpcode() == IA64::BRCCi;
+bool IA64InstrInfo::isConditionalBranch(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  case IA64::BRCC:
+  case IA64::BRCCi:
+  case IA64::BRCCf:
+    return true;
+  default:
+    return false;
+  }
 }
 
 // A branch condition is three operands: the condition code, the LHS and the
@@ -393,9 +464,12 @@ unsigned IA64InstrInfo::insertBranch(
     return 1;
   }
 
-  BuildMI(&MBB, DL, get(Cond[2].isImm() ? IA64::BRCCi : IA64::BRCC))
-      .addMBB(TBB)
-      .add(Cond);
+  unsigned Opcode = IA64::BRCC;
+  if (Cond[2].isImm())
+    Opcode = IA64::BRCCi;
+  else if (IA64CC::isFloatingPoint(IA64CC::CondCode(Cond[0].getImm())))
+    Opcode = IA64::BRCCf;
+  BuildMI(&MBB, DL, get(Opcode)).addMBB(TBB).add(Cond);
   if (!FBB)
     return 1;
   BuildMI(&MBB, DL, get(IA64::BRUNCOND)).addMBB(FBB);

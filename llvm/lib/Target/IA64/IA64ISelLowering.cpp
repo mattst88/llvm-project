@@ -81,7 +81,14 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // Selects are predicated on the compare itself, so a select on a value
   // becomes a select on its comparison with zero.
-  setOperationAction(ISD::SELECT, MVT::i64, Expand);
+  for (MVT VT : {MVT::i64, MVT::f32, MVT::f64})
+    setOperationAction(ISD::SELECT, VT, Expand);
+
+  // No single compare implements ordered-not-equal or unordered-or-equal.
+  for (MVT VT : {MVT::f32, MVT::f64}) {
+    setCondCodeAction(ISD::SETONE, VT, Expand);
+    setCondCodeAction(ISD::SETUEQ, VT, Expand);
+  }
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
 
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);

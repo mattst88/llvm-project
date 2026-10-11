@@ -36,9 +36,10 @@ public:
 
   void Select(SDNode *Node) override;
 
-  bool selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
-                     const SDLoc &DL, SmallVectorImpl<SDValue> &Ops,
-                     bool &IsImm);
+  // Compare instruction forms, by the kind of compare operands.
+  enum CompareForm { Register, Immediate, FloatingPoint };
+  CompareForm selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
+                            const SDLoc &DL, SmallVectorImpl<SDValue> &Ops);
 
 #include "IA64GenDAGISel.inc"
 };
@@ -87,26 +88,69 @@ static IA64CC::CondCode getIA64CC(ISD::CondCode CC) {
   }
 }
 
-/// The operands that say what a compare compares: the condition, the left
-/// side and the right, which is a constant if there is a compare that
-/// takes it. They are the same in every instruction that has a compare in
-/// it. Fails if the operands are not integers.
-bool IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
-                                     const SDLoc &DL,
-                                     SmallVectorImpl<SDValue> &Ops,
-                                     bool &IsImm) {
-  if (LHS.getValueType() != MVT::i64)
-    return false;
+// A condition that does not specify the unordered result is treated as the
+// one that is false for unordered operands.
+static IA64CC::CondCode getIA64FPCC(ISD::CondCode CC) {
+  switch (CC) {
+  case ISD::SETEQ:
+  case ISD::SETOEQ:
+    return IA64CC::OEQ;
+  case ISD::SETNE:
+  case ISD::SETUNE:
+    return IA64CC::UNE;
+  case ISD::SETLT:
+  case ISD::SETOLT:
+    return IA64CC::OLT;
+  case ISD::SETUGE:
+    return IA64CC::UGE;
+  case ISD::SETLE:
+  case ISD::SETOLE:
+    return IA64CC::OLE;
+  case ISD::SETUGT:
+    return IA64CC::UGT;
+  case ISD::SETGT:
+  case ISD::SETOGT:
+    return IA64CC::OGT;
+  case ISD::SETULE:
+    return IA64CC::ULE;
+  case ISD::SETGE:
+  case ISD::SETOGE:
+    return IA64CC::OGE;
+  case ISD::SETULT:
+    return IA64CC::ULT;
+  case ISD::SETUO:
+    return IA64CC::UO;
+  case ISD::SETO:
+    return IA64CC::ORD;
+  default:
+    llvm_unreachable("Not the condition of a floating-point compare");
+  }
+}
+
+/// Push the compare operands: condition code, LHS, and RHS, which is an
+/// immediate if the compare has an immediate form. These operands are common
+/// to every instruction containing a compare; returns which of the three
+/// forms applies.
+IA64DAGToDAGISel::CompareForm
+IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
+                                const SDLoc &DL,
+                                SmallVectorImpl<SDValue> &Ops) {
+  if (LHS.getValueType().isFloatingPoint()) {
+    Ops.push_back(CurDAG->getTargetConstant(getIA64FPCC(CC), DL, MVT::i64));
+    Ops.push_back(LHS);
+    Ops.push_back(RHS);
+    return FloatingPoint;
+  }
   IA64CC::CondCode IACC = getIA64CC(CC);
   Ops.push_back(CurDAG->getTargetConstant(IACC, DL, MVT::i64));
   Ops.push_back(LHS);
   auto *C = dyn_cast<ConstantSDNode>(RHS);
-  IsImm = C && IA64CC::isLegalImmediate(IACC, C->getSExtValue());
-  if (IsImm)
+  if (C && IA64CC::isLegalImmediate(IACC, C->getSExtValue())) {
     Ops.push_back(CurDAG->getTargetConstant(C->getSExtValue(), DL, MVT::i64));
-  else
-    Ops.push_back(RHS);
-  return true;
+    return Immediate;
+  }
+  Ops.push_back(RHS);
+  return Register;
 }
 
 void IA64DAGToDAGISel::Select(SDNode *Node) {
@@ -158,39 +202,34 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     return;
   }
   case ISD::SETCC: {
+    static const unsigned Opcodes[] = {IA64::SETCC, IA64::SETCCi, IA64::SETCCf};
     SmallVector<SDValue, 4> Ops;
-    bool IsImm;
-    if (!selectCompare(Node->getOperand(0), Node->getOperand(1),
-                       cast<CondCodeSDNode>(Node->getOperand(2))->get(), DL,
-                       Ops, IsImm))
-      break;
-    CurDAG->SelectNodeTo(Node, IsImm ? IA64::SETCCi : IA64::SETCC, MVT::i64,
-                         Ops);
+    CompareForm Form = selectCompare(
+        Node->getOperand(0), Node->getOperand(1),
+        cast<CondCodeSDNode>(Node->getOperand(2))->get(), DL, Ops);
+    CurDAG->SelectNodeTo(Node, Opcodes[Form], MVT::i64, Ops);
     return;
   }
   case ISD::BR_CC: {
+    static const unsigned Opcodes[] = {IA64::BRCC, IA64::BRCCi, IA64::BRCCf};
     SmallVector<SDValue, 5> Ops = {Node->getOperand(4)};
-    bool IsImm;
-    if (!selectCompare(Node->getOperand(2), Node->getOperand(3),
-                       cast<CondCodeSDNode>(Node->getOperand(1))->get(), DL,
-                       Ops, IsImm))
-      break;
+    CompareForm Form = selectCompare(
+        Node->getOperand(2), Node->getOperand(3),
+        cast<CondCodeSDNode>(Node->getOperand(1))->get(), DL, Ops);
     Ops.push_back(Node->getOperand(0));
-    CurDAG->SelectNodeTo(Node, IsImm ? IA64::BRCCi : IA64::BRCC, MVT::Other,
-                         Ops);
+    CurDAG->SelectNodeTo(Node, Opcodes[Form], MVT::Other, Ops);
     return;
   }
   case ISD::SELECT_CC: {
-    if (Node->getValueType(0) != MVT::i64)
-      break;
+    static const unsigned Opcodes[][3] = {
+        {IA64::SELECT, IA64::SELECTi, IA64::SELECTf},
+        {IA64::SELECT_FR, IA64::SELECT_FRi, IA64::SELECT_FRf}};
+    MVT VT = Node->getSimpleValueType(0);
     SmallVector<SDValue, 6> Ops = {Node->getOperand(3), Node->getOperand(2)};
-    bool IsImm;
-    if (!selectCompare(Node->getOperand(0), Node->getOperand(1),
-                       cast<CondCodeSDNode>(Node->getOperand(4))->get(), DL,
-                       Ops, IsImm))
-      break;
-    CurDAG->SelectNodeTo(Node, IsImm ? IA64::SELECTi : IA64::SELECT, MVT::i64,
-                         Ops);
+    CompareForm Form = selectCompare(
+        Node->getOperand(0), Node->getOperand(1),
+        cast<CondCodeSDNode>(Node->getOperand(4))->get(), DL, Ops);
+    CurDAG->SelectNodeTo(Node, Opcodes[VT.isFloatingPoint()][Form], VT, Ops);
     return;
   }
   }

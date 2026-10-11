@@ -68,7 +68,7 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
 
   for (MachineBasicBlock &MBB : MF) {
     for (MachineInstr &MI : make_early_inc_range(MBB.terminators())) {
-      if (MI.getOpcode() != IA64::BRCC && MI.getOpcode() != IA64::BRCCi)
+      if (!IA64InstrInfo::isConditionalBranch(MI))
         continue;
       const DebugLoc &DL = MI.getDebugLoc();
       MachineBasicBlock *Target = MI.getOperand(0).getMBB();
