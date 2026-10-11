@@ -282,13 +282,24 @@ void IA64AsmPrinter::emitBasicBlockStart(const MachineBasicBlock &MBB) {
   CopyState = false;
 }
 
+// Whether any real instruction follows a block. The following blocks may be
+// empty, and the assembler does not describe an empty region.
+static bool isFollowedByCode(const MachineBasicBlock &MBB) {
+  for (const MachineBasicBlock &Next :
+       make_range(std::next(MBB.getIterator()), MBB.getParent()->end()))
+    for (const MachineInstr &MI : Next)
+      if (!MI.isMetaInstruction())
+        return true;
+  return false;
+}
+
 // Emit unwind directives for a prologue or epilogue instruction.
 void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
   IA64TargetStreamer &TS = getTargetStreamer();
   if (MI.getFlag(MachineInstr::FrameDestroy)) {
     if (!MI.modifiesRegister(IA64::R12, /*TRI=*/nullptr))
       return;
-    if (MI.getParent() != &MF->back()) {
+    if (isFollowedByCode(*MI.getParent())) {
       TS.emitLabelState(++StateLabel);
       CopyState = true;
     }
@@ -299,7 +310,7 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
   // everything restored to its state on entry, so the rest of the function
   // is like a prologue that has not saved anything yet.
   if (MI.getOpcode() == IA64::ALLOC && !MI.getFlag(MachineInstr::FrameSetup)) {
-    if (!CopyState && MI.getParent() != &MF->back()) {
+    if (!CopyState && isFollowedByCode(*MI.getParent())) {
       TS.emitLabelState(++StateLabel);
       CopyState = true;
     }

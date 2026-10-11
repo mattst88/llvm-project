@@ -226,3 +226,25 @@ define i64 @saves_aligned(i64 %a) {
   %r = call i64 @ext(ptr %p)
   ret i64 %r
 }
+
+; A block that has no instructions is no region: the epilogue before it is
+; the last thing in the function, and nothing is said of what follows.
+define i64 @returns_before_nothing(i64 %a, i1 %c) {
+; CHECK-LABEL: returns_before_nothing:
+; CHECK:       .body
+; CHECK-NOT:   .label_state
+; CHECK:       .restore sp
+; CHECK-NEXT:  adds r12 = 16, r12
+; CHECK:       br.ret.sptk.many b0 ;;
+; CHECK-NEXT:  .LBB{{[0-9_]+}}:
+; CHECK-NEXT:  .endp returns_before_nothing
+  %p = alloca i64
+  %r = call i64 @ext(ptr %p)
+  br i1 %c, label %done, label %never
+
+done:
+  ret i64 %r
+
+never:
+  unreachable
+}
