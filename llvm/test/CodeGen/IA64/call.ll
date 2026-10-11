@@ -105,3 +105,25 @@ define void @tail() {
   tail call void @vext()
   ret void
 }
+
+; A pointer to a function is the address of its descriptor, which has the
+; entry point and the global pointer the function expects.
+define i64 @indirect(ptr %f, i64 %a) {
+; CHECK-LABEL: indirect:
+; CHECK:       alloc r35 = ar.pfs, 2, 3, 1, 0
+; CHECK-NEXT:  mov r36 = b0
+; CHECK-NEXT:  mov r34 = r1
+; CHECK-NEXT:  mov r37 = r33
+; CHECK-NEXT:  ld8 r14 = [r32]
+; CHECK-NEXT:  adds r15 = 8, r32 ;;
+; CHECK-NEXT:  ld8 r15 = [r15]
+; CHECK-NEXT:  mov b6 = r14 ;;
+; CHECK-NEXT:  mov r1 = r15
+; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
+; CHECK-NEXT:  mov r1 = r34
+; CHECK-NEXT:  mov b0 = r36
+; CHECK-NEXT:  mov ar.pfs = r35
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = call i64 %f(i64 %a)
+  ret i64 %r
+}

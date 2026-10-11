@@ -48,6 +48,14 @@ let isCall = 1, Defs = [B0, R1] in
 def CALL : IA64Pseudo<(outs), (ins calltarget:$target, GRSave:$gp, variable_ops),
                       "#CALL", []>;
 
+// An indirect call through a function descriptor. The entry point and GP have
+// already been loaded from it; the entry point goes to b6 and the GP to r1.
+let isCall = 1, Defs = [B0, B6, R1] in
+def CALL_IND : IA64Pseudo<(outs),
+                          (ins GR:$entry, GR:$calleegp, GRSave:$gp,
+                               variable_ops),
+                          "#CALL_IND", []>;
+
 // A compare writes a predicate and its complement, and what depends on the
 // outcome is an instruction that one of them qualifies. Until the registers
 // are assigned the two are one instruction, so that nothing has to keep a

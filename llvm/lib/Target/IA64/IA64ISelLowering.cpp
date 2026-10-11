@@ -139,6 +139,21 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   if (CLI.IsVarArg)
     report_fatal_error("IA64 variable argument lists are not yet implemented");
 
+  // A pointer to a function is the address of its descriptor: the entry
+  // point, and then the global pointer that the function expects.
+  bool Indirect =
+      !isa<GlobalAddressSDNode>(Callee) && !isa<ExternalSymbolSDNode>(Callee);
+  SDValue Entry, CalleeGP;
+  if (Indirect) {
+    Entry = DAG.getLoad(MVT::i64, DL, Chain, Callee, MachinePointerInfo());
+    CalleeGP =
+        DAG.getLoad(MVT::i64, DL, Chain,
+                    DAG.getMemBasePlusOffset(Callee, TypeSize::getFixed(8), DL),
+                    MachinePointerInfo());
+    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Entry.getValue(1),
+                        CalleeGP.getValue(1));
+  }
+
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CLI.CallConv, CLI.IsVarArg, MF, ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeCallOperands(CLI.Outs, CC_IA64);
@@ -168,8 +183,6 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Callee = DAG.getTargetGlobalAddress(G->getGlobal(), DL, MVT::i64);
   } else if (const auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     Callee = DAG.getTargetExternalSymbol(S->getSymbol(), MVT::i64);
-  } else {
-    report_fatal_error("IA64 indirect calls are not yet implemented");
   }
 
   SDValue GP = DAG.getRegister(IA64::R0, MVT::i64);
@@ -180,7 +193,12 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     GP = DAG.getCopyFromReg(DAG.getEntryNode(), DL, GPReg, MVT::i64);
   }
 
-  SmallVector<SDValue, 12> Ops = {Chain, Callee, GP};
+  SmallVector<SDValue, 12> Ops = {Chain};
+  if (Indirect)
+    Ops.append({Entry, CalleeGP});
+  else
+    Ops.push_back(Callee);
+  Ops.push_back(GP);
   for (Register Reg : ArgRegs)
     Ops.push_back(DAG.getRegister(Reg, MVT::i64));
   Ops.push_back(
@@ -188,8 +206,8 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   if (Glue.getNode())
     Ops.push_back(Glue);
 
-  Chain =
-      DAG.getNode(IA64ISD::CALL, DL, DAG.getVTList(MVT::Other, MVT::Glue), Ops);
+  Chain = DAG.getNode(Indirect ? IA64ISD::CALL_IND : IA64ISD::CALL, DL,
+                      DAG.getVTList(MVT::Other, MVT::Glue), Ops);
   Glue = Chain.getValue(1);
   Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, Glue, DL);
   Glue = Chain.getValue(1);

@@ -1,0 +1,65 @@
+# RUN: llc -mtriple=ia64 -run-pass=postrapseudos -verify-machineinstrs \
+# RUN:   -o - %s | FileCheck %s
+
+# A call through a pointer reads the entry point, then the global pointer of
+# the callee, then the arguments.  A register that is read again is not
+# killed where it is read first.
+
+# CHECK-LABEL: name: entry_is_argument
+# CHECK:      $b6 = MOV_BR $r120, 0, $p0
+# CHECK-NEXT: $r1 = ADDS 0, killed $r14, $p0
+# CHECK-NEXT: $b0 = BR_CALL_B killed $b6, 0, 1, 0, $p0, csr_ia64_call, implicit $r120
+
+# CHECK-LABEL: name: entry_is_gp
+# CHECK:      $b6 = MOV_BR $r14, 0, $p0
+# CHECK-NEXT: $r1 = ADDS 0, $r14, $p0
+
+# CHECK-LABEL: name: gp_is_argument
+# CHECK:      $b6 = MOV_BR killed $r15, 0, $p0
+# CHECK-NEXT: $r1 = ADDS 0, $r120, $p0
+# CHECK-NEXT: $b0 = BR_CALL_B killed $b6, 0, 1, 0, $p0, csr_ia64_call, implicit killed $r120
+
+# CHECK-LABEL: name: separate
+# CHECK:      $b6 = MOV_BR killed $r15, 0, $p0
+# CHECK-NEXT: $r1 = ADDS 0, killed $r14, $p0
+
+---
+name: entry_is_argument
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r32, $r120
+
+    CALL_IND killed $r120, killed $r14, killed $r32, $r120, csr_ia64_call, implicit-def dead $b0, implicit-def dead $b6, implicit-def dead $r1, implicit-def $r12
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+name: entry_is_gp
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r32
+
+    CALL_IND killed $r14, $r14, killed $r32, csr_ia64_call, implicit-def dead $b0, implicit-def dead $b6, implicit-def dead $r1, implicit-def $r12
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+name: gp_is_argument
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r15, $r32, $r120
+
+    CALL_IND killed $r15, killed $r120, killed $r32, killed $r120, csr_ia64_call, implicit-def dead $b0, implicit-def dead $b6, implicit-def dead $r1, implicit-def $r12
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+name: separate
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r32
+
+    CALL_IND killed $r15, killed $r14, killed $r32, csr_ia64_call, implicit-def dead $b0, implicit-def dead $b6, implicit-def dead $r1, implicit-def $r12
+    BR_RET $b0, 0, 1, 0, $p0
+...

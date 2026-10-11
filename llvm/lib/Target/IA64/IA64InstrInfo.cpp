@@ -193,31 +193,60 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   switch (MI.getOpcode()) {
   default:
     return false;
-  case IA64::CALL: {
-    // br.call.sptk.many b0 = target, and then gp back from where it is kept.
-    MachineInstrBuilder Call =
-        BuildMI(MBB, MI, DL, get(IA64::BR_CALL), IA64::B0)
-            .add(MI.getOperand(0))
-            .addImm(IA64II::WhetherSPTK)
-            .addImm(1)
-            .addImm(0)
-            .addReg(IA64::P0);
+  case IA64::CALL:
+  case IA64::CALL_IND: {
+    // br.call.sptk.many b0 = target, then restore gp from its saved copy.
+    // An indirect call first moves the entry point to b6 and the callee's GP
+    // to r1.
+    bool Indirect = MI.getOpcode() == IA64::CALL_IND;
+    unsigned GPIdx = Indirect ? 2 : 1;
+    MachineInstrBuilder Call;
+    if (Indirect) {
+      // The pseudo reads all its registers at once, but the expansion reads
+      // them in sequence, so a register that a later operand also names (as
+      // the GP or an argument) is not killed by its first reader.
+      auto Read = [&](unsigned Idx) {
+        const MachineOperand &MO = MI.getOperand(Idx);
+        bool Kill = MO.isKill();
+        for (const MachineOperand &Later :
+             drop_begin(MI.operands(), Idx + 1))
+          if (Later.isReg() && Later.getReg() && Later.readsReg() &&
+              RI.regsOverlap(Later.getReg(), MO.getReg()))
+            Kill = false;
+        return getKillRegState(Kill) | getUndefRegState(MO.isUndef());
+      };
+      BuildMI(MBB, MI, DL, get(IA64::MOV_BR), IA64::B6)
+          .addReg(MI.getOperand(0).getReg(), Read(0))
+          .addImm(0)
+          .addReg(IA64::P0);
+      BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
+          .addImm(0)
+          .addReg(MI.getOperand(1).getReg(), Read(1))
+          .addReg(IA64::P0);
+      Call = BuildMI(MBB, MI, DL, get(IA64::BR_CALL_B), IA64::B0)
+                 .addReg(IA64::B6, RegState::Kill);
+    } else {
+      Call = BuildMI(MBB, MI, DL, get(IA64::BR_CALL), IA64::B0)
+                 .add(MI.getOperand(0));
+    }
+    Call.addImm(IA64II::WhetherSPTK).addImm(1).addImm(0).addReg(IA64::P0);
     // The argument registers were explicit operands of the pseudo.
-    for (const MachineOperand &MO : drop_begin(MI.operands(), 2)) {
+    for (const MachineOperand &MO : drop_begin(MI.operands(), GPIdx + 1)) {
       if (!MO.isReg())
         Call.add(MO);
-      else if (!(MO.isDef() && MO.getReg() == IA64::B0))
+      else if (!(MO.isDef() &&
+                 (MO.getReg() == IA64::B0 || MO.getReg() == IA64::B6)))
         Call.addReg(MO.getReg(), (MO.isDef() ? RegState::ImplicitDefine
                                              : RegState::Implicit) |
                                      getKillRegState(MO.isKill()) |
                                      getDeadRegState(MO.isDead()) |
                                      getUndefRegState(MO.isUndef()));
     }
-    Register GP = MI.getOperand(1).getReg();
-    if (GP != IA64::R0)
+    const MachineOperand &GP = MI.getOperand(GPIdx);
+    if (GP.getReg() != IA64::R0)
       BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
           .addImm(0)
-          .addReg(GP, getKillRegState(MI.getOperand(1).isKill()))
+          .addReg(GP.getReg(), getKillRegState(GP.isKill()))
           .addReg(IA64::P0);
     MI.eraseFromParent();
     return true;

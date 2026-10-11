@@ -28,6 +28,11 @@ def IA64ltoff : SDNode<"IA64ISD::LTOFF", SDTIntUnaryOp>;
 def IA64call : SDNode<"IA64ISD::CALL",
                       SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>]>,
                       [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue, SDNPVariadic]>;
+def IA64call_ind
+    : SDNode<"IA64ISD::CALL_IND",
+             SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>,
+                                   SDTCisVT<2, i64>]>,
+             [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue, SDNPVariadic]>;
 
 //===----------------------------------------------------------------------===//
 // Immediates
@@ -57,6 +62,8 @@ def : Pat<(IA64call tglobaladdr:$target, GRSave:$gp),
           (CALL tglobaladdr:$target, GRSave:$gp)>;
 def : Pat<(IA64call texternalsym:$target, GRSave:$gp),
           (CALL texternalsym:$target, GRSave:$gp)>;
+def : Pat<(IA64call_ind GR:$entry, GR:$calleegp, GRSave:$gp),
+          (CALL_IND GR:$entry, GR:$calleegp, GRSave:$gp)>;
 
 //===----------------------------------------------------------------------===//
 // Integer arithmetic

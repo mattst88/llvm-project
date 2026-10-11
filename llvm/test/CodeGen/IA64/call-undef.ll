@@ -12,3 +12,16 @@ define i64 @caller(i64 %a) {
   %r = call i64 @callee(i64 %a, i64 undef)
   ret i64 %r
 }
+
+; The entry point and the global pointer of a callee with no value are one
+; load, and the register is still read for the global pointer after the
+; entry point has been moved to b6.
+
+define void @callee_undef() {
+; CHECK-LABEL: callee_undef:
+; CHECK:       mov b6 = r14
+; CHECK-NEXT:  mov r1 = r14
+; CHECK-NEXT:  br.call.sptk.many b0 = b6
+  call void undef()
+  ret void
+}
