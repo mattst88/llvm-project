@@ -65,6 +65,15 @@ class IA64TargetCodeGenInfo : public TargetCodeGenInfo {
 public:
   IA64TargetCodeGenInfo(CodeGenTypes &CGT)
       : TargetCodeGenInfo(std::make_unique<IA64ABIInfo>(CGT)) {}
+
+  // An unprototyped callee may be variadic, and then expects a floating-point
+  // argument somewhere other than where a named one goes. Treating the call
+  // as variadic, though it names all its arguments, passes the argument in
+  // both places.
+  bool isNoProtoCallVariadic(const CallArgList &Args,
+                             const FunctionNoProtoType *FnType) const override {
+    return true;
+  }
 };
 } // end anonymous namespace
 
