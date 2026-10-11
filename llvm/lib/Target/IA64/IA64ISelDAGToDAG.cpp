@@ -205,6 +205,7 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
       ReplaceNode(Node, Reg.getNode());
       return;
     }
+    assert(VT != MVT::f80 && "an extended-precision constant in a register");
     SDValue P0 = CurDAG->getRegister(IA64::P0, MVT::i1);
     SDValue Bits = CurDAG->getTargetConstant(
         Value.bitcastToAPInt().getZExtValue(), DL, MVT::i64);

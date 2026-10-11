@@ -140,7 +140,7 @@ def : Pat<(and (not GR:$r3), imm8:$imm), (ANDCMi imm8:$imm, GR:$r3)>;
 
 // FP arithmetic is all fma: an add multiplies by f1 (1.0) and a multiply
 // adds f0 (0.0). It rounds to the result's precision using status field 0.
-foreach T = [["f32", "_S"], ["f64", "_D"]] in {
+foreach T = [["f32", "_S"], ["f64", "_D"], ["f80", ""]] in {
   defvar VT = !cast<ValueType>(T[0]);
   defvar FMA = !cast<Instruction>("FMA"#T[1]);
   defvar FMS = !cast<Instruction>("FMS"#T[1]);
@@ -162,7 +162,7 @@ foreach T = [["f32", "_S"], ["f64", "_D"]] in {
   def : Pat<(VT (fneg FR:$f)), (FMERGE_NS FR:$f, FR:$f)>;
   def : Pat<(VT (fabs FR:$f)), (FMERGE_S (VT F0), FR:$f)>;
   def : Pat<(VT (fneg (fabs FR:$f))), (FMERGE_NS (VT F0), FR:$f)>;
-  foreach ST = [f32, f64] in {
+  foreach ST = [f32, f64, f80] in {
     def : Pat<(VT (fcopysign FR:$mag, (ST FR:$sign))),
               (FMERGE_S FR:$sign, FR:$mag)>;
     def : Pat<(VT (fcopysign FR:$mag, (fneg (ST FR:$sign)))),
@@ -176,7 +176,7 @@ foreach T = [["f32", "_S"], ["f64", "_D"]] in {
 
 // Integer conversions happen in an FP register, with the integer as the
 // significand, moved to and from GRs with setf.sig/getf.sig.
-foreach VT = [f32, f64] in {
+foreach VT = [f32, f64, f80] in {
   def : Pat<(i64 (fp_to_sint (VT FR:$f))),
             (GETF_SIG (f64 (FCVT_FX_TRUNC FR:$f, 0)))>;
   def : Pat<(i64 (fp_to_uint (VT FR:$f))),
@@ -196,10 +196,23 @@ foreach T = [["f32", "_S"], ["f64", "_D"]] in {
             (FMA (f64 (SETF_SIG GR:$r)), (f64 F1), (f64 F0), 0)>;
 }
 
+// At extended precision no rounding is needed, and fcvt.xf yields a
+// normalized value for a signed integer.
+def : Pat<(f80 (sint_to_fp GR:$r)), (FCVT_XF (f64 (SETF_SIG GR:$r)))>;
+def : Pat<(f80 (uint_to_fp GR:$r)),
+          (FMA (f64 (SETF_SIG GR:$r)), (f64 F1), (f64 F0), 0)>;
+
 // A narrower value is a wider one already, and a wider one is rounded to
 // make a narrower.
 def : Pat<(f64 (fpextend (f32 FR:$f))), (COPY_TO_REGCLASS FR:$f, FR)>;
 def : Pat<(f32 (fpround (f64 FR:$f))), (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
+def : Pat<(f32 (fpround (f80 FR:$f))), (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
+def : Pat<(f64 (fpround (f80 FR:$f))), (FMA_D FR:$f, (f64 F1), (f64 F0), 0)>;
+
+// stfe stores the significand exactly as it is in the register, so extending
+// to f80 normalizes.
+foreach VT = [f32, f64] in
+  def : Pat<(f80 (fpextend (VT FR:$f))), (FMA FR:$f, (f64 F1), (f64 F0), 0)>;
 
 // Bitcasts use the memory format.
 def : Pat<(i64 (bitconvert (f64 FR:$f))), (GETF_D FR:$f)>;
@@ -295,6 +308,8 @@ def : Pat<(f64 (load GR:$r3)), (LDFD GR:$r3, 0)>;
 def : Pat<(f64 (extloadf32 GR:$r3)), (LDFS GR:$r3, 0)>;
 def : Pat<(store (f32 FR:$f2), GR:$r3), (STFS GR:$r3, FR:$f2, 0)>;
 def : Pat<(store (f64 FR:$f2), GR:$r3), (STFD GR:$r3, FR:$f2, 0)>;
+def : Pat<(f80 (load GR:$r3)), (LDFE GR:$r3, 0)>;
+def : Pat<(store (f80 FR:$f2), GR:$r3), (STFE GR:$r3, FR:$f2, 0)>;
 
 //===----------------------------------------------------------------------===//
 // Addresses
@@ -311,6 +326,7 @@ def : Pat<(IA64gprel22 tglobaladdr:$sym), (ADDL tglobaladdr:$sym, R1)>;
 
 // movl r1 = @gprel(sym) ; add r1 = r1, gp
 def : Pat<(IA64gprel64 tglobaladdr:$sym), (ADD (MOVL tglobaladdr:$sym), R1)>;
+def : Pat<(IA64gprel64 tconstpool:$sym), (ADD (MOVL tconstpool:$sym), R1)>;
 
 def : Pat<(IA64ltoff tglobaltlsaddr:$sym), (ADDL tglobaltlsaddr:$sym, R1)>;
 def : Pat<(IA64tlsoff tglobaltlsaddr:$sym, GR0_3:$base),

@@ -116,7 +116,7 @@ def GRSave : RegisterClass<"IA64", [i64], 64, (add
 
 // An FR is 82 bits regardless of the value type, and the only memory round
 // trip that preserves all of them is the 16-byte stf.spill/ldf.fill.
-def FR : RegisterClass<"IA64", [f64, f32], 128, (add
+def FR : RegisterClass<"IA64", [f64, f32, f80], 128, (add
   (sequence "F%u", 6, 7),      // scratch
   (sequence "F%u", 8, 15),     // arguments and return values
   (sequence "F%u", 32, 127),   // scratch
@@ -129,7 +129,7 @@ def FR : RegisterClass<"IA64", [f64, f32], 128, (add
 // Valid fma addends. With f0 as the addend the instruction is a plain
 // multiply, and a zero product keeps its own sign, whereas adding 0.0 would
 // make it positive.
-def FRAddend : RegisterClass<"IA64", [f64, f32], 128, (sub FR, F0)> {
+def FRAddend : RegisterClass<"IA64", [f64, f32, f80], 128, (sub FR, F0)> {
   let Size = 128;
 }
 

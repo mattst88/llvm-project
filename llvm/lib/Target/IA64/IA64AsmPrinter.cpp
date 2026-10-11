@@ -118,6 +118,16 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
       Expr = MCSpecifierExpr::create(Expr, Spec, OutContext);
     return MCOperand::createExpr(Expr);
   }
+  case MachineOperand::MO_ConstantPoolIndex: {
+    const MCExpr *Expr =
+        MCSymbolRefExpr::create(GetCPISymbol(MO.getIndex()), OutContext);
+    if (MO.getOffset())
+      Expr = MCBinaryExpr::createAdd(
+          Expr, MCConstantExpr::create(MO.getOffset(), OutContext), OutContext);
+    if (auto Spec = IA64::Specifier(MO.getTargetFlags()))
+      Expr = MCSpecifierExpr::create(Expr, Spec, OutContext);
+    return MCOperand::createExpr(Expr);
+  }
   case MachineOperand::MO_ExternalSymbol:
     return MCOperand::createExpr(MCSymbolRefExpr::create(
         GetExternalSymbolSymbol(MO.getSymbolName()), OutContext));

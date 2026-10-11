@@ -47,16 +47,44 @@ static bool CC_IA64_SkipOddSlot(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   return false;
 }
 
+static const MCPhysReg FRs[] = {IA64::F8,  IA64::F9,  IA64::F10, IA64::F11,
+                                IA64::F12, IA64::F13, IA64::F14, IA64::F15};
+
 static bool CC_IA64_FP(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
                        CCValAssign::LocInfo &LocInfo, ISD::ArgFlagsTy &ArgFlags,
                        CCState &State) {
-  static const MCPhysReg FRs[] = {IA64::F8,  IA64::F9,  IA64::F10, IA64::F11,
-                                  IA64::F12, IA64::F13, IA64::F14, IA64::F15};
   // Past the eighth slot, FP arguments go on the stack even if FP registers
   // remain.
   if (!State.AllocateReg(Slots))
     return false;
   // Each takes at least one slot, so the registers outlast the slots.
+  MCRegister Reg = State.AllocateReg(FRs);
+  assert(Reg && "more floating-point arguments in registers than slots");
+  State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+  return true;
+}
+
+// An extended-precision argument is sixteen bytes, aligned to as many: two
+// slots, the first of them an even one. One the callee has not named is its
+// bits in the two, as the callee will look for it in memory.
+static bool CC_IA64_Extended(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                             CCValAssign::LocInfo &LocInfo,
+                             ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  if (State.getFirstUnallocated(Slots) % 2 != 0)
+    State.AllocateReg(Slots);
+  if (State.getFirstUnallocated(Slots) == std::size(Slots)) {
+    State.addLoc(CCValAssign::getMem(
+        ValNo, ValVT, State.AllocateStack(16, Align(16)), LocVT, LocInfo));
+    return true;
+  }
+  MCRegister Lo = State.AllocateReg(Slots);
+  MCRegister Hi = State.AllocateReg(Slots);
+  if (ArgFlags.isVarArg()) {
+    for (MCRegister Reg : {Lo, Hi})
+      State.addLoc(
+          CCValAssign::getCustomReg(ValNo, ValVT, Reg, MVT::i64, LocInfo));
+    return true;
+  }
   MCRegister Reg = State.AllocateReg(FRs);
   assert(Reg && "more floating-point arguments in registers than slots");
   State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
@@ -73,6 +101,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   addRegisterClass(MVT::i64, &IA64::GRRegClass);
   addRegisterClass(MVT::f32, &IA64::FRRegClass);
   addRegisterClass(MVT::f64, &IA64::FRRegClass);
+  addRegisterClass(MVT::f80, &IA64::FRRegClass);
 
   setStackPointerRegisterToSaveRestore(IA64::R12);
 
@@ -84,19 +113,42 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // FP registers hold every precision in a single format, so an extending
   // load needs no conversion. A truncating store does not round, though.
   setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+  setTruncStoreAction(MVT::f80, MVT::f32, Expand);
+  setTruncStoreAction(MVT::f80, MVT::f64, Expand);
+
+  // No instruction loads, stores or converts f16: it is moved as 16 bits and
+  // converted by libcalls.
+  for (MVT VT : {MVT::f32, MVT::f64, MVT::f80}) {
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f16, Expand);
+    setTruncStoreAction(VT, MVT::f16, Expand);
+    setOperationAction({ISD::FP16_TO_FP, ISD::FP_TO_FP16,
+                        ISD::STRICT_FP16_TO_FP, ISD::STRICT_FP_TO_FP16},
+                       VT, Expand);
+  }
+
+  // An f80 store writes the significand exactly as it is in the register, so
+  // a denormal loaded as f32 or f64 must be normalized first.
+  for (MVT VT : {MVT::f32, MVT::f64})
+    setLoadExtAction(ISD::EXTLOAD, MVT::f80, VT, Expand);
 
   // f32 and f64 constants are materialized in a GR and moved to an FR.
   setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
   setOperationAction(ISD::ConstantFP, MVT::f64, Legal);
+  // f80 constants do not fit in a GR and are loaded from memory.
+  setOperationAction(ISD::ConstantFP, MVT::f80, Expand);
 
   // There is no instruction that divides or takes a square root, only ones
   // that start an approximation of the reciprocal.
-  for (MVT VT : {MVT::f32, MVT::f64}) {
+  for (MVT VT : {MVT::f32, MVT::f64, MVT::f80}) {
     for (unsigned Opc : {ISD::FDIV, ISD::FREM, ISD::FSQRT})
       setOperationAction(Opc, VT, LibCall);
     for (unsigned Opc : {ISD::FSIN, ISD::FCOS, ISD::FSINCOS, ISD::FPOW})
       setOperationAction(Opc, VT, Expand);
   }
+  // Some default actions for f32 and f64 are not the defaults for f80.
+  for (unsigned Opc : {ISD::LRINT, ISD::LLRINT, ISD::LROUND, ISD::LLROUND})
+    setOperationAction(Opc, MVT::f80, LibCall);
+  setOperationAction(ISD::FCANONICALIZE, MVT::f80, Expand);
 
   // The bits of a single-precision value are half a general register.
   setOperationAction(ISD::BITCAST, MVT::i32, Custom);
@@ -106,11 +158,11 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // Selects are predicated on the compare itself, so a select on a value
   // becomes a select on its comparison with zero.
-  for (MVT VT : {MVT::i64, MVT::f32, MVT::f64})
+  for (MVT VT : {MVT::i64, MVT::f32, MVT::f64, MVT::f80})
     setOperationAction(ISD::SELECT, VT, Expand);
 
   // No single compare implements ordered-not-equal or unordered-or-equal.
-  for (MVT VT : {MVT::f32, MVT::f64}) {
+  for (MVT VT : {MVT::f32, MVT::f64, MVT::f80}) {
     setCondCodeAction(ISD::SETONE, VT, Expand);
     setCondCodeAction(ISD::SETUEQ, VT, Expand);
   }
@@ -133,6 +185,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::GlobalTLSAddress, MVT::i64, Custom);
   setOperationAction(ISD::JumpTable, MVT::i64, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
+  setOperationAction(ISD::ConstantPool, MVT::i64, Custom);
 
   // A jump table branch loads the entry and branches through a BR.
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
@@ -184,6 +237,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerJumpTable(Op, DAG);
   case ISD::BlockAddress:
     return LowerBlockAddress(Op, DAG);
+  case ISD::ConstantPool:
+    return LowerConstantPool(Op, DAG);
   case ISD::BITCAST:
     // i32 to f32, while i32 is not yet legalized.
     if (Op.getValueType() != MVT::f32 ||
@@ -378,6 +433,18 @@ SDValue IA64TargetLowering::LowerBlockAddress(SDValue Op,
                      DAG.getConstant(N->getOffset(), DL, MVT::i64));
 }
 
+// Constant pool entries are in this module, at a link-time constant offset
+// from GP.
+SDValue IA64TargetLowering::LowerConstantPool(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  const auto *N = cast<ConstantPoolSDNode>(Op);
+  assert(!N->isMachineConstantPoolEntry() && "no constants of the target's");
+  return DAG.getNode(IA64ISD::GPREL64, SDLoc(Op), MVT::i64,
+                     DAG.getTargetConstantPool(N->getConstVal(), MVT::i64,
+                                               N->getAlign(), N->getOffset(),
+                                               IA64::S_GPREL));
+}
+
 // va_list is the address of the next argument.
 SDValue IA64TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
@@ -467,7 +534,8 @@ SDValue IA64TargetLowering::LowerFormalArguments(
     if (VA.isMemLoc()) {
       // Offsets count from the end of the scratch area, where the first
       // stack argument is.
-      int FI = MFI.CreateFixedObject(8, VA.getLocMemOffset(), true);
+      int FI = MFI.CreateFixedObject(VA.getLocVT() == MVT::f80 ? 16 : 8,
+                                     VA.getLocMemOffset(), true);
       InVals.push_back(DAG.getLoad(VA.getLocVT(), DL, Chain,
                                    DAG.getFrameIndex(FI, MVT::i64),
                                    MachinePointerInfo::getFixedStack(MF, FI)));
@@ -541,23 +609,45 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   CCState CCInfo(CLI.CallConv, CLI.IsVarArg, MF, ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeCallOperands(CLI.Outs, CC_IA64);
 
+  // An argument the callee has not named goes as its bits, which for a
+  // single-precision value are the low half of the slot. Those of an
+  // extended-precision one are two slots, and are read back from memory.
+  SmallVector<SDValue, 8> OutVals;
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    const CCValAssign &VA = ArgLocs[I];
+    SDValue Val = CLI.OutVals[VA.getValNo()];
+    if (VA.needsCustom()) {
+      assert(Val.getValueType() == MVT::f80 && "what else is in two places?");
+      SDValue Slot =
+          DAG.CreateStackTemporary(TypeSize::getFixed(16), Align(16));
+      int FI = cast<FrameIndexSDNode>(Slot)->getIndex();
+      SDValue Store = DAG.getStore(Chain, DL, Val, Slot,
+                                   MachinePointerInfo::getFixedStack(MF, FI));
+      SDValue Lo = DAG.getLoad(MVT::i64, DL, Store, Slot,
+                               MachinePointerInfo::getFixedStack(MF, FI));
+      SDValue Hi =
+          DAG.getLoad(MVT::i64, DL, Store,
+                      DAG.getMemBasePlusOffset(Slot, TypeSize::getFixed(8), DL),
+                      MachinePointerInfo::getFixedStack(MF, FI, 8));
+      Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Chain,
+                          Lo.getValue(1), Hi.getValue(1));
+      OutVals.append({Lo, Hi});
+      ++I;
+      continue;
+    }
+    if (VA.getLocInfo() == CCValAssign::BCvt) {
+      if (Val.getValueType() == MVT::f32)
+        Val = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64,
+                          DAG.getBitcast(MVT::i32, Val));
+      else
+        Val = DAG.getBitcast(MVT::i64, Val);
+    }
+    OutVals.push_back(Val);
+  }
+
   unsigned NumBytes =
       IA64FrameLowering::ScratchAreaSize + CCInfo.getStackSize();
   Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
-
-  // An argument the callee has not named goes as its bits, which for a
-  // single-precision value are the low half of the slot.
-  SmallVector<SDValue, 8> OutVals(CLI.OutVals.begin(), CLI.OutVals.end());
-  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
-    if (ArgLocs[I].getLocInfo() != CCValAssign::BCvt)
-      continue;
-    SDValue &Val = OutVals[I];
-    if (Val.getValueType() == MVT::f32)
-      Val = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64,
-                        DAG.getBitcast(MVT::i32, Val));
-    else
-      Val = DAG.getBitcast(MVT::i64, Val);
-  }
 
   // Store stack arguments first, so the copies to the output registers are
   // adjacent to the call.

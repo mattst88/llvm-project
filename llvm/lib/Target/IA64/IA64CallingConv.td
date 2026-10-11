@@ -17,6 +17,8 @@ def CC_IA64 : CallingConv<[
   // since the callee reads it from memory.
   CCIfArgVarArg<CCIfType<[f32, f64], CCBitConvertToType<i64>>>,
 
+  CCIfType<[f80], CCCustom<"CC_IA64_Extended">>,
+
   // 16-byte aligned arguments start at an even slot.
   CCIfType<[i64], CCIfSplit<CCCustom<"CC_IA64_SkipOddSlot">>>,
 
@@ -34,7 +36,8 @@ def CC_IA64 : CallingConv<[
 // results, or HFAs of up to eight elements, in f8-f15.
 def RetCC_IA64 : CallingConv<[
   CCIfType<[i64], CCAssignToReg<[R8, R9, R10, R11]>>,
-  CCIfType<[f32, f64], CCAssignToReg<[F8, F9, F10, F11, F12, F13, F14, F15]>>
+  CCIfType<[f32, f64, f80],
+           CCAssignToReg<[F8, F9, F10, F11, F12, F13, F14, F15]>>
 ]>;
 
 // Stacked registers are preserved across calls by the RSE, not by the

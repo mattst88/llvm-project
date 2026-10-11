@@ -75,11 +75,14 @@ public:
   // The FP multiply instruction is fma.
   bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
                                   EVT VT) const override {
-    return VT == MVT::f32 || VT == MVT::f64;
+    return VT == MVT::f32 || VT == MVT::f64 || VT == MVT::f80;
   }
 
+  // f0 and f1 read as 0.0 and 1.0 at any precision.
   bool isFPImmLegal(const APFloat &Imm, EVT VT,
                     bool ForCodeSize) const override {
+    if (VT == MVT::f80)
+      return Imm.isPosZero() || Imm.isExactlyValue(1.0);
     return VT == MVT::f32 || VT == MVT::f64;
   }
   bool isJumpTableRelative() const override { return true; }
@@ -105,6 +108,7 @@ private:
   SDValue LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
