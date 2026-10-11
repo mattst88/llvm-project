@@ -34,6 +34,9 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   // Where the arguments that have no names start.
   int VarArgsFrameIndex = 0;
 
+  // The sret pointer passed by the caller, which the function returns.
+  Register SRetReg;
+
 public:
   IA64MachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {}
 
@@ -54,6 +57,8 @@ public:
   void setFramePointer(Register Reg) { FramePointer = Reg; }
   Register getBasePointer() const { return BasePointer; }
   void setBasePointer(Register Reg) { BasePointer = Reg; }
+  Register getSRetReg() const { return SRetReg; }
+  void setSRetReg(Register Reg) { SRetReg = Reg; }
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int FI) { VarArgsFrameIndex = FI; }
 };

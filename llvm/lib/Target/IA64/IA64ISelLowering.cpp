@@ -47,6 +47,17 @@ static bool CC_IA64_SkipOddSlot(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   return false;
 }
 
+// The C++ ABI passes the address of a non-trivially-copyable return value as
+// an ordinary first argument; the front end marks that sret pointer inreg.
+static bool CC_IA64_SRet(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                         CCValAssign::LocInfo &LocInfo,
+                         ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  if (ArgFlags.isInReg())
+    return false;
+  State.addLoc(CCValAssign::getReg(ValNo, ValVT, IA64::R8, LocVT, LocInfo));
+  return true;
+}
+
 static const MCPhysReg FRs[] = {IA64::F8,  IA64::F9,  IA64::F10, IA64::F11,
                                 IA64::F12, IA64::F13, IA64::F14, IA64::F15};
 
@@ -687,6 +698,16 @@ SDValue IA64TargetLowering::LowerFormalArguments(
                                                      : &IA64::GRRegClass);
     InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT()));
   }
+
+  // The function returns the sret pointer in r8, so keep it.
+  for (const CCValAssign &VA : ArgLocs) {
+    if (!Ins[VA.getValNo()].Flags.isSRet())
+      continue;
+    Register SRetReg = MF.getRegInfo().createVirtualRegister(&IA64::GRRegClass);
+    MF.getInfo<IA64MachineFunctionInfo>()->setSRetReg(SRetReg);
+    Chain = DAG.getCopyToReg(Chain, DL, SRetReg, InVals[VA.getValNo()]);
+    break;
+  }
   if (!IsVarArg)
     return Chain;
 
@@ -980,6 +1001,14 @@ IA64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[I], Glue);
     Glue = Chain.getValue(1);
     RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
+  }
+
+  MachineFunction &MF = DAG.getMachineFunction();
+  if (Register SRetReg = MF.getInfo<IA64MachineFunctionInfo>()->getSRetReg()) {
+    SDValue Address = DAG.getCopyFromReg(Chain, DL, SRetReg, MVT::i64);
+    Chain = DAG.getCopyToReg(Address.getValue(1), DL, IA64::R8, Address, Glue);
+    Glue = Chain.getValue(1);
+    RetOps.push_back(DAG.getRegister(IA64::R8, MVT::i64));
   }
 
   RetOps[0] = Chain;

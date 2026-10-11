@@ -49,3 +49,46 @@ define i512 @wide(i512 %a) {
 ; CHECK:         st8 [r8] = r32
   ret i512 %a
 }
+
+; The function returns the address it was given in r8, whatever else it has
+; had there.
+
+define void @keeps(ptr sret(%big) %res, i64 %a) {
+; CHECK-LABEL: keeps:
+; CHECK:         mov r[[SAVED:[0-9]+]] = r8
+; CHECK:         br.call.sptk.many b0 = ext ;;
+; CHECK:         st8 [r[[SAVED]]] = r8
+; CHECK:         mov r8 = r[[SAVED]]
+; CHECK:         br.ret.sptk.many b0 ;;
+  %v = call i64 @ext(i64 %a)
+  store i64 %v, ptr %res
+  ret void
+}
+
+declare i64 @ext(i64)
+
+; The C++ ABI makes the address the first argument where the result has a
+; constructor or a destructor to run, which a front end marks as in a
+; register. It is returned in r8 all the same.
+
+declare void @construct(ptr sret(%big) inreg, i64)
+
+define void @constructed(ptr sret(%big) inreg %res, i64 %a) {
+; CHECK-LABEL: constructed:
+; CHECK:         mov r8 = r32 ;;
+; CHECK-NEXT:    st8 [r8] = r33
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
+  store i64 %a, ptr %res
+  ret void
+}
+
+define i64 @constructs(i64 %a) {
+; CHECK-LABEL: constructs:
+; CHECK:         adds r[[RES:[0-9]+]] = 16, r12 ;;
+; CHECK:         mov r36 = r[[RES]]
+; CHECK:         br.call.sptk.many b0 = construct ;;
+  %res = alloca %big
+  call void @construct(ptr sret(%big) inreg %res, i64 %a)
+  %v = load i64, ptr %res
+  ret i64 %v
+}
