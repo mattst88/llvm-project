@@ -303,6 +303,54 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
+  case IA64::FDIV_S:
+  case IA64::FDIV_D: {
+    bool IsDouble = MI.getOpcode() == IA64::FDIV_D;
+    unsigned Round = IsDouble ? IA64::FMA_D : IA64::FMA_S;
+    Register Y = MI.getOperand(0).getReg();
+    Register Q = MI.getOperand(1).getReg();
+    Register E = MI.getOperand(2).getReg();
+    Register T = MI.getOperand(3).getReg();
+    Register P = IA64::P6;
+    Register A = MI.getOperand(4).getReg();
+    Register B = MI.getOperand(5).getReg();
+    // R = M1 * M2 + Addend (or Addend - M1 * M2), predicated on frcpa having
+    // produced an approximation.
+    auto Step = [&](unsigned Opcode, Register R, Register M1, Register M2,
+                    Register Addend, unsigned StatusField = 1) {
+      BuildMI(MBB, MI, DL, get(Opcode), R)
+          .addReg(M1)
+          .addReg(M2)
+          .addReg(Addend)
+          .addImm(StatusField)
+          .addReg(P);
+    };
+    BuildMI(MBB, MI, DL, get(IA64::FRCPA), Y)
+        .addReg(P, RegState::Define)
+        .addReg(A)
+        .addReg(B)
+        .addImm(0)
+        .addReg(IA64::P0);
+    // With e = 1 - b * y, a / b is a * y / (1 - e), and 1 / (1 - e) is
+    // (1 + e) * (1 + e^2) * (1 + e^4) and so on.
+    Step(IA64::FMA, Q, A, Y, IA64::F0);
+    Step(IA64::FNMA, E, B, Y, IA64::F1);
+    Step(IA64::FMA, Q, E, Q, Q);
+    Step(IA64::FMA, T, E, E, IA64::F0);
+    Step(IA64::FMA, Y, E, Y, Y);
+    if (IsDouble) {
+      Step(IA64::FMA, Q, T, Q, Q);
+      Step(IA64::FMA, E, T, T, IA64::F0);
+      Step(IA64::FMA, Y, T, Y, Y);
+      std::swap(E, T);
+    }
+    Step(Round, Q, T, Q, Q);
+    Step(IA64::FMA, Y, T, Y, Y);
+    Step(IA64::FNMA, E, B, Q, A);
+    Step(Round, Y, E, Y, Q, 0);
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::ADJDYNALLOC: {
     const MachineFrameInfo &MFI = MBB.getParent()->getFrameInfo();
     uint64_t Offset = alignTo(MFI.getMaxCallFrameSize(), 16);

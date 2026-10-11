@@ -153,6 +153,29 @@ def CMPXCHG : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$r3, GR:$cmp, GR:$new, i64imm:$size),
                          "#CMPXCHG", []>;
 
+// Single- and double-precision division. There is no divide instruction:
+// frcpa approximates the divisor's reciprocal to fewer than 9 bits; its
+// predicate output is clear when an operand is zero, infinite or NaN, in
+// which case its result is the quotient. Each Newton-Raphson step doubles
+// the number of correct bits; the steps use status field 1, which programs
+// never modify or read the flags of, and its widened exponent range, which
+// operands of these precisions cannot overflow. They produce a quotient q
+// rounded to the target precision and a reciprocal y accurate to more than
+// twice that. The remainder a - b * q is then exact, and
+// q + (a - b * q) * y is closer to a / b than a / b is to any other rounding
+// candidate, so the final step rounds once, in the program's rounding mode
+// and raising the flags a true division would.
+// The temporaries are written before the operands' last reads, hence the
+// earlyclobbers.
+let hasSideEffects = 0, Defs = [P6],
+    Constraints = "@earlyclobber $f1,@earlyclobber $q,@earlyclobber $e,"
+                  "@earlyclobber $t" in {
+def FDIV_S : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
+                        (ins FR:$a, FR:$b), "#FDIV_S", []>;
+def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
+                        (ins FR:$a, FR:$b), "#FDIV_D", []>;
+}
+
 let Uses = [R12] in
 def ADJDYNALLOC : IA64Pseudo<(outs GR:$r1), (ins), "#ADJDYNALLOC", []>;
 

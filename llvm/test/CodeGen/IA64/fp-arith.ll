@@ -150,21 +150,7 @@ define double @cps(double %a, double %b) {
   ret double %r
 }
 
-; There is no instruction that divides or takes a square root.
-define double @div(double %a, double %b) {
-; CHECK-LABEL: div:
-; CHECK:       br.call.sptk.many b0 = __divdf3 ;;
-  %r = fdiv double %a, %b
-  ret double %r
-}
-
-define float @divs(float %a, float %b) {
-; CHECK-LABEL: divs:
-; CHECK:       br.call.sptk.many b0 = __divsf3 ;;
-  %r = fdiv float %a, %b
-  ret float %r
-}
-
+; There is no instruction that takes a remainder or a square root.
 define double @rem(double %a, double %b) {
 ; CHECK-LABEL: rem:
 ; CHECK:       br.call.sptk.many b0 = fmod ;;

@@ -137,10 +137,13 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // f80 constants do not fit in a GR and are loaded from memory.
   setOperationAction(ISD::ConstantFP, MVT::f80, Expand);
 
-  // There is no instruction that divides or takes a square root, only ones
-  // that start an approximation of the reciprocal.
+  // There are no divide or square root instructions, only reciprocal
+  // approximations. f32 and f64 division is expanded inline; f80 has no spare
+  // precision in the register for the same sequence to be accurate enough.
   for (MVT VT : {MVT::f32, MVT::f64, MVT::f80}) {
-    for (unsigned Opc : {ISD::FDIV, ISD::FREM, ISD::FSQRT})
+    if (VT == MVT::f80)
+      setOperationAction(ISD::FDIV, VT, LibCall);
+    for (unsigned Opc : {ISD::FREM, ISD::FSQRT})
       setOperationAction(Opc, VT, LibCall);
     for (unsigned Opc : {ISD::FSIN, ISD::FCOS, ISD::FSINCOS, ISD::FPOW})
       setOperationAction(Opc, VT, Expand);

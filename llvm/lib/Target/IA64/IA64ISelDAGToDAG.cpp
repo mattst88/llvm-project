@@ -227,6 +227,18 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
                          CurDAG->getRegister(IA64::P0, MVT::i1));
     return;
   }
+  case ISD::FDIV: {
+    // The division sequence needs its own registers for intermediate steps.
+    MVT VT = Node->getSimpleValueType(0);
+    if (VT != MVT::f32 && VT != MVT::f64)
+      break;
+    SDNode *Div =
+        CurDAG->getMachineNode(VT == MVT::f32 ? IA64::FDIV_S : IA64::FDIV_D, DL,
+                               {VT, MVT::f80, MVT::f80, MVT::f80},
+                               {Node->getOperand(0), Node->getOperand(1)});
+    ReplaceNode(Node, Div);
+    return;
+  }
   case ISD::PREFETCH: {
     // lfetch's hint is how many cache levels the line may skip, which grows
     // as the expected locality drops, and whether the line will be written.
