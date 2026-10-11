@@ -485,7 +485,20 @@ static MCRegister matchRegister(StringRef Name) {
   std::string Lower = Name.lower();
   if (MCRegister Reg = MatchRegisterName(Lower))
     return Reg;
-  return MatchRegisterAltName(Lower);
+  if (MCRegister Reg = MatchRegisterAltName(Lower))
+    return Reg;
+  // ABI names for the integer return registers (ret0-ret3) and the FP
+  // argument and return registers (farg0-farg7, fret0-fret7).
+  unsigned Number;
+  StringRef Digit = Name;
+  if (Digit.consume_front("ret") && Digit.size() == 1 &&
+      !Digit.getAsInteger(10, Number) && Number < 4)
+    return IA64::R8 + Number;
+  Digit = Name;
+  if ((Digit.consume_front("farg") || Digit.consume_front("fret")) &&
+      Digit.size() == 1 && !Digit.getAsInteger(10, Number) && Number < 8)
+    return IA64::F8 + Number;
+  return MCRegister();
 }
 
 void IA64AsmParser::onEndOfFile() {
