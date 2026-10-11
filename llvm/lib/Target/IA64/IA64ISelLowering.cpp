@@ -1299,6 +1299,30 @@ IA64TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
   return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }
 
+// The register for a global register variable. It must be reserved, or the
+// register allocator would clobber the variable.
+Register
+IA64TargetLowering::getRegisterByName(const char *RegName, LLT /*Ty*/,
+                                      const MachineFunction &MF) const {
+  StringRef Name(RegName);
+  Register Reg = StringSwitch<Register>(Name)
+                     .Case("gp", IA64::R1)
+                     .Case("sp", IA64::R12)
+                     .Case("tp", IA64::R13)
+                     .Default(Register());
+  unsigned N;
+  if (!Reg && Name.consume_front("r") && !Name.getAsInteger(10, N) && N < 32)
+    Reg = IA64::R0 + N;
+  if (!Reg)
+    reportFatalUsageError(Twine("invalid register name \"") + RegName + "\"");
+  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+  if (!TRI->getReservedRegs(MF).test(Reg.id()))
+    reportFatalUsageError(Twine("register \"") + RegName +
+                          "\" is not reserved, so no variable can be kept in "
+                          "it");
+  return Reg;
+}
+
 void IA64TargetLowering::LowerAsmOperandForConstraint(SDValue Op,
                                                       StringRef Constraint,
                                                       std::vector<SDValue> &Ops,

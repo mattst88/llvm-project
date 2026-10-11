@@ -50,6 +50,8 @@ public:
   ISD::NodeType getExtendForAtomicCmpSwapArg() const override {
     return ISD::ZERO_EXTEND;
   }
+  Register getRegisterByName(const char *RegName, LLT Ty,
+                             const MachineFunction &MF) const override;
   ConstraintType getConstraintType(StringRef Constraint) const override;
   std::pair<unsigned, const TargetRegisterClass *>
   getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
