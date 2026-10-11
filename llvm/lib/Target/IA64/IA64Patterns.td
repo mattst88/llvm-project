@@ -26,3 +26,21 @@ def IA64retglue : SDNode<"IA64ISD::RET_GLUE", SDTypeProfile<0, 0, []>,
 
 // br.ret.sptk.many b0
 def : Pat<(IA64retglue), (BR_RET B0, 0, 1, 0)>;
+
+//===----------------------------------------------------------------------===//
+// Integer arithmetic
+//===----------------------------------------------------------------------===//
+
+def : Pat<(add GR:$r2, GR:$r3), (ADD GR:$r2, GR:$r3)>;
+def : Pat<(sub GR:$r2, GR:$r3), (SUB GR:$r2, GR:$r3)>;
+def : Pat<(and GR:$r2, GR:$r3), (AND GR:$r2, GR:$r3)>;
+def : Pat<(or GR:$r2, GR:$r3), (OR GR:$r2, GR:$r3)>;
+def : Pat<(xor GR:$r2, GR:$r3), (XOR GR:$r2, GR:$r3)>;
+
+// andcm computes r2 & ~r3.
+def : Pat<(and GR:$r2, (not GR:$r3)), (ANDCM GR:$r2, GR:$r3)>;
+
+// add can add an extra 1, and sub can subtract an extra 1, which is the same
+// as adding the complement.
+def : Pat<(add (add GR:$r2, GR:$r3), 1), (ADD1 GR:$r2, GR:$r3)>;
+def : Pat<(add GR:$r2, (not GR:$r3)), (SUB1 GR:$r2, GR:$r3)>;
