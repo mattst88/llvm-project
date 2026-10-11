@@ -78,6 +78,14 @@ void IA64TargetStreamer::emitAltRP(unsigned BR) {}
 
 void IA64TargetStreamer::emitUnwABI(unsigned ABI, unsigned Context) {}
 
+void IA64TargetStreamer::emitSaveG(unsigned Mask, std::optional<unsigned> GR) {}
+
+void IA64TargetStreamer::emitSaveF(unsigned Mask) {}
+
+void IA64TargetStreamer::emitSaveB(unsigned Mask, std::optional<unsigned> GR) {}
+
+void IA64TargetStreamer::emitSaveGF(unsigned GRMask, unsigned FRMask) {}
+
 void IA64TargetStreamer::emitRestore(unsigned ECount) {}
 
 void IA64TargetStreamer::emitLabelState(uint64_t Label) {}
@@ -173,4 +181,29 @@ void IA64TargetAsmStreamer::emitLabelState(uint64_t Label) {
 
 void IA64TargetAsmStreamer::emitCopyState(uint64_t Label) {
   OS << "\t.copy_state\t" << Label << '\n';
+}
+
+void IA64TargetAsmStreamer::emitSaveG(unsigned Mask,
+                                      std::optional<unsigned> GR) {
+  OS << "\t.save.g\t" << format_hex(Mask, 3);
+  if (GR)
+    OS << ", r" << *GR;
+  OS << '\n';
+}
+
+void IA64TargetAsmStreamer::emitSaveF(unsigned Mask) {
+  OS << "\t.save.f\t" << format_hex(Mask, 3) << '\n';
+}
+
+void IA64TargetAsmStreamer::emitSaveB(unsigned Mask,
+                                      std::optional<unsigned> GR) {
+  OS << "\t.save.b\t" << format_hex(Mask, 3);
+  if (GR)
+    OS << ", r" << *GR;
+  OS << '\n';
+}
+
+void IA64TargetAsmStreamer::emitSaveGF(unsigned GRMask, unsigned FRMask) {
+  OS << "\t.save.gf\t" << format_hex(GRMask, 3) << ", " << format_hex(FRMask, 3)
+     << '\n';
 }

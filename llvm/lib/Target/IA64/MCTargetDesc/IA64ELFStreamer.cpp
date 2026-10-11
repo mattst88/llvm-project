@@ -104,8 +104,8 @@ class IA64ELFStreamer : public MCELFStreamer {
   int NextTemplate = -1;
 
   SmallVector<Mark, 16> Marks;
-  /// The marks that the next instruction is to have, or -1.
-  int NextMark = -1;
+  /// The marks for the upcoming instructions, next one first, or -1.
+  SmallVector<int, 4> NextMarks;
   int NextStartMark = -1;
 
   /// Where the last instruction ended, if only labels followed it.
@@ -149,14 +149,16 @@ public:
     OpenFragment = nullptr;
   }
 
-  /// Mark where the next instruction will be. Only when it is in a bundle
-  /// does the mark say where that is.
-  unsigned markNextInstruction() {
-    if (NextMark == -1) {
-      NextMark = Marks.size();
+  /// Create a mark for the next instruction, or for the one \p Ahead of it.
+  /// The mark gets a position only once the instruction is bundled.
+  unsigned markNextInstruction(unsigned Ahead = 0) {
+    if (NextMarks.size() <= Ahead)
+      NextMarks.resize(Ahead + 1, -1);
+    if (NextMarks[Ahead] == -1) {
+      NextMarks[Ahead] = Marks.size();
       Marks.emplace_back();
     }
-    return NextMark;
+    return NextMarks[Ahead];
   }
 
   /// Mark the start of a region whose first instruction is the next one. The
@@ -175,17 +177,18 @@ public:
   /// Bind the next instruction's marks to \p Symbol, since there is no next
   /// instruction.
   void bindMarks(MCSymbol *Symbol) {
-    for (int *Mark : {&NextMark, &NextStartMark}) {
-      if (*Mark != -1)
-        Marks[*Mark].Bundle = Symbol;
-      *Mark = -1;
-    }
+    NextMarks.push_back(NextStartMark);
+    for (int Mark : NextMarks)
+      if (Mark != -1)
+        Marks[Mark].Bundle = Symbol;
+    NextMarks.clear();
+    NextStartMark = -1;
   }
 
   const Mark &getMark(unsigned Index) const { return Marks[Index]; }
 
   void clearMarks() {
-    assert(NextMark == -1 && NextStartMark == -1 && Pending.empty() &&
+    assert(NextMarks.empty() && NextStartMark == -1 && Pending.empty() &&
            "a mark is still to be bound");
     Marks.clear();
   }
@@ -195,7 +198,8 @@ public:
     OpenFragment = nullptr;
     NextTemplate = -1;
     Marks.clear();
-    NextMark = NextStartMark = -1;
+    NextMarks.clear();
+    NextStartMark = -1;
     LastFragment = nullptr;
     MCELFStreamer::reset();
   }
@@ -323,9 +327,12 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   assert(Units != 0 && "instruction has no unit");
   Pending.push_back({Inst, &STI, Units,
                      (Inst.getFlags() & IA64II::StopAfter) != 0, NextTemplate,
-                     NextMark, NextStartMark});
+                     NextMarks.empty() ? -1 : NextMarks.front(),
+                     NextStartMark});
   NextTemplate = -1;
-  NextMark = NextStartMark = -1;
+  if (!NextMarks.empty())
+    NextMarks.erase(NextMarks.begin());
+  NextStartMark = -1;
 }
 
 size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
@@ -564,14 +571,16 @@ void IA64TargetELFStreamer::emitEndp() {
 }
 
 void IA64TargetELFStreamer::addUnwindRecord(UnwindRecord::KindTy Kind,
-                                            uint64_t Arg0, uint64_t Arg1) {
+                                            uint64_t Arg0, uint64_t Arg1,
+                                            unsigned Ahead) {
   auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
   // A region header refers to the start of its region; other records refer
   // to the instruction they describe.
   bool IsRegion = Kind == UnwindRecord::Prologue || Kind == UnwindRecord::Body;
-  Records.push_back({Kind,
-                     IsRegion ? S.markRegionStart() : S.markNextInstruction(),
-                     {Arg0, Arg1}});
+  Records.push_back(
+      {Kind,
+       IsRegion ? S.markRegionStart() : S.markNextInstruction(Ahead),
+       {Arg0, Arg1}});
 }
 
 void IA64TargetELFStreamer::emitPrologue(unsigned Mask, unsigned GRSave) {
@@ -675,6 +684,46 @@ void IA64TargetELFStreamer::emitAltRP(unsigned BR) {
 
 void IA64TargetELFStreamer::emitUnwABI(unsigned ABI, unsigned Context) {
   addUnwindRecord(UnwindRecord::P10, ABI, Context);
+}
+
+void IA64TargetELFStreamer::addSpills(unsigned Kind, unsigned Mask,
+                                      unsigned &Ahead) {
+  for (unsigned I = popcount(Mask); I != 0; --I)
+    addUnwindRecord(UnwindRecord::Spill, Kind, 0, Ahead++);
+}
+
+void IA64TargetELFStreamer::emitSaveG(unsigned Mask,
+                                      std::optional<unsigned> GR) {
+  unsigned Ahead = 0;
+  if (GR)
+    addUnwindRecord(UnwindRecord::P9, Mask, *GR);
+  else
+    addUnwindRecord(UnwindRecord::GRMem, Mask);
+  addSpills(2, Mask, Ahead);
+}
+
+void IA64TargetELFStreamer::emitSaveF(unsigned Mask) {
+  unsigned Ahead = 0;
+  addUnwindRecord(UnwindRecord::FRMem, Mask);
+  addSpills(1, Mask, Ahead);
+}
+
+void IA64TargetELFStreamer::emitSaveB(unsigned Mask,
+                                      std::optional<unsigned> GR) {
+  unsigned Ahead = 0;
+  if (GR)
+    addUnwindRecord(UnwindRecord::P2, Mask, *GR);
+  else
+    addUnwindRecord(UnwindRecord::BRMem, Mask);
+  addSpills(3, Mask, Ahead);
+}
+
+void IA64TargetELFStreamer::emitSaveGF(unsigned GRMask, unsigned FRMask) {
+  unsigned Ahead = 0;
+  addUnwindRecord(UnwindRecord::FRMem, FRMask);
+  addUnwindRecord(UnwindRecord::GRMem, GRMask);
+  addSpills(1, FRMask, Ahead);
+  addSpills(2, GRMask, Ahead);
 }
 
 void IA64TargetELFStreamer::emitRestore(unsigned ECount) {
@@ -815,6 +864,19 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
     case UnwindRecord::Prologue:
     case UnwindRecord::Body:
       break;
+    case UnwindRecord::FRMem:
+    case UnwindRecord::GRMem:
+    case UnwindRecord::BRMem:
+    case UnwindRecord::Spill:
+      // These were encoded with the region header.
+      continue;
+    case UnwindRecord::P2:
+      OS << char(0xa0 | R.Args[0] >> 1)
+         << char((R.Args[0] & 1) << 7 | R.Args[1]);
+      continue;
+    case UnwindRecord::P9:
+      OS << char(0xf1) << char(R.Args[0]) << char(R.Args[1]);
+      continue;
     case UnwindRecord::P3:
       OS << char(0xb0 | R.Args[0] >> 1)
          << char((R.Args[0] & 1) << 7 | R.Args[1]);
@@ -888,6 +950,55 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
       // Format R3.
       OS << char(0x60 | IsBody);
       encodeULEB128(Length, OS);
+    }
+
+    // Prologue spill descriptors come first: the masks of registers saved to
+    // the spill area, combined over all directives of the region, then two
+    // bits per slot saying whether its instruction spills an FR (1), a GR (2)
+    // or a BR (3).
+    unsigned FRMask = 0, GRMask = 0, BRMask = 0;
+    SmallVector<uint8_t, 8> IMask;
+    for (const UnwindRecord *S = &R + 1; S != Next; ++S) {
+      switch (S->Kind) {
+      case UnwindRecord::FRMem:
+        FRMask |= S->Args[0];
+        break;
+      case UnwindRecord::GRMem:
+        GRMask |= S->Args[0];
+        break;
+      case UnwindRecord::BRMem:
+        BRMask |= S->Args[0];
+        break;
+      case UnwindRecord::Spill: {
+        uint64_t Slot = SlotOfRecord(*S) - Start;
+        if (Failed || Slot >= Length)
+          break;
+        IMask.resize((Length * 2 + 7) / 8);
+        IMask[Slot / 4] |= S->Args[0] << (6 - Slot % 4 * 2);
+        break;
+      }
+      default:
+        break;
+      }
+    }
+    if (FRMask > 0xf) {
+      // Format P5.
+      OS << char(0xb9) << char(GRMask << 4 | FRMask >> 16) << char(FRMask >> 8)
+         << char(FRMask);
+    } else {
+      // Format P6.
+      if (FRMask != 0)
+        OS << char(0xc0 | FRMask);
+      if (GRMask != 0)
+        OS << char(0xd0 | GRMask);
+    }
+    // Format P1.
+    if (BRMask != 0)
+      OS << char(0x80 | BRMask);
+    // Format P4.
+    if (!IMask.empty()) {
+      OS << char(0xb8);
+      OS.write(reinterpret_cast<const char *>(IMask.data()), IMask.size());
     }
   }
   if (Failed) {

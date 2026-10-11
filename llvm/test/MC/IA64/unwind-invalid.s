@@ -133,3 +133,53 @@ d:
 // CHECK: :[[#@LINE+1]]:2: error: no instruction follows for this to tell of
 	.restore sp
 	.endp d
+
+	.proc e
+e:
+	.prologue
+// CHECK: :[[#@LINE+1]]:10: error: expected a mask from 1 to 0xf
+	.save.g 0
+// CHECK: :[[#@LINE+1]]:10: error: expected a mask from 1 to 0xf
+	.save.g 16
+// CHECK: :[[#@LINE+1]]:10: error: expected a mask from 1 to 0xfffff
+	.save.f 0x100000
+// CHECK: :[[#@LINE+1]]:10: error: expected a mask from 1 to 0x1f
+	.save.b 32
+// CHECK: :[[#@LINE+1]]:13: error: expected a general register
+	.save.g 1, 40
+// CHECK: :[[#@LINE+1]]:13: error: expected a general register
+	.save.b 1, b6
+// CHECK: :[[#@LINE+1]]:11: error: expected newline
+	.save.f 1, r40
+// CHECK: :[[#@LINE+1]]:12: error: expected comma
+	.save.gf 1
+// CHECK: :[[#@LINE+1]]:11: error: expected a mask from 0 to 0xf
+	.save.gf 16, 0
+// CHECK: :[[#@LINE+1]]:14: error: expected a mask from 0 to 0xfffff
+	.save.gf 0, 0x100000
+// CHECK: :[[#@LINE+1]]:11: error: expected a register in one mask at least
+	.save.gf 0, 0
+// A mask is of as many instructions as it has registers.
+// CHECK: :[[#@LINE+1]]:2: error: fewer instructions follow than this has registers
+	.save.g 3
+	nop 0
+	.save.g 4
+	nop 0
+// CHECK: :[[#@LINE+1]]:2: error: fewer instructions follow than this has registers
+	.save.f 1
+	.body
+	.prologue
+// CHECK: :[[#@LINE+1]]:2: error: fewer instructions follow than this has registers
+	.save.b 3
+	nop 0
+	.endp e
+
+	.proc f
+f:
+	.prologue
+	nop 0
+	.body
+// CHECK: :[[#@LINE+1]]:2: error: .save.g outside of a prologue
+	.save.g 1
+	nop 0
+	.endp f

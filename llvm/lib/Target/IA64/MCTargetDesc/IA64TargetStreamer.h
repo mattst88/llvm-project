@@ -11,6 +11,8 @@
 
 #include "llvm/MC/MCStreamer.h"
 
+#include <optional>
+
 namespace llvm {
 class formatted_raw_ostream;
 class MCSymbol;
@@ -100,6 +102,22 @@ public:
   /// \p Context. Assembly writes this as ".unwabi".
   virtual void emitUnwABI(unsigned ABI, unsigned Context);
 
+  /// The next instructions save the GRs in \p Mask (bit 0 is r4, up to r7),
+  /// one per instruction and lowest first, in the spill area or in
+  /// consecutive GRs starting at \p GR. Assembly writes this as ".save.g".
+  virtual void emitSaveG(unsigned Mask, std::optional<unsigned> GR = {});
+
+  /// The same for FRs f2-f5 and f16-f31, which can only go to the spill
+  /// area. Assembly writes this as ".save.f".
+  virtual void emitSaveF(unsigned Mask);
+
+  /// The same for BRs b1-b5. Assembly writes this as ".save.b".
+  virtual void emitSaveB(unsigned Mask, std::optional<unsigned> GR = {});
+
+  /// The next instructions save the FRs in \p FRMask and then the GRs in
+  /// \p GRMask in the spill area. Assembly writes this as ".save.gf".
+  virtual void emitSaveGF(unsigned GRMask, unsigned FRMask);
+
   /// The next instruction of the body restores sp, and with it undoes the
   /// innermost prologue and \p ECount more around that. Assembly writes this
   /// as ".restore sp".
@@ -138,6 +156,10 @@ public:
   void emitSavePSP(UnwindReg Reg, uint64_t Offset) override;
   void emitAltRP(unsigned BR) override;
   void emitUnwABI(unsigned ABI, unsigned Context) override;
+  void emitSaveG(unsigned Mask, std::optional<unsigned> GR) override;
+  void emitSaveF(unsigned Mask) override;
+  void emitSaveB(unsigned Mask, std::optional<unsigned> GR) override;
+  void emitSaveGF(unsigned GRMask, unsigned FRMask) override;
   void emitRestore(unsigned ECount) override;
   void emitLabelState(uint64_t Label) override;
   void emitCopyState(uint64_t Label) override;

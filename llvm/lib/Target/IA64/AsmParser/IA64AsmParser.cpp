@@ -100,6 +100,10 @@ class IA64AsmParser : public MCTargetAsmParser {
   /// The last directive that describes the following instruction, while
   /// that instruction has not appeared yet.
   SMLoc AwaitsInstruction;
+  /// How many instructions it still describes, and whether it is a mask
+  /// directive, which no other directive may interrupt.
+  unsigned Awaited = 0;
+  bool AwaitedByMask = false;
 
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
@@ -466,7 +470,8 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     Inst.setLoc(IDLoc);
     Opcode = Inst.getOpcode();
     Out.emitInstruction(Inst, getSTI());
-    AwaitsInstruction = SMLoc();
+    if (Awaited != 0 && --Awaited == 0)
+      AwaitsInstruction = SMLoc();
     return false;
   case Match_MnemonicFail:
     return Error(IDLoc, "unrecognized instruction mnemonic");
@@ -920,6 +925,7 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
     OpenPrologues = 0;
     LabelledStates.clear();
     AwaitsInstruction = SMLoc();
+    Awaited = 0;
     getTargetStreamer().emitProc(ProcEntries);
     return ParseStatus::Success;
   }
@@ -948,8 +954,11 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
         Undefined |= Error(Loc, "symbol '" + Entry->getName() +
                                     "' is not defined in its procedure");
     if (AwaitsInstruction.isValid())
-      Undefined |= Error(AwaitsInstruction,
-                         "no instruction follows for this to tell of");
+      Undefined |=
+          Error(AwaitsInstruction,
+                AwaitedByMask ? "fewer instructions follow than this has "
+                                "registers"
+                              : "no instruction follows for this to tell of");
     if (!Undefined)
       getTargetStreamer().emitEndp();
     ProcEntries.clear();
@@ -1172,6 +1181,10 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     SavePSP,
     AltRP,
     UnwABI,
+    SaveG,
+    SaveF,
+    SaveB,
+    SaveGF,
     Restore,
     LabelState,
     CopyState,
@@ -1189,6 +1202,10 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
                               .Case(".savepsp", SavePSP)
                               .Case(".altrp", AltRP)
                               .Case(".unwabi", UnwABI)
+                              .Case(".save.g", SaveG)
+                              .Case(".save.f", SaveF)
+                              .Case(".save.b", SaveB)
+                              .Case(".save.gf", SaveGF)
                               .Case(".restore", Restore)
                               .Case(".label_state", LabelState)
                               .Case(".copy_state", CopyState)
@@ -1200,6 +1217,12 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
   if (ProcEntries.empty())
     return Error(NameLoc, Lower + " outside of a procedure");
   IA64TargetStreamer &TS = getTargetStreamer();
+  // A mask directive covers as many instructions as it has registers.
+  if (Awaited != 0 && AwaitedByMask) {
+    Awaited = 0;
+    return Error(std::exchange(AwaitsInstruction, SMLoc()),
+                 "fewer instructions follow than this has registers");
+  }
 
   if (Directive == Body) {
     if (parseEOL())
@@ -1260,6 +1283,8 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
         return ParseStatus::Failure;
       OpenPrologues -= Value + 1;
       AwaitsInstruction = NameLoc;
+      Awaited = 1;
+      AwaitedByMask = false;
       TS.emitRestore(Value);
       return ParseStatus::Success;
     }
@@ -1395,11 +1420,62 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     TS.emitUnwABI(Value, Context);
     break;
   }
+  case SaveG:
+  case SaveF:
+  case SaveB:
+  case SaveGF: {
+    // Callee-saved register masks: r4-r7, f2-f5 and f16-f31, and b1-b5.
+    int64_t Mask[2] = {0, 0};
+    int64_t Limit[2] = {Directive == SaveG || Directive == SaveGF ? 0xf
+                        : Directive == SaveF                      ? 0xfffff
+                                                                  : 0x1f,
+                        0xfffff};
+    unsigned Count = Directive == SaveGF ? 2 : 1;
+    for (unsigned I = 0; I != Count; ++I) {
+      if (I != 0 && getParser().parseComma())
+        return ParseStatus::Failure;
+      SMLoc MaskLoc = getTok().getLoc();
+      if (getParser().parseAbsoluteExpression(Mask[I]))
+        return ParseStatus::Failure;
+      if (Mask[I] < (Count == 1) || Mask[I] > Limit[I])
+        return Error(MaskLoc, "expected a mask from " + Twine(Count == 1) +
+                                  " to 0x" + Twine::utohexstr(Limit[I]));
+    }
+    if (Count == 2 && Mask[0] == 0 && Mask[1] == 0)
+      return Error(Loc, "expected a register in one mask at least");
+    // GRs and BRs may be saved in GRs.
+    std::optional<unsigned> SavedIn;
+    if (Directive == SaveG || Directive == SaveB) {
+      if (parseOptionalToken(AsmToken::Comma)) {
+        if (parseUnwindGR(GR, /*OrNumber=*/false))
+          return ParseStatus::Failure;
+        SavedIn = GR;
+      }
+    }
+    if (parseEOL())
+      return ParseStatus::Failure;
+    if (Directive == SaveG)
+      TS.emitSaveG(Mask[0], SavedIn);
+    else if (Directive == SaveF)
+      TS.emitSaveF(Mask[0]);
+    else if (Directive == SaveB)
+      TS.emitSaveB(Mask[0], SavedIn);
+    else
+      TS.emitSaveGF(Mask[0], Mask[1]);
+    Awaited = popcount(uint64_t(Mask[0])) + popcount(uint64_t(Mask[1]));
+    AwaitedByMask = true;
+    AwaitsInstruction = NameLoc;
+    return ParseStatus::Success;
+  }
+
   default:
     llvm_unreachable("not a directive of a prologue");
   }
-  if (Directive != Spill && Directive != AltRP && Directive != UnwABI)
+  if (Directive != Spill && Directive != AltRP && Directive != UnwABI) {
     AwaitsInstruction = NameLoc;
+    Awaited = 1;
+    AwaitedByMask = false;
+  }
   return ParseStatus::Success;
 }
 

@@ -43,6 +43,10 @@ public:
   void emitSavePSP(UnwindReg Reg, uint64_t Offset) override;
   void emitAltRP(unsigned BR) override;
   void emitUnwABI(unsigned ABI, unsigned Context) override;
+  void emitSaveG(unsigned Mask, std::optional<unsigned> GR) override;
+  void emitSaveF(unsigned Mask) override;
+  void emitSaveB(unsigned Mask, std::optional<unsigned> GR) override;
+  void emitSaveGF(unsigned GRMask, unsigned FRMask) override;
   void emitRestore(unsigned ECount) override;
   void emitLabelState(uint64_t Label) override;
   void emitCopyState(uint64_t Label) override;
@@ -65,6 +69,18 @@ private:
       P8,
       P8When,
       P10,
+      /// Formats P2 and P9: a mask of branch or of general registers, and
+      /// the first of the general registers that they are saved in.
+      P2,
+      P9,
+      /// A mask of registers saved in the spill area. All of a region's are
+      /// emitted together.
+      FRMem,
+      GRMem,
+      BRMem,
+      /// An instruction that saves an FR (1), GR (2) or BR (3) from those
+      /// masks.
+      Spill,
       /// Format B2 or B3: the number of prologues popped beyond the first.
       /// The time is in slots back from the end of the body.
       Epilogue,
@@ -76,8 +92,13 @@ private:
     uint64_t Args[2];
   };
 
+  /// \p Ahead is how many instructions past the next one the record applies
+  /// to.
   void addUnwindRecord(UnwindRecord::KindTy Kind, uint64_t Arg0 = 0,
-                       uint64_t Arg1 = 0);
+                       uint64_t Arg1 = 0, unsigned Ahead = 0);
+  /// Add a Spill record for each register in \p Mask, for consecutive
+  /// instructions starting \p Ahead past the next one.
+  void addSpills(unsigned Kind, unsigned Mask, unsigned &Ahead);
   void emitUnwindInfo(MCSymbol *End);
   /// Whether the open prologue's save mask covers \p Bit.
   bool isInPrologueMask(unsigned Bit) const;
