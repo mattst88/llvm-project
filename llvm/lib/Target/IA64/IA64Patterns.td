@@ -57,6 +57,7 @@ def shladdamt : ImmLeaf<i64, [{ return Imm >= 1 && Imm <= 4; }]>;
 // br.ret.sptk.many b0
 def : Pat<(IA64retglue), (BR_RET B0, 0, 1, 0)>;
 def : Pat<(br bb:$target), (BRUNCOND bb:$target)>;
+def : Pat<(brind GR:$target), (BRIND GR:$target)>;
 
 def : Pat<(IA64call tglobaladdr:$target, GRSave:$gp),
           (CALL tglobaladdr:$target, GRSave:$gp)>;
@@ -183,3 +184,5 @@ def : Pat<(store GR:$r2, GR:$r3), (ST8 GR:$r3, GR:$r2, 0)>;
 
 // addl r1 = @ltoff(sym), gp
 def : Pat<(IA64ltoff tglobaladdr:$sym), (ADDL tglobaladdr:$sym, R1)>;
+def : Pat<(IA64ltoff tjumptable:$sym), (ADDL tjumptable:$sym, R1)>;
+def : Pat<(IA64ltoff tblockaddress:$sym), (ADDL tblockaddress:$sym, R1)>;

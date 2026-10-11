@@ -44,6 +44,9 @@ public:
   bool isCheapToSpeculateCttz(Type *Ty) const override { return true; }
   bool isCheapToSpeculateCtlz(Type *Ty) const override { return true; }
 
+  unsigned getJumpTableEncoding() const override;
+  bool isJumpTableRelative() const override { return true; }
+
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 
@@ -62,6 +65,10 @@ private:
 
 private:
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue loadLinkageTableEntry(SDValue Sym, const SDLoc &DL,
+                                SelectionDAG &DAG) const;
 };
 
 } // end namespace llvm

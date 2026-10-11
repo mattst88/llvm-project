@@ -16,6 +16,7 @@
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -50,6 +51,11 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
 
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
+  setOperationAction(ISD::JumpTable, MVT::i64, Custom);
+  setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
+
+  // A jump table branch loads the entry and branches through a BR.
+  setOperationAction(ISD::BR_JT, MVT::Other, Expand);
 
   // popcnt exists, and ctlz and cttz are expanded using it. clz exists only
   // on the latest processors.
@@ -88,6 +94,10 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
   switch (Op.getOpcode()) {
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
+  case ISD::JumpTable:
+    return LowerJumpTable(Op, DAG);
+  case ISD::BlockAddress:
+    return LowerBlockAddress(Op, DAG);
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -112,17 +122,49 @@ SDValue IA64TargetLowering::LowerGlobalAddress(SDValue Op,
 
   unsigned Flags =
       GV->getValueType()->isFunctionTy() ? IA64::S_LTOFF_FPTR : IA64::S_LTOFF;
-  SDValue Entry =
-      DAG.getNode(IA64ISD::LTOFF, DL, MVT::i64,
-                  DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags));
-  SDValue Addr = DAG.getLoad(
-      MVT::i64, DL, DAG.getEntryNode(), Entry,
-      MachinePointerInfo::getGOT(DAG.getMachineFunction()), Align(8),
-      MachineMemOperand::MODereferenceable | MachineMemOperand::MOInvariant);
+  SDValue Addr = loadLinkageTableEntry(
+      DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags), DL, DAG);
   if (N->getOffset() == 0)
     return Addr;
   return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
                      DAG.getConstant(N->getOffset(), DL, MVT::i64));
+}
+
+SDValue IA64TargetLowering::loadLinkageTableEntry(SDValue Sym, const SDLoc &DL,
+                                                  SelectionDAG &DAG) const {
+  SDValue Entry = DAG.getNode(IA64ISD::LTOFF, DL, MVT::i64, Sym);
+  return DAG.getLoad(
+      MVT::i64, DL, DAG.getEntryNode(), Entry,
+      MachinePointerInfo::getGOT(DAG.getMachineFunction()), Align(8),
+      MachineMemOperand::MODereferenceable | MachineMemOperand::MOInvariant);
+}
+
+SDValue IA64TargetLowering::LowerJumpTable(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  const auto *N = cast<JumpTableSDNode>(Op);
+  return loadLinkageTableEntry(
+      DAG.getTargetJumpTable(N->getIndex(), MVT::i64, IA64::S_LTOFF), SDLoc(Op),
+      DAG);
+}
+
+SDValue IA64TargetLowering::LowerBlockAddress(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  const auto *N = cast<BlockAddressSDNode>(Op);
+  SDLoc DL(Op);
+  SDValue Addr = loadLinkageTableEntry(
+      DAG.getTargetBlockAddress(N->getBlockAddress(), MVT::i64, 0,
+                                IA64::S_LTOFF),
+      DL, DAG);
+  if (N->getOffset() == 0)
+    return Addr;
+  return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
+                     DAG.getConstant(N->getOffset(), DL, MVT::i64));
+}
+
+// An entry of a jump table is the distance from the table to the block,
+// which needs nothing done to it when the module is loaded.
+unsigned IA64TargetLowering::getJumpTableEncoding() const {
+  return MachineJumpTableInfo::EK_LabelDifference32;
 }
 
 SDValue IA64TargetLowering::LowerFormalArguments(

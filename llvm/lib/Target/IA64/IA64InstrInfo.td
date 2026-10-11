@@ -100,6 +100,13 @@ def BRCCi : IA64Pseudo<(outs),
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in
 def BRUNCOND : IA64Pseudo<(outs), (ins brtarget:$target), "#BRUNCOND", []>;
 
+// An indirect branch through a GR, via b6: "mov b6 = r" and
+// "br.cond.sptk.few b6". It is a single pseudo because the mov is not a
+// terminator.
+let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1,
+    Defs = [B6] in
+def BRIND : IA64Pseudo<(outs), (ins GR:$target), "#BRIND", []>;
+
 //===----------------------------------------------------------------------===//
 // Integer ALU
 //===----------------------------------------------------------------------===//
