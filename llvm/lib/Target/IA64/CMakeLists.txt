@@ -10,6 +10,7 @@ tablegen(LLVM IA64GenDisassemblerTables.inc -gen-disassembler)
 tablegen(LLVM IA64GenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM IA64GenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM IA64GenRegisterInfo.inc -gen-register-info)
+tablegen(LLVM IA64GenSDNodeInfo.inc -gen-sd-node-info)
 tablegen(LLVM IA64GenSubtargetInfo.inc -gen-subtarget)
 
 add_public_tablegen_target(IA64CommonTableGen)
@@ -21,6 +22,7 @@ add_llvm_target(IA64CodeGen
   IA64ISelDAGToDAG.cpp
   IA64ISelLowering.cpp
   IA64RegisterInfo.cpp
+  IA64SelectionDAGInfo.cpp
   IA64Subtarget.cpp
   IA64TargetMachine.cpp
 

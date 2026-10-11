@@ -36,6 +36,11 @@ public:
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
                       SelectionDAG &DAG) const override;
 
+  bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
+                      bool IsVarArg,
+                      const SmallVectorImpl<ISD::OutputArg> &Outs,
+                      LLVMContext &Context, const Type *RetTy) const override;
+
 private:
   const IA64Subtarget &Subtarget;
 };

@@ -12,6 +12,7 @@ include "IA64Features.td"
 include "IA64RegisterInfo.td"
 include "IA64CallingConv.td"
 include "IA64InstrInfo.td"
+include "IA64Patterns.td"
 
 defm : RemapAllTargetPseudoPointerOperands<GR>;
 

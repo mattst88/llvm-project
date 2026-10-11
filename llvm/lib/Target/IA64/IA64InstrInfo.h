@@ -30,6 +30,11 @@ public:
   explicit IA64InstrInfo(const IA64Subtarget &STI);
 
   const IA64RegisterInfo &getRegisterInfo() const { return RI; }
+
+  void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+                   const DebugLoc &DL, Register DestReg, Register SrcReg,
+                   bool KillSrc, bool RenamableDest = false,
+                   bool RenamableSrc = false) const override;
 };
 
 } // end namespace llvm

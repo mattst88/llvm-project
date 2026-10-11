@@ -5,10 +5,21 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// The preserved register set of the IA-64 software conventions. The argument
-// and return conventions arrive with their lowering.
+// The calling convention of the Itanium Software Conventions and Runtime
+// Architecture Guide, chapter 8.
 //
 //===----------------------------------------------------------------------===//
+
+// The first eight argument slots are the caller's output registers, which the
+// callee sees as its first input registers.
+def CC_IA64 : CallingConv<[
+  CCIfType<[i64], CCAssignToReg<[R32, R33, R34, R35, R36, R37, R38, R39]>>
+]>;
+
+// An integer result of up to four words comes back in r8 to r11.
+def RetCC_IA64 : CallingConv<[
+  CCIfType<[i64], CCAssignToReg<[R8, R9, R10, R11]>>
+]>;
 
 // The stacked registers a function keeps across a call are preserved by the
 // register stack engine, not by the callee, so they are not listed here.

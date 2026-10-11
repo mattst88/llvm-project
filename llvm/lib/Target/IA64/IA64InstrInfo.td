@@ -605,7 +605,7 @@ let isBranch = 1, isIndirectBranch = 1 in {
   def BR_COND_B : B4<0x20, 0, "br.cond">;
   def BR_IA     : B4<0x20, 1, "br.ia">;
 }
-let isReturn = 1 in
+let isReturn = 1, isBarrier = 1 in
 def BR_RET    : B4<0x21, 4, "br.ret">;
 def BR_CALL_B : B5<"br.call">;
 

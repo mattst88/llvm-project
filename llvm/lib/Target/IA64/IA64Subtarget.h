@@ -16,8 +16,8 @@
 #include "IA64FrameLowering.h"
 #include "IA64ISelLowering.h"
 #include "IA64InstrInfo.h"
+#include "IA64SelectionDAGInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
-#include "llvm/CodeGen/SelectionDAGTargetInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include <memory>
 
@@ -33,7 +33,7 @@ class IA64Subtarget : public IA64GenSubtargetInfo {
   IA64InstrInfo InstrInfo;
   IA64TargetLowering TLInfo;
   IA64FrameLowering FrameLowering;
-  SelectionDAGTargetInfo TSInfo;
+  IA64SelectionDAGInfo TSInfo;
 
   IA64Subtarget &initializeSubtargetDependencies(StringRef CPU,
                                                  StringRef TuneCPU,

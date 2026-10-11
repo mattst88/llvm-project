@@ -44,6 +44,10 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(IA64::R12);
   Reserved.set(IA64::R13);
 
+  // b0, which every call writes and every return reads. The prologue saves
+  // it in a local, and it is restored only to return.
+  Reserved.set(IA64::B0);
+
   // The stacked registers exist only once a function has allocated a register
   // stack frame, which nothing does yet.
   for (unsigned Reg = IA64::R32; Reg <= IA64::R127; ++Reg)
