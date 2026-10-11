@@ -30,6 +30,8 @@ public:
   void finish() override;
   void emitStop() override;
   void emitTemplate(unsigned Index) override;
+  void emitBundleBegin() override;
+  void emitBundleEnd() override;
   void emitTag(MCSymbol *Symbol, SMLoc Loc) override;
   void emitProc(ArrayRef<MCSymbol *> Entries) override;
   void emitEndp() override;

@@ -34,6 +34,12 @@ public:
   /// ".mmi".
   virtual void emitTemplate(unsigned Index);
 
+  /// Begin and end an explicit bundle; it is an error if the instructions do
+  /// not fit in one. The preceding bundle ends without a stop, and so does
+  /// this one. Assembly writes these as "{" and "}".
+  virtual void emitBundleBegin();
+  virtual void emitBundleEnd();
+
   /// Let \p Symbol be the slot of the next instruction: the address of its
   /// bundle and in the low bits which of the three it is. Assembly writes
   /// this as "[symbol:]".
@@ -227,6 +233,8 @@ public:
 
   void emitStop() override;
   void emitTemplate(unsigned Index) override;
+  void emitBundleBegin() override;
+  void emitBundleEnd() override;
   void emitTag(MCSymbol *Symbol, SMLoc Loc) override;
   void emitProc(ArrayRef<MCSymbol *> Entries) override;
   void emitEndp() override;

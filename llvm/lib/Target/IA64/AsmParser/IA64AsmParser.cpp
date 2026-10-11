@@ -62,10 +62,16 @@ class IA64AsmParser : public MCTargetAsmParser {
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op,
                                       unsigned Kind) override;
 
-  // A statement may open with a qualifying predicate: "(p6) add ...".
+  // A statement may start with a qualifying predicate, "(p6) add ...", a
+  // tag, "[1:] add ...", or a bundle brace.
   bool tokenIsStartOfStatement(AsmToken::TokenKind Token) override {
-    return Token == AsmToken::LParen || Token == AsmToken::LBrac;
+    return Token == AsmToken::LParen || Token == AsmToken::LBrac ||
+           Token == AsmToken::LCurly || Token == AsmToken::RCurly;
   }
+
+  /// The location of the "{" of the open bundle, if any.
+  SMLoc OpenBundle;
+  void onEndOfFile() override;
 
   void onEmptyStatement(const AsmToken &Terminator) override;
 
@@ -449,6 +455,11 @@ static MCRegister matchRegister(StringRef Name) {
   if (MCRegister Reg = MatchRegisterName(Lower))
     return Reg;
   return MatchRegisterAltName(Lower);
+}
+
+void IA64AsmParser::onEndOfFile() {
+  if (OpenBundle.isValid())
+    Error(OpenBundle, "bundle is not closed");
 }
 
 bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
@@ -931,6 +942,25 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
                                      SMLoc NameLoc, OperandVector &Operands) {
   MCAsmParser &Parser = getParser();
 
+  // "{" and "}" delimit a bundle. Whatever follows a brace on the same line
+  // is a separate statement.
+  if (Name == "{" || Name == "}") {
+    if (Parser.checkForValidSection())
+      return true;
+    if (Name == "{") {
+      if (OpenBundle.isValid())
+        return Warning(NameLoc, "a bundle is already open");
+      OpenBundle = NameLoc;
+      getTargetStreamer().emitBundleBegin();
+    } else {
+      if (!OpenBundle.isValid())
+        return Warning(NameLoc, "no bundle is open");
+      OpenBundle = SMLoc();
+      getTargetStreamer().emitBundleEnd();
+    }
+    return false;
+  }
+
   // "[name:]" is a tag: a symbol for the slot of the next instruction, which
   // may follow on the same line. The generic parser has consumed the bracket
   // and passed it as the name.
@@ -1009,14 +1039,16 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
 
   InAlloc = Name == "alloc";
   DeferredNames.clear();
-  while (getLexer().isNot(AsmToken::EndOfStatement)) {
+  // A bundle's "}" may be on the same line as its last instruction.
+  while (getLexer().isNot(AsmToken::EndOfStatement) &&
+         getLexer().isNot(AsmToken::RCurly)) {
     if (parseOperand(Operands))
       return true;
     // Commas only separate operands; "=" is a token of its own.
     if (getLexer().is(AsmToken::Comma))
       Parser.Lex();
   }
-  Parser.Lex(); // Consume the EndOfStatement.
+  parseOptionalToken(AsmToken::EndOfStatement);
 
   if (InAlloc) {
     InAlloc = false;

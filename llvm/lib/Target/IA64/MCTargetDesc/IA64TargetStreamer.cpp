@@ -29,6 +29,8 @@ IA64TargetStreamer::~IA64TargetStreamer() = default;
 void IA64TargetStreamer::emitStop() {}
 
 void IA64TargetStreamer::emitTemplate(unsigned Index) {}
+void IA64TargetStreamer::emitBundleBegin() {}
+void IA64TargetStreamer::emitBundleEnd() {}
 
 void IA64TargetStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {}
 
@@ -176,6 +178,10 @@ void IA64TargetAsmStreamer::emitStop() { OS << "\t;;\n"; }
 void IA64TargetAsmStreamer::emitTemplate(unsigned Index) {
   OS << "\t." << StringRef(IA64II::BundleTemplates[Index].Name).lower() << '\n';
 }
+
+void IA64TargetAsmStreamer::emitBundleBegin() { OS << "{\n"; }
+
+void IA64TargetAsmStreamer::emitBundleEnd() { OS << "}\n"; }
 
 void IA64TargetAsmStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {
   // The symbol is now defined, as one printed by emitLabel() is.

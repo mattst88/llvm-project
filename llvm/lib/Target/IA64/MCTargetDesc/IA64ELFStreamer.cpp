@@ -127,6 +127,10 @@ class IA64ELFStreamer : public MCELFStreamer {
   /// leaving the pending instructions untouched.
   bool Elsewhere = false;
 
+  /// Whether the pending instructions are inside bundle braces and so form
+  /// one bundle.
+  bool InBundle = false;
+
   MCSymbol *createBundleSymbol(MCFragment &F, size_t Offset) {
     MCSymbol *Symbol = getContext().createTempSymbol();
     MCELFStreamer::emitLabelAtPos(Symbol, SMLoc(), F, Offset);
@@ -239,6 +243,20 @@ public:
 
   void emitTemplate(unsigned Index) { NextTemplate = Index; }
 
+  void emitBundleBegin() {
+    flush(/*Stop=*/false);
+    InBundle = true;
+  }
+  void emitBundleEnd() {
+    // Empty slots left by its instructions belong to the bundle, not to a
+    // region that starts after it.
+    bool Any = !Pending.empty();
+    flush(/*Stop=*/false);
+    if (Any)
+      LastFragment = nullptr;
+    InBundle = false;
+  }
+
   void beginDataElsewhere(MCSection *Section) {
     assert(!Elsewhere && "already elsewhere");
     pushSection();
@@ -302,6 +320,8 @@ public:
     // code before it. Labels must be on bundle boundaries, though, so the
     // preceding bundle ends. A tag before the label still applies to the
     // instruction after it.
+    if (InBundle && !Pending.empty())
+      getContext().reportError(Loc, "label is not the first of the bundle");
     auto Tags = std::move(NextTags);
     NextTags.clear();
     flush(/*Stop=*/false);
@@ -632,8 +652,14 @@ void IA64ELFStreamer::flush(bool Stop, bool KeepLast) {
     Pending.back().Stop = true;
   getCurrentSectionOnly()->ensureMinAlignment(Align(IA64II::BundleBytes));
   MutableArrayRef<PendingInst> Insts = Pending;
-  while (!Insts.empty())
+  while (!Insts.empty()) {
     Insts = Insts.drop_front(emitBundle(Insts));
+    if (InBundle && !Insts.empty()) {
+      getContext().reportError(Insts[0].Inst.getLoc(),
+                               "instruction does not fit in the bundle");
+      break;
+    }
+  }
   Pending.clear();
   Break();
 }
@@ -655,6 +681,14 @@ void IA64TargetELFStreamer::emitStop() {
 
 void IA64TargetELFStreamer::emitTemplate(unsigned Index) {
   static_cast<IA64ELFStreamer &>(getStreamer()).emitTemplate(Index);
+}
+
+void IA64TargetELFStreamer::emitBundleBegin() {
+  static_cast<IA64ELFStreamer &>(getStreamer()).emitBundleBegin();
+}
+
+void IA64TargetELFStreamer::emitBundleEnd() {
+  static_cast<IA64ELFStreamer &>(getStreamer()).emitBundleEnd();
 }
 
 void IA64TargetELFStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {
