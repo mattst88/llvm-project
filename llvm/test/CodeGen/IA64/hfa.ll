@@ -213,3 +213,105 @@ define void @pass_aligned([2 x double] %a) {
   call void @take_aligned(i64 1, [2 x double] alignstack(16) %a, i64 2)
   ret void
 }
+
+; An aggregate of extended-precision members that was declared to be aligned
+; to less than they are begins at whichever slot is next.
+define x86_fp80 @unaligned(i64 %x, [1 x x86_fp80] alignstack(8) %a, i64 %y) {
+; CHECK-LABEL: unaligned:
+; CHECK:       setf.sig f6 = r35 ;;
+; CHECK-NEXT:  fcvt.xf f6 = f6 ;;
+; CHECK-NEXT:  fma f8 = f8, f1, f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %v = extractvalue [1 x x86_fp80] %a, 0
+  %f = sitofp i64 %y to x86_fp80
+  %r = fadd x86_fp80 %v, %f
+  ret x86_fp80 %r
+}
+
+; That may be the last of the registers, and the second half of the member is
+; then the first slot of memory.
+define i64 @unaligned_last(i64, i64, i64, i64, i64, i64, i64,
+                           [1 x x86_fp80] alignstack(8) %a, i64 %y) {
+; CHECK-LABEL: unaligned_last:
+; CHECK:       adds r14 = 24, r12 ;;
+; CHECK-NEXT:  ld8 r8 = [r14]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  ret i64 %y
+}
+
+; With no floating-point register left it is its bits in the two.
+define x86_fp80 @unaligned_bits([8 x float] %h, i64, i64, i64,
+                                [1 x x86_fp80] alignstack(8) %a) {
+; CHECK-LABEL: unaligned_bits:
+; CHECK:       adds r14 = 16, r12 ;;
+; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK:       st8 [r{{[0-9]+}}] = r14
+; CHECK:       st8 [r{{[0-9]+}}] = r39
+; CHECK:       ldfe f8 = [r{{[0-9]+}}]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %v = extractvalue [1 x x86_fp80] %a, 0
+  ret x86_fp80 %v
+}
+
+; One that is all in memory is not at an address that an extended-precision
+; value can be loaded from, and is copied to one that is.
+define x86_fp80 @unaligned_memory(i64, i64, i64, i64, i64, i64, i64, i64, i64,
+                                  [1 x x86_fp80] alignstack(8) %a) {
+; CHECK-LABEL: unaligned_memory:
+; CHECK:       adds r14 = 24, r12 ;;
+; CHECK-NOT:   ldfe {{.*}}[r14]
+; CHECK:       ld8 r14 = [r14] ;;
+; CHECK-NEXT:  st8 [r16] = r14
+; CHECK-NEXT:  ldfe f8 = [r16]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %v = extractvalue [1 x x86_fp80] %a, 0
+  ret x86_fp80 %v
+}
+
+declare void @take_unaligned(i64, i64, i64, i64, i64, i64, i64,
+                             [1 x x86_fp80] alignstack(8), i64)
+declare void @take_unaligned_variable(i64, ...)
+declare void @take_unaligned_memory(i64, i64, i64, i64, i64, i64, i64, i64, i64,
+                                    [1 x x86_fp80] alignstack(8))
+
+define void @pass_unaligned([1 x x86_fp80] %a) {
+; CHECK-LABEL: pass_unaligned:
+; CHECK:       adds r14 = 24, r12
+; CHECK-NEXT:  mov r15 = 9 ;;
+; CHECK-NEXT:  st8 [r14] = r15
+; CHECK-NOT:   f8
+; CHECK:       br.call.sptk.many b0 = take_unaligned ;;
+  call void @take_unaligned(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6,
+                            [1 x x86_fp80] alignstack(8) %a, i64 9)
+  ret void
+}
+
+define void @pass_unaligned_variable([1 x x86_fp80] %a) {
+; CHECK-LABEL: pass_unaligned_variable:
+; CHECK:       adds r14 = 32, r12 ;;
+; CHECK-NEXT:  stfe [r14] = f8
+; CHECK-NEXT:  ld8 r42 = [r14]
+; CHECK-NEXT:  or r14 = 8, r14 ;;
+; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  adds r15 = 16, r12 ;;
+; CHECK-NEXT:  st8 [r15] = r14
+; CHECK:       br.call.sptk.many b0 = take_unaligned_variable ;;
+  call void (i64, ...) @take_unaligned_variable(
+      i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6,
+      [1 x x86_fp80] alignstack(8) %a)
+  ret void
+}
+
+define void @pass_unaligned_memory([1 x x86_fp80] %a) {
+; CHECK-LABEL: pass_unaligned_memory:
+; CHECK:       adds r14 = 48, r12 ;;
+; CHECK-NEXT:  stfe [r14] = f8
+; CHECK-NOT:   stfe
+; CHECK:       adds r15 = 24, r12 ;;
+; CHECK-NEXT:  st8 [r15] = r14
+; CHECK:       br.call.sptk.many b0 = take_unaligned_memory ;;
+  call void @take_unaligned_memory(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5,
+                                   i64 6, i64 7, i64 8,
+                                   [1 x x86_fp80] alignstack(8) %a)
+  ret void
+}

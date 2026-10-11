@@ -118,35 +118,46 @@ static bool CC_IA64_FP(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   return true;
 }
 
-// An extended-precision argument is sixteen bytes, aligned to as many: two
-// slots, the first of them an even one. One the callee has not named is its
-// bits in the two, as the callee will look for it in memory.
+// An f80 argument is 16 bytes and 16-byte aligned: two slots, starting at an
+// even one. An unnamed (varargs) f80 is passed as raw bits in the two slots,
+// since the callee reads it from memory. An aggregate member declared with
+// lower alignment takes the next slot, so it may be split between the last
+// register and the stack.
 static bool CC_IA64_Extended(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
                              CCValAssign::LocInfo &LocInfo,
                              ISD::ArgFlagsTy &ArgFlags, CCState &State) {
-  if (State.getFirstUnallocated(Slots) % 2 != 0)
-    State.AllocateReg(Slots);
-  if (State.getFirstUnallocated(Slots) == std::size(Slots)) {
+  bool Aligned = ArgFlags.getNonZeroMemAlign() >= Align(16);
+  if (Aligned)
+    skipOddSlot(State);
+  MCRegister Lo = State.AllocateReg(Slots);
+  if (!Lo) {
     State.addLoc(CCValAssign::getMem(
-        ValNo, ValVT, State.AllocateStack(16, Align(16)), LocVT, LocInfo));
+        ValNo, ValVT, State.AllocateStack(16, Align(Aligned ? 16 : 8)), LocVT,
+        LocInfo));
     return true;
   }
-  MCRegister Lo = State.AllocateReg(Slots);
   MCRegister Hi = State.AllocateReg(Slots);
+  int64_t HiOffset = Hi ? 0 : State.AllocateStack(8, Align(8));
+  auto AddSlots = [&] {
+    State.addLoc(
+        CCValAssign::getCustomReg(ValNo, ValVT, Lo, MVT::i64, LocInfo));
+    if (Hi)
+      State.addLoc(
+          CCValAssign::getCustomReg(ValNo, ValVT, Hi, MVT::i64, LocInfo));
+    else
+      State.addLoc(
+          CCValAssign::getCustomMem(ValNo, ValVT, HiOffset, MVT::i64, LocInfo));
+  };
   MCRegister Reg;
   if (!ArgFlags.isVarArg())
     Reg = State.AllocateReg(FRs);
   if (!Reg) {
-    for (MCRegister Reg : {Lo, Hi})
-      State.addLoc(
-          CCValAssign::getCustomReg(ValNo, ValVT, Reg, MVT::i64, LocInfo));
+    AddSlots();
     return true;
   }
   State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
   if (State.isVarArg())
-    for (MCRegister Slot : {Lo, Hi})
-      State.addLoc(
-          CCValAssign::getCustomReg(ValNo, ValVT, Slot, MVT::i64, LocInfo));
+    AddSlots();
   return true;
 }
 
@@ -728,6 +739,12 @@ SDValue IA64TargetLowering::LowerFormalArguments(
         continue;
       // No FP register was left, so the value is raw bits in the slot.
       auto Slot = [&](const CCValAssign &VA) {
+        if (VA.isMemLoc()) {
+          int FI = MFI.CreateFixedObject(8, VA.getLocMemOffset(), true);
+          return DAG.getLoad(MVT::i64, DL, Chain,
+                             DAG.getFrameIndex(FI, MVT::i64),
+                             MachinePointerInfo::getFixedStack(MF, FI));
+        }
         Register VReg = MF.addLiveIn(VA.getLocReg(), &IA64::GRRegClass);
         return DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64);
       };
@@ -761,9 +778,9 @@ SDValue IA64TargetLowering::LowerFormalArguments(
       // stack argument is.
       int FI = MFI.CreateFixedObject(VA.getLocVT() == MVT::f80 ? 16 : 8,
                                      VA.getLocMemOffset(), true);
-      InVals.push_back(DAG.getLoad(VA.getLocVT(), DL, Chain,
-                                   DAG.getFrameIndex(FI, MVT::i64),
-                                   MachinePointerInfo::getFixedStack(MF, FI)));
+      InVals.push_back(DAG.getLoad(
+          VA.getLocVT(), DL, Chain, DAG.getFrameIndex(FI, MVT::i64),
+          MachinePointerInfo::getFixedStack(MF, FI), MFI.getObjectAlign(FI)));
       continue;
     }
     // The ABI leaves the bits above a value narrower than its slot undefined,
@@ -979,7 +996,8 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     MemOps.push_back(DAG.getStore(
         Chain, DL, OutVals[I],
         DAG.getMemBasePlusOffset(StackPtr, TypeSize::getFixed(Offset), DL),
-        MachinePointerInfo::getStack(MF, Offset)));
+        MachinePointerInfo::getStack(MF, Offset),
+        commonAlignment(Align(16), Offset)));
   }
   if (!MemOps.empty())
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOps);
