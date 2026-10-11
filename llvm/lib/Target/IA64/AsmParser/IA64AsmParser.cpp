@@ -12,6 +12,7 @@
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/ADT/SmallBitVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCContext.h"
@@ -121,6 +122,37 @@ class IA64AsmParser : public MCTargetAsmParser {
   std::unique_ptr<IA64Operand> defaultBranchDeallocOperand();
 
   bool validateInstruction(const MCInst &Inst, const OperandVector &Operands);
+
+  /// The register stack frame described by the last "alloc" or ".regstk",
+  /// which defines "in0", "loc0" and "out0".
+  struct StackFrame {
+    unsigned Inputs, Locals, Outputs, Rotating;
+  };
+  std::optional<StackFrame> Frame;
+  /// A register named by its position in the frame (inN, locN, outN).
+  struct StackedName {
+    enum { Input, Local, Output } Kind;
+    unsigned Number;
+  };
+  static std::optional<StackedName> matchStackedName(StringRef Name);
+  /// The register \p Name refers to in the frame, or none after an error.
+  MCRegister resolveStackedName(StackedName Name, SMLoc Loc);
+  /// Stacked names used as operands of "alloc" itself, with the operand
+  /// indices they occupy until the instruction has defined its frame.
+  struct DeferredName {
+    unsigned Operand;
+    StackedName Name;
+  };
+  SmallVector<DeferredName, 1> DeferredNames;
+  bool InAlloc = false;
+  /// Reads the frame of an "alloc" from its operands.
+  void parseAllocFrame(OperandVector &Operands);
+
+  /// Names that ".rotr", ".rotf" and ".rotp" gave to runs of rotating
+  /// registers: the run's start within the rotating region, and its length.
+  enum { RotGR, RotFR, RotPR, NumRotClasses };
+  StringMap<std::pair<unsigned, unsigned>> RotatingNames[NumRotClasses];
+  ParseStatus parseRegStackDirective(StringRef Name);
 
   IA64TargetStreamer &getTargetStreamer() {
     return static_cast<IA64TargetStreamer &>(
@@ -636,18 +668,114 @@ bool IA64AsmParser::parseRegister(MCRegister &Reg, SMLoc &StartLoc,
   return false;
 }
 
+std::optional<IA64AsmParser::StackedName>
+IA64AsmParser::matchStackedName(StringRef Name) {
+  // These names are in lower case only.
+  StringRef Digits = Name;
+  StackedName Result;
+  if (Digits.consume_front("in"))
+    Result.Kind = StackedName::Input;
+  else if (Digits.consume_front("loc"))
+    Result.Kind = StackedName::Local;
+  else if (Digits.consume_front("out"))
+    Result.Kind = StackedName::Output;
+  else
+    return std::nullopt;
+  // "in00" is a symbol.
+  if (Digits.empty() || (Digits.size() > 1 && Digits[0] == '0') ||
+      Digits.getAsInteger(10, Result.Number) ||
+      Result.Number >= IA64II::MaxFrameSize)
+    return std::nullopt;
+  return Result;
+}
+
+MCRegister IA64AsmParser::resolveStackedName(StackedName Name, SMLoc Loc) {
+  if (!Frame) {
+    Error(Loc, "no alloc or .regstk has described a frame");
+    return MCRegister();
+  }
+  unsigned First = 0, Count = Frame->Inputs;
+  if (Name.Kind != StackedName::Input) {
+    First += Count;
+    Count = Frame->Locals;
+  }
+  if (Name.Kind == StackedName::Output) {
+    First += Count;
+    Count = Frame->Outputs;
+  }
+  if (Name.Number >= Count) {
+    Error(Loc, "the frame has " + Twine(Count) + " such register" +
+                   (Count == 1 ? "" : "s"));
+    return MCRegister();
+  }
+  return IA64::R32 + First + Name.Number;
+}
+
 ParseStatus IA64AsmParser::tryParseRegister(MCRegister &Reg, SMLoc &StartLoc,
                                             SMLoc &EndLoc) {
   const AsmToken &Tok = getParser().getTok();
   if (Tok.isNot(AsmToken::Identifier))
     return ParseStatus::NoMatch;
-  Reg = matchRegister(Tok.getIdentifier());
-  if (!Reg)
-    return ParseStatus::NoMatch;
+  StringRef Name = Tok.getIdentifier();
   StartLoc = Tok.getLoc();
   EndLoc = Tok.getEndLoc();
-  getParser().Lex();
-  return ParseStatus::Success;
+  Reg = matchRegister(Name);
+  if (Reg) {
+    getParser().Lex();
+    return ParseStatus::Success;
+  }
+  if (std::optional<StackedName> Stacked = matchStackedName(Name)) {
+    getParser().Lex();
+    Reg = resolveStackedName(*Stacked, StartLoc);
+    return Reg ? ParseStatus::Success : ParseStatus::Failure;
+  }
+  // "name[2]" is the third register of a named rotating register run.
+  if (getLexer().peekTok().isNot(AsmToken::LBrac))
+    return ParseStatus::NoMatch;
+  static const MCRegister FirstRotating[] = {IA64::R32, IA64::F32, IA64::P16};
+  for (unsigned Class = 0; Class != NumRotClasses; ++Class) {
+    auto It = RotatingNames[Class].find(Name);
+    if (It == RotatingNames[Class].end())
+      continue;
+    getParser().Lex(); // Eat the name.
+    getParser().Lex(); // Eat the '['.
+    SMLoc IndexLoc = getParser().getTok().getLoc();
+    int64_t Index;
+    if (getParser().parseAbsoluteExpression(Index))
+      return ParseStatus::Failure;
+    EndLoc = getParser().getTok().getEndLoc();
+    if (getParser().parseToken(AsmToken::RBrac, "expected ']'"))
+      return ParseStatus::Failure;
+    auto [First, Count] = It->second;
+    if (Index < 0 || Index >= Count)
+      return Error(IndexLoc,
+                   "index must be an integer in [0, " + Twine(Count - 1) + "]");
+    Reg = FirstRotating[Class] + First + Index;
+    return ParseStatus::Success;
+  }
+  return ParseStatus::NoMatch;
+}
+
+void IA64AsmParser::parseAllocFrame(OperandVector &Operands) {
+  // Operands are the mnemonic, the predicate, the destination and "=", and
+  // then ar.pfs, which may be left out, before the four sizes.
+  if (Operands.size() > 4 &&
+      !static_cast<IA64Operand &>(*Operands[4]).isReg()) {
+    SMLoc Loc = Operands[4]->getStartLoc();
+    Operands.insert(Operands.begin() + 4,
+                    IA64Operand::createReg(IA64::AR64, Loc, Loc));
+  }
+  if (Operands.size() != 9)
+    return;
+  unsigned Sizes[4];
+  for (unsigned I = 0; I != 4; ++I) {
+    auto &Op = static_cast<IA64Operand &>(*Operands[5 + I]);
+    std::optional<int64_t> Size = Op.isImm() ? Op.getConstant() : std::nullopt;
+    if (!Size || !isUInt<7>(*Size))
+      return;
+    Sizes[I] = *Size;
+  }
+  Frame = {Sizes[0], Sizes[1], Sizes[2], Sizes[3]};
 }
 
 bool IA64AsmParser::parseOperand(OperandVector &Operands) {
@@ -692,12 +820,23 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     const AsmToken &Next = getLexer().peekTok();
     if (Next.is(AsmToken::Hash) && Next.getLoc() == Tok.getEndLoc())
       break;
+    // "alloc loc0 = ..." refers to loc0 of the frame being allocated.
+    if (std::optional<StackedName> Stacked;
+        InAlloc && (Stacked = matchStackedName(Tok.getIdentifier()))) {
+      DeferredNames.push_back({unsigned(Operands.size()), *Stacked});
+      Operands.push_back(IA64Operand::createReg(IA64::R32, S, Tok.getEndLoc()));
+      Parser.Lex();
+      return false;
+    }
     MCRegister Reg;
     SMLoc E;
-    if (tryParseRegister(Reg, S, E).isSuccess()) {
+    ParseStatus Status = tryParseRegister(Reg, S, E);
+    if (Status.isSuccess()) {
       Operands.push_back(IA64Operand::createReg(Reg, S, E));
       return false;
     }
+    if (Status.isFailure())
+      return true;
     // Names that are part of an instruction's syntax and not registers that
     // can be used freely.
     StringRef Name = Tok.getIdentifier();
@@ -832,8 +971,10 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
   ExplicitQP = Name == "(";
   if (ExplicitQP) {
     QPStart = Parser.getTok().getLoc();
-    if (!tryParseRegister(QP, QPStart, QPEnd).isSuccess() ||
-        !(QP >= IA64::P0 && QP <= IA64::P63))
+    ParseStatus Status = tryParseRegister(QP, QPStart, QPEnd);
+    if (Status.isFailure())
+      return true;
+    if (!Status.isSuccess() || !(QP >= IA64::P0 && QP <= IA64::P63))
       return Error(QPStart, "expected a predicate register");
     if (Parser.parseToken(AsmToken::RParen, "expected ')'"))
       return true;
@@ -855,6 +996,8 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
   for (auto [Kind, Value] : Completers)
     Operands.push_back(IA64Operand::createCompleter(Kind, Value, CompleterLoc));
 
+  InAlloc = Name == "alloc";
+  DeferredNames.clear();
   while (getLexer().isNot(AsmToken::EndOfStatement)) {
     if (parseOperand(Operands))
       return true;
@@ -863,6 +1006,19 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
       Parser.Lex();
   }
   Parser.Lex(); // Consume the EndOfStatement.
+
+  if (InAlloc) {
+    InAlloc = false;
+    parseAllocFrame(Operands);
+    for (const DeferredName &Deferred : DeferredNames) {
+      auto &Op = static_cast<IA64Operand &>(*Operands[Deferred.Operand]);
+      MCRegister Reg = resolveStackedName(Deferred.Name, Op.getStartLoc());
+      if (!Reg)
+        return true;
+      Operands[Deferred.Operand] =
+          IA64Operand::createReg(Reg, Op.getStartLoc(), Op.getEndLoc());
+    }
+  }
 
   // A shift by a constant is a pseudo-op for dep.z or extr of the remaining
   // bits.
@@ -1072,6 +1228,9 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
   ParseStatus Status = parseProcDirective(Name);
   if (!Status.isNoMatch())
     return Status;
+  Status = parseRegStackDirective(Name);
+  if (!Status.isNoMatch())
+    return Status;
   Status = parseUnwindDirective(Name, DirectiveID.getLoc());
   if (!Status.isNoMatch())
     return Status;
@@ -1079,6 +1238,85 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
   if (!Status.isNoMatch())
     return Status;
   return parseDataDirective(Name);
+}
+
+ParseStatus IA64AsmParser::parseRegStackDirective(StringRef Name) {
+  MCAsmParser &Parser = getParser();
+  // The register stack frame for code where no visible "alloc" defines it;
+  // with no operands, clears the frame.
+  if (Name.equals_insensitive(".regstk")) {
+    if (parseOptionalToken(AsmToken::EndOfStatement)) {
+      Frame.reset();
+      return ParseStatus::Success;
+    }
+    int64_t Sizes[4];
+    SMLoc Loc = Parser.getTok().getLoc();
+    for (unsigned I = 0; I != 4; ++I) {
+      SMLoc SizeLoc = Parser.getTok().getLoc();
+      if ((I != 0 && Parser.parseComma()) ||
+          Parser.parseAbsoluteExpression(Sizes[I]))
+        return ParseStatus::Failure;
+      if (!isUInt<7>(Sizes[I]))
+        return Error(SizeLoc, "expected a number of registers");
+    }
+    if (parseEOL())
+      return ParseStatus::Failure;
+    if (Sizes[0] + Sizes[1] + Sizes[2] > IA64II::MaxFrameSize)
+      return Error(Loc, "register stack frame is larger than " +
+                            Twine(IA64II::MaxFrameSize) + " registers");
+    Frame = {unsigned(Sizes[0]), unsigned(Sizes[1]), unsigned(Sizes[2]),
+             unsigned(Sizes[3])};
+    return ParseStatus::Success;
+  }
+
+  // Names consecutive runs of rotating registers, starting from the first:
+  // ".rotr a[2], b[3]" makes a[0] r32 and b[0] r34. Previous names for that
+  // register kind are discarded.
+  unsigned Class = StringSwitch<unsigned>(Name.lower())
+                       .Case(".rotr", RotGR)
+                       .Case(".rotf", RotFR)
+                       .Case(".rotp", RotPR)
+                       .Default(NumRotClasses);
+  if (Class == NumRotClasses)
+    return ParseStatus::NoMatch;
+  unsigned Limit = Class == RotGR   ? (Frame ? Frame->Rotating : 0)
+                   : Class == RotFR ? 96
+                                    : 48;
+  StringMap<std::pair<unsigned, unsigned>> Names;
+  unsigned Used = 0;
+  if (Parser.parseMany([&]() -> bool {
+        SMLoc NameLoc = Parser.getTok().getLoc();
+        StringRef RunName;
+        if (Parser.getTok().isNot(AsmToken::Identifier) ||
+            matchRegister(Parser.getTok().getIdentifier()) ||
+            matchStackedName(Parser.getTok().getIdentifier()) ||
+            Parser.parseIdentifier(RunName))
+          return Error(NameLoc, "expected a name for the registers");
+        int64_t Count;
+        SMLoc CountLoc;
+        if (Parser.parseToken(AsmToken::LBrac, "expected '['"))
+          return true;
+        CountLoc = Parser.getTok().getLoc();
+        if (Parser.parseAbsoluteExpression(Count) ||
+            Parser.parseToken(AsmToken::RBrac, "expected ']'"))
+          return true;
+        if (Count <= 0)
+          return Error(CountLoc, "number of registers must be positive");
+        if (Count > Limit - Used)
+          return Error(CountLoc, Class == RotGR
+                                     ? "more registers than the " +
+                                           Twine(Limit) +
+                                           " that the frame rotates"
+                                     : "more registers than the " +
+                                           Twine(Limit) + " that rotate");
+        if (!Names.try_emplace(RunName, Used, Count).second)
+          return Error(NameLoc, "name is used twice");
+        Used += Count;
+        return false;
+      }))
+    return ParseStatus::Failure;
+  RotatingNames[Class] = std::move(Names);
+  return ParseStatus::Success;
 }
 
 ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
