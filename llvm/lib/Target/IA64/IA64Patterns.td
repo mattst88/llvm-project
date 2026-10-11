@@ -178,6 +178,14 @@ foreach S = ["1", "2", "4"] in {
 }
 def : Pat<(store GR:$r2, GR:$r3), (ST8 GR:$r3, GR:$r2, 0)>;
 
+// A floating-point load widens what it reads to the format of the register,
+// so a single is as good as a double once it is in one.
+def : Pat<(f32 (load GR:$r3)), (LDFS GR:$r3, 0)>;
+def : Pat<(f64 (load GR:$r3)), (LDFD GR:$r3, 0)>;
+def : Pat<(f64 (extloadf32 GR:$r3)), (LDFS GR:$r3, 0)>;
+def : Pat<(store (f32 FR:$f2), GR:$r3), (STFS GR:$r3, FR:$f2, 0)>;
+def : Pat<(store (f64 FR:$f2), GR:$r3), (STFD GR:$r3, FR:$f2, 0)>;
+
 //===----------------------------------------------------------------------===//
 // Addresses
 //===----------------------------------------------------------------------===//

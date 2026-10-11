@@ -45,6 +45,11 @@ public:
   bool isCheapToSpeculateCtlz(Type *Ty) const override { return true; }
 
   unsigned getJumpTableEncoding() const override;
+
+  bool isFPImmLegal(const APFloat &Imm, EVT VT,
+                    bool ForCodeSize) const override {
+    return VT == MVT::f32 || VT == MVT::f64;
+  }
   bool isJumpTableRelative() const override { return true; }
 
   SDValue LowerCall(CallLoweringInfo &CLI,

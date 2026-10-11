@@ -15,13 +15,19 @@
 def CC_IA64 : CallingConv<[
   CCIfType<[i64], CCAssignToReg<[R32, R33, R34, R35, R36, R37, R38, R39]>>,
 
+  // An FP argument still takes a slot, and while slots remain it goes in the
+  // next of f8-f15 instead of the slot.
+  CCIfType<[f32, f64], CCCustom<"CC_IA64_FP">>,
+
   // The rest go on the stack, above the scratch area.
   CCAssignToStack<8, 8>
 ]>;
 
-// An integer result of up to four words comes back in r8 to r11.
+// Integer results of up to four words are returned in r8-r11, and FP
+// results, or HFAs of up to eight elements, in f8-f15.
 def RetCC_IA64 : CallingConv<[
-  CCIfType<[i64], CCAssignToReg<[R8, R9, R10, R11]>>
+  CCIfType<[i64], CCAssignToReg<[R8, R9, R10, R11]>>,
+  CCIfType<[f32, f64], CCAssignToReg<[F8, F9, F10, F11, F12, F13, F14, F15]>>
 ]>;
 
 // Stacked registers are preserved across calls by the RSE, not by the

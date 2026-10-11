@@ -24,6 +24,24 @@
 
 using namespace llvm;
 
+static bool CC_IA64_FP(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                       CCValAssign::LocInfo &LocInfo, ISD::ArgFlagsTy &ArgFlags,
+                       CCState &State) {
+  static const MCPhysReg Slots[] = {IA64::R32, IA64::R33, IA64::R34, IA64::R35,
+                                    IA64::R36, IA64::R37, IA64::R38, IA64::R39};
+  static const MCPhysReg FRs[] = {IA64::F8,  IA64::F9,  IA64::F10, IA64::F11,
+                                  IA64::F12, IA64::F13, IA64::F14, IA64::F15};
+  // Past the eighth slot, FP arguments go on the stack even if FP registers
+  // remain.
+  if (!State.AllocateReg(Slots))
+    return false;
+  // Each takes at least one slot, so the registers outlast the slots.
+  MCRegister Reg = State.AllocateReg(FRs);
+  assert(Reg && "more floating-point arguments in registers than slots");
+  State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+  return true;
+}
+
 #define GET_CALLING_CONV_IMPL
 #include "IA64GenCallingConv.inc"
 
@@ -41,6 +59,14 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setMinFunctionAlignment(Align(16));
 
   computeRegisterProperties(STI.getRegisterInfo());
+
+  // FP registers hold every precision in a single format, so an extending
+  // load needs no conversion. A truncating store does not round, though.
+  setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+
+  // f32 and f64 constants are materialized in a GR and moved to an FR.
+  setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
+  setOperationAction(ISD::ConstantFP, MVT::f64, Legal);
 
   // Compares write predicates; materialized as a value, the result is 0 or 1.
   setBooleanContents(ZeroOrOneBooleanContent);
@@ -193,7 +219,9 @@ SDValue IA64TargetLowering::LowerFormalArguments(
     // The ABI leaves the bits above a value narrower than its slot undefined,
     // so emit no AssertZext/AssertSext whatever the zeroext/signext
     // attributes say: a caller built by another compiler may not extend.
-    Register VReg = MF.addLiveIn(VA.getLocReg(), &IA64::GRRegClass);
+    Register VReg = MF.addLiveIn(VA.getLocReg(), VA.getLocVT().isFloatingPoint()
+                                                     ? &IA64::FRRegClass
+                                                     : &IA64::GRRegClass);
     InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT()));
   }
   return Chain;
@@ -259,16 +287,19 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOps);
 
   SDValue Glue;
-  SmallVector<Register, 8> ArgRegs;
+  SmallVector<std::pair<Register, MVT>, 8> ArgRegs;
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
     if (!VA.isRegLoc())
       continue;
-    // The convention is written from the callee's side.
-    Register Reg = IA64::R120 + (VA.getLocReg() - IA64::R32);
+    // The convention is written from the callee's side, and the general
+    // registers are not the same ones on this side.
+    Register Reg = VA.getLocReg();
+    if (IA64::GRRegClass.contains(Reg))
+      Reg = IA64::R120 + (Reg - IA64::R32);
     Chain = DAG.getCopyToReg(Chain, DL, Reg, CLI.OutVals[I], Glue);
     Glue = Chain.getValue(1);
-    ArgRegs.push_back(Reg);
+    ArgRegs.push_back({Reg, VA.getLocVT()});
   }
 
   // A callee that is certain to be in this module has the same global
@@ -295,8 +326,8 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   else
     Ops.push_back(Callee);
   Ops.push_back(GP);
-  for (Register Reg : ArgRegs)
-    Ops.push_back(DAG.getRegister(Reg, MVT::i64));
+  for (auto [Reg, VT] : ArgRegs)
+    Ops.push_back(DAG.getRegister(Reg, VT));
   Ops.push_back(
       DAG.getRegisterMask(TRI->getCallPreservedMask(MF, CLI.CallConv)));
   if (Glue.getNode())

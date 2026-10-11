@@ -137,6 +137,26 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
                          CurDAG->getRegister(IA64::P0, MVT::i1));
     return;
   }
+  case ISD::ConstantFP: {
+    // f0 reads as 0.0 and f1 as 1.0. Other constants are materialized in a GR
+    // and moved over with setf.
+    const APFloat &Value = cast<ConstantFPSDNode>(Node)->getValueAPF();
+    MVT VT = Node->getSimpleValueType(0);
+    if (Value.isPosZero() || Value.isExactlyValue(1.0)) {
+      SDValue Reg =
+          CurDAG->getCopyFromReg(CurDAG->getEntryNode(), DL,
+                                 Value.isPosZero() ? IA64::F0 : IA64::F1, VT);
+      ReplaceNode(Node, Reg.getNode());
+      return;
+    }
+    SDValue P0 = CurDAG->getRegister(IA64::P0, MVT::i1);
+    SDValue Bits = CurDAG->getTargetConstant(
+        Value.bitcastToAPInt().getZExtValue(), DL, MVT::i64);
+    SDNode *GR = CurDAG->getMachineNode(IA64::MOVL, DL, MVT::i64, Bits, P0);
+    CurDAG->SelectNodeTo(Node, VT == MVT::f32 ? IA64::SETF_S : IA64::SETF_D, VT,
+                         SDValue(GR, 0), P0);
+    return;
+  }
   case ISD::SETCC: {
     SmallVector<SDValue, 4> Ops;
     bool IsImm;
