@@ -15,6 +15,7 @@
 
 namespace llvm {
 class formatted_raw_ostream;
+class MCRegister;
 class MCSymbol;
 
 class IA64TargetStreamer : public MCTargetStreamer {
@@ -130,6 +131,45 @@ public:
   /// Restore the unwind state labelled \p Label instead of the state left by
   /// the preceding code. Assembly writes this as ".copy_state".
   virtual void emitCopyState(uint64_t Label);
+
+  /// A register operand of the per-register directives, in a prologue or a
+  /// body: a class base plus a GR, FR or BR number, or one of the special
+  /// registers.
+  enum SpilledReg : unsigned {
+    SR_GR = 0x00,
+    SR_FR = 0x20,
+    SR_BR = 0x40,
+    SR_PR = 0x60,
+    SR_PSP,
+    SR_PRIUNAT,
+    SR_RP,
+    SR_BSP,
+    SR_BSPSTORE,
+    SR_RNAT,
+    SR_UNAT,
+    SR_FPSR,
+    SR_PFS,
+    SR_LC,
+  };
+  static void printSpilledReg(raw_ostream &OS, unsigned Reg);
+
+  /// The next instruction saves \p Reg in the GR, FR or BR \p TReg, under
+  /// predicate \p QP (p0 is always true). Assembly writes this as
+  /// ".spillreg", and as ".spillreg.p" with a predicate.
+  virtual void emitSpillReg(unsigned Reg, MCRegister TReg, unsigned QP = 0);
+
+  /// The same, saving \p Reg at \p Offset bytes from sp. Assembly writes
+  /// this as ".spillsp" and ".spillsp.p".
+  virtual void emitSpillSP(unsigned Reg, uint64_t Offset, unsigned QP = 0);
+
+  /// The same, saving \p Reg at \p Offset bytes below the previous sp.
+  /// Assembly writes this as ".spillpsp" and ".spillpsp.p".
+  virtual void emitSpillPSP(unsigned Reg, uint64_t Offset, unsigned QP = 0);
+
+  /// The next instruction restores \p Reg from where it was saved, if
+  /// \p QP is true. Assembly writes this as ".restorereg" and
+  /// ".restorereg.p".
+  virtual void emitRestoreReg(unsigned Reg, unsigned QP = 0);
 };
 
 class IA64TargetAsmStreamer : public IA64TargetStreamer {
@@ -137,6 +177,8 @@ class IA64TargetAsmStreamer : public IA64TargetStreamer {
   SmallVector<MCSymbol *, 2> Entries;
 
   void printEntries();
+  /// Print \p Directive, with ".p" and \p QP if that is not p0, and \p Reg.
+  void printSpill(StringRef Directive, unsigned Reg, unsigned QP);
 
 public:
   IA64TargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS);
@@ -163,6 +205,10 @@ public:
   void emitRestore(unsigned ECount) override;
   void emitLabelState(uint64_t Label) override;
   void emitCopyState(uint64_t Label) override;
+  void emitSpillReg(unsigned Reg, MCRegister TReg, unsigned QP) override;
+  void emitSpillSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
+  void emitSpillPSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
+  void emitRestoreReg(unsigned Reg, unsigned QP) override;
 };
 
 } // end namespace llvm

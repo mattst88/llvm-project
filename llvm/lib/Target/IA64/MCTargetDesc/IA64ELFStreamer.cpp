@@ -57,6 +57,7 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSymbolELF.h"
@@ -738,6 +739,30 @@ void IA64TargetELFStreamer::emitCopyState(uint64_t Label) {
   addUnwindRecord(UnwindRecord::CopyState, Label);
 }
 
+void IA64TargetELFStreamer::emitSpillReg(unsigned Reg, MCRegister TReg,
+                                         unsigned QP) {
+  const MCRegisterInfo &MRI = *getStreamer().getContext().getRegisterInfo();
+  unsigned Class = MRI.getRegClass(IA64::FRRegClassID).contains(TReg)   ? 0x80
+                   : MRI.getRegClass(IA64::BRRegClassID).contains(TReg) ? 0x100
+                                                                        : 0;
+  addUnwindRecord(UnwindRecord::X2, QP << 8 | Reg,
+                  Class | MRI.getEncodingValue(TReg));
+}
+
+void IA64TargetELFStreamer::emitSpillSP(unsigned Reg, uint64_t Offset,
+                                        unsigned QP) {
+  addUnwindRecord(UnwindRecord::X1, QP << 8 | 0x80 | Reg, Offset / 4);
+}
+
+void IA64TargetELFStreamer::emitSpillPSP(unsigned Reg, uint64_t Offset,
+                                         unsigned QP) {
+  addUnwindRecord(UnwindRecord::X1, QP << 8 | Reg, (Offset + 16) / 4);
+}
+
+void IA64TargetELFStreamer::emitRestoreReg(unsigned Reg, unsigned QP) {
+  addUnwindRecord(UnwindRecord::X2, QP << 8 | Reg, 0);
+}
+
 /// The sections that hold the unwind table and the unwind information for
 /// the code of \p Text. They have the names that GNU as gives them, which a
 /// linker script may depend on.
@@ -924,6 +949,28 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
         OS << char(0xf0 | IsCopy << 3);
         encodeULEB128(R.Args[0], OS);
       }
+      continue;
+    }
+    case UnwindRecord::X1: {
+      uint8_t Reg = R.Args[0];
+      if (unsigned QP = R.Args[0] >> 8)
+        OS << char(0xfb) << char((Reg & 0x80) | QP) << char(Reg & 0x7f);
+      else
+        OS << char(0xf9) << char(Reg);
+      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
+      encodeULEB128(R.Args[1], OS);
+      continue;
+    }
+    case UnwindRecord::X2: {
+      // The BR class bit of the target register is stored in the byte of
+      // the spilled register.
+      uint8_t Reg = (R.Args[1] & 0x100) >> 1 | (R.Args[0] & 0x7f);
+      if (unsigned QP = R.Args[0] >> 8)
+        OS << char(0xfc) << char(QP);
+      else
+        OS << char(0xfa);
+      OS << char(Reg) << char(R.Args[1]);
+      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
       continue;
     }
     }

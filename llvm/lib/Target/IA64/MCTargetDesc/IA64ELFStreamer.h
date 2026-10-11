@@ -50,6 +50,10 @@ public:
   void emitRestore(unsigned ECount) override;
   void emitLabelState(uint64_t Label) override;
   void emitCopyState(uint64_t Label) override;
+  void emitSpillReg(unsigned Reg, MCRegister TReg, unsigned QP) override;
+  void emitSpillSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
+  void emitSpillPSP(unsigned Reg, uint64_t Offset, unsigned QP) override;
+  void emitRestoreReg(unsigned Reg, unsigned QP) override;
 
 private:
   /// A parsed unwind directive and the instruction it applies to. A region
@@ -87,6 +91,14 @@ private:
       /// Format B1 or B4, with the label.
       LabelState,
       CopyState,
+      /// Formats X1 and X3: the register, plus 0x80 when the following
+      /// offset is sp-relative rather than psp-relative, and the predicate
+      /// in the bits above that byte.
+      X1,
+      /// Formats X2 and X4: the register with the predicate above it, then
+      /// the target register (0 for a restore), plus 0x80 for an FR and 0x100
+      /// for a BR.
+      X2,
     } Kind;
     unsigned Mark;
     uint64_t Args[2];

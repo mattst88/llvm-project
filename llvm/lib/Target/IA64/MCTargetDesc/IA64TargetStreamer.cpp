@@ -8,10 +8,12 @@
 
 #include "IA64TargetStreamer.h"
 #include "IA64BaseInfo.h"
+#include "IA64MCTargetDesc.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/FormattedStream.h"
@@ -91,6 +93,29 @@ void IA64TargetStreamer::emitRestore(unsigned ECount) {}
 void IA64TargetStreamer::emitLabelState(uint64_t Label) {}
 
 void IA64TargetStreamer::emitCopyState(uint64_t Label) {}
+
+void IA64TargetStreamer::printSpilledReg(raw_ostream &OS, unsigned Reg) {
+  static const char *const Others[] = {
+      "pr",      "psp",     "@priunat", "rp",     "ar.bsp", "ar.bspstore",
+      "ar.rnat", "ar.unat", "ar.fpsr",  "ar.pfs", "ar.lc"};
+  if (Reg >= SR_PR) {
+    assert(Reg - SR_PR < std::size(Others) && "not a register to spill");
+    OS << Others[Reg - SR_PR];
+    return;
+  }
+  OS << "rfb"[Reg >> 5] << (Reg & 0x1f);
+}
+
+void IA64TargetStreamer::emitSpillReg(unsigned Reg, MCRegister TReg,
+                                      unsigned QP) {}
+
+void IA64TargetStreamer::emitSpillSP(unsigned Reg, uint64_t Offset,
+                                     unsigned QP) {}
+
+void IA64TargetStreamer::emitSpillPSP(unsigned Reg, uint64_t Offset,
+                                      unsigned QP) {}
+
+void IA64TargetStreamer::emitRestoreReg(unsigned Reg, unsigned QP) {}
 
 IA64TargetAsmStreamer::IA64TargetAsmStreamer(MCStreamer &S,
                                              formatted_raw_ostream &OS)
@@ -206,4 +231,42 @@ void IA64TargetAsmStreamer::emitSaveB(unsigned Mask,
 void IA64TargetAsmStreamer::emitSaveGF(unsigned GRMask, unsigned FRMask) {
   OS << "\t.save.gf\t" << format_hex(GRMask, 3) << ", " << format_hex(FRMask, 3)
      << '\n';
+}
+
+void IA64TargetAsmStreamer::printSpill(StringRef Directive, unsigned Reg,
+                                       unsigned QP) {
+  OS << '\t' << Directive;
+  if (QP != 0)
+    OS << ".p\tp" << QP << ", ";
+  else
+    OS << '\t';
+  printSpilledReg(OS, Reg);
+}
+
+void IA64TargetAsmStreamer::emitSpillReg(unsigned Reg, MCRegister TReg,
+                                         unsigned QP) {
+  const MCRegisterInfo &MRI = *getStreamer().getContext().getRegisterInfo();
+  printSpill(".spillreg", Reg, QP);
+  OS << ", "
+     << (MRI.getRegClass(IA64::GRRegClassID).contains(TReg)   ? 'r'
+         : MRI.getRegClass(IA64::FRRegClassID).contains(TReg) ? 'f'
+                                                              : 'b')
+     << MRI.getEncodingValue(TReg) << '\n';
+}
+
+void IA64TargetAsmStreamer::emitSpillSP(unsigned Reg, uint64_t Offset,
+                                        unsigned QP) {
+  printSpill(".spillsp", Reg, QP);
+  OS << ", " << Offset << '\n';
+}
+
+void IA64TargetAsmStreamer::emitSpillPSP(unsigned Reg, uint64_t Offset,
+                                         unsigned QP) {
+  printSpill(".spillpsp", Reg, QP);
+  OS << ", " << int64_t(Offset) << '\n';
+}
+
+void IA64TargetAsmStreamer::emitRestoreReg(unsigned Reg, unsigned QP) {
+  printSpill(".restorereg", Reg, QP);
+  OS << '\n';
 }

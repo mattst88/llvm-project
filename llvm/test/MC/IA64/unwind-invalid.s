@@ -183,3 +183,67 @@ f:
 	.save.g 1
 	nop 0
 	.endp f
+
+// The directives that tell of one register at a time.
+	.proc g
+g:
+// CHECK: :[[#@LINE+1]]:2: error: .spillreg outside of a prologue or a body
+	.spillreg r4, r8
+	.prologue
+// CHECK: :[[#@LINE+1]]:12: error: expected a register that the callee preserves
+	.spillreg r8, r9
+// CHECK: :[[#@LINE+1]]:12: error: expected a register that the callee preserves
+	.spillreg f6, r9
+// CHECK: :[[#@LINE+1]]:12: error: expected a register that the callee preserves
+	.spillreg f32, r9
+// CHECK: :[[#@LINE+1]]:12: error: expected a register that the callee preserves
+	.spillreg b6, r9
+// CHECK: :[[#@LINE+1]]:12: error: expected a register that the callee preserves
+	.spillreg ar.ccv, r9
+// CHECK: :[[#@LINE+1]]:12: error: expected a register that the callee preserves
+	.spillreg sp, r9
+// CHECK: :[[#@LINE+1]]:12: error: expected a register that the callee preserves
+	.spillreg 4, r9
+// CHECK: :[[#@LINE+1]]:14: error: expected comma
+	.spillreg r4
+// CHECK: :[[#@LINE+1]]:16: error: expected a general, floating-point or branch register that can be written
+	.spillreg r4, r0
+// CHECK: :[[#@LINE+1]]:16: error: expected a general, floating-point or branch register that can be written
+	.spillreg r4, f1
+// CHECK: :[[#@LINE+1]]:16: error: expected a general, floating-point or branch register that can be written
+	.spillreg r4, ar.lc
+// CHECK: :[[#@LINE+1]]:16: error: expected a general, floating-point or branch register that can be written
+	.spillreg r4, 40
+// CHECK: :[[#@LINE+1]]:18: error: expected newline
+	.spillreg r4, r8, r9
+// CHECK: :[[#@LINE+1]]:15: error: expected a multiple of 4 that is at least 0
+	.spillsp r4, -4
+// CHECK: :[[#@LINE+1]]:15: error: expected a multiple of 4 that is at least 0
+	.spillsp r4, 6
+// CHECK: :[[#@LINE+1]]:13: error: expected comma
+	.spillsp r4
+// CHECK: :[[#@LINE+1]]:16: error: expected a multiple of 4 that is at least -16
+	.spillpsp r4, -20
+// CHECK: :[[#@LINE+1]]:16: error: expected a multiple of 4 that is at least -16
+	.spillpsp r4, 2
+// CHECK: :[[#@LINE+1]]:14: error: expected a register that the callee preserves
+	.restorereg r8
+// CHECK: :[[#@LINE+1]]:16: error: expected newline
+	.restorereg r4, r8
+// CHECK: :[[#@LINE+1]]:14: error: expected a predicate register
+	.spillreg.p r6, r4, r8
+// CHECK: :[[#@LINE+1]]:14: error: expected a predicate register
+	.spillreg.p p64, r4, r8
+// CHECK: :[[#@LINE+1]]:18: error: expected a register that the callee preserves
+	.spillreg.p p1, r8
+// CHECK: :[[#@LINE+1]]:13: error: expected a predicate register
+	.spillsp.p r4, 8
+// CHECK: :[[#@LINE+1]]:16: error: expected a predicate register
+	.restorereg.p r4
+// CHECK: :[[#@LINE+1]]:14: warning: p0 is always true, as with .spillreg
+	.spillreg.p p0, r4, r8
+	nop 0
+	.body
+// CHECK: :[[#@LINE+1]]:2: error: no instruction follows for this to tell of
+	.restorereg r4
+	.endp g

@@ -90,6 +90,7 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool parseUnwindReg(IA64TargetStreamer::UnwindReg &Reg);
   bool parseUnwindGR(int64_t &GR, bool OrNumber);
   bool parseUnwindOffset(int64_t &Offset, int64_t Min, unsigned Multiple);
+  bool parseSpilledReg(unsigned &Reg);
   /// The kind of the currently open unwind region.
   enum { NoRegion, PrologueRegion, BodyRegion } UnwindRegion = NoRegion;
   /// The GR save mask and grsave register given by the open .prologue.
@@ -1082,6 +1083,32 @@ ParseStatus IA64AsmParser::parseAnnotationDirective(StringRef Name) {
   return ParseStatus::NoMatch;
 }
 
+/// The unwind register that \p Reg names, among the prologue-saved registers
+/// that the assembler models as registers.
+static std::optional<IA64TargetStreamer::UnwindReg>
+getUnwindReg(MCRegister Reg) {
+  switch (Reg.id()) {
+  case IA64::B0:
+    return IA64TargetStreamer::UR_RP;
+  case IA64::AR64:
+    return IA64TargetStreamer::UR_PFS;
+  case IA64::AR36:
+    return IA64TargetStreamer::UR_UNAT;
+  case IA64::AR65:
+    return IA64TargetStreamer::UR_LC;
+  case IA64::AR40:
+    return IA64TargetStreamer::UR_FPSR;
+  case IA64::AR19:
+    return IA64TargetStreamer::UR_RNAT;
+  case IA64::AR17:
+    return IA64TargetStreamer::UR_BSP;
+  case IA64::AR18:
+    return IA64TargetStreamer::UR_BSPSTORE;
+  default:
+    return std::nullopt;
+  }
+}
+
 /// Parse a register that a prologue can name as saved.
 bool IA64AsmParser::parseUnwindReg(IA64TargetStreamer::UnwindReg &Reg) {
   SMLoc S = getTok().getLoc(), E;
@@ -1101,36 +1128,12 @@ bool IA64AsmParser::parseUnwindReg(IA64TargetStreamer::UnwindReg &Reg) {
     return false;
   }
   MCRegister MCReg;
-  if (tryParseRegister(MCReg, S, E).isSuccess()) {
-    switch (MCReg.id()) {
-    case IA64::B0:
-      Reg = IA64TargetStreamer::UR_RP;
+  if (tryParseRegister(MCReg, S, E).isSuccess())
+    if (std::optional<IA64TargetStreamer::UnwindReg> Named =
+            getUnwindReg(MCReg)) {
+      Reg = *Named;
       return false;
-    case IA64::AR64:
-      Reg = IA64TargetStreamer::UR_PFS;
-      return false;
-    case IA64::AR36:
-      Reg = IA64TargetStreamer::UR_UNAT;
-      return false;
-    case IA64::AR65:
-      Reg = IA64TargetStreamer::UR_LC;
-      return false;
-    case IA64::AR40:
-      Reg = IA64TargetStreamer::UR_FPSR;
-      return false;
-    case IA64::AR19:
-      Reg = IA64TargetStreamer::UR_RNAT;
-      return false;
-    case IA64::AR17:
-      Reg = IA64TargetStreamer::UR_BSP;
-      return false;
-    case IA64::AR18:
-      Reg = IA64TargetStreamer::UR_BSPSTORE;
-      return false;
-    default:
-      break;
     }
-  }
   return Error(S, "expected a register that a prologue saves");
 }
 
@@ -1167,6 +1170,61 @@ bool IA64AsmParser::parseUnwindOffset(int64_t &Offset, int64_t Min,
   return false;
 }
 
+/// Parse a callee-saved register, for the directives that describe one
+/// register at a time.
+bool IA64AsmParser::parseSpilledReg(unsigned &Reg) {
+  using TS = IA64TargetStreamer;
+  SMLoc S = getTok().getLoc(), E;
+  if (getTok().is(AsmToken::Identifier) &&
+      getTok().getIdentifier().equals_insensitive("psp")) {
+    Lex();
+    Reg = TS::SR_PSP;
+    return false;
+  }
+  if (getTok().is(AsmToken::Identifier) &&
+      !getTok().getIdentifier().equals_insensitive("pr")) {
+    MCRegister MCReg;
+    const MCRegisterInfo &MRI = *getContext().getRegisterInfo();
+    if (!tryParseRegister(MCReg, S, E).isSuccess())
+      return Error(S, "expected a register that the callee preserves");
+    unsigned Number = MRI.getEncodingValue(MCReg);
+    if (MRI.getRegClass(IA64::GRRegClassID).contains(MCReg)) {
+      if (Number < 4 || Number > 7)
+        return Error(S, "expected a register that the callee preserves");
+      Reg = TS::SR_GR | Number;
+      return false;
+    }
+    if (MRI.getRegClass(IA64::FRRegClassID).contains(MCReg)) {
+      if (Number < 2 || (Number > 5 && Number < 16) || Number > 31)
+        return Error(S, "expected a register that the callee preserves");
+      Reg = TS::SR_FR | Number;
+      return false;
+    }
+    if (MRI.getRegClass(IA64::BRRegClassID).contains(MCReg) && Number != 0) {
+      if (Number > 5)
+        return Error(S, "expected a register that the callee preserves");
+      Reg = TS::SR_BR | Number;
+      return false;
+    }
+    // Map the named special registers to their spill register numbers.
+    static const unsigned Others[] = {
+        TS::SR_RP,   TS::SR_PFS,  TS::SR_PR,  TS::SR_UNAT,     TS::SR_LC,
+        TS::SR_FPSR, TS::SR_RNAT, TS::SR_BSP, TS::SR_BSPSTORE, TS::SR_PRIUNAT};
+    std::optional<TS::UnwindReg> Other = getUnwindReg(MCReg);
+    if (!Other)
+      return Error(S, "expected a register that the callee preserves");
+    Reg = Others[*Other];
+    return false;
+  }
+  TS::UnwindReg Other;
+  if (getTok().isNot(AsmToken::At) && getTok().isNot(AsmToken::Identifier))
+    return Error(S, "expected a register that the callee preserves");
+  if (parseUnwindReg(Other))
+    return true;
+  Reg = Other == TS::UR_PR ? TS::SR_PR : TS::SR_PRIUNAT;
+  return false;
+}
+
 ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
   enum DirectiveTy {
     None,
@@ -1188,28 +1246,37 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     Restore,
     LabelState,
     CopyState,
+    SpillReg,
+    SpillSP,
+    SpillPSP,
+    RestoreReg,
   };
   std::string Lower = Name.lower();
-  DirectiveTy Directive = StringSwitch<DirectiveTy>(Lower)
-                              .Case(".prologue", Prologue)
-                              .Case(".body", Body)
-                              .Case(".fframe", FFrame)
-                              .Case(".vframe", VFrame)
-                              .Case(".vframesp", VFrameSP)
-                              .Case(".spill", Spill)
-                              .Case(".save", Save)
-                              .Case(".savesp", SaveSP)
-                              .Case(".savepsp", SavePSP)
-                              .Case(".altrp", AltRP)
-                              .Case(".unwabi", UnwABI)
-                              .Case(".save.g", SaveG)
-                              .Case(".save.f", SaveF)
-                              .Case(".save.b", SaveB)
-                              .Case(".save.gf", SaveGF)
-                              .Case(".restore", Restore)
-                              .Case(".label_state", LabelState)
-                              .Case(".copy_state", CopyState)
-                              .Default(None);
+  DirectiveTy Directive =
+      StringSwitch<DirectiveTy>(Lower)
+          .Case(".prologue", Prologue)
+          .Case(".body", Body)
+          .Case(".fframe", FFrame)
+          .Case(".vframe", VFrame)
+          .Case(".vframesp", VFrameSP)
+          .Case(".spill", Spill)
+          .Case(".save", Save)
+          .Case(".savesp", SaveSP)
+          .Case(".savepsp", SavePSP)
+          .Case(".altrp", AltRP)
+          .Case(".unwabi", UnwABI)
+          .Case(".save.g", SaveG)
+          .Case(".save.f", SaveF)
+          .Case(".save.b", SaveB)
+          .Case(".save.gf", SaveGF)
+          .Case(".restore", Restore)
+          .Case(".label_state", LabelState)
+          .Case(".copy_state", CopyState)
+          .Cases({".spillreg", ".spillreg.p"}, SpillReg)
+          .Cases({".spillsp", ".spillsp.p"}, SpillSP)
+          .Cases({".spillpsp", ".spillpsp.p"}, SpillPSP)
+          .Cases({".restorereg", ".restorereg.p"}, RestoreReg)
+          .Default(None);
   if (Directive == None)
     return ParseStatus::NoMatch;
 
@@ -1304,6 +1371,71 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
       return Error(Loc, "no .label_state has given a state this label");
     OpenPrologues = It->second;
     TS.emitCopyState(Value);
+    return ParseStatus::Success;
+  }
+
+  if (Directive == SpillReg || Directive == SpillSP || Directive == SpillPSP ||
+      Directive == RestoreReg) {
+    // These describe one register that the next instruction saves or
+    // restores, in a prologue or body; the ".p" forms also give the
+    // qualifying predicate.
+    if (UnwindRegion == NoRegion)
+      return Error(NameLoc, Lower + " outside of a prologue or a body");
+    unsigned QP = 0, Reg;
+    if (StringRef(Lower).ends_with(".p")) {
+      MCRegister QPReg;
+      SMLoc E;
+      const MCRegisterInfo &MRI = *getContext().getRegisterInfo();
+      if (!tryParseRegister(QPReg, Loc, E).isSuccess() ||
+          !MRI.getRegClass(IA64::PRRegClassID).contains(QPReg))
+        return Error(Loc, "expected a predicate register");
+      QP = MRI.getEncodingValue(QPReg);
+      if (QP == 0)
+        Warning(Loc,
+                "p0 is always true, as with " + StringRef(Lower).drop_back(2));
+      if (getParser().parseComma())
+        return ParseStatus::Failure;
+    }
+    if (parseSpilledReg(Reg))
+      return ParseStatus::Failure;
+    if (Directive == RestoreReg) {
+      if (parseEOL())
+        return ParseStatus::Failure;
+      TS.emitRestoreReg(Reg, QP);
+    } else if (Directive == SpillReg) {
+      if (getParser().parseComma())
+        return ParseStatus::Failure;
+      // Any writable GR, FR or BR (not r0, f0 or f1).
+      MCRegister TReg;
+      SMLoc S = getTok().getLoc(), E;
+      const MCRegisterInfo &MRI = *getContext().getRegisterInfo();
+      bool IsGR = false, IsFR = false;
+      if (!tryParseRegister(TReg, S, E).isSuccess() ||
+          (!(IsGR = MRI.getRegClass(IA64::GRRegClassID).contains(TReg)) &&
+           !(IsFR = MRI.getRegClass(IA64::FRRegClassID).contains(TReg)) &&
+           !MRI.getRegClass(IA64::BRRegClassID).contains(TReg)) ||
+          MRI.getEncodingValue(TReg) < (IsGR   ? 1
+                                        : IsFR ? 2
+                                               : 0))
+        return Error(S, "expected a general, floating-point or branch "
+                        "register that can be written");
+      if (parseEOL())
+        return ParseStatus::Failure;
+      TS.emitSpillReg(Reg, TReg, QP);
+    } else {
+      int64_t Offset;
+      if (getParser().parseComma() ||
+          parseUnwindOffset(Offset, Directive == SpillSP ? 0 : -16, 4) ||
+          parseEOL())
+        return ParseStatus::Failure;
+      if (Directive == SpillSP)
+        TS.emitSpillSP(Reg, Offset, QP);
+      else
+        TS.emitSpillPSP(Reg, Offset, QP);
+    }
+    AwaitsInstruction = NameLoc;
+    Awaited = 1;
+    AwaitedByMask = false;
     return ParseStatus::Success;
   }
 
