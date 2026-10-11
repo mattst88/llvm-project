@@ -38,6 +38,67 @@ void IA64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   report_fatal_error("IA64 cannot copy between these registers yet");
 }
 
+// A value goes to the frame and comes back through r2, which is reserved to
+// hold the address. A general register that is being loaded can hold its own
+// address first, which keeps reloads independent of one another.
+void IA64InstrInfo::storeRegToStackSlot(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MI, Register SrcReg,
+    bool IsKill, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
+    MachineInstr::MIFlag Flags) const {
+  DebugLoc DL;
+  if (!IA64::GRRegClass.hasSubClassEq(RC))
+    report_fatal_error("IA64 cannot spill a register of this class yet");
+  BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R2)
+      .addImm(0)
+      .addFrameIndex(FrameIndex)
+      .addReg(IA64::P0)
+      .setMIFlag(Flags);
+  BuildMI(MBB, MI, DL, get(IA64::ST8))
+      .addReg(IA64::R2, RegState::Kill)
+      .addReg(SrcReg, getKillRegState(IsKill))
+      .addImm(0)
+      .addReg(IA64::P0)
+      .setMIFlag(Flags);
+}
+
+void IA64InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
+                                         MachineBasicBlock::iterator MI,
+                                         Register DestReg, int FrameIndex,
+                                         const TargetRegisterClass *RC,
+                                         Register VReg, unsigned SubReg,
+                                         MachineInstr::MIFlag Flags) const {
+  DebugLoc DL;
+  if (!IA64::GRRegClass.hasSubClassEq(RC))
+    report_fatal_error("IA64 cannot reload a register of this class yet");
+  BuildMI(MBB, MI, DL, get(IA64::ADDS), DestReg)
+      .addImm(0)
+      .addFrameIndex(FrameIndex)
+      .addReg(IA64::P0)
+      .setMIFlag(Flags);
+  BuildMI(MBB, MI, DL, get(IA64::LD8), DestReg)
+      .addReg(DestReg, RegState::Kill)
+      .addImm(0)
+      .addReg(IA64::P0)
+      .setMIFlag(Flags);
+}
+
+void IA64InstrInfo::loadImmediate(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator MI,
+                                  const DebugLoc &DL, Register Reg, int64_t Imm,
+                                  MachineInstr::MIFlag Flags) const {
+  if (isInt<22>(Imm))
+    BuildMI(MBB, MI, DL, get(IA64::ADDL), Reg)
+        .addImm(Imm)
+        .addReg(IA64::R0)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+  else
+    BuildMI(MBB, MI, DL, get(IA64::MOVL), Reg)
+        .addImm(Imm)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+}
+
 // The encoded compares are EQ and LT, signed and unsigned, with any
 // immediate as the left operand. The other conditions swap the operands,
 // swap the two result predicates, or compare against the constant minus

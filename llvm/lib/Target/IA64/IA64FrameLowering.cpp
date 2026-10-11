@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64FrameLowering.h"
+#include "IA64InstrInfo.h"
 #include "IA64Subtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -46,21 +47,69 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
     if (MRI.isPhysRegUsed(IA64::R120 + I, /*SkipRegMaskTest=*/true))
       Outputs = I + 1;
 
-  if (Locals == Inputs && Outputs == 0)
-    return;
+  if (Locals != Inputs || Outputs != 0) {
+    Register SavedPFS = IA64::R32 + Locals++;
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::ALLOC), SavedPFS)
+        .addImm(Inputs)
+        .addImm(Locals - Inputs)
+        .addImm(Outputs)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameSetup);
+  }
 
-  Register SavedPFS = IA64::R32 + Locals++;
-  BuildMI(MBB, MBBI, DL, TII.get(IA64::ALLOC), SavedPFS)
-      .addImm(Inputs)
-      .addImm(Locals - Inputs)
-      .addImm(Outputs)
-      .addImm(0)
-      .addReg(IA64::P0)
-      .setMIFlag(MachineInstr::FrameSetup);
+  // The 16 bytes at the incoming sp are the caller's scratch area, which
+  // this function may use. So the frame starts 16 bytes above the incoming
+  // sp and is that much smaller.
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  uint64_t Size = MFI.getStackSize();
+  Size = Size > ScratchAreaSize ? alignTo(Size - ScratchAreaSize, 16) : 0;
+  MFI.setStackSize(Size);
+  adjustStackPointer(MBB, MBBI, DL, -int64_t(Size), MachineInstr::FrameSetup);
 }
 
 void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
-                                     MachineBasicBlock &MBB) const {}
+                                     MachineBasicBlock &MBB) const {
+  MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
+  DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  adjustStackPointer(MBB, MBBI, DL, MF.getFrameInfo().getStackSize(),
+                     MachineInstr::FrameDestroy);
+}
+
+// Adjust sp in a single instruction, so it is never in an intermediate
+// state. An amount too large for adds is materialized in r2 first.
+void IA64FrameLowering::adjustStackPointer(MachineBasicBlock &MBB,
+                                           MachineBasicBlock::iterator MBBI,
+                                           const DebugLoc &DL, int64_t Amount,
+                                           MachineInstr::MIFlag Flag) const {
+  if (Amount == 0)
+    return;
+  const IA64InstrInfo &TII = *static_cast<const IA64InstrInfo *>(
+      MBB.getParent()->getSubtarget().getInstrInfo());
+  if (isInt<14>(Amount)) {
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::ADDS), IA64::R12)
+        .addImm(Amount)
+        .addReg(IA64::R12)
+        .addReg(IA64::P0)
+        .setMIFlag(Flag);
+    return;
+  }
+  TII.loadImmediate(MBB, MBBI, DL, IA64::R2, Amount, Flag);
+  BuildMI(MBB, MBBI, DL, TII.get(IA64::ADD), IA64::R12)
+      .addReg(IA64::R2, RegState::Kill)
+      .addReg(IA64::R12)
+      .addReg(IA64::P0)
+      .setMIFlag(Flag);
+}
+
+StackOffset
+IA64FrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
+                                          Register &FrameReg) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  FrameReg = IA64::R12;
+  return StackOffset::getFixed(MFI.getObjectOffset(FI) + ScratchAreaSize +
+                               MFI.getStackSize());
+}
 
 bool IA64FrameLowering::hasFPImpl(const MachineFunction &MF) const {
   return MF.getFrameInfo().hasVarSizedObjects();

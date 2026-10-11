@@ -127,6 +127,16 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   switch (Node->getOpcode()) {
   default:
     break;
+  case ISD::FrameIndex: {
+    // A frame index is sp plus an offset, resolved once the frame is laid
+    // out.
+    int FI = cast<FrameIndexSDNode>(Node)->getIndex();
+    CurDAG->SelectNodeTo(Node, IA64::ADDS, MVT::i64,
+                         CurDAG->getTargetConstant(0, DL, MVT::i64),
+                         CurDAG->getTargetFrameIndex(FI, MVT::i64),
+                         CurDAG->getRegister(IA64::P0, MVT::i1));
+    return;
+  }
   case ISD::SETCC: {
     SmallVector<SDValue, 4> Ops;
     bool IsImm;

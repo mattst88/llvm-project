@@ -9,7 +9,9 @@
 #include "IA64RegisterInfo.h"
 #include "IA64.h"
 #include "IA64FrameLowering.h"
+#include "IA64InstrInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -48,6 +50,10 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // it in a local, and it is restored only to return.
   Reserved.set(IA64::B0);
 
+  // Memory is only addressed through a register, so spilling or reloading a
+  // frame slot needs a register for the address. r2 is reserved for that.
+  Reserved.set(IA64::R2);
+
   // ar.pfs, which calls and returns exchange with the current frame marker.
   Reserved.set(IA64::AR64);
 
@@ -59,10 +65,42 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   return Reserved;
 }
 
-bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
+bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                            int SPAdj, unsigned FIOperandNum,
                                            RegScavenger *RS) const {
-  report_fatal_error("IA64 frame index elimination is not yet implemented");
+  // The only instruction with a frame index is the add that forms the
+  // address of the object.
+  MachineInstr &MI = *II;
+  assert(MI.getOpcode() == IA64::ADDS && "a frame index outside an add");
+  MachineBasicBlock &MBB = *MI.getParent();
+  MachineFunction &MF = *MBB.getParent();
+  const IA64InstrInfo &TII =
+      *static_cast<const IA64InstrInfo *>(MF.getSubtarget().getInstrInfo());
+  const TargetFrameLowering &TFL = *MF.getSubtarget().getFrameLowering();
+
+  Register FrameReg;
+  int64_t Offset = TFL.getFrameIndexReference(
+                          MF, MI.getOperand(FIOperandNum).getIndex(), FrameReg)
+                       .getFixed() +
+                   MI.getOperand(1).getImm();
+
+  if (isInt<14>(Offset)) {
+    MI.getOperand(1).setImm(Offset);
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, /*isDef=*/false);
+    return false;
+  }
+
+  // Too far for the add: the register that is to hold the address holds the
+  // offset first.
+  Register Reg = MI.getOperand(0).getReg();
+  const DebugLoc &DL = MI.getDebugLoc();
+  TII.loadImmediate(MBB, II, DL, Reg, Offset);
+  BuildMI(MBB, II, DL, TII.get(IA64::ADD), Reg)
+      .addReg(Reg, RegState::Kill)
+      .addReg(FrameReg)
+      .addReg(IA64::P0);
+  MI.eraseFromParent();
+  return true;
 }
 
 Register IA64RegisterInfo::getFrameRegister(const MachineFunction &MF) const {

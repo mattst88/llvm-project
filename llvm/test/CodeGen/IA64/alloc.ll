@@ -14,8 +14,8 @@ define i64 @leaf(i64 %a, i64 %b) {
   ret i64 %r
 }
 
-; Twenty-six values at once: r14 to r31, r8 to r11, r2 and r3 hold the first
-; twenty-four, then r34, and the last can have r32, which is dead by then.
+; Twenty-five values at once: r14 to r31, r8 to r11 and r3 hold the first
+; twenty-three, then r34, and the last can have r32, which is dead by then.
 define void @many(ptr %p, ptr %q) {
 ; CHECK-LABEL: many:
 ; CHECK:         alloc r35 = ar.pfs, 2, 2, 0, 0
@@ -50,7 +50,6 @@ define void @many(ptr %p, ptr %q) {
   %v22 = load volatile i64, ptr %p
   %v23 = load volatile i64, ptr %p
   %v24 = load volatile i64, ptr %p
-  %v25 = load volatile i64, ptr %p
   store volatile i64 %v0, ptr %q
   store volatile i64 %v1, ptr %q
   store volatile i64 %v2, ptr %q
@@ -76,6 +75,5 @@ define void @many(ptr %p, ptr %q) {
   store volatile i64 %v22, ptr %q
   store volatile i64 %v23, ptr %q
   store volatile i64 %v24, ptr %q
-  store volatile i64 %v25, ptr %q
   ret void
 }
