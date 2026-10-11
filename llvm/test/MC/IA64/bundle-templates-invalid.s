@@ -19,7 +19,7 @@
 // CHECK: :[[#@LINE+1]]:2: error: 'hint' cannot be in a B slot
 	hint 1
 1:
-// CHECK: :[[#@LINE+1]]:7: error: expected newline
+// CHECK: :[[#@LINE+1]]:7: error: unexpected token at start of statement
 	.mmi 1
 // CHECK: :[[#@LINE+1]]:2: error: unknown directive
 	.mim

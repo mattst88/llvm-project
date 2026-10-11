@@ -276,6 +276,15 @@ t25:
 // CHECK-LABEL: <t25>:
 // CHECK-NEXT: add r4 = r5, r6 // [MLX]{{$}}
 // CHECK-NEXT: hint.x 1{{$}}
+// The instructions of the bundle may be on the line of its template.
+t_line:
+	{ .mmi add r4 = r5, r6 ; (p6) ld8 r7 = [r8] ; nop.i 0 ;; }
+	.mfb nop.m 1
+// CHECK-LABEL: <t_line>:
+// CHECK-NEXT: add r4 = r5, r6 // [MMI]{{$}}
+// CHECK-NEXT: (p6) ld8 r7 = [r8]{{$}}
+// CHECK-NEXT: nop.i 0 ;;
+// CHECK-NEXT: nop.m 1 // [MFB]{{$}}
 t26:
 	.mlx
 	nop 1

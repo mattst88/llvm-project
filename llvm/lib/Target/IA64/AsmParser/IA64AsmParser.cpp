@@ -1497,8 +1497,8 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
       if (!T.Name || T.MidStop != -1 ||
           !Name.substr(1).equals_insensitive(T.Name))
         continue;
-      if (parseEOL())
-        return ParseStatus::Failure;
+      // The bundle's instructions may follow on the same line.
+      parseOptionalToken(AsmToken::EndOfStatement);
       getTargetStreamer().emitTemplate(I);
       return ParseStatus::Success;
     }
