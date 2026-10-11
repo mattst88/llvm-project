@@ -179,6 +179,28 @@ define double @sqrt(double %a) {
   ret double %r
 }
 
+; Nor one for what the mathematical library does.
+define double @sin(double %a) {
+; CHECK-LABEL: sin:
+; CHECK:       br.call.sptk.many b0 = sin ;;
+  %r = call double @llvm.sin.f64(double %a)
+  ret double %r
+}
+
+define float @cos(float %a) {
+; CHECK-LABEL: cos:
+; CHECK:       br.call.sptk.many b0 = cosf ;;
+  %r = call float @llvm.cos.f32(float %a)
+  ret float %r
+}
+
+define double @pow(double %a, double %b) {
+; CHECK-LABEL: pow:
+; CHECK:       br.call.sptk.many b0 = pow ;;
+  %r = call double @llvm.pow.f64(double %a, double %b)
+  ret double %r
+}
+
 define float @floor(float %a) {
 ; CHECK-LABEL: floor:
 ; CHECK:       br.call.sptk.many b0 = floorf ;;

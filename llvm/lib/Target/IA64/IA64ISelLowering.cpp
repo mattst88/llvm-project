@@ -94,7 +94,8 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   for (MVT VT : {MVT::f32, MVT::f64}) {
     for (unsigned Opc : {ISD::FDIV, ISD::FREM, ISD::FSQRT})
       setOperationAction(Opc, VT, LibCall);
-    setOperationAction(ISD::FSINCOS, VT, Expand);
+    for (unsigned Opc : {ISD::FSIN, ISD::FCOS, ISD::FSINCOS, ISD::FPOW})
+      setOperationAction(Opc, VT, Expand);
   }
 
   // The bits of a single-precision value are half a general register.
