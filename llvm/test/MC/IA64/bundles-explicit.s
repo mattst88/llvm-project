@@ -72,4 +72,17 @@ g:	nop.m 11
 }
 // CHECK:      <g>:
 // CHECK-NEXT: nop.m 11 // [MLX]
-// CHECK-NEXT: movl r4 = 5 ;;
+// CHECK-NEXT: movl r4 = 5{{$}}
+
+// The template of the bundle before a brace is the one that would hold the
+// most of what follows, as if there were no brace: with the no-op that is
+// coming, the branch is not left for the last slot.
+h:	br b6
+{ nop 12 }
+// CHECK:      <h>:
+// CHECK-NEXT: nop.m 0 // [MBB]
+// CHECK-NEXT: br.cond.sptk.few b6
+// CHECK-NEXT: nop.b 0{{$}}
+// CHECK-NEXT: nop.m 12 // [MII]
+// CHECK-NEXT: nop.i 0
+// CHECK-NEXT: nop.i 0 ;;

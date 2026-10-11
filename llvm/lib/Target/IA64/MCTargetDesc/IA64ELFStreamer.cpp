@@ -89,6 +89,8 @@ class IA64ELFStreamer : public MCELFStreamer {
     /// The template a directive gave the bundle this instruction starts, or
     /// -1.
     int Template;
+    /// Whether it starts a bundle because it is the first one in braces.
+    bool Begins;
     /// The marks for this instruction's position and for the start of a
     /// region whose first instruction it is, or -1.
     int Mark;
@@ -141,6 +143,8 @@ class IA64ELFStreamer : public MCELFStreamer {
   /// Whether the pending instructions are inside bundle braces and so form
   /// one bundle.
   bool InBundle = false;
+  /// The number of pending instructions before the opening brace.
+  size_t BraceStart = 0;
 
   MCSymbol *createBundleSymbol(MCFragment &F, size_t Offset) {
     MCSymbol *Symbol = getContext().createTempSymbol();
@@ -263,6 +267,8 @@ public:
     OpenFragment = nullptr;
     PaddingFragment = nullptr;
     StoppedPadding.clear();
+    InBundle = false;
+    BraceStart = 0;
     NextTemplate = -1;
     Marks.clear();
     NextMarks.clear();
@@ -275,13 +281,17 @@ public:
   void emitTemplate(unsigned Index) { NextTemplate = Index; }
 
   void emitBundleBegin() {
-    flush(/*Stop=*/false);
+    // Instructions before the brace stay pending: the template of their last
+    // bundle depends on the instructions that follow, braced or not.
+    if (Pending.empty())
+      flush(/*Stop=*/false);
+    BraceStart = Pending.size();
     InBundle = true;
   }
   void emitBundleEnd() {
     // Empty slots left by its instructions belong to the bundle, not to a
     // region that starts after it.
-    bool Any = !Pending.empty();
+    bool Any = Pending.size() > BraceStart;
     flush(/*Stop=*/false);
     if (Any)
       LastFragment = nullptr;
@@ -351,7 +361,7 @@ public:
     // code before it. Labels must be on bundle boundaries, though, so the
     // preceding bundle ends. A tag before the label still applies to the
     // instruction after it.
-    if (InBundle && !Pending.empty())
+    if (InBundle && Pending.size() > BraceStart)
       getContext().reportError(Loc, "label is not the first of the bundle");
     auto Tags = std::move(NextTags);
     NextTags.clear();
@@ -519,10 +529,12 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
     }
   }
   bool LastSlot = (MCII->get(Inst.getOpcode()).TSFlags & IA64II::LastSlot) != 0;
-  Pending.push_back({Inst, &STI, Units, LastSlot,
-                     (Inst.getFlags() & IA64II::StopAfter) != 0, NextTemplate,
-                     NextMarks.empty() ? -1 : NextMarks.front(), NextStartMark,
-                     std::move(NextTags)});
+  Pending.push_back(
+      {Inst, &STI, Units, LastSlot, (Inst.getFlags() & IA64II::StopAfter) != 0,
+       NextTemplate,
+       InBundle && !Pending.empty() && Pending.size() == BraceStart,
+       NextMarks.empty() ? -1 : NextMarks.front(), NextStartMark,
+       std::move(NextTags)});
   NextTags.clear();
   NextTemplate = -1;
   if (!NextMarks.empty())
@@ -589,7 +601,8 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   // The bundle ends at the last instruction, or where a directive starts
   // another.
   auto AtEnd = [&] {
-    return Taken == Insts.size() || Insts[Taken].Template != -1;
+    return Taken == Insts.size() || Insts[Taken].Template != -1 ||
+           Insts[Taken].Begins;
   };
   for (unsigned Slot = 0; Slot != 3 && (Taken == 0 || !AtEnd()); ++Slot) {
     PendingInst &PI = Insts[Taken];
@@ -722,15 +735,20 @@ void IA64ELFStreamer::flush(bool Stop, bool KeepLast) {
     Pending.back().Stop = true;
   getCurrentSectionOnly()->ensureMinAlignment(Align(IA64II::BundleBytes));
   MutableArrayRef<PendingInst> Insts = Pending;
+  size_t Done = 0;
   while (!Insts.empty()) {
-    Insts = Insts.drop_front(emitBundle(Insts));
-    if (InBundle && !Insts.empty()) {
+    bool Braced = InBundle && Done >= BraceStart;
+    size_t Taken = emitBundle(Insts);
+    Done += Taken;
+    Insts = Insts.drop_front(Taken);
+    if (Braced && !Insts.empty()) {
       getContext().reportError(Insts[0].Inst.getLoc(),
                                "instruction does not fit in the bundle");
       break;
     }
   }
   Pending.clear();
+  BraceStart = 0;
   Break();
 }
 
