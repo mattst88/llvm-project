@@ -166,6 +166,10 @@ private:
   unsigned Completer = 0;
 
 public:
+  /// Whether the immediate was written in terms of ".", the address of the
+  /// bundle the instruction ends up in.
+  bool FromBundle = false;
+
   IA64Operand(KindTy K, SMLoc S, SMLoc E) : Kind(K), StartLoc(S), EndLoc(E) {}
 
   bool isToken() const override { return Kind == Token; }
@@ -459,6 +463,16 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_Success:
     if (validateInstruction(Inst, Operands))
       return true;
+    for (const auto &Op : Operands) {
+      const auto &Operand = static_cast<const IA64Operand &>(*Op);
+      if (Operand.FromBundle && none_of(MII.get(Inst.getOpcode()).operands(),
+                                        [](const MCOperandInfo &Info) {
+                                          return Info.OperandType ==
+                                                 MCOI::OPERAND_PCREL;
+                                        }))
+        return Error(Operand.getStartLoc(),
+                     "'.' is only for the target of a branch here");
+    }
     // "add" with an immediate and an r0-r3 base prefers addl; the matcher
     // only reaches addl for an immediate that does not fit in adds.
     if (Inst.getOpcode() == IA64::ADDS &&
@@ -691,6 +705,23 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
       return false;
     }
     break;
+  }
+  case AsmToken::Dot: {
+    // "." is the address of the instruction's bundle, which branch targets
+    // are IP-relative to anyway. A symbol for it would end the bundle being
+    // filled, so record only the displacement.
+    Parser.Lex();
+    int64_t Disp = 0;
+    SMLoc E = Parser.getTok().getLoc();
+    if ((Parser.getTok().is(AsmToken::Plus) ||
+         Parser.getTok().is(AsmToken::Minus)) &&
+        Parser.parseAbsoluteExpression(Disp))
+      return true;
+    auto Op = IA64Operand::createImm(MCConstantExpr::create(Disp, getContext()),
+                                     S, E);
+    Op->FromBundle = true;
+    Operands.push_back(std::move(Op));
+    return false;
   }
   default:
     break;

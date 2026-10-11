@@ -323,3 +323,12 @@
 	add r4 = r5 #, r6
 // CHECK: :[[#@LINE+1]]:12: error: unexpected token
 	.global f #
+
+// "." is the bundle of the instruction, which only a branch tells its
+// target from.
+// CHECK: :[[#@LINE+1]]:12: error: '.' is only for the target of a branch here
+	movl r1 = .
+// CHECK: :[[#@LINE+1]]:12: error: '.' is only for the target of a branch here
+	adds r1 = .+4, r2
+// CHECK: :[[#@LINE+1]]:16: error: expected absolute expression
+	br.cond.sptk .+undefined
