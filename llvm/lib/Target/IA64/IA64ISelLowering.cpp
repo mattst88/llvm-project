@@ -603,8 +603,6 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   MachineRegisterInfo &MRI = MF.getRegInfo();
   const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
 
-  CLI.IsTailCall = false;
-
   // A pointer to a function is the address of its descriptor: the entry
   // point, and then the global pointer that the function expects.
   bool Indirect =
@@ -623,6 +621,23 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CLI.CallConv, CLI.IsVarArg, MF, ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeCallOperands(CLI.Outs, CC_IA64);
+
+  // A tail call requires the callee to see the same GP, which holds only for
+  // a DSO-local callee, and no stack arguments, so all arguments must be in
+  // registers.
+  if (CLI.IsTailCall) {
+    const auto *G = dyn_cast<GlobalAddressSDNode>(Callee);
+    const Function &Caller = MF.getFunction();
+    CLI.IsTailCall =
+        G && getTargetMachine().shouldAssumeDSOLocal(G->getGlobal()) &&
+        CCInfo.getStackSize() == 0 && !Caller.isVarArg() &&
+        Caller.getCallingConv() == CLI.CallConv &&
+        none_of(CLI.Outs,
+                [](const ISD::OutputArg &Out) { return Out.Flags.isByVal(); });
+  }
+  if (!CLI.IsTailCall && CLI.CB && CLI.CB->isMustTailCall())
+    reportFatalUsageError("failed to perform tail call elimination on a call "
+                          "site marked musttail");
 
   // An argument the callee has not named goes as its bits, which for a
   // single-precision value are the low half of the slot. Those of an
@@ -662,7 +677,8 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   unsigned NumBytes =
       IA64FrameLowering::ScratchAreaSize + CCInfo.getStackSize();
-  Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
+  if (!CLI.IsTailCall)
+    Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
 
   // Store stack arguments first, so the copies to the output registers are
   // adjacent to the call.
@@ -684,16 +700,21 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOps);
 
   SDValue Glue;
+  unsigned TailInputs = 0;
   SmallVector<std::pair<Register, MVT>, 8> ArgRegs;
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
     if (!VA.isRegLoc())
       continue;
     // The convention is written from the callee's side, and the general
-    // registers are not the same ones on this side.
+    // registers are not the same ones on this side, unless the callee is to
+    // have this function's frame.
     Register Reg = VA.getLocReg();
-    if (IA64::GRRegClass.contains(Reg))
-      Reg = IA64::R120 + (Reg - IA64::R32);
+    if (IA64::GRRegClass.contains(Reg)) {
+      TailInputs = std::max(TailInputs, Reg - IA64::R32 + 1);
+      if (!CLI.IsTailCall)
+        Reg = IA64::R120 + (Reg - IA64::R32);
+    }
     Chain = DAG.getCopyToReg(Chain, DL, Reg, OutVals[I], Glue);
     Glue = Chain.getValue(1);
     ArgRegs.push_back({Reg, VA.getLocVT()});
@@ -707,6 +728,17 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Callee = DAG.getTargetGlobalAddress(G->getGlobal(), DL, MVT::i64);
   } else if (const auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     Callee = DAG.getTargetExternalSymbol(S->getSymbol(), MVT::i64);
+  }
+
+  if (CLI.IsTailCall) {
+    SmallVector<SDValue, 12> Ops = {
+        Chain, Callee, DAG.getTargetConstant(TailInputs, DL, MVT::i64)};
+    for (auto [Reg, VT] : ArgRegs)
+      Ops.push_back(DAG.getRegister(Reg, VT));
+    if (Glue.getNode())
+      Ops.push_back(Glue);
+    MF.getFrameInfo().setHasTailCall();
+    return DAG.getNode(IA64ISD::TAILCALL, DL, MVT::Other, Ops);
   }
 
   SDValue GP = DAG.getRegister(IA64::R0, MVT::i64);
@@ -746,6 +778,12 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Glue = Chain.getValue(2);
   }
   return Chain;
+}
+
+// A return block that is only a tail call is worth keeping separate from the
+// function's other returns.
+bool IA64TargetLowering::mayBeEmittedAsTailCall(const CallInst *CI) const {
+  return CI->isTailCall();
 }
 
 bool IA64TargetLowering::CanLowerReturn(

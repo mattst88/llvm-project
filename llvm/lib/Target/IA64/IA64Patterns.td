@@ -54,6 +54,12 @@ def IA64setfs
 def IA64call : SDNode<"IA64ISD::CALL",
                       SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>]>,
                       [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue, SDNPVariadic]>;
+// A tail call: the callee, the number of GRs its arguments use, and those
+// registers.
+def IA64tailcall
+    : SDNode<"IA64ISD::TAILCALL",
+             SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>]>,
+             [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 def IA64call_ind
     : SDNode<"IA64ISD::CALL_IND",
              SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>,
@@ -87,6 +93,8 @@ def : Pat<(brind GR:$target), (BRIND GR:$target)>;
 
 def : Pat<(IA64call tglobaladdr:$target, GRSave:$gp),
           (CALL tglobaladdr:$target, GRSave:$gp)>;
+def : Pat<(IA64tailcall tglobaladdr:$target, timm:$inputs),
+          (TCRETURN tglobaladdr:$target, timm:$inputs)>;
 def : Pat<(IA64call texternalsym:$target, GRSave:$gp),
           (CALL texternalsym:$target, GRSave:$gp)>;
 def : Pat<(IA64call_ind GR:$entry, GR:$calleegp, GRSave:$gp),

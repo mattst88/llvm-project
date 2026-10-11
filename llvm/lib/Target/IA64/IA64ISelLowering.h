@@ -108,6 +108,8 @@ public:
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       LLVMContext &Context, const Type *RetTy) const override;
 
+  bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
+
 private:
   const IA64Subtarget &Subtarget;
 

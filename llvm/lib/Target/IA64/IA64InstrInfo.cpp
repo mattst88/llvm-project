@@ -389,6 +389,34 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
+  case IA64::TCRETURN: {
+    // Shrink the register stack frame to just the outputs, which is the
+    // frame a call would give the callee. A callee that allocates no frame
+    // of its own then passes the outputs on as they are.
+    BuildMI(MBB, MI, DL, get(IA64::ALLOC), IA64::R2)
+        .addImm(0)
+        .addImm(0)
+        .add(MI.getOperand(1))
+        .addImm(0)
+        .addReg(IA64::P0)
+        ->getOperand(0)
+        .setIsDead();
+    MachineInstrBuilder Branch = BuildMI(MBB, MI, DL, get(IA64::BR_TAIL))
+                                     .add(MI.getOperand(0))
+                                     .addImm(IA64II::WhetherSPTK)
+                                     .addImm(1)
+                                     .addImm(0)
+                                     .addReg(IA64::P0);
+    // Carry over the argument register operands, including undef ones.
+    for (MachineOperand MO : drop_begin(MI.operands(), 2)) {
+      if (!MO.isReg())
+        continue;
+      MO.setImplicit();
+      Branch.add(MO);
+    }
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::SETCC:
   case IA64::SETCCi:
   case IA64::SETCCf: {

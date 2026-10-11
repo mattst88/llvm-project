@@ -48,6 +48,15 @@ let isCall = 1, Defs = [B0, R1] in
 def CALL : IA64Pseudo<(outs), (ins calltarget:$target, GRSave:$gp, variable_ops),
                       "#CALL", []>;
 
+// A tail call. The callee receives its arguments in this function's input
+// registers, and the register frame is resized to just those:
+// "alloc r2 = ar.pfs, 0, 0, inputs, 0" and "br.cond.sptk.many target".
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
+def TCRETURN : IA64Pseudo<(outs),
+                          (ins calltarget:$target, i64imm:$inputs,
+                               variable_ops),
+                          "#TCRETURN", []>;
+
 // An indirect call through a function descriptor. The entry point and GP have
 // already been loaded from it; the entry point goes to b6 and the GP to r1.
 let isCall = 1, Defs = [B0, B6, R1] in
@@ -717,6 +726,10 @@ def HINT_F  : F16<1, "hint.f">;
 //===----------------------------------------------------------------------===//
 
 def BR_COND  : B1<0, "br.cond">;
+// The same branch, used for tail calls.
+let isCodeGenOnly = 1, isBranch = 0, isCall = 1, isReturn = 1,
+    isBarrier = 1 in
+def BR_TAIL  : B1<0, "br.cond">;
 // Loop branches, these two and the counted ones, must be in the last slot of
 // a bundle.
 let LastSlot = 1 in {

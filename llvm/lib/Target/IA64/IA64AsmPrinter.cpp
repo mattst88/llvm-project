@@ -207,7 +207,7 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
 bool IA64AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   FirstOutput = IA64::R120;
   for (const MachineInstr &MI : MF.front())
-    if (MI.getOpcode() == IA64::ALLOC) {
+    if (MI.getOpcode() == IA64::ALLOC && MI.getFlag(MachineInstr::FrameSetup)) {
       FirstOutput =
           IA64::R32 + MI.getOperand(1).getImm() + MI.getOperand(2).getImm();
       break;
@@ -293,6 +293,17 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
       CopyState = true;
     }
     TS.emitRestore();
+    return;
+  }
+  // An alloc outside the prologue hands the frame to a tail callee, with
+  // everything restored to its state on entry, so the rest of the function
+  // is like a prologue that has not saved anything yet.
+  if (MI.getOpcode() == IA64::ALLOC && !MI.getFlag(MachineInstr::FrameSetup)) {
+    if (!CopyState && MI.getParent() != &MF->back()) {
+      TS.emitLabelState(++StateLabel);
+      CopyState = true;
+    }
+    TS.emitPrologue();
     return;
   }
   if (!MI.getFlag(MachineInstr::FrameSetup))

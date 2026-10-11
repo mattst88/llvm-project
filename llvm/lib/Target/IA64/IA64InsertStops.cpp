@@ -120,7 +120,12 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         return false;
       };
 
-      if ((NewFrame && (MI.isCall() || MI.isReturn())) ||
+      // An alloc is the first instruction of its group, and a call or a
+      // return is not in the group of one. A branch to another function is
+      // neither, though it is in place of both.
+      if (MI.getOpcode() == IA64::ALLOC ||
+          (NewFrame && (MI.isCall() || MI.isReturn()) &&
+           MI.getOpcode() != IA64::BR_TAIL) ||
           any_of(MI.operands(), [&](const MachineOperand &MO) {
             return Touches(MO) && Written.test(MO.getReg().id());
           }))
