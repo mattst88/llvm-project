@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64InstPrinter.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "MCTargetDesc/IA64TargetStreamer.h"
@@ -43,6 +44,36 @@ using namespace llvm;
 namespace {
 
 class IA64Operand;
+
+// The value of a symbol assigned a register: the symbol becomes an alias
+// for the register and is not emitted to the object file.
+class IA64RegisterExpr : public MCTargetExpr {
+  MCRegister Reg;
+
+  explicit IA64RegisterExpr(MCRegister Reg) : Reg(Reg) {}
+
+public:
+  static const IA64RegisterExpr *create(MCRegister Reg, MCContext &Ctx) {
+    return new (Ctx) IA64RegisterExpr(Reg);
+  }
+
+  MCRegister getReg() const { return Reg; }
+
+  void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override {
+    OS << IA64InstPrinter::getRegisterName(Reg);
+  }
+  bool evaluateAsRelocatableImpl(MCValue &Res,
+                                 const MCAssembler *Asm) const override {
+    return false;
+  }
+  bool inlineAssignedExpr() const override { return true; }
+  void visitUsedExpr(MCStreamer &Streamer) const override {}
+  MCFragment *findAssociatedFragment() const override { return nullptr; }
+
+  static bool classof(const MCExpr *E) {
+    return E->getKind() == MCExpr::Target;
+  }
+};
 
 class IA64AsmParser : public MCTargetAsmParser {
   bool matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
@@ -745,6 +776,15 @@ ParseStatus IA64AsmParser::tryParseRegister(MCRegister &Reg, SMLoc &StartLoc,
     Reg = resolveStackedName(*Stacked, StartLoc);
     return Reg ? ParseStatus::Success : ParseStatus::Failure;
   }
+  // A symbol assigned a register is an alias for it.
+  if (const MCSymbol *Sym = getContext().lookupSymbol(Name);
+      Sym && Sym->isVariable())
+    if (const auto *Alias =
+            dyn_cast<IA64RegisterExpr>(Sym->getVariableValue())) {
+      getParser().Lex();
+      Reg = Alias->getReg();
+      return ParseStatus::Success;
+    }
   // "name[2]" is the third register of a named rotating register run.
   if (getLexer().peekTok().isNot(AsmToken::LBrac))
     return ParseStatus::NoMatch;
@@ -898,6 +938,23 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
 
 bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
   MCAsmParser &Parser = getParser();
+  // A register is an expression value only so that a symbol can be
+  // assigned it. "r4#" is the symbol r4.
+  if (Parser.getTok().is(AsmToken::Identifier)) {
+    const AsmToken &Next = getLexer().peekTok();
+    if (Next.isNot(AsmToken::Hash) ||
+        Next.getLoc() != Parser.getTok().getEndLoc()) {
+      MCRegister Reg;
+      SMLoc S;
+      ParseStatus Status = tryParseRegister(Reg, S, EndLoc);
+      if (Status.isFailure())
+        return true;
+      if (Status.isSuccess()) {
+        Res = IA64RegisterExpr::create(Reg, getContext());
+        return false;
+      }
+    }
+  }
   if (Parser.getTok().isNot(AsmToken::At))
     return Parser.parsePrimaryExpr(Res, EndLoc, nullptr);
 
@@ -1097,6 +1154,8 @@ bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
     const MCExpr *Value;
     if (getParser().parseExpression(Value))
       return true;
+    if (isa<IA64RegisterExpr>(Value))
+      return Error(Loc, "a register is not a value");
     if (const auto *CE = dyn_cast<MCConstantExpr>(Value)) {
       if (!isUIntN(8 * Size, CE->getValue()) &&
           !isIntN(8 * Size, CE->getValue()))
