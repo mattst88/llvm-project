@@ -2139,17 +2139,20 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
       return Error(NameLoc, Lower + " outside of a body");
     int64_t Value = 0;
     if (Directive == Restore) {
-      // Only sp is restored this way, and with it the frames of that many
-      // more prologues than the innermost.
+      // Only sp can be restored. ".restore sp, N" pops the innermost
+      // prologue and N more; without N it pops all open prologues.
       MCRegister Reg;
       SMLoc E;
       if (!tryParseRegister(Reg, Loc, E).isSuccess() || Reg != IA64::R12)
         return Error(Loc, "expected sp");
       SMLoc CountLoc = getTok().getLoc();
-      if (parseOptionalToken(AsmToken::Comma)) {
+      bool HasCount = parseOptionalToken(AsmToken::Comma);
+      if (HasCount) {
         CountLoc = getTok().getLoc();
         if (getParser().parseAbsoluteExpression(Value))
           return ParseStatus::Failure;
+      } else if (OpenPrologues != 0) {
+        Value = OpenPrologues - 1;
       }
       if (Value < 0 || Value >= OpenPrologues)
         return Error(CountLoc, "there are " + Twine(OpenPrologues) +
@@ -2160,7 +2163,7 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
       AwaitsInstruction = NameLoc;
       Awaited = 1;
       AwaitedByMask = false;
-      TS.emitRestore(Value);
+      TS.emitRestore(Value, /*AllOpen=*/!HasCount);
       return ParseStatus::Success;
     }
     if (getParser().parseAbsoluteExpression(Value))

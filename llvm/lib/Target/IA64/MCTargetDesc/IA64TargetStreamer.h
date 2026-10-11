@@ -133,10 +133,11 @@ public:
   /// \p GRMask in the spill area. Assembly writes this as ".save.gf".
   virtual void emitSaveGF(unsigned GRMask, unsigned FRMask);
 
-  /// The next instruction of the body restores sp, and with it undoes the
-  /// innermost prologue and \p ECount more around that. Assembly writes this
-  /// as ".restore sp".
-  virtual void emitRestore(unsigned ECount = 0);
+  /// The next body instruction restores sp, popping the innermost prologue
+  /// and \p ECount enclosing ones. Assembly writes this as ".restore sp",
+  /// with the count unless \p AllOpen says it covers all open prologues,
+  /// which is the meaning without a count.
+  virtual void emitRestore(unsigned ECount = 0, bool AllOpen = true);
 
   /// Label the unwind state at this point of the body as \p Label. Assembly
   /// writes this as ".label_state".
@@ -253,7 +254,7 @@ public:
   void emitSaveF(unsigned Mask) override;
   void emitSaveB(unsigned Mask, std::optional<unsigned> GR) override;
   void emitSaveGF(unsigned GRMask, unsigned FRMask) override;
-  void emitRestore(unsigned ECount) override;
+  void emitRestore(unsigned ECount, bool AllOpen) override;
   void emitLabelState(uint64_t Label) override;
   void emitCopyState(uint64_t Label) override;
   void emitSpillReg(unsigned Reg, MCRegister TReg, unsigned QP) override;

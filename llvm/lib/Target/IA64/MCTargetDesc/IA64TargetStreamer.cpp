@@ -94,7 +94,7 @@ void IA64TargetStreamer::emitSaveB(unsigned Mask, std::optional<unsigned> GR) {}
 
 void IA64TargetStreamer::emitSaveGF(unsigned GRMask, unsigned FRMask) {}
 
-void IA64TargetStreamer::emitRestore(unsigned ECount) {}
+void IA64TargetStreamer::emitRestore(unsigned ECount, bool AllOpen) {}
 
 void IA64TargetStreamer::emitLabelState(uint64_t Label) {}
 
@@ -258,9 +258,9 @@ void IA64TargetAsmStreamer::emitUnwABI(unsigned ABI, unsigned Context) {
   OS << "\t.unwabi\t" << ABI << ", " << Context << '\n';
 }
 
-void IA64TargetAsmStreamer::emitRestore(unsigned ECount) {
+void IA64TargetAsmStreamer::emitRestore(unsigned ECount, bool AllOpen) {
   OS << "\t.restore\tsp";
-  if (ECount != 0)
+  if (!AllOpen)
     OS << ", " << ECount;
   OS << '\n';
 }

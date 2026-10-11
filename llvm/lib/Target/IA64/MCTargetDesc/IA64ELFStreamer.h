@@ -50,7 +50,7 @@ public:
   void emitSaveF(unsigned Mask) override;
   void emitSaveB(unsigned Mask, std::optional<unsigned> GR) override;
   void emitSaveGF(unsigned GRMask, unsigned FRMask) override;
-  void emitRestore(unsigned ECount) override;
+  void emitRestore(unsigned ECount, bool AllOpen) override;
   void emitLabelState(uint64_t Label) override;
   void emitCopyState(uint64_t Label) override;
   void emitSpillReg(unsigned Reg, MCRegister TReg, unsigned QP) override;

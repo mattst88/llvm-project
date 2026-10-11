@@ -400,6 +400,37 @@ f3:
 	nop 0
 	.endp f3
 
+// When it does not say how many, it undoes them all.
+// CHECK-NEXT: 0x{{[0-9a-f]+}} 01000000 00000100 01210123 c1020000
+	.proc f3a
+f3a:
+	.prologue
+	nop 0
+	.body
+	nop 0
+	.prologue
+	nop 0
+	.body
+	.restore sp
+	nop 0
+	.endp f3a
+
+// When it says none more, it undoes the innermost alone, and assembly says
+// so too.
+// CHECK-NEXT: 0x{{[0-9a-f]+}} 01000000 00000100 01210123 c0020000
+	.proc f3b
+f3b:
+	.prologue
+	nop 0
+	.body
+	nop 0
+	.prologue
+	nop 0
+	.body
+	.restore sp, 0
+	nop 0
+	.endp f3b
+
 // A state that has a label can be had again, by code that is reached from
 // where the label is and not from the code before it.
 // CHECK-NEXT: 0x{{[0-9a-f]+}} 01000000 00000100 012281c0 0123a100

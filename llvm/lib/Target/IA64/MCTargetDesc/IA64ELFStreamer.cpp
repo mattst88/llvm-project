@@ -950,7 +950,7 @@ void IA64TargetELFStreamer::emitSaveGF(unsigned GRMask, unsigned FRMask) {
   addSpills(2, GRMask, Ahead);
 }
 
-void IA64TargetELFStreamer::emitRestore(unsigned ECount) {
+void IA64TargetELFStreamer::emitRestore(unsigned ECount, bool AllOpen) {
   addUnwindRecord(UnwindRecord::Epilogue, ECount);
 }
 
