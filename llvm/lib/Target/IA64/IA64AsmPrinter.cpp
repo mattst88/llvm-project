@@ -15,10 +15,12 @@
 #include "IA64InstrInfo.h"
 #include "IA64TargetMachine.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -69,6 +71,16 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
     return MCOperand::createReg(MO.getReg());
   case MachineOperand::MO_Immediate:
     return MCOperand::createImm(MO.getImm());
+  case MachineOperand::MO_GlobalAddress: {
+    const MCExpr *Expr =
+        MCSymbolRefExpr::create(getSymbol(MO.getGlobal()), OutContext);
+    if (MO.getOffset())
+      Expr = MCBinaryExpr::createAdd(
+          Expr, MCConstantExpr::create(MO.getOffset(), OutContext), OutContext);
+    if (auto Spec = IA64::Specifier(MO.getTargetFlags()))
+      Expr = MCSpecifierExpr::create(Expr, Spec, OutContext);
+    return MCOperand::createExpr(Expr);
+  }
   case MachineOperand::MO_MachineBasicBlock:
     return MCOperand::createExpr(
         MCSymbolRefExpr::create(MO.getMBB()->getSymbol(), OutContext));

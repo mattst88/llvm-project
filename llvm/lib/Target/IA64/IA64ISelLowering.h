@@ -38,6 +38,8 @@ public:
                                const SDLoc &DL, SelectionDAG &DAG,
                                SmallVectorImpl<SDValue> &InVals) const override;
 
+  SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
@@ -50,6 +52,9 @@ public:
 
 private:
   const IA64Subtarget &Subtarget;
+
+private:
+  SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
 };
 
 } // end namespace llvm

@@ -20,6 +20,9 @@
 def IA64retglue : SDNode<"IA64ISD::RET_GLUE", SDTypeProfile<0, 0, []>,
                          [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
+// The address of a symbol's linkage table entry: @ltoff(sym) + gp.
+def IA64ltoff : SDNode<"IA64ISD::LTOFF", SDTIntUnaryOp>;
+
 //===----------------------------------------------------------------------===//
 // Immediates
 //===----------------------------------------------------------------------===//
@@ -133,3 +136,10 @@ foreach S = ["1", "2", "4"] in {
             (!cast<Instruction>("ST"#S) GR:$r3, GR:$r2, 0)>;
 }
 def : Pat<(store GR:$r2, GR:$r3), (ST8 GR:$r3, GR:$r2, 0)>;
+
+//===----------------------------------------------------------------------===//
+// Addresses
+//===----------------------------------------------------------------------===//
+
+// addl r1 = @ltoff(sym), gp
+def : Pat<(IA64ltoff tglobaladdr:$sym), (ADDL tglobaladdr:$sym, R1)>;

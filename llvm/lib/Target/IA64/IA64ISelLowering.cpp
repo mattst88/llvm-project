@@ -11,6 +11,7 @@
 #include "IA64SelectionDAGInfo.h"
 #include "IA64Subtarget.h"
 #include "IA64TargetMachine.h"
+#include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -45,6 +46,8 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::SELECT, MVT::i64, Expand);
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
 
+  setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
+
   // No instruction sign-extends from i1; it takes two shifts.
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
 
@@ -56,6 +59,41 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
     for (MVT MemVT : {MVT::i8, MVT::i16, MVT::i32})
       setLoadExtAction(ISD::SEXTLOAD, VT, MemVT, Expand);
   }
+}
+
+SDValue IA64TargetLowering::LowerOperation(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  switch (Op.getOpcode()) {
+  case ISD::GlobalAddress:
+    return LowerGlobalAddress(Op, DAG);
+  default:
+    llvm_unreachable("an operation with no custom lowering");
+  }
+}
+
+// The address of a symbol is read from the linkage table, which the global
+// pointer addresses. What the entry for a function holds is the address of
+// its descriptor, the one all modules agree on, and that is what a pointer
+// to a function is.
+SDValue IA64TargetLowering::LowerGlobalAddress(SDValue Op,
+                                               SelectionDAG &DAG) const {
+  const auto *N = cast<GlobalAddressSDNode>(Op);
+  const GlobalValue *GV = N->getGlobal();
+  SDLoc DL(Op);
+
+  unsigned Flags =
+      GV->getValueType()->isFunctionTy() ? IA64::S_LTOFF_FPTR : IA64::S_LTOFF;
+  SDValue Entry =
+      DAG.getNode(IA64ISD::LTOFF, DL, MVT::i64,
+                  DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags));
+  SDValue Addr = DAG.getLoad(
+      MVT::i64, DL, DAG.getEntryNode(), Entry,
+      MachinePointerInfo::getGOT(DAG.getMachineFunction()), Align(8),
+      MachineMemOperand::MODereferenceable | MachineMemOperand::MOInvariant);
+  if (N->getOffset() == 0)
+    return Addr;
+  return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
+                     DAG.getConstant(N->getOffset(), DL, MVT::i64));
 }
 
 SDValue IA64TargetLowering::LowerFormalArguments(
