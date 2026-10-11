@@ -3549,6 +3549,25 @@ static bool isValidCodeModelAttr(llvm::Triple &Triple, StringRef Str) {
 }
 
 static void handleCodeModelAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  // On IA-64 the argument is an identifier naming the only model, as in GCC.
+  if (S.Context.getTargetInfo().getTriple().getArch() == llvm::Triple::ia64) {
+    if (!AL.isArgIdent(0)) {
+      S.Diag(AL.getLoc(), diag::err_attribute_argument_type)
+          << AL << AANT_ArgumentIdentifier;
+      return;
+    }
+    IdentifierLoc *IL = AL.getArgAsIdent(0);
+    StringRef Name = IL->getIdentifierInfo()->getName();
+    if (Name != "small" && Name != "__small__") {
+      S.Diag(IL->getLoc(), diag::warn_attribute_type_not_supported)
+          << AL << IL->getIdentifierInfo();
+      return;
+    }
+    D->addAttr(::new (S.Context)
+                   CodeModelAttr(S.Context, AL, llvm::CodeModel::Small));
+    return;
+  }
+
   StringRef Str;
   SourceLocation LiteralLoc;
   auto IsTripleSupported = [](llvm::Triple &Triple) {

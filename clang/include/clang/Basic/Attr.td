@@ -3532,6 +3532,21 @@ def CodeModel
       /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/0>];
   let Subjects = SubjectList<[NonTLSGlobalVar], ErrorDiag>;
   let Documentation = [CodeModelDocs];
+  let ParseKind = "CodeModel";
+}
+
+// On IA-64 the argument is an identifier, as in GCC, and only one model is
+// accepted. It adds a CodeModelAttr to the variable.
+def IA64CodeModel : InheritableAttr, TargetSpecificAttr<TargetIA64> {
+  let Spellings = [GCC<"model">];
+  let Args = [EnumArgument<"Model", "llvm::CodeModel::Model",
+                           /*is_string=*/0, ["small", "__small__"],
+                           ["Small", "Small"], /*opt=*/0, /*fake=*/0,
+                           /*isExternalType=*/1, /*isCovered=*/0>];
+  let Subjects = SubjectList<[NonTLSGlobalVar], ErrorDiag>;
+  let Documentation = [CodeModelDocs];
+  let ParseKind = "CodeModel";
+  let ASTNode = 0;
 }
 
 def Sentinel : InheritableAttr {

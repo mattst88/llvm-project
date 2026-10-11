@@ -66,6 +66,10 @@ to prefer using 32-bit relocations to access the global. `"large"` is roughly
 equivalent to `-mcmodel=large`, meaning the global is considered "large" and
 placed further from the `.text` section relative to "small" globals, and
 64-bit relocations must be used to access the global.
+
+On IA-64, the argument is an identifier and the allowed value is ``small``,
+which may also be written ``__small__``. The address of the global is one that
+fits in 22 bits, and it is formed without the global pointer.
   }];
   let Heading = "model";
 }
