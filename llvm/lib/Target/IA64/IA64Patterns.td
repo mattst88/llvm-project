@@ -21,6 +21,14 @@ def IA64retglue : SDNode<"IA64ISD::RET_GLUE", SDTypeProfile<0, 0, []>,
                          [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
 //===----------------------------------------------------------------------===//
+// Immediates
+//===----------------------------------------------------------------------===//
+
+def imm8  : ImmLeaf<i64, [{ return isInt<8>(Imm); }]>;
+def imm14 : ImmLeaf<i64, [{ return isInt<14>(Imm); }]>;
+def imm22 : ImmLeaf<i64, [{ return isInt<22>(Imm); }]>;
+
+//===----------------------------------------------------------------------===//
 // Returns
 //===----------------------------------------------------------------------===//
 
@@ -44,3 +52,23 @@ def : Pat<(and GR:$r2, (not GR:$r3)), (ANDCM GR:$r2, GR:$r3)>;
 // as adding the complement.
 def : Pat<(add (add GR:$r2, GR:$r3), 1), (ADD1 GR:$r2, GR:$r3)>;
 def : Pat<(add GR:$r2, (not GR:$r3)), (SUB1 GR:$r2, GR:$r3)>;
+
+// Immediate forms. The immediate is always the first instruction operand,
+// whichever side of the operation it is on. Only add takes more than 8 bits,
+// and it takes more than 14 only with an r0-r3 base, which is of no use for
+// a value in an arbitrary register.
+def : Pat<(add GR:$r3, imm14:$imm), (ADDS imm14:$imm, GR:$r3)>;
+def : Pat<(sub imm8:$imm, GR:$r3), (SUBi imm8:$imm, GR:$r3)>;
+def : Pat<(and GR:$r3, imm8:$imm), (ANDi imm8:$imm, GR:$r3)>;
+def : Pat<(or GR:$r3, imm8:$imm), (ORi imm8:$imm, GR:$r3)>;
+def : Pat<(xor GR:$r3, imm8:$imm), (XORi imm8:$imm, GR:$r3)>;
+def : Pat<(and (not GR:$r3), imm8:$imm), (ANDCMi imm8:$imm, GR:$r3)>;
+
+//===----------------------------------------------------------------------===//
+// Constants
+//===----------------------------------------------------------------------===//
+
+// A 22-bit constant is addl with r0, the "mov" pseudo-op. Anything else
+// needs movl, which takes two slots.
+def : Pat<(i64 imm22:$imm), (ADDL imm22:$imm, R0)>;
+def : Pat<(i64 imm:$imm), (MOVL imm:$imm)>;

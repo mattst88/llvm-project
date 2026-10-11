@@ -61,6 +61,8 @@ def XORi     : A3<0xb, 3, "xor">;
 def ADDS     : A4<2, "adds">;
 def ADDP4i   : A4<3, "addp4">;
 
+// With an r0 base, this materializes a 22-bit constant.
+let isReMaterializable = 1 in
 def ADDL     : A5<"addl">;
 
 //===----------------------------------------------------------------------===//
@@ -647,6 +649,7 @@ def HINT_B  : B9<2, 1, "hint.b">;
 // X-unit instructions
 //===----------------------------------------------------------------------===//
 
+let isReMaterializable = 1, isMoveImm = 1 in
 def MOVL : X2<"movl">;
 
 def BRL_COND : X3<0, "brl.cond">;

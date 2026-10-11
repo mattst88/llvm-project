@@ -61,6 +61,15 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     Node->setNodeId(-1);
     return;
   }
+
+  // r0 reads as zero, so zero needs no instruction.
+  if (Node->getOpcode() == ISD::Constant && isNullConstant(SDValue(Node, 0))) {
+    SDValue Zero = CurDAG->getCopyFromReg(CurDAG->getEntryNode(), SDLoc(Node),
+                                          IA64::R0, MVT::i64);
+    ReplaceNode(Node, Zero.getNode());
+    return;
+  }
+
   SelectCode(Node);
 }
 
