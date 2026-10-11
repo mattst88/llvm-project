@@ -655,4 +655,18 @@ def HINT_X  : X5<1, "hint.x">;
 // Pseudo-ops
 //===----------------------------------------------------------------------===//
 
+// Instructions that more than one unit can execute. Application register
+// moves go to whichever unit owns the register.
+def NOP   : IA64AnyUnit<(outs), (ins uimm21:$imm), "nop", "$imm">;
+def HINT  : IA64AnyUnit<(outs), (ins uimm21:$imm), "hint", "$imm">;
+def BREAK : IA64AnyUnit<(outs), (ins uimm21:$imm), "break", "$imm">;
+def CHK_S : IA64AnyUnit<(outs), (ins GR:$r2, target25m:$target), "chk.s",
+                        "$r2, $target">;
+def MOV_AR      : IA64AnyUnit<(outs AR:$ar3), (ins GR:$r2), "mov",
+                              "$ar3 = $r2">;
+def MOV_ARi     : IA64AnyUnit<(outs AR:$ar3), (ins simm8:$imm), "mov",
+                              "$ar3 = $imm">;
+def MOV_FROM_AR : IA64AnyUnit<(outs GR:$r1), (ins AR:$ar3), "mov",
+                              "$r1 = $ar3">;
+
 include "IA64InstrAliases.td"

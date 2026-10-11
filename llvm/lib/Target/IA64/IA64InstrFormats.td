@@ -373,6 +373,14 @@ class IA64QPInst<dag oops, dag iops, string mnemonic, string operands,
                   !if(!empty(operands), "", "\t" # operands);
 }
 
+// A pseudo-op whose unit is chosen by the slot it is bundled into: "nop" is
+// nop.m in an M slot and nop.i in an I slot. The operands match those of the
+// real instructions, which IA64::getOpcodeForUnit returns.
+class IA64AnyUnit<dag outs, dag ins, string mnemonic, string operands>
+    : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let isPseudo = 1;
+}
+
 class IA64Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
     : IA64Inst<outs, ins, asmstr, "", pattern> {
   let isPseudo = 1;

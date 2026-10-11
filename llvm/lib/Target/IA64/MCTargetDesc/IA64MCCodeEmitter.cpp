@@ -118,7 +118,17 @@ void IA64MCCodeEmitter::encodeInstruction(const MCInst &MI,
     for (unsigned I = 0; I != IA64::SlotBytes; ++I)
       CB.push_back(static_cast<char>(Long >> (8 * I)));
   }
-  uint64_t Slot = getBinaryCodeForInstr(MI, Fixups, STI);
+  // The bundler picks the unit of a pseudo-op that has several forms;
+  // otherwise the first form is used.
+  unsigned Opcode = IA64::getDefaultOpcode(MI, MCII, *Ctx.getRegisterInfo());
+  uint64_t Slot;
+  if (Opcode != MI.getOpcode()) {
+    MCInst Real = MI;
+    Real.setOpcode(Opcode);
+    Slot = getBinaryCodeForInstr(Real, Fixups, STI);
+  } else {
+    Slot = getBinaryCodeForInstr(MI, Fixups, STI);
+  }
   for (unsigned I = 0; I != IA64::SlotBytes; ++I)
     CB.push_back(static_cast<char>(Slot >> (8 * I)));
 }

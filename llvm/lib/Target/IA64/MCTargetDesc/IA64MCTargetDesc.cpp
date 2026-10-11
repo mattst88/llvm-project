@@ -14,6 +14,7 @@
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -36,6 +37,100 @@ static MCAsmInfo *createIA64MCAsmInfo(const MCRegisterInfo &MRI,
                                       const Triple &TT,
                                       const MCTargetOptions &Options) {
   return new IA64MCAsmInfo(TT, Options);
+}
+
+unsigned IA64::getOpcodeForUnit(unsigned Opcode, IA64II::Unit Unit) {
+  // The M, I, F and B forms of each pseudo-op.
+  static const struct {
+    unsigned Pseudo;
+    unsigned Forms[4];
+  } Table[] = {
+      {IA64::NOP, {IA64::NOP_M, IA64::NOP_I, IA64::NOP_F, IA64::NOP_B}},
+      // Older processors lack hint.b, and GNU as requires an option before
+      // accepting "hint" as hint.b.
+      {IA64::HINT, {IA64::HINT_M, IA64::HINT_I, IA64::HINT_F, 0}},
+      {IA64::BREAK,
+       {IA64::BREAK_M, IA64::BREAK_I, IA64::BREAK_F, IA64::BREAK_B}},
+      {IA64::CHK_S, {IA64::CHK_S_M, IA64::CHK_S_I, 0, 0}},
+      {IA64::MOV_AR, {IA64::MOV_M_AR, IA64::MOV_I_AR, 0, 0}},
+      {IA64::MOV_ARi, {IA64::MOV_M_ARi, IA64::MOV_I_ARi, 0, 0}},
+      {IA64::MOV_FROM_AR, {IA64::MOV_M_FROM_AR, IA64::MOV_I_FROM_AR, 0, 0}},
+  };
+  for (const auto &Entry : Table) {
+    if (Entry.Pseudo != Opcode)
+      continue;
+    switch (Unit) {
+    case IA64II::UnitM:
+      return Entry.Forms[0];
+    case IA64II::UnitI:
+      return Entry.Forms[1];
+    case IA64II::UnitF:
+      return Entry.Forms[2];
+    case IA64II::UnitB:
+      return Entry.Forms[3];
+    default:
+      return 0;
+    }
+  }
+  return Opcode;
+}
+
+/// The units that can read or write application register \p Number: the M
+/// unit has the low ones and the I unit ar64 to ar111. Either can reach the
+/// ones that are ignored, ar48 to ar63 and ar112 to ar127.
+static unsigned getARUnits(unsigned Number) {
+  if (Number < 48)
+    return 1u << IA64II::UnitM;
+  if (Number >= 64 && Number < 112)
+    return 1u << IA64II::UnitI;
+  return 1u << IA64II::UnitM | 1u << IA64II::UnitI;
+}
+
+unsigned IA64::getSlotUnits(const MCInst &MI, const MCInstrInfo &MCII,
+                            const MCRegisterInfo &MRI) {
+  unsigned Opcode = MI.getOpcode();
+  switch (IA64II::Unit Unit = IA64II::getUnit(MCII.get(Opcode).TSFlags)) {
+  case IA64II::UnitA:
+    return 1u << IA64II::UnitM | 1u << IA64II::UnitI;
+  case IA64II::UnitX:
+    return 1u << IA64II::UnitL;
+  case IA64II::UnitNone:
+    break;
+  default:
+    return 1u << Unit;
+  }
+
+  unsigned Units = 0;
+  for (IA64II::Unit Unit :
+       {IA64II::UnitM, IA64II::UnitI, IA64II::UnitF, IA64II::UnitB})
+    if (unsigned Form = getOpcodeForUnit(Opcode, Unit);
+        Form != 0 && Form != Opcode)
+      Units |= 1u << Unit;
+  switch (Opcode) {
+  case IA64::HINT:
+    // The M-unit form has a 19-bit immediate where the others have 21 bits.
+    if (MI.getOperand(0).isImm() && !isUInt<19>(MI.getOperand(0).getImm()))
+      Units &= ~(1u << IA64II::UnitM);
+    break;
+  case IA64::MOV_AR:
+  case IA64::MOV_ARi:
+    Units &= getARUnits(MRI.getEncodingValue(MI.getOperand(0).getReg()));
+    break;
+  case IA64::MOV_FROM_AR:
+    Units &= getARUnits(MRI.getEncodingValue(MI.getOperand(1).getReg()));
+    break;
+  }
+  return Units;
+}
+
+unsigned IA64::getDefaultOpcode(const MCInst &MI, const MCInstrInfo &MCII,
+                                const MCRegisterInfo &MRI) {
+  unsigned Units = getSlotUnits(MI, MCII, MRI);
+  for (IA64II::Unit Unit :
+       {IA64II::UnitM, IA64II::UnitI, IA64II::UnitF, IA64II::UnitB})
+    if (Units & 1u << Unit)
+      return getOpcodeForUnit(MI.getOpcode(), Unit);
+  return MI.getOpcode();
 }
 
 MCInstrInfo *llvm::createIA64MCInstrInfo() {

@@ -27,6 +27,9 @@
 //     unit in slot 1 turns it into "MI;I", whatever it was, and the rest of
 //     the bundle is filled by the same rule. A stop anywhere else ends the
 //     bundle.
+//   - "hint" and "chk.s" have no B-unit form, but the template is chosen as
+//     if they had. If that assigns one a B slot, the bundle ends before it,
+//     and a "hint" becomes hint.i in the next bundle.
 //
 //===----------------------------------------------------------------------===//
 
@@ -56,7 +59,8 @@ class IA64ELFStreamer : public MCELFStreamer {
   struct PendingInst {
     MCInst Inst;
     const MCSubtargetInfo *STI;
-    IA64II::Unit Unit;
+    /// The slot units that can hold it, one bit per IA64II::Unit.
+    unsigned Units;
     bool Stop;
   };
 
@@ -70,7 +74,7 @@ class IA64ELFStreamer : public MCELFStreamer {
   size_t OpenOffset = 0;
 
   /// Write the first of \p Insts into one bundle and return how many it took.
-  size_t emitBundle(ArrayRef<PendingInst> Insts);
+  size_t emitBundle(MutableArrayRef<PendingInst> Insts);
 
 public:
   IA64ELFStreamer(MCContext &Ctx, std::unique_ptr<MCAsmBackend> MAB,
@@ -186,16 +190,10 @@ public:
 
 } // end anonymous namespace
 
-/// Whether a slot of a template can hold an instruction of unit \p Unit.
-static bool slotTakes(IA64II::Unit Slot, IA64II::Unit Unit) {
-  switch (Unit) {
-  case IA64II::UnitA:
-    return Slot == IA64II::UnitM || Slot == IA64II::UnitI;
-  case IA64II::UnitX:
-    return Slot == IA64II::UnitL;
-  default:
-    return Slot == Unit;
-  }
+/// Whether a template slot of unit \p Slot can hold an instruction that
+/// \p Units can execute.
+static bool slotTakes(IA64II::Unit Slot, unsigned Units) {
+  return (Units & 1u << Slot) != 0;
 }
 
 static uint64_t readSlot(const char *Bytes) {
@@ -211,12 +209,12 @@ static unsigned countPlaced(const IA64II::BundleTemplate &T,
                             ArrayRef<PendingInst> Insts) {
   unsigned Slot = 0, N = 0;
   for (const PendingInst &PI : Insts) {
-    while (Slot != 3 && !slotTakes(T.Slots[Slot], PI.Unit))
+    while (Slot != 3 && !slotTakes(T.Slots[Slot], PI.Units))
       ++Slot;
     if (Slot == 3)
       break;
     ++N;
-    Slot += PI.Unit == IA64II::UnitX ? 2 : 1;
+    Slot += T.Slots[Slot] == IA64II::UnitL ? 2 : 1;
   }
   return N;
 }
@@ -224,13 +222,17 @@ static unsigned countPlaced(const IA64II::BundleTemplate &T,
 void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
                                       const MCSubtargetInfo &STI) {
   MCStreamer::emitInstruction(Inst, STI);
-  IA64II::Unit Unit = IA64II::getUnit(MCII->get(Inst.getOpcode()).TSFlags);
-  assert(Unit != IA64II::UnitNone && "instruction has no unit");
+  unsigned Units =
+      IA64::getSlotUnits(Inst, *MCII, *getContext().getRegisterInfo());
+  // See the note on the packing above.
+  if (Inst.getOpcode() == IA64::HINT || Inst.getOpcode() == IA64::CHK_S)
+    Units |= 1u << IA64II::UnitB;
+  assert(Units != 0 && "instruction has no unit");
   Pending.push_back(
-      {Inst, &STI, Unit, (Inst.getFlags() & IA64II::StopAfter) != 0});
+      {Inst, &STI, Units, (Inst.getFlags() & IA64II::StopAfter) != 0});
 }
 
-size_t IA64ELFStreamer::emitBundle(ArrayRef<PendingInst> Insts) {
+size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   constexpr unsigned MSemiMI = 5, MISemiI = 1;
   constexpr uint64_t Nop = 0x8000000, NopB = uint64_t(2) << 37;
 
@@ -239,7 +241,7 @@ size_t IA64ELFStreamer::emitBundle(ArrayRef<PendingInst> Insts) {
     const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
     if (!T.Name || T.MidStop != -1)
       continue;
-    unsigned N = countPlaced(T, Insts.take_front(3));
+    unsigned N = countPlaced<PendingInst>(T, Insts.take_front(3));
     if (N > Best) {
       Best = N;
       Index = I;
@@ -258,14 +260,23 @@ size_t IA64ELFStreamer::emitBundle(ArrayRef<PendingInst> Insts) {
   size_t Taken = 0;
   bool EndStop = false;
   for (unsigned Slot = 0; Slot != 3 && Taken != Insts.size(); ++Slot) {
-    const PendingInst &PI = Insts[Taken];
-    if (!slotTakes(IA64II::BundleTemplates[Index].Slots[Slot], PI.Unit))
+    PendingInst &PI = Insts[Taken];
+    IA64II::Unit Unit = IA64II::BundleTemplates[Index].Slots[Slot];
+    if (!slotTakes(Unit, PI.Units))
       continue;
 
+    // The slot determines the real instruction for a pseudo-op such as "nop".
+    MCInst Inst = PI.Inst;
+    Inst.setOpcode(IA64::getOpcodeForUnit(Inst.getOpcode(), Unit));
+    if (Inst.getOpcode() == 0) {
+      assert(Unit == IA64II::UnitB && Taken != 0 && "no form for the slot");
+      if (PI.Inst.getOpcode() == IA64::HINT)
+        PI.Units = 1u << IA64II::UnitI;
+      break;
+    }
     size_t FirstFixup = Fixups.size();
     Code.clear();
-    getAssembler().getEmitter().encodeInstruction(PI.Inst, Code, Fixups,
-                                                  *PI.STI);
+    getAssembler().getEmitter().encodeInstruction(Inst, Code, Fixups, *PI.STI);
     // A fixup encodes the slot in the low bits of its offset; for an X-unit
     // instruction that is the L slot.
     for (MCFixup &Fixup : MutableArrayRef(Fixups).drop_front(FirstFixup))
@@ -323,7 +334,7 @@ void IA64ELFStreamer::flush(bool Stop) {
   if (Stop)
     Pending.back().Stop = true;
   getCurrentSectionOnly()->ensureMinAlignment(Align(IA64II::BundleBytes));
-  ArrayRef<PendingInst> Insts = Pending;
+  MutableArrayRef<PendingInst> Insts = Pending;
   while (!Insts.empty())
     Insts = Insts.drop_front(emitBundle(Insts));
   Pending.clear();

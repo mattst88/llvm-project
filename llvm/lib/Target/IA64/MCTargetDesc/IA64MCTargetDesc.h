@@ -13,6 +13,7 @@
 #ifndef LLVM_LIB_TARGET_IA64_MCTARGETDESC_IA64MCTARGETDESC_H
 #define LLVM_LIB_TARGET_IA64_MCTARGETDESC_IA64MCTARGETDESC_H
 
+#include "IA64BaseInfo.h"
 #include "llvm/Support/DataTypes.h"
 #include <memory>
 
@@ -20,6 +21,7 @@ namespace llvm {
 class MCAsmBackend;
 class MCCodeEmitter;
 class MCContext;
+class MCInst;
 class MCInstrInfo;
 class MCObjectTargetWriter;
 class MCRegisterInfo;
@@ -37,6 +39,21 @@ std::unique_ptr<MCObjectTargetWriter> createIA64ELFObjectWriter(uint8_t OSABI);
 namespace IA64 {
 /// The bytes the code emitter writes for one 41-bit instruction slot.
 constexpr unsigned SlotBytes = 6;
+
+/// The slot kinds that can hold \p MI, one bit per IA64II::Unit. Most
+/// instructions have one, or two for an A-unit instruction, but a pseudo-op
+/// such as "nop" takes the unit of the slot it lands in.
+unsigned getSlotUnits(const MCInst &MI, const MCInstrInfo &MCII,
+                      const MCRegisterInfo &MRI);
+
+/// The instruction that the pseudo-op \p Opcode is in a slot of unit
+/// \p Unit, or 0 if it has none. Any other opcode is returned as it is.
+unsigned getOpcodeForUnit(unsigned Opcode, IA64II::Unit Unit);
+
+/// The default form of pseudo-op \p MI: the one for the first unit that can
+/// execute it, M before I.
+unsigned getDefaultOpcode(const MCInst &MI, const MCInstrInfo &MCII,
+                          const MCRegisterInfo &MRI);
 } // end namespace IA64
 } // end namespace llvm
 
