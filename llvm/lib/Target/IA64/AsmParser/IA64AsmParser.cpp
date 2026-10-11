@@ -73,6 +73,13 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool parseDataValues(unsigned Size, bool Aligned);
   bool parseDataStrings(bool ZeroTerminated);
 
+  /// Annotation directives, which tell a dependency violation checker what
+  /// it cannot infer. NoMatch if \p Name is not one.
+  ParseStatus parseAnnotationDirective(StringRef Name);
+  /// A list of predicate registers and of ranges of them: "p1-p5, p16".
+  /// \p Count is the number of registers.
+  bool parsePredicateList(unsigned &Count);
+
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
   /// The operand of a floating-point instruction that names no status field.
@@ -854,7 +861,124 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
       return ParseStatus::Success;
     }
 
+  ParseStatus Status = parseAnnotationDirective(Name);
+  if (!Status.isNoMatch())
+    return Status;
   return parseDataDirective(Name);
+}
+
+bool IA64AsmParser::parsePredicateList(unsigned &Count) {
+  Count = 0;
+  auto ParsePredicate = [&](unsigned &Number) {
+    MCRegister Reg;
+    SMLoc S = getTok().getLoc(), E;
+    if (!tryParseRegister(Reg, S, E).isSuccess() ||
+        !getContext()
+             .getRegisterInfo()
+             ->getRegClass(IA64::PRRegClassID)
+             .contains(Reg))
+      return Error(S, "expected a predicate register");
+    Number = getContext().getRegisterInfo()->getEncodingValue(Reg);
+    return false;
+  };
+  do {
+    SMLoc Loc = getTok().getLoc();
+    unsigned First, Last;
+    if (ParsePredicate(First))
+      return true;
+    Last = First;
+    if (parseOptionalToken(AsmToken::Minus) && ParsePredicate(Last))
+      return true;
+    if (Last < First)
+      return Error(Loc, "range of registers is the wrong way around");
+    Count += Last - First + 1;
+  } while (parseOptionalToken(AsmToken::Comma));
+  return false;
+}
+
+ParseStatus IA64AsmParser::parseAnnotationDirective(StringRef Name) {
+  // The assembler does not check for dependency violations, so these are
+  // only syntax-checked and then discarded.
+  std::string Lower = Name.lower();
+  unsigned Count;
+
+  // Predicates preserved across calls.
+  if (Lower == ".pred.safe_across_calls")
+    return parsePredicateList(Count) || parseEOL();
+
+  // Predicate relations: mutex (at most one of the set is true), imply (the
+  // first true implies the second), or clear (forget prior relations).
+  StringRef Relation;
+  SMLoc Loc = getTok().getLoc();
+  if (Lower == ".pred.rel") {
+    // The relation is a string or an "@"-prefixed name.
+    std::string String;
+    if (getTok().is(AsmToken::String)) {
+      if (getParser().parseEscapedString(String))
+        return ParseStatus::Failure;
+    } else if (!parseOptionalToken(AsmToken::At) ||
+               getParser().parseIdentifier(Relation)) {
+      return Error(Loc, "expected a predicate relation");
+    } else {
+      String = Relation.str();
+    }
+    if (String != "mutex" && String != "imply" && String != "clear")
+      return Error(Loc, "unknown predicate relation");
+    if (getParser().parseComma())
+      return ParseStatus::Failure;
+    Lower += '.' + String;
+  }
+  if (Lower == ".pred.rel.mutex" || Lower == ".pred.rel.imply" ||
+      Lower == ".pred.rel.clear") {
+    Loc = getTok().getLoc();
+    if (parsePredicateList(Count))
+      return ParseStatus::Failure;
+    if (Lower == ".pred.rel.mutex" && Count < 2)
+      return Error(Loc, "expected at least two predicate registers");
+    if (Lower == ".pred.rel.imply" && Count != 2)
+      return Error(Loc, "expected two predicate registers");
+    return parseEOL();
+  }
+
+  // The address of a memory access as an offset and a base identifier.
+  if (Lower == ".mem.offset") {
+    int64_t Offset, Base;
+    return getParser().parseAbsoluteExpression(Offset) ||
+           getParser().parseComma() ||
+           getParser().parseAbsoluteExpression(Base) || parseEOL();
+  }
+
+  // The known value of a register.
+  if (Lower == ".reg.val") {
+    MCRegister Reg;
+    SMLoc S, E;
+    int64_t Value;
+    return parseRegister(Reg, S, E) || getParser().parseComma() ||
+           getParser().parseAbsoluteExpression(Value) || parseEOL();
+  }
+
+  // Labels at which code may be entered from elsewhere.
+  if (Lower == ".entry") {
+    if (getTok().is(AsmToken::EndOfStatement))
+      return parseEOL();
+    auto ParseOne = [&] {
+      SMLoc SymLoc = getTok().getLoc();
+      MCSymbol *Sym;
+      if (getParser().parseSymbol(Sym))
+        return Error(SymLoc, "expected a symbol");
+      return false;
+    };
+    return parseMany(ParseOne);
+  }
+
+  // Stops are only placed where the source has them, which is what
+  // ".explicit" requests and ".default" reverts to.
+  if (Lower == ".explicit" || Lower == ".default")
+    return parseEOL();
+  if (Lower == ".auto")
+    return Error(Loc, "the assembler does not place stops by itself");
+
+  return ParseStatus::NoMatch;
 }
 
 void IA64AsmParser::onEmptyStatement(const AsmToken &Terminator) {
