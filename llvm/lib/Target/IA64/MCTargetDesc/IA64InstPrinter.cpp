@@ -25,6 +25,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "asm-printer"
 
+#define PRINT_ALIAS_INSTR
 #include "IA64GenAsmWriter.inc"
 
 void IA64InstPrinter::printInst(const MCInst *MI, uint64_t Address,
@@ -37,10 +38,11 @@ void IA64InstPrinter::printInst(const MCInst *MI, uint64_t Address,
   if (QP >= 0 && MI->getOperand(QP).getReg() != IA64::P0) {
     SmallString<64> Buf;
     raw_svector_ostream OS(Buf);
-    printInstruction(MI, Address, OS);
+    if (!printAliasInstr(MI, Address, OS))
+      printInstruction(MI, Address, OS);
     O << "\t(" << getRegisterName(MI->getOperand(QP).getReg()) << ") "
       << StringRef(Buf).ltrim('\t');
-  } else {
+  } else if (!printAliasInstr(MI, Address, O)) {
     printInstruction(MI, Address, O);
   }
   if (MI->getFlags() & IA64II::StopAfter)

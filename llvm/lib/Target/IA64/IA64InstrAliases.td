@@ -6,9 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// The pseudo-ops of the architecture manual: other spellings of instructions
-// that are defined elsewhere. Each one is a fixed rearrangement of operands,
-// so the assembler accepts them and the instruction printer does not use them.
+// The pseudo-ops from the architecture manual: alternate spellings of
+// instructions defined elsewhere. Each is a fixed operand rearrangement, so
+// the assembler accepts them. The instruction printer emits only the moves,
+// which are what a reader expects to see.
 //
 // Three kinds are not here. "br" and "brl" without a whether hint, and
 // shifts by an immediate, are rewritten by the assembly parser. Pseudo-ops
@@ -17,8 +18,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-class IA64Alias<string mnemonic, string operands, dag result>
-    : InstAlias<mnemonic#"${qp}\t"#operands, result, 0>;
+class IA64Alias<string mnemonic, string operands, dag result, int emit = 0>
+    : InstAlias<mnemonic#"${qp}\t"#operands, result, emit>;
 class IA64SFAlias<string mnemonic, string operands, dag result>
     : InstAlias<mnemonic#"${qp}${sf}\t"#operands, result, 0>;
 
@@ -26,10 +27,10 @@ class IA64SFAlias<string mnemonic, string operands, dag result>
 // Moves and additions
 //===----------------------------------------------------------------------===//
 
-def : IA64Alias<"mov", "$r1 = $r3", (ADDS GR:$r1, 0, GR:$r3, qp:$qp)>;
+def : IA64Alias<"mov", "$r1 = $r3", (ADDS GR:$r1, 0, GR:$r3, qp:$qp), 1>;
 def : IA64Alias<"mov", "$r1 = $imm",
-                (ADDL GR:$r1, simm22:$imm, R0, qp:$qp)>;
-def : IA64Alias<"mov", "$f1 = $f3", (FMERGE_S FR:$f1, FR:$f3, FR:$f3, qp:$qp)>;
+                (ADDL GR:$r1, simm22:$imm, R0, qp:$qp), 1>;
+def : IA64Alias<"mov", "$f1 = $f3", (FMERGE_S FR:$f1, FR:$f3, FR:$f3, qp:$qp), 1>;
 
 // "add" with an immediate is addl when the register allows it and adds
 // otherwise. The assembly parser picks between them when both fit.
@@ -39,7 +40,7 @@ def : IA64Alias<"add", "$r1 = $imm, $r3",
                 (ADDS GR:$r1, simm14:$imm, GR:$r3, qp:$qp)>;
 
 // A move to a BR may omit the branch target address hint.
-def : IA64Alias<"mov", "$b1 = $r2", (MOV_BR BR:$b1, GR:$r2, 0, qp:$qp)>;
+def : IA64Alias<"mov", "$b1 = $r2", (MOV_BR BR:$b1, GR:$r2, 0, qp:$qp), 1>;
 
 //===----------------------------------------------------------------------===//
 // Integer compare

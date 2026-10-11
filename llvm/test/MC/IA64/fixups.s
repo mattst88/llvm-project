@@ -39,7 +39,7 @@
 // CHECK-NEXT: a6: movl r4 = -128
 // CHECK-NEXT: b0: addl r4 = 128, r1 // [MII]
 // CHECK-NEXT: b6: adds r4 = 128, r5
-// CHECK-NEXT: bc: addl r4 = 128, r0 ;;
+// CHECK-NEXT: bc: mov r4 = 128 ;;
 
 // ENC:      br.call.sptk.many b0 = .Lb // encoding: [0x00,0bAAA10000,A,A,0b1010000A,0x00]
 // ENC-NEXT: // fixup A - offset: 0, value: .Lb, kind: fixup_ia64_pcrel21b
