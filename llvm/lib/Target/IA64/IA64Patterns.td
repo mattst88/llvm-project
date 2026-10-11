@@ -28,6 +28,14 @@ def imm8  : ImmLeaf<i64, [{ return isInt<8>(Imm); }]>;
 def imm14 : ImmLeaf<i64, [{ return isInt<14>(Imm); }]>;
 def imm22 : ImmLeaf<i64, [{ return isInt<22>(Imm); }]>;
 
+// A shift count, and 64 minus the count.
+def shamt : ImmLeaf<i64, [{ return isUInt<6>(Imm); }]>;
+def RestOf64 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(64 - N->getZExtValue(), SDLoc(N), MVT::i64);
+}]>;
+// The shladd shift count: 1 to 4.
+def shladdamt : ImmLeaf<i64, [{ return Imm >= 1 && Imm <= 4; }]>;
+
 //===----------------------------------------------------------------------===//
 // Returns
 //===----------------------------------------------------------------------===//
@@ -63,6 +71,29 @@ def : Pat<(and GR:$r3, imm8:$imm), (ANDi imm8:$imm, GR:$r3)>;
 def : Pat<(or GR:$r3, imm8:$imm), (ORi imm8:$imm, GR:$r3)>;
 def : Pat<(xor GR:$r3, imm8:$imm), (XORi imm8:$imm, GR:$r3)>;
 def : Pat<(and (not GR:$r3), imm8:$imm), (ANDCMi imm8:$imm, GR:$r3)>;
+
+//===----------------------------------------------------------------------===//
+// Shifts
+//===----------------------------------------------------------------------===//
+
+// A register count above 63 shifts everything out, which is stronger than
+// what ISD requires.
+def : Pat<(shl GR:$r2, GR:$r3), (SHL GR:$r2, GR:$r3)>;
+def : Pat<(srl GR:$r3, GR:$r2), (SHR_U GR:$r3, GR:$r2)>;
+def : Pat<(sra GR:$r3, GR:$r2), (SHR GR:$r3, GR:$r2)>;
+
+// Constant shifts: shl is dep.z of the surviving bits at the count, and
+// shifts right are extr/extr.u from the count.
+def : Pat<(shl GR:$r2, shamt:$count),
+          (DEP_Z GR:$r2, shamt:$count, (RestOf64 shamt:$count))>;
+def : Pat<(srl GR:$r3, shamt:$count),
+          (EXTR_U GR:$r3, shamt:$count, (RestOf64 shamt:$count))>;
+def : Pat<(sra GR:$r3, shamt:$count),
+          (EXTR GR:$r3, shamt:$count, (RestOf64 shamt:$count))>;
+
+// shladd folds a left shift of 1 to 4 into an add, for scaled indexing.
+def : Pat<(add (shl GR:$r2, shladdamt:$count), GR:$r3),
+          (SHLADD GR:$r2, shladdamt:$count, GR:$r3)>;
 
 //===----------------------------------------------------------------------===//
 // Constants
