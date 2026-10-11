@@ -176,6 +176,20 @@ def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
                         (ins FR:$a, FR:$b), "#FDIV_D", []>;
 }
 
+// Spills and reloads stay single pseudos until frame layout, so nothing can be
+// scheduled between the address computation and the access. The address is
+// computed in r2, or for a GR reload in the destination register. r2 is
+// reserved for this and is not marked as defined, since a reload whose result
+// is unused must look dead to be deleted.
+let mayStore = 1 in {
+def SPILL_GR : IA64Pseudo<(outs), (ins GR:$src, i64imm:$fi), "#SPILL_GR", []>;
+def SPILL_FR : IA64Pseudo<(outs), (ins FR:$src, i64imm:$fi), "#SPILL_FR", []>;
+}
+let mayLoad = 1 in {
+def RELOAD_GR : IA64Pseudo<(outs GR:$dst), (ins i64imm:$fi), "#RELOAD_GR", []>;
+def RELOAD_FR : IA64Pseudo<(outs FR:$dst), (ins i64imm:$fi), "#RELOAD_FR", []>;
+}
+
 let Uses = [R12] in
 def ADJDYNALLOC : IA64Pseudo<(outs GR:$r1), (ins), "#ADJDYNALLOC", []>;
 

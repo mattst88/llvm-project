@@ -1,0 +1,70 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=prolog-epilog \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# A register is spilled and reloaded by one instruction each, which become the
+# add that forms the address and the store or the load only when the frame is
+# laid out. A register allocator that spills what a reload defines stores it
+# after the instruction that defines it, and were the add that instruction,
+# the store would put the address of the slot in the slot.
+#
+# The address is in r2, or in the general register that is being loaded.
+
+# CHECK-LABEL: near:
+# CHECK:         adds r12 = -16, r12 ;;
+# CHECK-NEXT:    .body
+# CHECK-NEXT:    adds r2 = 24, r12 ;;
+# CHECK-NEXT:    st8 [r2] = r32
+# CHECK-NEXT:    mov r2 = r12 ;;
+# CHECK-NEXT:    stf.spill [r2] = f8
+# CHECK-NEXT:    adds r8 = 24, r12 ;;
+# CHECK-NEXT:    ld8 r8 = [r8]
+# CHECK-NEXT:    mov r2 = r12 ;;
+# CHECK-NEXT:    ldf.fill f9 = [r2]
+
+---
+name: near
+tracksRegLiveness: true
+liveins:
+  - { reg: '$r32' }
+  - { reg: '$f8' }
+stack:
+  - { id: 0, size: 8, alignment: 8 }
+  - { id: 1, size: 16, alignment: 16 }
+body: |
+  bb.0:
+    liveins: $r32, $f8
+
+    SPILL_GR killed $r32, %stack.0
+    SPILL_FR killed $f8, %stack.1
+    $r8 = RELOAD_GR %stack.0
+    $f9 = RELOAD_FR %stack.1
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $f9
+...
+
+# The add reaches thirteen bits either way, and further than that the register
+# that is to hold the address holds the offset first.
+
+# CHECK-LABEL: far:
+# CHECK:         mov r2 = 16392 ;;
+# CHECK-NEXT:    add r2 = r2, r12 ;;
+# CHECK-NEXT:    st8 [r2] = r32
+# CHECK-NEXT:    mov r8 = 16392 ;;
+# CHECK-NEXT:    add r8 = r8, r12 ;;
+# CHECK-NEXT:    ld8 r8 = [r8]
+
+---
+name: far
+tracksRegLiveness: true
+liveins:
+  - { reg: '$r32' }
+stack:
+  - { id: 0, size: 8, alignment: 8 }
+  - { id: 1, size: 16384, alignment: 16 }
+body: |
+  bb.0:
+    liveins: $r32
+
+    SPILL_GR killed $r32, %stack.0
+    $r8 = RELOAD_GR %stack.0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

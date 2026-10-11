@@ -90,6 +90,11 @@ public:
       unsigned SubReg = 0,
       MachineInstr::MIFlag Flags = MachineInstr::NoFlags) const override;
 
+  Register isLoadFromStackSlot(const MachineInstr &MI,
+                               int &FrameIndex) const override;
+  Register isStoreToStackSlot(const MachineInstr &MI,
+                              int &FrameIndex) const override;
+
   // Put a constant in a register with the shortest instruction that can.
   void loadImmediate(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                      const DebugLoc &DL, Register Reg, int64_t Imm,

@@ -62,31 +62,24 @@ void IA64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   report_fatal_error("IA64 cannot copy between these registers yet");
 }
 
-// A value goes to the frame and comes back through r2, which is reserved to
-// hold the address. A general register that is being loaded can hold its own
-// address first, which keeps reloads independent of one another.
+// Spills and reloads are single pseudos, expanded into the address add and
+// the store or load once the frame is laid out. If they were two
+// instructions from the start, a register allocator spilling the result of a
+// reload could put its store between them.
 void IA64InstrInfo::storeRegToStackSlot(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI, Register SrcReg,
     bool IsKill, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
     MachineInstr::MIFlag Flags) const {
-  DebugLoc DL;
   unsigned Opc;
   if (IA64::GRRegClass.hasSubClassEq(RC))
-    Opc = IA64::ST8;
+    Opc = IA64::SPILL_GR;
   else if (IA64::FRRegClass.hasSubClassEq(RC))
-    Opc = IA64::STF_SPILL;
+    Opc = IA64::SPILL_FR;
   else
     report_fatal_error("IA64 cannot spill a register of this class yet");
-  BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R2)
-      .addImm(0)
-      .addFrameIndex(FrameIndex)
-      .addReg(IA64::P0)
-      .setMIFlag(Flags);
-  BuildMI(MBB, MI, DL, get(Opc))
-      .addReg(IA64::R2, RegState::Kill)
+  BuildMI(MBB, MI, DebugLoc(), get(Opc))
       .addReg(SrcReg, getKillRegState(IsKill))
-      .addImm(0)
-      .addReg(IA64::P0)
+      .addFrameIndex(FrameIndex)
       .setMIFlag(Flags);
 }
 
@@ -96,27 +89,40 @@ void IA64InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                          const TargetRegisterClass *RC,
                                          Register VReg, unsigned SubReg,
                                          MachineInstr::MIFlag Flags) const {
-  DebugLoc DL;
   unsigned Opc;
-  Register Addr = DestReg;
-  if (IA64::GRRegClass.hasSubClassEq(RC)) {
-    Opc = IA64::LD8;
-  } else if (IA64::FRRegClass.hasSubClassEq(RC)) {
-    Opc = IA64::LDF_FILL;
-    Addr = IA64::R2;
-  } else {
+  if (IA64::GRRegClass.hasSubClassEq(RC))
+    Opc = IA64::RELOAD_GR;
+  else if (IA64::FRRegClass.hasSubClassEq(RC))
+    Opc = IA64::RELOAD_FR;
+  else
     report_fatal_error("IA64 cannot reload a register of this class yet");
-  }
-  BuildMI(MBB, MI, DL, get(IA64::ADDS), Addr)
-      .addImm(0)
+  BuildMI(MBB, MI, DebugLoc(), get(Opc), DestReg)
       .addFrameIndex(FrameIndex)
-      .addReg(IA64::P0)
       .setMIFlag(Flags);
-  BuildMI(MBB, MI, DL, get(Opc), DestReg)
-      .addReg(Addr, RegState::Kill)
-      .addImm(0)
-      .addReg(IA64::P0)
-      .setMIFlag(Flags);
+}
+
+Register IA64InstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
+                                            int &FrameIndex) const {
+  switch (MI.getOpcode()) {
+  case IA64::RELOAD_GR:
+  case IA64::RELOAD_FR:
+    FrameIndex = MI.getOperand(1).getIndex();
+    return MI.getOperand(0).getReg();
+  default:
+    return Register();
+  }
+}
+
+Register IA64InstrInfo::isStoreToStackSlot(const MachineInstr &MI,
+                                           int &FrameIndex) const {
+  switch (MI.getOpcode()) {
+  case IA64::SPILL_GR:
+  case IA64::SPILL_FR:
+    FrameIndex = MI.getOperand(1).getIndex();
+    return MI.getOperand(0).getReg();
+  default:
+    return Register();
+  }
 }
 
 void IA64InstrInfo::loadImmediate(MachineBasicBlock &MBB,

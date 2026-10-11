@@ -73,37 +73,82 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                            int SPAdj, unsigned FIOperandNum,
                                            RegScavenger *RS) const {
-  // The only instruction with a frame index is the add that forms the
-  // address of the object.
   MachineInstr &MI = *II;
-  assert(MI.getOpcode() == IA64::ADDS && "a frame index outside an add");
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
   const IA64InstrInfo &TII =
       *static_cast<const IA64InstrInfo *>(MF.getSubtarget().getInstrInfo());
   const TargetFrameLowering &TFL = *MF.getSubtarget().getFrameLowering();
+  const DebugLoc &DL = MI.getDebugLoc();
+  MachineInstr::MIFlag Flags =
+      MI.getFlag(MachineInstr::FrameSetup)     ? MachineInstr::FrameSetup
+      : MI.getFlag(MachineInstr::FrameDestroy) ? MachineInstr::FrameDestroy
+                                               : MachineInstr::NoFlags;
 
   Register FrameReg;
   int64_t Offset = TFL.getFrameIndexReference(
                           MF, MI.getOperand(FIOperandNum).getIndex(), FrameReg)
-                       .getFixed() +
-                   MI.getOperand(1).getImm();
+                       .getFixed();
 
-  if (isInt<14>(Offset)) {
-    MI.getOperand(1).setImm(Offset);
-    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, /*isDef=*/false);
-    return false;
+  // Form the address in Reg, materializing the offset there first if it is
+  // out of range for adds.
+  auto FormAddress = [&](Register Reg) {
+    if (isInt<14>(Offset)) {
+      BuildMI(MBB, II, DL, TII.get(IA64::ADDS), Reg)
+          .addImm(Offset)
+          .addReg(FrameReg)
+          .addReg(IA64::P0)
+          .setMIFlag(Flags);
+      return;
+    }
+    TII.loadImmediate(MBB, II, DL, Reg, Offset, Flags);
+    BuildMI(MBB, II, DL, TII.get(IA64::ADD), Reg)
+        .addReg(Reg, RegState::Kill)
+        .addReg(FrameReg)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+  };
+
+  switch (MI.getOpcode()) {
+  default:
+    llvm_unreachable("a frame index in an instruction that takes none");
+  case IA64::ADDS:
+    Offset += MI.getOperand(1).getImm();
+    if (isInt<14>(Offset)) {
+      MI.getOperand(1).setImm(Offset);
+      MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, /*isDef=*/false);
+      return false;
+    }
+    FormAddress(MI.getOperand(0).getReg());
+    break;
+  case IA64::SPILL_GR:
+  case IA64::SPILL_FR:
+    FormAddress(IA64::R2);
+    BuildMI(
+        MBB, II, DL,
+        TII.get(MI.getOpcode() == IA64::SPILL_GR ? IA64::ST8 : IA64::STF_SPILL))
+        .addReg(IA64::R2, RegState::Kill)
+        .add(MI.getOperand(0))
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+    break;
+  case IA64::RELOAD_GR:
+  case IA64::RELOAD_FR: {
+    // A GR being reloaded holds its own address first, which keeps reloads
+    // independent of each other.
+    bool IsGR = MI.getOpcode() == IA64::RELOAD_GR;
+    Register Reg = MI.getOperand(0).getReg();
+    Register Addr = IsGR ? Reg : Register(IA64::R2);
+    FormAddress(Addr);
+    BuildMI(MBB, II, DL, TII.get(IsGR ? IA64::LD8 : IA64::LDF_FILL), Reg)
+        .addReg(Addr, RegState::Kill)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+    break;
   }
-
-  // Too far for the add: the register that is to hold the address holds the
-  // offset first.
-  Register Reg = MI.getOperand(0).getReg();
-  const DebugLoc &DL = MI.getDebugLoc();
-  TII.loadImmediate(MBB, II, DL, Reg, Offset);
-  BuildMI(MBB, II, DL, TII.get(IA64::ADD), Reg)
-      .addReg(Reg, RegState::Kill)
-      .addReg(FrameReg)
-      .addReg(IA64::P0);
+  }
   MI.eraseFromParent();
   return true;
 }
