@@ -3280,6 +3280,17 @@ as `-mlong-calls` and `-mno-long-calls`.
   }];
 }
 
+def IA64SyscallLinkageDocs : Documentation {
+  let Category = DocCatFunction;
+  let Heading = "syscall_linkage";
+  let Content = [{
+Clang supports the GNU style ``__attribute__((syscall_linkage))`` attribute on
+IA-64 targets. The kernel may restart a system call from the arguments that are
+still in its input registers, so a function with this attribute has all eight
+input registers in its register stack frame and does not modify any of them.
+  }];
+}
+
 def RISCVInterruptDocs : Documentation {
   let Category = DocCatFunction;
   let Heading = "interrupt (RISC-V)";

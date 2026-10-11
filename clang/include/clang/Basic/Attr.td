@@ -481,6 +481,7 @@ def TargetAMDGPU : TargetArch<["amdgpu", "r600"]>;
 def TargetAnyArm : TargetArch<!listconcat(TargetARM.Arches, TargetAArch64.Arches)>;
 def TargetAVR : TargetArch<["avr"]>;
 def TargetBPF : TargetArch<["bpfel", "bpfeb"]>;
+def TargetIA64 : TargetArch<["ia64"]>;
 def TargetLoongArch : TargetArch<["loongarch32", "loongarch64"]>;
 def TargetMips32 : TargetArch<["mips", "mipsel"]>;
 def TargetAnyMips : TargetArch<["mips", "mipsel", "mips64", "mips64el"]>;
@@ -2299,6 +2300,13 @@ def MipsShortCall : InheritableAttr, TargetSpecificAttr<TargetAnyMips> {
   let SimpleHandler = 1;
 }
 def : MutualExclusions<[MipsLongCall, MipsShortCall]>;
+
+def IA64SyscallLinkage : InheritableAttr, TargetSpecificAttr<TargetIA64> {
+  let Spellings = [GCC<"syscall_linkage">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [IA64SyscallLinkageDocs];
+  let SimpleHandler = 1;
+}
 
 def M68kInterrupt : InheritableAttr, TargetSpecificAttr<TargetM68k> {
   // NOTE: If you add any additional spellings, ARMInterrupt's, MipsInterrupt's

@@ -74,6 +74,15 @@ public:
                              const FunctionNoProtoType *FnType) const override {
     return true;
   }
+
+  void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
+                           CodeGen::CodeGenModule &CGM) const override {
+    const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
+    if (!FD)
+      return;
+    if (FD->hasAttr<IA64SyscallLinkageAttr>())
+      cast<llvm::Function>(GV)->addFnAttr("syscall-linkage");
+  }
 };
 } // end anonymous namespace
 
