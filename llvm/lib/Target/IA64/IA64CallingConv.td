@@ -14,6 +14,7 @@
 // callee sees as its first input registers.
 def CC_IA64 : CallingConv<[
   // Homogeneous floating-point aggregates (HFAs).
+  CCIfByVal<CCCustom<"CC_IA64_ByVal">>,
   CCIfConsecutiveRegs<CCCustom<"CC_IA64_HFA">>,
 
   // An unnamed (varargs) FP argument is passed as its bits in the GR slot,

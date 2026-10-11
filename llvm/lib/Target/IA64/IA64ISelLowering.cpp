@@ -34,17 +34,47 @@ static const MCPhysReg Slots[] = {IA64::R32, IA64::R33, IA64::R34, IA64::R35,
 // whose first slot is 16-byte aligned. Skip the next slot if it is odd, so a
 // 16-byte-aligned argument starts at an even slot. The argument itself is
 // not allocated here.
-static bool CC_IA64_SkipOddSlot(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
-                                CCValAssign::LocInfo &LocInfo,
-                                ISD::ArgFlagsTy &ArgFlags, CCState &State) {
-  if (ArgFlags.getNonZeroOrigAlign() < Align(16))
-    return false;
+static void skipOddSlot(CCState &State) {
   unsigned Slot = State.getFirstUnallocated(Slots);
   if (Slot == std::size(Slots))
     Slot += State.getStackSize() / 8;
   if (Slot % 2 != 0 && !State.AllocateReg(Slots))
     State.AllocateStack(8, Align(8));
+}
+
+static bool CC_IA64_SkipOddSlot(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                                CCValAssign::LocInfo &LocInfo,
+                                ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  if (ArgFlags.getNonZeroOrigAlign() >= Align(16))
+    skipOddSlot(State);
   return false;
+}
+
+// By-value aggregates occupy as many 8-byte slots as their size requires: a
+// register for each slot while argument registers remain, the stack for the
+// rest.
+static bool CC_IA64_ByVal(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                          CCValAssign::LocInfo &LocInfo,
+                          ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  if (ArgFlags.getNonZeroByValAlign() >= Align(16))
+    skipOddSlot(State);
+  unsigned NumSlots = alignTo(ArgFlags.getByValSize(), 8) / 8;
+  bool InMemory = NumSlots == 0;
+  for (; NumSlots != 0; --NumSlots) {
+    MCRegister Reg = State.AllocateReg(Slots);
+    if (!Reg) {
+      InMemory = true;
+      break;
+    }
+    State.addLoc(
+        CCValAssign::getCustomReg(ValNo, ValVT, Reg, MVT::i64, LocInfo));
+  }
+  // Zero-sized aggregates take no slot and sit where the next argument goes.
+  if (InMemory)
+    State.addLoc(CCValAssign::getCustomMem(
+        ValNo, ValVT, State.AllocateStack(NumSlots * 8, Align(8)), MVT::i64,
+        LocInfo));
+  return true;
 }
 
 // The C++ ABI passes the address of a non-trivially-copyable return value as
@@ -645,6 +675,46 @@ SDValue IA64TargetLowering::LowerFormalArguments(
   MachineFrameInfo &MFI = MF.getFrameInfo();
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
+    ISD::ArgFlagsTy Flags = Ins[VA.getValNo()].Flags;
+    if (Flags.isByVal()) {
+      // The function gets the argument's address, so the bytes must be
+      // contiguous. Bytes passed in registers are stored just below the
+      // stack-passed part, which starts at the caller's frame, or to a local
+      // stack object if there is no stack-passed part.
+      unsigned NumRegs = 0;
+      while (I + NumRegs != E && ArgLocs[I + NumRegs].isRegLoc() &&
+             ArgLocs[I + NumRegs].getValNo() == VA.getValNo())
+        ++NumRegs;
+      bool HasMem =
+          I + NumRegs != E && ArgLocs[I + NumRegs].getValNo() == VA.getValNo();
+      // The function accesses it through the address, so the object is not
+      // immutable.
+      unsigned Size = std::max(Flags.getByValSize(), 1u);
+      int FI;
+      if (NumRegs == 0)
+        FI = MFI.CreateFixedObject(Size, VA.getLocMemOffset(), false, true);
+      else if (HasMem)
+        FI = MFI.CreateFixedObject(Size, -8 * int64_t(NumRegs), false, true);
+      else
+        FI = MFI.CreateStackObject(
+            alignTo(Size, 8), std::max(Flags.getNonZeroByValAlign(), Align(8)),
+            false);
+      SDValue Addr = DAG.getFrameIndex(FI, MVT::i64);
+      SmallVector<SDValue, 8> Stores;
+      for (unsigned Slot = 0; Slot != NumRegs; ++Slot) {
+        Register VReg =
+            MF.addLiveIn(ArgLocs[I + Slot].getLocReg(), &IA64::GRRegClass);
+        Stores.push_back(DAG.getStore(
+            Chain, DL, DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64),
+            DAG.getMemBasePlusOffset(Addr, TypeSize::getFixed(8 * Slot), DL),
+            MachinePointerInfo::getFixedStack(MF, FI, 8 * Slot)));
+      }
+      if (!Stores.empty())
+        Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
+      InVals.push_back(Addr);
+      I += NumRegs + HasMem - 1;
+      continue;
+    }
     if (VA.needsCustom()) {
       // A varargs function reads a named argument from the FP register and
       // ignores the copy in the slot.
@@ -791,21 +861,65 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
     SDValue Val = CLI.OutVals[VA.getValNo()];
-    // The callee may write to an argument that is passed by value, so what it
-    // is given the address of is a copy.
+    // A by-value aggregate is loaded slot by slot into registers, and the
+    // stack-passed part is copied with memcpy. This happens before
+    // CALLSEQ_START, since the memcpy may itself be a call, and SP does not
+    // move in between.
     ISD::ArgFlagsTy Flags = CLI.Outs[VA.getValNo()].Flags;
     if (Flags.isByVal()) {
-      Align Alignment = std::max(Flags.getNonZeroByValAlign(), Align(8));
-      int FI = MF.getFrameInfo().CreateStackObject(Flags.getByValSize(),
-                                                   Alignment, false);
-      SDValue Copy = DAG.getFrameIndex(FI, MVT::i64);
-      Chain = DAG.getMemcpy(
-          Chain, DL, Copy, Val,
-          DAG.getConstant(Flags.getByValSize(), DL, MVT::i64), Alignment,
-          Flags.getNonZeroByValAlign(), /*isVol=*/false,
-          /*AlwaysInline=*/false, /*CI=*/nullptr, std::nullopt,
-          MachinePointerInfo::getFixedStack(MF, FI), MachinePointerInfo());
-      Val = Copy;
+      unsigned Size = Flags.getByValSize();
+      Align Alignment = Flags.getNonZeroByValAlign();
+      SmallVector<SDValue, 8> Chains;
+      unsigned Offset = 0;
+      for (; I != E && ArgLocs[I].getValNo() == VA.getValNo() &&
+             ArgLocs[I].isRegLoc();
+           ++I, Offset += 8) {
+        // The last slot may hold fewer than 8 bytes; do not read past the
+        // end of the argument.
+        SDValue Slot;
+        unsigned Bytes = std::min(Size - Offset, 8u);
+        for (unsigned Width : {8, 4, 2, 1}) {
+          if (Bytes < Width)
+            continue;
+          unsigned At = Offset + std::min(Size - Offset, 8u) - Bytes;
+          SDValue Piece = DAG.getExtLoad(
+              ISD::ZEXTLOAD, DL, MVT::i64, Chain,
+              DAG.getMemBasePlusOffset(Val, TypeSize::getFixed(At), DL),
+              MachinePointerInfo(), MVT::getIntegerVT(8 * Width),
+              commonAlignment(Alignment, At));
+          Chains.push_back(Piece.getValue(1));
+          if (At != Offset)
+            Piece =
+                DAG.getNode(ISD::SHL, DL, MVT::i64, Piece,
+                            DAG.getConstant(8 * (At - Offset), DL, MVT::i64));
+          Slot = Slot ? DAG.getNode(ISD::OR, DL, MVT::i64, Slot, Piece) : Piece;
+          Bytes -= Width;
+        }
+        OutVals.push_back(Slot);
+      }
+      if (!Chains.empty()) {
+        Chains.push_back(Chain);
+        Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Chains);
+      }
+      if (I != E && ArgLocs[I].getValNo() == VA.getValNo()) {
+        unsigned To =
+            IA64FrameLowering::ScratchAreaSize + ArgLocs[I].getLocMemOffset();
+        if (Size != Offset)
+          Chain = DAG.getMemcpy(
+              Chain, DL,
+              DAG.getMemBasePlusOffset(
+                  DAG.getCopyFromReg(Chain, DL, IA64::R12, MVT::i64),
+                  TypeSize::getFixed(To), DL),
+              DAG.getMemBasePlusOffset(Val, TypeSize::getFixed(Offset), DL),
+              DAG.getConstant(Size - Offset, DL, MVT::i64), Align(8),
+              commonAlignment(Alignment, Offset), /*isVol=*/false,
+              /*AlwaysInline=*/false, /*CI=*/nullptr, std::nullopt,
+              MachinePointerInfo::getStack(MF, To), MachinePointerInfo());
+        OutVals.push_back(SDValue());
+        ++I;
+      }
+      --I;
+      continue;
     }
     if (VA.needsCustom() && Val.getValueType() == MVT::f80) {
       SDValue Slot =
@@ -851,7 +965,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   SDValue StackPtr;
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
-    if (!VA.isMemLoc())
+    if (!VA.isMemLoc() || !OutVals[I])
       continue;
     if (!StackPtr)
       StackPtr = DAG.getCopyFromReg(Chain, DL, IA64::R12, MVT::i64);
