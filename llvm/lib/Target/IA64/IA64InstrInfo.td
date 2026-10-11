@@ -634,6 +634,11 @@ def MOV_FROM_PSR    : M36<0x25, "mov", "psr">;
 def MOV_FROM_PSR_UM : M36<0x21, "mov", "psr.um">;
 
 def BREAK_M : M37<0, "break.m">;
+
+// llvm.trap uses gcc's break immediate, which Linux reports as SIGILL;
+// llvm.debugtrap uses gdb's breakpoint immediate, reported as SIGTRAP.
+def : Pat<(trap), (BREAK_M 0)>;
+def : Pat<(debugtrap), (BREAK_M 0xccccc)>;
 def NOP_M   : M48<0, "nop.m">;
 def HINT_M  : M48Hint<"hint.m">;
 

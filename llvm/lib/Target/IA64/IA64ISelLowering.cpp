@@ -353,6 +353,8 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // Prefetch, trap and debugtrap are single instructions.
   setOperationAction(ISD::PREFETCH, MVT::Other, Legal);
+  setOperationAction(ISD::TRAP, MVT::Other, Legal);
+  setOperationAction(ISD::DEBUGTRAP, MVT::Other, Legal);
 
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i64, Custom);
