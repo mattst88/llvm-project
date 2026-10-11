@@ -1387,6 +1387,13 @@ IA64TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
             .Default(0);
   if (Reg)
     return {Reg, &IA64::ARRegClass};
+  // Predicate registers have no legal value type, which the generic lookup
+  // by name requires, so match them here.
+  StringRef Name = Constraint;
+  unsigned N;
+  if (Name.consume_front("{p") && Name.consume_back("}") &&
+      !Name.getAsInteger(10, N) && N < 64)
+    return {IA64::P0 + N, &IA64::PRRegClass};
   return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }
 

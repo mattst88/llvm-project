@@ -57,12 +57,15 @@ def RetCC_IA64 : CallingConv<[
 // those, each kind in register number order, ending where the frame begins.
 // The first register listed here gets the first slot, and slots are
 // allocated downwards.
+//
+// The branch registers, predicates and ar.lc get no stack slot: a function
+// that modifies one saves it in a local.
 def CSR_IA64 : CalleeSavedRegs<(add (sequence "F%u", 31, 16),
                                     (sequence "F%u", 5, 2),
                                     (sequence "B%u", 5, 1),
                                     (sequence "R%u", 7, 4),
                                     (sequence "P%u", 1, 5),
-                                    (sequence "P%u", 16, 63))>;
+                                    (sequence "P%u", 16, 63), AR65)>;
 
 // The caller's inputs and locals are not visible to the callee.
 def CSR_IA64_Call : CalleeSavedRegs<(add CSR_IA64,

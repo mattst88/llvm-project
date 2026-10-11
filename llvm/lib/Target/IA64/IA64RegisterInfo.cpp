@@ -72,8 +72,11 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
   // The last five locals are kept back so that the prologue always has
   // somewhere to save ar.pfs, the return link and ar.unat, and to keep the
-  // stack pointer as it was on entry and as the prologue left it.
-  for (unsigned Reg = IA64::R115; Reg <= IA64::R119; ++Reg)
+  // stack pointer as it was on entry and as the prologue left it. What the
+  // source wrote in assembly may change the predicates, the loop count and
+  // b1 to b5 as well, and then there are seven more to save.
+  unsigned FirstKept = MF.hasInlineAsm() ? IA64::R108 : IA64::R115;
+  for (unsigned Reg = FirstKept; Reg <= IA64::R119; ++Reg)
     Reserved.set(Reg);
 
   // The kernel may restart a syscall with the arguments left in its input

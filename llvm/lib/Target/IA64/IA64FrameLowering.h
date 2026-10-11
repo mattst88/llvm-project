@@ -36,6 +36,9 @@ public:
                               MutableArrayRef<CalleeSavedInfo> CSI,
                               const TargetRegisterInfo *TRI) const override;
 
+  void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
+                            RegScavenger *RS) const override;
+
   StackOffset getFrameIndexReference(const MachineFunction &MF, int FI,
                                      Register &FrameReg) const override;
 

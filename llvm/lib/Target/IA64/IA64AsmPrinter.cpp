@@ -442,11 +442,25 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
     if (MI.getOperand(1).getReg() == IA64::B0)
       TS.emitSave(IA64TargetStreamer::UR_RP,
                   MI.getOperand(0).getReg() - IA64::R0);
+    else
+      // .save.b with a GR also marks the BR as spilled in the memory spill
+      // order, and an unwinder that follows that order would find no memory
+      // slot for it. Use .spillreg instead.
+      TS.emitSpillReg(IA64TargetStreamer::SR_BR +
+                          (MI.getOperand(1).getReg() - IA64::B0),
+                      MI.getOperand(0).getReg());
     break;
   case IA64::MOV_FROM_AR:
     if (MI.getOperand(1).getReg() == IA64::AR36)
       TS.emitSave(IA64TargetStreamer::UR_UNAT,
                   MI.getOperand(0).getReg() - IA64::R0);
+    else if (MI.getOperand(1).getReg() == IA64::AR65)
+      TS.emitSave(IA64TargetStreamer::UR_LC,
+                  MI.getOperand(0).getReg() - IA64::R0);
+    break;
+  case IA64::MOV_FROM_PR:
+    TS.emitSave(IA64TargetStreamer::UR_PR,
+                MI.getOperand(0).getReg() - IA64::R0);
     break;
   // Callee-saved registers spilled to memory are at the location the
   // unwinder expects, so only the mask is recorded.

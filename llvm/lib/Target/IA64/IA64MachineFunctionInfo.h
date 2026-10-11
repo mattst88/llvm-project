@@ -27,6 +27,16 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   // register and so modifies it.
   Register SavedUNAT;
 
+  // Other caller state the function modifies and must restore: the
+  // predicates, ar.lc, and which of b1-b5. The prologue saves each in a
+  // local.
+  bool ChangesPR = false;
+  bool ChangesLC = false;
+  unsigned ChangedBRs = 0;
+  Register SavedPR;
+  Register SavedLC;
+  Register SavedBR[5];
+
   // The local holding the incoming stack pointer, if SP moves after the
   // prologue.
   Register FramePointer;
@@ -59,6 +69,18 @@ public:
   void setSavedRP(Register Reg) { SavedRP = Reg; }
   Register getSavedUNAT() const { return SavedUNAT; }
   void setSavedUNAT(Register Reg) { SavedUNAT = Reg; }
+  bool changesPR() const { return ChangesPR; }
+  void setChangesPR(bool Changes) { ChangesPR = Changes; }
+  bool changesLC() const { return ChangesLC; }
+  void setChangesLC(bool Changes) { ChangesLC = Changes; }
+  unsigned getChangedBRs() const { return ChangedBRs; }
+  void setChangedBRs(unsigned Mask) { ChangedBRs = Mask; }
+  Register getSavedPR() const { return SavedPR; }
+  void setSavedPR(Register Reg) { SavedPR = Reg; }
+  Register getSavedLC() const { return SavedLC; }
+  void setSavedLC(Register Reg) { SavedLC = Reg; }
+  Register getSavedBR(unsigned I) const { return SavedBR[I]; }
+  void setSavedBR(unsigned I, Register Reg) { SavedBR[I] = Reg; }
   Register getFramePointer() const { return FramePointer; }
   void setFramePointer(Register Reg) { FramePointer = Reg; }
   Register getBasePointer() const { return BasePointer; }

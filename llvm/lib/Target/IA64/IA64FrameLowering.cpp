@@ -18,6 +18,10 @@
 
 using namespace llvm;
 
+// mov pr mask selecting p1-p5, plus the single bit that covers the rotating
+// predicates p16-p63.
+static constexpr int64_t PreservedPredicates = 0x1003e;
+
 IA64FrameLowering::IA64FrameLowering(const IA64Subtarget &STI)
     : TargetFrameLowering(StackGrowsDown, Align(16), /*LocalAreaOffset=*/0,
                           Align(16)) {}
@@ -69,7 +73,9 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   // pointer copy of it if sp moves.
   bool Realign = TRI.hasStackRealignment(MF);
   bool NeedsBP = Realign && MF.getFrameInfo().hasVarSizedObjects();
-  if (Locals != Inputs || Outputs != 0 || RestorePFS || SaveUNAT || hasFP(MF)) {
+  bool SaveOthers = FI->changesPR() || FI->changesLC() || FI->getChangedBRs();
+  if (Locals != Inputs || Outputs != 0 || RestorePFS || SaveUNAT ||
+      SaveOthers || hasFP(MF)) {
     Register SavedPFS = IA64::R32 + Locals++;
     FI->setSavedPFS(SavedPFS);
     FI->setRestoresPFS(RestorePFS);
@@ -81,6 +87,13 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
       FI->setFramePointer(IA64::R32 + Locals++);
     if (NeedsBP)
       FI->setBasePointer(IA64::R32 + Locals++);
+    if (FI->changesPR())
+      FI->setSavedPR(IA64::R32 + Locals++);
+    if (FI->changesLC())
+      FI->setSavedLC(IA64::R32 + Locals++);
+    for (unsigned I = 0; I != 5; ++I)
+      if (FI->getChangedBRs() & (1u << I))
+        FI->setSavedBR(I, IA64::R32 + Locals++);
     BuildMI(MBB, MBBI, DL, TII.get(IA64::ALLOC), SavedPFS)
         .addImm(Inputs)
         .addImm(Locals - Inputs)
@@ -101,6 +114,25 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
           .addReg(IA64::AR36)
           .addReg(IA64::P0)
           .setMIFlag(MachineInstr::FrameSetup);
+    if (FI->getSavedPR())
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_PR), FI->getSavedPR())
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameSetup);
+    if (FI->getSavedLC())
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_AR), FI->getSavedLC())
+          .addReg(IA64::AR65)
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameSetup);
+    for (unsigned I = 0; I != 5; ++I) {
+      if (!FI->getSavedBR(I))
+        continue;
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_BR), FI->getSavedBR(I))
+          .addReg(IA64::B1 + I)
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameSetup);
+      if (!MBB.isLiveIn(IA64::B1 + I))
+        MBB.addLiveIn(IA64::B1 + I);
+    }
     // If sp moves in the body, the frame is located from the incoming sp.
     if (FI->getFramePointer())
       BuildMI(MBB, MBBI, DL, TII.get(IA64::ADDS), FI->getFramePointer())
@@ -119,6 +151,13 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
         Other.addLiveIn(FI->getFramePointer());
       if (NeedsBP)
         Other.addLiveIn(FI->getBasePointer());
+      if (FI->getSavedPR())
+        Other.addLiveIn(FI->getSavedPR());
+      if (FI->getSavedLC())
+        Other.addLiveIn(FI->getSavedLC());
+      for (unsigned I = 0; I != 5; ++I)
+        if (FI->getSavedBR(I))
+          Other.addLiveIn(FI->getSavedBR(I));
     }
   }
 
@@ -186,6 +225,30 @@ void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
     adjustStackPointer(MBB, MBBI, DL, MF.getFrameInfo().getStackSize(),
                        MachineInstr::FrameDestroy);
 
+  // Restore only the callee-saved predicates: the others may hold values
+  // that later instructions depend on.
+  if (FI->getSavedPR()) {
+    MachineInstrBuilder MIB = BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_PR))
+                                  .addReg(FI->getSavedPR(), RegState::Kill)
+                                  .addImm(PreservedPredicates)
+                                  .addReg(IA64::P0)
+                                  .setMIFlag(MachineInstr::FrameDestroy);
+    for (unsigned I = 1; I != 64; ++I)
+      if (I <= 5 || I >= 16)
+        MIB.addReg(IA64::P0 + I, RegState::ImplicitDefine);
+  }
+  if (FI->getSavedLC())
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR), IA64::AR65)
+        .addReg(FI->getSavedLC(), RegState::Kill)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
+  for (unsigned I = 0; I != 5; ++I)
+    if (FI->getSavedBR(I))
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B1 + I)
+          .addReg(FI->getSavedBR(I), RegState::Kill)
+          .addImm(0)
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameDestroy);
   if (FI->getSavedRP())
     BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B0)
         .addReg(FI->getSavedRP(), RegState::Kill)
@@ -224,6 +287,30 @@ void IA64FrameLowering::adjustStackPointer(MachineBasicBlock &MBB,
       .addReg(IA64::R12)
       .addReg(IA64::P0)
       .setMIFlag(Flag);
+}
+
+// The branch registers, predicates and ar.lc are saved by the prologue in
+// locals, like b0, so none of them gets a stack slot.
+void IA64FrameLowering::determineCalleeSaves(MachineFunction &MF,
+                                             BitVector &SavedRegs,
+                                             RegScavenger *RS) const {
+  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
+  auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  unsigned BRs = 0;
+  for (unsigned I = 0; I != 5; ++I) {
+    if (SavedRegs.test(IA64::B1 + I))
+      BRs |= 1u << I;
+    SavedRegs.reset(IA64::B1 + I);
+  }
+  FI->setChangedBRs(BRs);
+  bool PR = false;
+  for (unsigned I = 1; I != 64; ++I) {
+    PR |= SavedRegs.test(IA64::P0 + I);
+    SavedRegs.reset(IA64::P0 + I);
+  }
+  FI->setChangesPR(PR);
+  FI->setChangesLC(SavedRegs.test(IA64::AR65));
+  SavedRegs.reset(IA64::AR65);
 }
 
 // Outgoing argument space is part of the fixed frame, so the call frame
