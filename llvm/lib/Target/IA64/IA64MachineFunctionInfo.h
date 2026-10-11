@@ -19,6 +19,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   Register SavedPFS;
   Register SavedRP;
 
+  // Whether the function writes ar.pfs after its alloc, and so must restore
+  // the value the alloc saved.
+  bool RestoresPFS = false;
+
   // The local holding ar.unat on entry, if the function spills a general
   // register and so modifies it.
   Register SavedUNAT;
@@ -49,6 +53,8 @@ public:
 
   Register getSavedPFS() const { return SavedPFS; }
   void setSavedPFS(Register Reg) { SavedPFS = Reg; }
+  bool restoresPFS() const { return RestoresPFS; }
+  void setRestoresPFS(bool Restores) { RestoresPFS = Restores; }
   Register getSavedRP() const { return SavedRP; }
   void setSavedRP(Register Reg) { SavedRP = Reg; }
   Register getSavedUNAT() const { return SavedUNAT; }

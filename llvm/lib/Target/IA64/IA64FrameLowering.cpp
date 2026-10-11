@@ -57,7 +57,9 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   // needs a register stack frame to hold them.
   auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
-  bool SaveRP = MF.getFrameInfo().hasCalls();
+  // So does a function whose inline asm clobbers them.
+  bool SaveRP = MF.getFrameInfo().hasCalls() || !MRI.def_empty(IA64::B0);
+  bool RestorePFS = SaveRP || !MRI.def_empty(IA64::AR64);
   // Spilling a GR puts its NaT bit in ar.unat, which is callee-saved.
   bool SaveUNAT = any_of(MF.getFrameInfo().getCalleeSavedInfo(),
                          [](const CalleeSavedInfo &CS) {
@@ -67,9 +69,10 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   // pointer copy of it if sp moves.
   bool Realign = TRI.hasStackRealignment(MF);
   bool NeedsBP = Realign && MF.getFrameInfo().hasVarSizedObjects();
-  if (Locals != Inputs || Outputs != 0 || SaveRP || SaveUNAT || hasFP(MF)) {
+  if (Locals != Inputs || Outputs != 0 || RestorePFS || SaveUNAT || hasFP(MF)) {
     Register SavedPFS = IA64::R32 + Locals++;
     FI->setSavedPFS(SavedPFS);
+    FI->setRestoresPFS(RestorePFS);
     if (SaveRP)
       FI->setSavedRP(IA64::R32 + Locals++);
     if (SaveUNAT)
@@ -183,13 +186,14 @@ void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
     adjustStackPointer(MBB, MBBI, DL, MF.getFrameInfo().getStackSize(),
                        MachineInstr::FrameDestroy);
 
-  if (!FI->getSavedRP())
+  if (FI->getSavedRP())
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B0)
+        .addReg(FI->getSavedRP(), RegState::Kill)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
+  if (!FI->restoresPFS())
     return;
-  BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B0)
-      .addReg(FI->getSavedRP(), RegState::Kill)
-      .addImm(0)
-      .addReg(IA64::P0)
-      .setMIFlag(MachineInstr::FrameDestroy);
   BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR), IA64::AR64)
       .addReg(FI->getSavedPFS(), RegState::Kill)
       .addReg(IA64::P0)

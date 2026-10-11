@@ -1296,6 +1296,17 @@ IA64TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
                      .Default(0);
   if (Reg)
     return {Reg, Reg == IA64::B0 ? &IA64::BRRegClass : &IA64::GRRegClass};
+  // Application register names, which the register file knows only by
+  // number.
+  Reg = StringSwitch<unsigned>(Constraint.lower())
+            .Case("{ar.ccv}", IA64::AR32)
+            .Case("{ar.unat}", IA64::AR36)
+            .Case("{ar.pfs}", IA64::AR64)
+            .Case("{ar.lc}", IA64::AR65)
+            .Case("{ar.ec}", IA64::AR66)
+            .Default(0);
+  if (Reg)
+    return {Reg, &IA64::ARRegClass};
   return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }
 
