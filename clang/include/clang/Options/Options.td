@@ -5632,8 +5632,9 @@ def mlarge_data_threshold_EQ : Joined<["-"], "mlarge-data-threshold=">, Group<m_
   MarshallingInfoInt<TargetOpts<"LargeDataThreshold">, "0">;
 def mtls_size_EQ : Joined<["-"], "mtls-size=">, Group<m_Group>,
   Visibility<[ClangOption, CC1Option]>,
-  HelpText<"Specify bit size of immediate TLS offsets (AArch64 ELF only): "
-           "12 (for 4KB) | 24 (for 16MB, default) | 32 (for 4GB) | 48 (for 256TB, needs -mcmodel=large)">,
+  HelpText<"Specify bit size of immediate TLS offsets (AArch64 ELF and IA-64 only): "
+           "12 (for 4KB) | 24 (for 16MB, default) | 32 (for 4GB) | 48 (for 256TB, needs -mcmodel=large); "
+           "for IA-64 14 | 22 (default) | 64">,
   MarshallingInfoInt<CodeGenOpts<"TLSSize">>;
 def mtls_dialect_EQ : Joined<["-"], "mtls-dialect=">, Group<m_Group>,
   Flags<[TargetSpecific]>, HelpText<"Which thread-local storage dialect to use for dynamic accesses of TLS variables">;

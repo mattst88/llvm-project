@@ -6483,10 +6483,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     StringRef Value = A->getValue();
     unsigned TLSSize = 0;
     Value.getAsInteger(10, TLSSize);
-    if (!Triple.isAArch64() || !Triple.isOSBinFormatELF())
+    bool IsIA64 = Triple.getArch() == llvm::Triple::ia64;
+    if ((!Triple.isAArch64() && !IsIA64) || !Triple.isOSBinFormatELF())
       D.Diag(diag::err_drv_unsupported_opt_for_target)
           << A->getOption().getName() << TripleStr;
-    if (TLSSize != 12 && TLSSize != 24 && TLSSize != 32 && TLSSize != 48)
+    if (IsIA64
+            ? TLSSize != 14 && TLSSize != 22 && TLSSize != 64
+            : TLSSize != 12 && TLSSize != 24 && TLSSize != 32 && TLSSize != 48)
       D.Diag(diag::err_drv_invalid_int_value)
           << A->getOption().getName() << Value;
     Args.AddLastArg(CmdArgs, options::OPT_mtls_size_EQ);

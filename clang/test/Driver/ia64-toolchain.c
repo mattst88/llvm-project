@@ -121,3 +121,15 @@
 // RUN: not %clang --target=x86_64-unknown-linux-gnu -fsyntax-only %s \
 // RUN:   -mno-inline-int-divide 2>&1 | FileCheck %s --check-prefix=IGNORED
 // IGNORED: error: unsupported option '-mno-inline-int-divide' for target
+
+// -mtls-size= says how many bits the offset of what a thread has may take.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtls-size=14 -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=TLS14
+// TLS14: "-mtls-size=14"
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtls-size=64 -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=TLS64
+// TLS64: "-mtls-size=64"
+// RUN: not %clang --target=ia64-unknown-linux-gnu -mtls-size=24 -### -c %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=TLS-BAD
+// TLS-BAD: error: invalid integral value '24' in 'mtls-size='
