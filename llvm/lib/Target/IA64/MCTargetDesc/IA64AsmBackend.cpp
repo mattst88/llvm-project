@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64FixupKinds.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
@@ -16,6 +17,7 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/EndianStream.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
 
@@ -27,6 +29,8 @@ class IA64AsmBackend : public MCAsmBackend {
 public:
   explicit IA64AsmBackend(uint8_t OSABI)
       : MCAsmBackend(llvm::endianness::little), OSABI(OSABI) {}
+
+  MCFixupKindInfo getFixupKindInfo(MCFixupKind Kind) const override;
 
   void applyFixup(const MCFragment &F, const MCFixup &Fixup,
                   const MCValue &Target, uint8_t *Data, uint64_t Value,
@@ -43,18 +47,138 @@ public:
 
 } // end anonymous namespace
 
+MCFixupKindInfo IA64AsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
+  // A fixup fills fields scattered over one or two slots. The offset and size
+  // are those of the largest field in the code emitter's output, which is
+  // what an encoding comment has room to show.
+  static const MCFixupKindInfo Infos[IA64::NumTargetFixupKinds] = {
+      // name, offset, bits, flags
+      {"fixup_ia64_imm14", 13, 7, 0},     {"fixup_ia64_imm22", 27, 9, 0},
+      {"fixup_ia64_imm64", 0, 41, 0},     {"fixup_ia64_pcrel21b", 13, 20, 0},
+      {"fixup_ia64_pcrel21m", 20, 13, 0}, {"fixup_ia64_pcrel21f", 6, 20, 0},
+      {"fixup_ia64_pcrel60b", 2, 39, 0},  {"fixup_ia64_tag13b", 6, 7, 0},
+      {"fixup_ia64_tag13i", 24, 9, 0},
+  };
+  if (Kind < FirstTargetFixupKind)
+    return MCAsmBackend::getFixupKindInfo(Kind);
+  assert(unsigned(Kind - FirstTargetFixupKind) < IA64::NumTargetFixupKinds &&
+         "invalid kind");
+  return Infos[Kind - FirstTargetFixupKind];
+}
+
+/// Move bits [\p From, \p From + \p Width) of \p Value to bit \p To.
+static uint64_t field(uint64_t Value, unsigned From, unsigned Width,
+                      unsigned To) {
+  return ((Value >> From) & maskTrailingOnes<uint64_t>(Width)) << To;
+}
+
+/// OR \p Bits into slot \p Slot of a bundle. The fields a fixup fills are
+/// zero until then.
+static void orIntoSlot(uint8_t *Bundle, unsigned Slot, uint64_t Bits) {
+  unsigned Pos = 5 + IA64II::SlotBits * Slot;
+  Bits <<= Pos % 8;
+  for (unsigned I = 0; I != 6; ++I)
+    Bundle[Pos / 8 + I] |= static_cast<uint8_t>(Bits >> (8 * I));
+}
+
 void IA64AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
                                 const MCValue &Target, uint8_t *Data,
                                 uint64_t Value, bool IsResolved) {
+  MCFixupKind Kind = Fixup.getKind();
+  bool IsTag =
+      Kind == IA64::fixup_ia64_tag13b || Kind == IA64::fixup_ia64_tag13i;
   if (!IsResolved) {
+    // There is no relocation for a tag.
+    if (IsTag) {
+      getContext().reportError(Fixup.getLoc(),
+                               "tag must be a location in the same section");
+      return;
+    }
     Asm->getWriter().recordRelocation(F, Fixup, Target, Value);
     return;
   }
-  // Only data has fixups so far.
-  assert(Fixup.getKind() < FirstTargetFixupKind && "unknown fixup kind");
-  unsigned Size = getFixupKindInfo(Fixup.getKind()).TargetSize / 8;
-  for (unsigned I = 0; I != Size; ++I)
-    Data[I] = static_cast<uint8_t>(Value >> (8 * I));
+
+  if (Kind < FirstTargetFixupKind) {
+    unsigned Size = getFixupKindInfo(Kind).TargetSize / 8;
+    for (unsigned I = 0; I != Size; ++I)
+      Data[I] = static_cast<uint8_t>(Value >> (8 * I));
+    return;
+  }
+
+  // The fixup is at the address of its bundle plus the number of its slot.
+  // A target is relative to the bundle.
+  unsigned Slot =
+      (Asm->getFragmentOffset(F) + Fixup.getOffset()) % IA64II::BundleBytes;
+  uint8_t *Bundle = Data - Slot;
+  if (Fixup.isPCRel()) {
+    Value += Slot;
+    unsigned Width = Kind == IA64::fixup_ia64_pcrel60b ? 60 : IsTag ? 9 : 21;
+    if (Value % IA64II::BundleBytes) {
+      getContext().reportError(Fixup.getLoc(),
+                               "target is not the start of a bundle");
+      return;
+    }
+    // A tag is only a hint, so an out-of-range one is truncated.
+    if (!IsTag && !isIntN(Width + 4, static_cast<int64_t>(Value))) {
+      getContext().reportError(Fixup.getLoc(), "target is out of range");
+      return;
+    }
+    Value = static_cast<uint64_t>(static_cast<int64_t>(Value) >> 4);
+  }
+
+  auto CheckImm = [&](unsigned Width) {
+    if (isIntN(Width, static_cast<int64_t>(Value)))
+      return true;
+    getContext().reportError(Fixup.getLoc(),
+                             "value does not fit in " + Twine(Width) + " bits");
+    return false;
+  };
+
+  switch (Kind) {
+  case IA64::fixup_ia64_imm14:
+    if (CheckImm(14))
+      orIntoSlot(Bundle, Slot,
+                 field(Value, 13, 1, 36) | field(Value, 7, 6, 27) |
+                     field(Value, 0, 7, 13));
+    break;
+  case IA64::fixup_ia64_imm22:
+    if (CheckImm(22))
+      orIntoSlot(Bundle, Slot,
+                 field(Value, 21, 1, 36) | field(Value, 16, 5, 22) |
+                     field(Value, 7, 9, 27) | field(Value, 0, 7, 13));
+    break;
+  case IA64::fixup_ia64_imm64:
+    orIntoSlot(Bundle, Slot, field(Value, 22, 41, 0));
+    orIntoSlot(Bundle, Slot + 1,
+               field(Value, 63, 1, 36) | field(Value, 21, 1, 21) |
+                   field(Value, 16, 5, 22) | field(Value, 7, 9, 27) |
+                   field(Value, 0, 7, 13));
+    break;
+  case IA64::fixup_ia64_pcrel21b:
+    orIntoSlot(Bundle, Slot, field(Value, 20, 1, 36) | field(Value, 0, 20, 13));
+    break;
+  case IA64::fixup_ia64_pcrel21m:
+    orIntoSlot(Bundle, Slot,
+               field(Value, 20, 1, 36) | field(Value, 7, 13, 20) |
+                   field(Value, 0, 7, 6));
+    break;
+  case IA64::fixup_ia64_pcrel21f:
+    orIntoSlot(Bundle, Slot, field(Value, 20, 1, 36) | field(Value, 0, 20, 6));
+    break;
+  case IA64::fixup_ia64_pcrel60b:
+    orIntoSlot(Bundle, Slot, field(Value, 20, 39, 2));
+    orIntoSlot(Bundle, Slot + 1,
+               field(Value, 59, 1, 36) | field(Value, 0, 20, 13));
+    break;
+  case IA64::fixup_ia64_tag13b:
+    orIntoSlot(Bundle, Slot, field(Value, 7, 2, 33) | field(Value, 0, 7, 6));
+    break;
+  case IA64::fixup_ia64_tag13i:
+    orIntoSlot(Bundle, Slot, field(Value, 0, 9, 24));
+    break;
+  default:
+    llvm_unreachable("unknown fixup kind");
+  }
 }
 
 bool IA64AsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,

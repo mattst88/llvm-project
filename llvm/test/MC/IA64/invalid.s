@@ -272,3 +272,15 @@
 	xmpy.l f4 = f5, f6, f7
 // CHECK: :[[#@LINE+1]]:28: error: invalid operand for instruction
 	tbit.nz.orcm p6, p7 = r4, 64
+
+// Relocation specifiers.
+// CHECK: :[[#@LINE+1]]:12: error: unknown operand '@bogus'
+	addl r4 = @bogus(x), r1
+// CHECK: :[[#@LINE+1]]:19: error: this relocation specifier cannot be inside '@gprel'
+	addl r4 = @gprel(@ltoff(x)), r1
+// CHECK: :[[#@LINE+1]]:19: error: expected '(' after '@gprel'
+	addl r4 = @gprel x, r1
+// CHECK: :[[#@LINE+1]]:20: error: expected ')'
+	addl r4 = @gprel(x, r1
+// CHECK: :[[#@LINE+1]]:12: error: expected a name after '@'
+	addl r4 = @(x), r1

@@ -16,6 +16,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64FixupKinds.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/MC/MCCodeEmitter.h"
@@ -70,9 +71,30 @@ public:
                                   SmallVectorImpl<MCFixup> &Fixups,
                                   const MCSubtargetInfo &STI) const;
 
+  /// An immediate, or an expression for a fixup of kind \p Kind.
+  template <unsigned Kind>
+  uint64_t getExprOpValue(const MCInst &MI, unsigned OpNo,
+                          SmallVectorImpl<MCFixup> &Fixups,
+                          const MCSubtargetInfo &STI) const {
+    const MCOperand &MO = MI.getOperand(OpNo);
+    if (MO.isImm())
+      return static_cast<uint64_t>(MO.getImm());
+    Fixups.push_back(MCFixup::create(0, MO.getExpr(), Kind));
+    return 0;
+  }
+
+  /// An IP-relative target: a displacement in bytes between bundles, or an
+  /// expression for the fixup \p Kind.
+  template <unsigned Kind>
   uint64_t getPCRelOpValue(const MCInst &MI, unsigned OpNo,
                            SmallVectorImpl<MCFixup> &Fixups,
-                           const MCSubtargetInfo &STI) const;
+                           const MCSubtargetInfo &STI) const {
+    const MCOperand &MO = MI.getOperand(OpNo);
+    if (MO.isImm())
+      return static_cast<uint64_t>(MO.getImm() >> 4);
+    Fixups.push_back(MCFixup::create(0, MO.getExpr(), Kind, /*PCRel=*/true));
+    return 0;
+  }
 
   uint64_t getInc3OpValue(const MCInst &MI, unsigned OpNo,
                           SmallVectorImpl<MCFixup> &Fixups,
@@ -102,15 +124,20 @@ void IA64MCCodeEmitter::encodeInstruction(const MCInst &MI,
 }
 
 uint64_t IA64MCCodeEmitter::getLongSlot(const MCInst &MI) const {
-  // The L slot holds the immediate bits that the X slot has no room for.
+  // The L slot holds the immediate bits that the X slot has no room for. A
+  // fixup fills in both slots.
   switch (MI.getOpcode()) {
   case IA64::MOVL:
+    if (!MI.getOperand(1).isImm())
+      return 0;
     return (static_cast<uint64_t>(MI.getOperand(1).getImm()) >> 22) &
            IA64II::SlotMask;
   case IA64::BRL_COND:
   case IA64::BRL_CALL: {
     // Bits 58:20 of the displacement in bundles, above two unused bits.
     unsigned OpNo = MI.getOpcode() == IA64::BRL_CALL ? 1 : 0;
+    if (!MI.getOperand(OpNo).isImm())
+      return 0;
     uint64_t Bundles = static_cast<uint64_t>(MI.getOperand(OpNo).getImm()) >> 4;
     return ((Bundles >> 20) & maskTrailingOnes<uint64_t>(39)) << 2;
   }
@@ -154,13 +181,6 @@ IA64MCCodeEmitter::getPmpyshrCountOpValue(const MCInst &MI, unsigned OpNo,
     return 3;
   }
   llvm_unreachable("invalid pmpyshr2 count");
-}
-
-uint64_t IA64MCCodeEmitter::getPCRelOpValue(const MCInst &MI, unsigned OpNo,
-                                            SmallVectorImpl<MCFixup> &Fixups,
-                                            const MCSubtargetInfo &STI) const {
-  // The operand is a displacement in bytes between bundles.
-  return static_cast<uint64_t>(MI.getOperand(OpNo).getImm() >> 4);
 }
 
 uint64_t IA64MCCodeEmitter::getInc3OpValue(const MCInst &MI, unsigned OpNo,

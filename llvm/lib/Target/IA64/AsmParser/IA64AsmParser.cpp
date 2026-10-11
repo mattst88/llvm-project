@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
@@ -63,6 +64,8 @@ class IA64AsmParser : public MCTargetAsmParser {
   void onEmptyStatement(const AsmToken &Terminator) override;
 
   bool parseOperand(OperandVector &Operands);
+
+  bool parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) override;
 
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
@@ -167,6 +170,13 @@ public:
   template <unsigned N> bool isSImm() const {
     std::optional<int64_t> V = getConstant();
     return V && isInt<N>(*V);
+  }
+  /// An immediate that may be an expression for a fixup to fill in.
+  template <unsigned N> bool isSImmOrExpr() const {
+    if (Kind != Immediate)
+      return false;
+    std::optional<int64_t> V = getConstant();
+    return !V || isInt<N>(*V);
   }
   template <unsigned N> bool isUImm() const {
     std::optional<int64_t> V = getConstant();
@@ -565,21 +575,23 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     Parser.Lex();
     return false;
   case AsmToken::At: {
-    // "@name" is one of the mux1 permutations.
-    Parser.Lex();
-    StringRef Name;
-    SMLoc E = Parser.getTok().getEndLoc();
-    if (Parser.parseIdentifier(Name))
+    // "@name" is one of the mux1 permutations, and "@name(expression)" a
+    // relocation specifier, which is part of an expression.
+    const AsmToken &Next = getLexer().peekTok();
+    if (Next.isNot(AsmToken::Identifier))
       return Error(S, "expected a name after '@'");
+    StringRef Name = Next.getString();
     for (unsigned Value = 0; Value != 16; ++Value) {
       const char *Known = IA64II::getMBTypeName(Value);
       if (!Known || !Name.equals_insensitive(Known))
         continue;
       Operands.push_back(IA64Operand::createImm(
-          MCConstantExpr::create(Value, getContext()), S, E));
+          MCConstantExpr::create(Value, getContext()), S, Next.getEndLoc()));
+      Parser.Lex(); // Eat the '@'.
+      Parser.Lex(); // Eat the name.
       return false;
     }
-    return Error(S, "unknown operand '@" + Name + "'");
+    break;
   }
   case AsmToken::Identifier: {
     MCRegister Reg;
@@ -611,6 +623,48 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
   if (Parser.parseExpression(Expr, E))
     return true;
   Operands.push_back(IA64Operand::createImm(Expr, S, E));
+  return false;
+}
+
+bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
+  MCAsmParser &Parser = getParser();
+  if (Parser.getTok().isNot(AsmToken::At))
+    return Parser.parsePrimaryExpr(Res, EndLoc, nullptr);
+
+  // "@name(expression)" is a relocation specifier.
+  SMLoc S = Parser.getTok().getLoc();
+  Parser.Lex(); // Eat the '@'.
+  StringRef Name;
+  if (Parser.getTok().isNot(AsmToken::Identifier) ||
+      Parser.parseIdentifier(Name))
+    return Error(S, "expected a name after '@'");
+  IA64::Specifier Spec = IA64::parseSpecifierName(Name);
+  if (Spec == IA64::S_None)
+    return Error(S, "unknown operand '@" + Name + "'");
+  const MCExpr *Sub;
+  if (Parser.parseToken(AsmToken::LParen,
+                        "expected '(' after '@" + Name + "'") ||
+      Parser.parseExpression(Sub))
+    return true;
+  EndLoc = Parser.getTok().getEndLoc();
+  if (Parser.parseToken(AsmToken::RParen, "expected ')'"))
+    return true;
+
+  // "@ltoff" may wrap a few other specifiers, forming a combined specifier.
+  // No others nest.
+  if (const auto *Inner = dyn_cast<MCSpecifierExpr>(Sub)) {
+    IA64::Specifier Pair = IA64::S_None;
+    if (Spec == IA64::S_LTOFF)
+      Pair = IA64::getLtoffSpecifier(
+          static_cast<IA64::Specifier>(Inner->getSpecifier()));
+    if (Pair == IA64::S_None)
+      return Error(Inner->getLoc(),
+                   "this relocation specifier cannot be inside '@" + Name +
+                       "'");
+    Spec = Pair;
+    Sub = Inner->getSubExpr();
+  }
+  Res = MCSpecifierExpr::create(Sub, Spec, getContext(), S);
   return false;
 }
 

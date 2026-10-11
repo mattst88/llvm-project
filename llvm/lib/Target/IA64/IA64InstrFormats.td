@@ -54,8 +54,12 @@ class SImmAsmOperand<int width, list<AsmOperandClass> supers = []>
   let SuperClasses = supers;
   let DiagnosticType = "InvalidSImm"#width;
 }
-def SImm22AsmOperand : SImmAsmOperand<22>;
-def SImm14AsmOperand : SImmAsmOperand<14, [SImm22AsmOperand]>;
+def SImm22AsmOperand : SImmAsmOperand<22> {
+  let PredicateMethod = "isSImmOrExpr<22>";
+}
+def SImm14AsmOperand : SImmAsmOperand<14, [SImm22AsmOperand]> {
+  let PredicateMethod = "isSImmOrExpr<14>";
+}
 def SImm8AsmOperand  : SImmAsmOperand<8, [SImm14AsmOperand]>;
 
 class SImm<int width, AsmOperandClass cls> : Operand<i64> {
@@ -64,8 +68,14 @@ class SImm<int width, AsmOperandClass cls> : Operand<i64> {
   let OperandType = "OPERAND_IMMEDIATE";
 }
 def simm8  : SImm<8, SImm8AsmOperand>;
-def simm14 : SImm<14, SImm14AsmOperand>;
-def simm22 : SImm<22, SImm22AsmOperand>;
+// The add immediates may be a symbol address, possibly with a relocation
+// specifier.
+def simm14 : SImm<14, SImm14AsmOperand> {
+  let EncoderMethod = "getExprOpValue<IA64::fixup_ia64_imm14>";
+}
+def simm22 : SImm<22, SImm22AsmOperand> {
+  let EncoderMethod = "getExprOpValue<IA64::fixup_ia64_imm22>";
+}
 
 // The immediate of a compare pseudo-op that is assembled as "less than": the
 // written value is one more than the encoded immediate. Unsigned compares
@@ -206,15 +216,21 @@ class PCRelAsmOperand<int width> : AsmOperandClass {
   let PredicateMethod = "isPCRel<"#width#">";
   let DiagnosticType = "InvalidPCRel"#width;
 }
-class PCRel<int width> : Operand<OtherVT> {
+class PCRel<int width, string fixup> : Operand<OtherVT> {
   let ParserMatchClass = PCRelAsmOperand<width>;
   let PrintMethod = "printPCRel";
-  let EncoderMethod = "getPCRelOpValue";
+  let EncoderMethod = "getPCRelOpValue<IA64::fixup_ia64_"#fixup#">";
   let DecoderMethod = "decodePCRel<"#width#">";
   let OperandType = "OPERAND_PCREL";
 }
-def target25 : PCRel<21>;
-def tag13    : PCRel<9>;
+// Targets are encoded in three different layouts, each with its own
+// relocation: branches, chk.s and fchkf.
+def target25  : PCRel<21, "pcrel21b">;
+def target25m : PCRel<21, "pcrel21m">;
+def target25f : PCRel<21, "pcrel21f">;
+// Tags have no relocation and must be in the referencing section.
+def tag13     : PCRel<9, "tag13b">;
+def tag13i    : PCRel<9, "tag13i">;
 
 // X-unit operands, which are too wide for one slot: the L slot of the bundle
 // holds the bits that do not fit in the X slot, and the decoders read them
@@ -226,6 +242,7 @@ def Imm64AsmOperand : AsmOperandClass {
 }
 def imm64 : Operand<i64> {
   let ParserMatchClass = Imm64AsmOperand;
+  let EncoderMethod = "getExprOpValue<IA64::fixup_ia64_imm64>";
   let DecoderMethod = "decodeImm64";
   let OperandType = "OPERAND_IMMEDIATE";
 }
@@ -234,7 +251,7 @@ def uimm62 : Operand<i64> {
   let DecoderMethod = "decodeUImm62";
   let OperandType = "OPERAND_IMMEDIATE";
 }
-def target64 : PCRel<60> {
+def target64 : PCRel<60, "pcrel60b"> {
   let DecoderMethod = "decodeLongPCRel";
 }
 
@@ -844,7 +861,7 @@ class I18<bit y, string mnemonic> : I19<1, mnemonic> {
 
 // I20: integer speculation check.
 class I20<string mnemonic>
-    : IMiscInst<1, (outs), (ins GR:$r2, target25:$target), mnemonic,
+    : IMiscInst<1, (outs), (ins GR:$r2, target25m:$target), mnemonic,
                 "$r2, $target"> {
   bits<7> r2;
   bits<21> target;
@@ -857,7 +874,7 @@ class I20<string mnemonic>
 // I21: move to a branch register, with a hint about the branch that will use
 // it and that branch's address.
 class I21<bit x, bits<2> wh, bit ih, string mnemonic>
-    : IMiscInst<7, (outs BR:$b1), (ins GR:$r2, tag13:$tag), mnemonic,
+    : IMiscInst<7, (outs BR:$b1), (ins GR:$r2, tag13i:$tag), mnemonic,
                 "$b1 = $r2, $tag"> {
   bits<3> b1;
   bits<7> r2;
@@ -1190,7 +1207,7 @@ class M19<bits<6> x6, string mnemonic>
 // The speculation checks have major opcodes 0 and 1 and are distinguished
 // by x3. M20 and M21: control speculation check.
 class MChkSInst<bits<3> x3, RegisterClass rc, string mnemonic>
-    : MInst<(outs), (ins rc:$r2, target25:$target), mnemonic,
+    : MInst<(outs), (ins rc:$r2, target25m:$target), mnemonic,
             "$r2, $target"> {
   bits<7> r2;
   bits<21> target;
@@ -1662,7 +1679,7 @@ class F13<string mnemonic> : FSFInst<(outs), (ins), mnemonic, ""> {
 
 // F14: check the flags of a status field and branch to recovery code.
 class F14<string mnemonic>
-    : FSFInst<(outs), (ins target25:$target), mnemonic, "$target"> {
+    : FSFInst<(outs), (ins target25f:$target), mnemonic, "$target"> {
   bits<21> target;
   let Opcode = 0;
   let Inst{36} = target{20};
