@@ -19,14 +19,17 @@
 // The packing matches GNU as, so that both assemblers produce the same bytes
 // for the same source:
 //
-//   - The template is the first one, in the order of their encodings, that
-//     holds the most of the next three instructions. Each instruction takes
-//     the first slot after its predecessor that has the right unit, and the
-//     slots passed over hold nops.
-//   - A stop after slot 0 turns the template into "M;MI" and one after an I
-//     unit in slot 1 turns it into "MI;I", whatever it was, and the rest of
-//     the bundle is filled by the same rule. A stop anywhere else ends the
-//     bundle.
+//   - The template is the first, in encoding order, that holds the most of
+//     the next three instructions. Each instruction takes the first slot of
+//     the right unit after its predecessor, and skipped slots get nops.
+//   - A stop after slot 0 changes the template to "M;MI", and a stop after an
+//     I-unit instruction in slot 1 changes it to "MI;I", regardless of the
+//     original template; the rest of the bundle is filled by the same rule. A
+//     stop anywhere else ends the bundle.
+//   - "alloc", "flushrs" and "loadrs" must each be first in an instruction
+//     group, and a nop between the stop and the instruction would make it
+//     not first. If one has to start the next bundle, the stop goes at the
+//     end of the current one.
 //   - "hint" and "chk.s" have no B-unit form, but the template is chosen as
 //     if they had. If that assigns one a B slot, the bundle ends before it,
 //     and a "hint" becomes hint.i in the next bundle.
@@ -427,6 +430,12 @@ static uint64_t readSlot(const char *Bytes) {
   return Value;
 }
 
+/// Whether the instruction must immediately follow a stop.
+static bool isFirstInGroup(unsigned Opcode) {
+  return Opcode == IA64::ALLOC || Opcode == IA64::FLUSHRS ||
+         Opcode == IA64::LOADRS;
+}
+
 /// How many of \p Insts fit one bundle of template \p T, stops aside.
 template <typename PendingInst>
 static unsigned countPlaced(const IA64II::BundleTemplate &T,
@@ -581,6 +590,11 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
     if (!PI.Stop)
       continue;
     if (AtEnd() || Slot == 2) {
+      EndStop = true;
+      break;
+    }
+    // The next instruction is M-unit only, so it cannot take slot 2 of MI;I.
+    if (Slot == 1 && isFirstInGroup(Insts[Taken].Inst.getOpcode())) {
       EndStop = true;
       break;
     }

@@ -416,6 +416,41 @@ c47:
 // CHECK-NEXT: fma f12 = f6, f1, f7{{$}}
 // CHECK-NEXT: nop.i 0{{$}}
 
+// An alloc, a flushrs or a loadrs is the first instruction of its group, and
+// not the one after a nop that is. The stop before one that begins the next
+// bundle is at the end of this one.
+c47a:
+	zxt1 r10 = r2 ;;
+	alloc r11 = ar.pfs, 0, 0, 2, 0
+// CHECK-LABEL: <c47a>:
+// CHECK-NEXT: nop.m 0 // [MII]{{$}}
+// CHECK-NEXT: zxt1 r10 = r2{{$}}
+// CHECK-NEXT: nop.i 0 ;;{{$}}
+// CHECK-NEXT: alloc r11 = ar.pfs, 0, 0, 2, 0 // [MII]{{$}}
+// CHECK-NEXT: nop.i 0{{$}}
+// CHECK-NEXT: nop.i 0{{$}}
+c47b:
+	ld8 r10 = [r2]
+	zxt1 r11 = r2 ;;
+	flushrs
+// CHECK-LABEL: <c47b>:
+// CHECK-NEXT: ld8 r10 = [r2] // [MII]{{$}}
+// CHECK-NEXT: zxt1 r11 = r2{{$}}
+// CHECK-NEXT: nop.i 0 ;;{{$}}
+// CHECK-NEXT: flushrs // [MII]{{$}}
+// CHECK-NEXT: nop.i 0{{$}}
+// CHECK-NEXT: nop.i 0{{$}}
+c47c:
+	zxt1 r10 = r2 ;;
+	loadrs
+// CHECK-LABEL: <c47c>:
+// CHECK-NEXT: nop.m 0 // [MII]{{$}}
+// CHECK-NEXT: zxt1 r10 = r2{{$}}
+// CHECK-NEXT: nop.i 0 ;;{{$}}
+// CHECK-NEXT: loadrs // [MII]{{$}}
+// CHECK-NEXT: nop.i 0{{$}}
+// CHECK-NEXT: nop.i 0{{$}}
+
 // A stop anywhere else ends the bundle.
 c48:
 	add r10 = r2, r3
