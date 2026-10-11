@@ -5,7 +5,21 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// IA-64 subtarget features. There are none yet: every instruction the backend
-// emits so far exists on all Itanium processors.
+// IA-64 subtarget features. None of them enables instructions: every
+// instruction the backend emits so far exists on all Itanium processors.
 //
 //===----------------------------------------------------------------------===//
+
+// The registers that code is told to leave alone. A kernel does not save
+// most of the floating-point registers when it is entered and so must not
+// use them, and a program may keep a value of its own in a register for as
+// long as it runs. The stacked registers are not among these: they are a
+// function's own.
+foreach I = 2...31 in
+  def FeatureReserveR#I
+      : SubtargetFeature<"reserve-r"#I, "UserReservedRegister[IA64::R"#I#"]",
+                         "true", "Reserve r"#I>;
+foreach I = 2...127 in
+  def FeatureReserveF#I
+      : SubtargetFeature<"reserve-f"#I, "UserReservedRegister[IA64::F"#I#"]",
+                         "true", "Reserve f"#I>;

@@ -67,6 +67,15 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   for (unsigned Reg = IA64::R115; Reg <= IA64::R119; ++Reg)
     Reserved.set(Reg);
 
+  // Registers reserved by the user.
+  const TargetSubtargetInfo &STI = MF.getSubtarget();
+  for (unsigned Reg = IA64::R2; Reg <= IA64::R31; ++Reg)
+    if (STI.isRegisterReservedByUser(Reg))
+      Reserved.set(Reg);
+  for (unsigned Reg = IA64::F2; Reg <= IA64::F127; ++Reg)
+    if (STI.isRegisterReservedByUser(Reg))
+      Reserved.set(Reg);
+
   return Reserved;
 }
 
