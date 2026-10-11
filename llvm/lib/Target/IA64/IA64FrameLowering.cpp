@@ -52,11 +52,13 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   // needs a register stack frame to hold them.
   auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
   bool SaveRP = MF.getFrameInfo().hasCalls();
-  if (Locals != Inputs || Outputs != 0 || SaveRP) {
+  if (Locals != Inputs || Outputs != 0 || SaveRP || hasFP(MF)) {
     Register SavedPFS = IA64::R32 + Locals++;
     FI->setSavedPFS(SavedPFS);
     if (SaveRP)
       FI->setSavedRP(IA64::R32 + Locals++);
+    if (hasFP(MF))
+      FI->setFramePointer(IA64::R32 + Locals++);
     BuildMI(MBB, MBBI, DL, TII.get(IA64::ALLOC), SavedPFS)
         .addImm(Inputs)
         .addImm(Locals - Inputs)
@@ -71,11 +73,20 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
           .setMIFlag(MachineInstr::FrameSetup);
       MBB.addLiveIn(IA64::B0);
     }
-    // Both are kept until the function returns, wherever it does.
+    // If sp moves in the body, the frame is located from the incoming sp.
+    if (FI->getFramePointer())
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::ADDS), FI->getFramePointer())
+          .addImm(0)
+          .addReg(IA64::R12)
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameSetup);
+    // The saves are live until the function returns, from any block.
     for (MachineBasicBlock &Other : llvm::drop_begin(MF)) {
       Other.addLiveIn(SavedPFS);
       if (SaveRP)
         Other.addLiveIn(FI->getSavedRP());
+      if (FI->getFramePointer())
+        Other.addLiveIn(FI->getFramePointer());
     }
   }
 
@@ -93,13 +104,20 @@ void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
                                      MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
-  adjustStackPointer(MBB, MBBI, DL, MF.getFrameInfo().getStackSize(),
-                     MachineInstr::FrameDestroy);
-
+  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   const auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  if (FI->getFramePointer())
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::ADDS), IA64::R12)
+        .addImm(0)
+        .addReg(FI->getFramePointer(), RegState::Kill)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
+  else
+    adjustStackPointer(MBB, MBBI, DL, MF.getFrameInfo().getStackSize(),
+                       MachineInstr::FrameDestroy);
+
   if (!FI->getSavedRP())
     return;
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B0)
       .addReg(FI->getSavedRP(), RegState::Kill)
       .addImm(0)
@@ -149,9 +167,18 @@ StackOffset
 IA64FrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
                                           Register &FrameReg) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
+  int64_t Offset = MFI.getObjectOffset(FI) + ScratchAreaSize;
+  FrameReg = MF.getInfo<IA64MachineFunctionInfo>()->getFramePointer();
+  if (FrameReg)
+    return StackOffset::getFixed(Offset);
   FrameReg = IA64::R12;
-  return StackOffset::getFixed(MFI.getObjectOffset(FI) + ScratchAreaSize +
-                               MFI.getStackSize());
+  return StackOffset::getFixed(Offset + MFI.getStackSize());
+}
+
+// Outgoing argument space stays at sp when sp moves; dynamic allocations go
+// above it.
+bool IA64FrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
+  return true;
 }
 
 bool IA64FrameLowering::hasFPImpl(const MachineFunction &MF) const {

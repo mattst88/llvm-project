@@ -19,6 +19,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   Register SavedPFS;
   Register SavedRP;
 
+  // The local holding the incoming stack pointer, if SP moves after the
+  // prologue.
+  Register FramePointer;
+
   // Where the arguments that have no names start.
   int VarArgsFrameIndex = 0;
 
@@ -36,6 +40,8 @@ public:
   void setSavedPFS(Register Reg) { SavedPFS = Reg; }
   Register getSavedRP() const { return SavedRP; }
   void setSavedRP(Register Reg) { SavedRP = Reg; }
+  Register getFramePointer() const { return FramePointer; }
+  void setFramePointer(Register Reg) { FramePointer = Reg; }
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int FI) { VarArgsFrameIndex = FI; }
 };

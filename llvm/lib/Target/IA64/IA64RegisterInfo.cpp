@@ -10,6 +10,7 @@
 #include "IA64.h"
 #include "IA64FrameLowering.h"
 #include "IA64InstrInfo.h"
+#include "IA64MachineFunctionInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
@@ -104,5 +105,7 @@ bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 }
 
 Register IA64RegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+  if (Register FP = MF.getInfo<IA64MachineFunctionInfo>()->getFramePointer())
+    return FP;
   return IA64::R12;
 }

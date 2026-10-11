@@ -131,6 +131,12 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1,
     Defs = [B6] in
 def BRIND : IA64Pseudo<(outs), (ins GR:$target), "#BRIND", []>;
 
+// The address of what was last allocated on the stack, which is above the
+// space for the arguments of calls: "adds r1 = size, sp", once that size is
+// known.
+let Uses = [R12] in
+def ADJDYNALLOC : IA64Pseudo<(outs GR:$r1), (ins), "#ADJDYNALLOC", []>;
+
 //===----------------------------------------------------------------------===//
 // Integer ALU
 //===----------------------------------------------------------------------===//

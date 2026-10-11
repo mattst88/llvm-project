@@ -23,6 +23,11 @@ def IA64retglue : SDNode<"IA64ISD::RET_GLUE", SDTypeProfile<0, 0, []>,
 // The address of a symbol's linkage table entry: @ltoff(sym) + gp.
 def IA64ltoff : SDNode<"IA64ISD::LTOFF", SDTIntUnaryOp>;
 
+// The address of a dynamic allocation just made by decrementing sp.
+def IA64adjdynalloc
+    : SDNode<"IA64ISD::ADJDYNALLOC", SDTypeProfile<1, 0, [SDTCisVT<0, i64>]>,
+             [SDNPHasChain]>;
+
 // Move the bits of an f32 to/from the low half of a GR.
 def IA64getfs
     : SDNode<"IA64ISD::GETF_S",
@@ -186,6 +191,7 @@ def : Pat<(f32 (fpround (f64 FR:$f))), (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
 // Bitcasts use the memory format.
 def : Pat<(i64 (bitconvert (f64 FR:$f))), (GETF_D FR:$f)>;
 def : Pat<(f64 (bitconvert GR:$r)), (SETF_D GR:$r)>;
+def : Pat<(IA64adjdynalloc), (ADJDYNALLOC)>;
 def : Pat<(IA64getfs FR:$f), (GETF_S FR:$f)>;
 def : Pat<(IA64setfs GR:$r), (SETF_S GR:$r)>;
 

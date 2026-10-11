@@ -120,6 +120,10 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
     setOperationAction(Opc, MVT::Other, Expand);
   setMinStackArgumentAlignment(Align(8));
 
+  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Custom);
+  setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
+  setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
+
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
   setOperationAction(ISD::JumpTable, MVT::i64, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
@@ -178,6 +182,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
         DAG.getNode(ISD::ANY_EXTEND, SDLoc(Op), MVT::i64, Op.getOperand(0)));
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
+  case ISD::DYNAMIC_STACKALLOC:
+    return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -268,6 +274,34 @@ SDValue IA64TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getStore(Op.getOperand(0), SDLoc(Op),
                       DAG.getFrameIndex(FI->getVarArgsFrameIndex(), MVT::i64),
                       Op.getOperand(1), MachinePointerInfo(SV));
+}
+
+// SP moves down by the size, which is already a multiple of 16. The outgoing
+// argument area stays at SP, so the allocation starts above it and is
+// aligned from there.
+SDValue IA64TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
+                                                    SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue Chain = Op.getOperand(0);
+  SDValue Size = Op.getOperand(1);
+  uint64_t Alignment = Op.getConstantOperandVal(2);
+
+  if (Alignment > 16)
+    Size = DAG.getNode(ISD::ADD, DL, MVT::i64, Size,
+                       DAG.getConstant(Alignment - 16, DL, MVT::i64));
+  SDValue SP = DAG.getCopyFromReg(Chain, DL, IA64::R12, MVT::i64);
+  Chain = DAG.getCopyToReg(SP.getValue(1), DL, IA64::R12,
+                           DAG.getNode(ISD::SUB, DL, MVT::i64, SP, Size));
+  SDValue Addr = DAG.getNode(IA64ISD::ADJDYNALLOC, DL,
+                             DAG.getVTList(MVT::i64, MVT::Other), Chain);
+  Chain = Addr.getValue(1);
+  if (Alignment > 16)
+    Addr =
+        DAG.getNode(ISD::AND, DL, MVT::i64,
+                    DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
+                                DAG.getConstant(Alignment - 1, DL, MVT::i64)),
+                    DAG.getSignedConstant(-int64_t(Alignment), DL, MVT::i64));
+  return DAG.getMergeValues({Addr, Chain}, DL);
 }
 
 // An entry of a jump table is the distance from the table to the block,

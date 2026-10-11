@@ -34,6 +34,7 @@ public:
 
 protected:
   bool hasFPImpl(const MachineFunction &MF) const override;
+  bool hasReservedCallFrame(const MachineFunction &MF) const override;
 
 private:
   void adjustStackPointer(MachineBasicBlock &MBB,

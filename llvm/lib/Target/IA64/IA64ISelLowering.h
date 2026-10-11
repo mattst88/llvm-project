@@ -81,6 +81,7 @@ private:
   SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
   SDValue loadLinkageTableEntry(SDValue Sym, const SDLoc &DL,
                                 SelectionDAG &DAG) const;
 };

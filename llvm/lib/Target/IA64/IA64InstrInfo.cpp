@@ -9,6 +9,7 @@
 #include "IA64InstrInfo.h"
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -263,6 +264,34 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   switch (MI.getOpcode()) {
   default:
     return false;
+  case IA64::ADJDYNALLOC: {
+    const MachineFrameInfo &MFI = MBB.getParent()->getFrameInfo();
+    uint64_t Offset = alignTo(MFI.getMaxCallFrameSize(), 16);
+    Register Reg = MI.getOperand(0).getReg();
+    // The outgoing argument area can exceed the adds immediate range.
+    if (isInt<14>(Offset)) {
+      BuildMI(MBB, MI, DL, get(IA64::ADDS), Reg)
+          .addImm(Offset)
+          .addReg(IA64::R12)
+          .addReg(IA64::P0);
+    } else {
+      if (isInt<22>(Offset))
+        BuildMI(MBB, MI, DL, get(IA64::ADDL), Reg)
+            .addImm(Offset)
+            .addReg(IA64::R0)
+            .addReg(IA64::P0);
+      else
+        BuildMI(MBB, MI, DL, get(IA64::MOVL), Reg)
+            .addImm(Offset)
+            .addReg(IA64::P0);
+      BuildMI(MBB, MI, DL, get(IA64::ADD), Reg)
+          .addReg(Reg, RegState::Kill)
+          .addReg(IA64::R12)
+          .addReg(IA64::P0);
+    }
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::CALL:
   case IA64::CALL_IND: {
     // br.call.sptk.many b0 = target, then restore gp from its saved copy.
