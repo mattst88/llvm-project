@@ -81,6 +81,7 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool parseData16(bool Aligned);
   bool parseRealValues(unsigned Size, bool Aligned);
   ParseStatus parseCrossSectionData(StringRef Directive);
+  ParseStatus parseModeDirective(StringRef Name);
   bool parseCommon(bool IsTLS, bool IsLocal);
 
   /// Annotation directives, which tell a dependency violation checker what
@@ -1409,7 +1410,54 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
   Status = parseCrossSectionData(Name);
   if (!Status.isNoMatch())
     return Status;
+  Status = parseModeDirective(Name);
+  if (!Status.isNoMatch())
+    return Status;
   return parseDataDirective(Name);
+}
+
+ParseStatus IA64AsmParser::parseModeDirective(StringRef Name) {
+  std::string Lower = Name.lower();
+
+  // The PSR settings assumed for the code: address size and data byte
+  // order. Only those with object file support (abi64, lsb) are accepted.
+  if (Lower == ".psr") {
+    do {
+      SMLoc Loc = getTok().getLoc();
+      StringRef Option;
+      if (getParser().parseIdentifier(Option))
+        return Error(Loc, "expected a psr option");
+      if (Option == "abi32" || Option == "msb")
+        return Error(Loc, "psr option '" + Option + "' is not supported");
+      if (Option != "abi64" && Option != "lsb")
+        return Error(Loc, "unknown psr option");
+    } while (parseOptionalToken(AsmToken::Comma));
+    return parseEOL();
+  }
+
+  // The byte order of subsequent data in the section.
+  if (Lower == ".lsb")
+    return parseEOL();
+  if (Lower == ".msb")
+    return Error(getLexer().getLoc(), "big-endian data is not supported");
+
+  // The default radix of unprefixed numbers; only C conventions ("C") are
+  // supported.
+  if (Lower == ".radix") {
+    SMLoc Loc = getTok().getLoc();
+    StringRef Radix;
+    if (getParser().parseIdentifier(Radix) || !Radix.equals_insensitive("c"))
+      return Error(Loc, "unsupported radix");
+    return parseEOL();
+  }
+
+  // A COFF-style debugger line number, which ELF has no place for.
+  if (Lower == ".ln") {
+    int64_t Line;
+    return getParser().parseAbsoluteExpression(Line) || parseEOL();
+  }
+
+  return ParseStatus::NoMatch;
 }
 
 ParseStatus IA64AsmParser::parseRegStackDirective(StringRef Name) {
@@ -1632,6 +1680,10 @@ ParseStatus IA64AsmParser::parseAnnotationDirective(StringRef Name) {
       return Error(Loc, "expected two predicate registers");
     return parseEOL();
   }
+
+  // The following instructions perform data or instruction serialization.
+  if (Lower == ".serialize.data" || Lower == ".serialize.instruction")
+    return parseEOL();
 
   // The address of a memory access as an offset and a base identifier.
   if (Lower == ".mem.offset") {
