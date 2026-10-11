@@ -20,8 +20,10 @@
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/IR/Comdat.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Module.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSectionELF.h"
@@ -46,6 +48,13 @@ void IA64TargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM) {
   ShortBSSSection =
       Ctx.getELFSection(".sbss", ELF::SHT_NOBITS,
                         ELF::SHF_WRITE | ELF::SHF_ALLOC | ELF::SHF_IA_64_SHORT);
+}
+
+void IA64TargetObjectFile::getModuleMetadata(Module &M) {
+  TargetLoweringObjectFileELF::getModuleMetadata(M);
+  if (const auto *Limit = mdconst::extract_or_null<ConstantInt>(
+          M.getModuleFlag("SmallDataLimit")))
+    ShortDataLimit = Limit->getZExtValue();
 }
 
 const MCExpr *IA64TargetObjectFile::getTTypeGlobalReference(

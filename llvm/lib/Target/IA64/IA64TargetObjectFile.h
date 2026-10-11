@@ -17,11 +17,16 @@ class IA64TargetObjectFile : public TargetLoweringObjectFileELF {
   MCSection *ShortDataSection = nullptr;
   MCSection *ShortBSSSection = nullptr;
 
-public:
   /// The size of the largest object placed in short data.
-  static constexpr uint64_t ShortDataLimit = 8;
+  uint64_t ShortDataLimit = 8;
 
+public:
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
+
+  /// Reads the SmallDataLimit module flag.
+  void getModuleMetadata(Module &M) override;
+
+  uint64_t getShortDataLimit() const { return ShortDataLimit; }
 
   /// Whether \p GV is short data: an object small enough to be placed with
   /// the others like it within reach of a single add to GP.

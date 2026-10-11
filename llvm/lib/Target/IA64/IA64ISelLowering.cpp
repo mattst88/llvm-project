@@ -472,9 +472,7 @@ SDValue IA64TargetLowering::LowerGlobalAddress(SDValue Op,
       static_cast<const IA64TargetObjectFile &>(*TM.getObjFileLowering());
   if (TLOF.isShortData(GV, TM)) {
     int64_t InObject =
-        Offset >= 0 && uint64_t(Offset) < IA64TargetObjectFile::ShortDataLimit
-            ? Offset
-            : 0;
+        Offset >= 0 && uint64_t(Offset) < TLOF.getShortDataLimit() ? Offset : 0;
     return WithOffset(
         DAG.getNode(IA64ISD::GPREL22, DL, MVT::i64,
                     DAG.getTargetGlobalAddress(GV, DL, MVT::i64, InObject,
