@@ -70,6 +70,8 @@ public:
 
   unsigned getJumpTableEncoding() const override;
 
+  bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
+
   // The FP multiply instruction is fma.
   bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
                                   EVT VT) const override {

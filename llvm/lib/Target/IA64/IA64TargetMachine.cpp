@@ -9,9 +9,9 @@
 #include "IA64TargetMachine.h"
 #include "IA64.h"
 #include "IA64MachineFunctionInfo.h"
+#include "IA64TargetObjectFile.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/Passes.h"
-#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/PassRegistry.h"
@@ -42,7 +42,7 @@ IA64TargetMachine::IA64TargetMachine(const Target &T, const Triple &TT,
     : CodeGenTargetMachineImpl(T, TT, CPU, FS, Options,
                                getEffectiveRelocModel(RM),
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
-      TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
+      TLOF(std::make_unique<IA64TargetObjectFile>()) {
   initAsmInfo();
 }
 

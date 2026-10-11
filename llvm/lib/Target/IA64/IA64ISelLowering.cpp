@@ -13,6 +13,7 @@
 #include "IA64SelectionDAGInfo.h"
 #include "IA64Subtarget.h"
 #include "IA64TargetMachine.h"
+#include "IA64TargetObjectFile.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -229,24 +230,56 @@ void IA64TargetLowering::ReplaceNodeResults(SDNode *N,
   }
 }
 
-// The address of a symbol is read from the linkage table, which the global
-// pointer addresses. What the entry for a function holds is the address of
-// its descriptor, the one all modules agree on, and that is what a pointer
-// to a function is.
+// The address of a symbol that may be preemptible is loaded from the linkage
+// table (GOT), addressed via GP. A function's entry holds the address of its
+// canonical function descriptor, which is the function pointer.
+//
+// A DSO-local symbol is at a link-time constant offset from GP, so no load
+// is needed.
 SDValue IA64TargetLowering::LowerGlobalAddress(SDValue Op,
                                                SelectionDAG &DAG) const {
   const auto *N = cast<GlobalAddressSDNode>(Op);
   const GlobalValue *GV = N->getGlobal();
+  const TargetMachine &TM = getTargetMachine();
+  int64_t Offset = N->getOffset();
   SDLoc DL(Op);
 
-  unsigned Flags =
-      GV->getValueType()->isFunctionTy() ? IA64::S_LTOFF_FPTR : IA64::S_LTOFF;
-  SDValue Addr = loadLinkageTableEntry(
-      DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags), DL, DAG);
-  if (N->getOffset() == 0)
-    return Addr;
-  return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
-                     DAG.getConstant(N->getOffset(), DL, MVT::i64));
+  auto WithOffset = [&](SDValue Addr, int64_t Offset) {
+    if (Offset == 0)
+      return Addr;
+    return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
+                       DAG.getConstant(Offset, DL, MVT::i64));
+  };
+
+  // An undefined weak symbol is not at a fixed offset from GP.
+  if (GV->getValueType()->isFunctionTy() || !TM.shouldAssumeDSOLocal(GV) ||
+      GV->hasExternalWeakLinkage()) {
+    unsigned Flags =
+        GV->getValueType()->isFunctionTy() ? IA64::S_LTOFF_FPTR : IA64::S_LTOFF;
+    return WithOffset(
+        loadLinkageTableEntry(
+            DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags), DL, DAG),
+        Offset);
+  }
+
+  // The folded offset must keep the address in reach of the 22-bit add,
+  // which holds if it stays inside the object.
+  const auto &TLOF =
+      static_cast<const IA64TargetObjectFile &>(*TM.getObjFileLowering());
+  if (TLOF.isShortData(GV, TM)) {
+    int64_t InObject =
+        Offset >= 0 && uint64_t(Offset) < IA64TargetObjectFile::ShortDataLimit
+            ? Offset
+            : 0;
+    return WithOffset(
+        DAG.getNode(IA64ISD::GPREL22, DL, MVT::i64,
+                    DAG.getTargetGlobalAddress(GV, DL, MVT::i64, InObject,
+                                               IA64::S_GPREL)),
+        Offset - InObject);
+  }
+  return DAG.getNode(
+      IA64ISD::GPREL64, DL, MVT::i64,
+      DAG.getTargetGlobalAddress(GV, DL, MVT::i64, Offset, IA64::S_GPREL));
 }
 
 // From the executable, a TLS variable is at an offset from the thread
@@ -405,8 +438,15 @@ SDValue IA64TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   return DAG.getMergeValues({Addr, Chain}, DL);
 }
 
-// An entry of a jump table is the distance from the table to the block,
-// which needs nothing done to it when the module is loaded.
+// Jump table entries are table-relative offsets, which need no dynamic
+// relocation.
+// A symbol offset is folded into the relocation where the address is formed,
+// and added in code where the address is loaded from the GOT.
+bool IA64TargetLowering::isOffsetFoldingLegal(
+    const GlobalAddressSDNode *GA) const {
+  return true;
+}
+
 unsigned IA64TargetLowering::getJumpTableEncoding() const {
   return MachineJumpTableInfo::EK_LabelDifference32;
 }

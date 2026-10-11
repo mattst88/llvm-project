@@ -23,6 +23,11 @@ def IA64retglue : SDNode<"IA64ISD::RET_GLUE", SDTypeProfile<0, 0, []>,
 // The address of a symbol's linkage table entry: @ltoff(sym) + gp.
 def IA64ltoff : SDNode<"IA64ISD::LTOFF", SDTIntUnaryOp>;
 
+// The address of a module-local symbol: @gprel(sym) + gp. Short data
+// offsets fit in an add immediate.
+def IA64gprel22 : SDNode<"IA64ISD::GPREL22", SDTIntUnaryOp>;
+def IA64gprel64 : SDNode<"IA64ISD::GPREL64", SDTIntUnaryOp>;
+
 // A TLS address: the symbol's offset in the TLS block plus the block's
 // base.
 def IA64tlsoff : SDNode<"IA64ISD::TLSOFF", SDTIntBinOp>;
@@ -301,6 +306,12 @@ def : Pat<(IA64ltoff tjumptable:$sym), (ADDL tjumptable:$sym, R1)>;
 def : Pat<(IA64ltoff tblockaddress:$sym), (ADDL tblockaddress:$sym, R1)>;
 
 // addl r1 = @tprel(sym), r3
+// addl r1 = @gprel(sym), gp
+def : Pat<(IA64gprel22 tglobaladdr:$sym), (ADDL tglobaladdr:$sym, R1)>;
+
+// movl r1 = @gprel(sym) ; add r1 = r1, gp
+def : Pat<(IA64gprel64 tglobaladdr:$sym), (ADD (MOVL tglobaladdr:$sym), R1)>;
+
 def : Pat<(IA64ltoff tglobaltlsaddr:$sym), (ADDL tglobaltlsaddr:$sym, R1)>;
 def : Pat<(IA64tlsoff tglobaltlsaddr:$sym, GR0_3:$base),
           (ADDL tglobaltlsaddr:$sym, GR0_3:$base)>;
