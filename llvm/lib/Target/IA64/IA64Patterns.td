@@ -270,6 +270,15 @@ foreach S = ["1", "2", "4"] in {
 }
 def : Pat<(store GR:$r2, GR:$r3), (ST8 GR:$r3, GR:$r2, 0)>;
 
+// Atomic loads use acquire semantics (ld.acq).
+def : Pat<(i64 (atomic_load_nonext_64 GR:$r3)), (LD8_ACQ GR:$r3, 0)>;
+foreach S = [["1", "8"], ["2", "16"], ["4", "32"]] in {
+  def : Pat<(i64 (!cast<PatFrag>("atomic_load_zext_"#S[1]) GR:$r3)),
+            (!cast<Instruction>("LD"#S[0]#"_ACQ") GR:$r3, 0)>;
+  def : Pat<(i64 (!cast<PatFrag>("atomic_load_nonext_"#S[1]) GR:$r3)),
+            (!cast<Instruction>("LD"#S[0]#"_ACQ") GR:$r3, 0)>;
+}
+
 // A floating-point load widens what it reads to the format of the register,
 // so a single is as good as a double once it is in one.
 def : Pat<(f32 (load GR:$r3)), (LDFS GR:$r3, 0)>;

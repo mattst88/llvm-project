@@ -10,6 +10,7 @@
 #include "IA64.h"
 #include "IA64MachineFunctionInfo.h"
 #include "TargetInfo/IA64TargetInfo.h"
+#include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -81,10 +82,16 @@ public:
     return getTM<IA64TargetMachine>();
   }
 
+  void addIRPasses() override;
   bool addInstSelector() override;
   void addPreEmitPass2() override;
 };
 } // end anonymous namespace
+
+void IA64PassConfig::addIRPasses() {
+  addPass(createAtomicExpandLegacyPass());
+  TargetPassConfig::addIRPasses();
+}
 
 bool IA64PassConfig::addInstSelector() {
   addPass(createIA64ISelDag(getIA64TargetMachine(), getOptLevel()));

@@ -42,6 +42,18 @@ public:
   void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
                           SelectionDAG &DAG) const override;
 
+  // The exchange instructions zero-extend the value they load, and cmpxchg
+  // compares it with all of ar.ccv.
+  ISD::NodeType getExtendForAtomicOps() const override {
+    return ISD::ZERO_EXTEND;
+  }
+  ISD::NodeType getExtendForAtomicCmpSwapArg() const override {
+    return ISD::ZERO_EXTEND;
+  }
+  AtomicExpansionKind
+  shouldExpandAtomicRMWInIR(const AtomicRMWInst *RMW) const override;
+  static bool isFetchAddIncrement(int64_t Inc);
+
   // Both expand to a few branch-free instructions around popcnt.
   bool isCheapToSpeculateCttz(Type *Ty) const override { return true; }
   bool isCheapToSpeculateCtlz(Type *Ty) const override { return true; }

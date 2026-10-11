@@ -137,6 +137,13 @@ def BRIND : IA64Pseudo<(outs), (ins GR:$target), "#BRIND", []>;
 // register that holds it.
 def FRAMEADDR : IA64Pseudo<(outs GR:$r1), (ins), "#FRAMEADDR", []>;
 
+// A $size-byte compare-and-exchange. The compare value must first be moved to
+// ar.ccv, which is why this stays a single pseudo until register allocation.
+let Defs = [AR32], mayLoad = 1, mayStore = 1, hasSideEffects = 1 in
+def CMPXCHG : IA64Pseudo<(outs GR:$r1),
+                         (ins GR:$r3, GR:$cmp, GR:$new, i64imm:$size),
+                         "#CMPXCHG", []>;
+
 let Uses = [R12] in
 def ADJDYNALLOC : IA64Pseudo<(outs GR:$r1), (ins), "#ADJDYNALLOC", []>;
 
@@ -407,6 +414,7 @@ defvar IntLoadKinds = !listconcat(FPLoadKinds,
                                   [MemKind<".bias", 4>, MemKind<".acq", 5>,
                                    MemKind<".c.clr.acq", 10>]);
 
+let mayLoad = 1 in
 multiclass IntLoad<bits<6> x6, string mnemonic> {
   def "" : M1<x6, mnemonic>;
   def _r : M2<x6, mnemonic>;
@@ -422,6 +430,7 @@ def LD8_MOV : M1Mov<0x03, "ld8.mov">;
 def LD16     : M1_16<0x28, "ld16">;
 def LD16_ACQ : M1_16<0x2c, "ld16.acq">;
 
+let mayStore = 1 in
 multiclass IntStore<bits<6> x6, string mnemonic> {
   def "" : M4<x6, mnemonic>;
   def _i : M5<x6, mnemonic>;
@@ -475,11 +484,14 @@ defm LFETCH_EXCL       : Fetch<0x2d, "lfetch.excl">;
 defm LFETCH_FAULT      : Fetch<0x2e, "lfetch.fault">;
 defm LFETCH_FAULT_EXCL : Fetch<0x2f, "lfetch.fault.excl">;
 
+let mayLoad = 1, mayStore = 1 in {
 foreach S = IntSizes in {
+  let Uses = [AR32] in {
   def CMPXCHG#S.Name#_ACQ : M16<!add(0x00, S.Code), "cmpxchg"#S.Name#".acq",
                                 ", ar.ccv">;
   def CMPXCHG#S.Name#_REL : M16<!add(0x04, S.Code), "cmpxchg"#S.Name#".rel",
                                 ", ar.ccv">;
+  }
   def XCHG#S.Name         : M16<!add(0x08, S.Code), "xchg"#S.Name>;
 }
 def CMP8XCHG16_ACQ : M16<0x20, "cmp8xchg16.acq", ", ar.csd, ar.ccv">;
@@ -489,6 +501,7 @@ def FETCHADD4_ACQ : M17<0x12, "fetchadd4.acq">;
 def FETCHADD8_ACQ : M17<0x13, "fetchadd8.acq">;
 def FETCHADD4_REL : M17<0x16, "fetchadd4.rel">;
 def FETCHADD8_REL : M17<0x17, "fetchadd8.rel">;
+}
 
 //===----------------------------------------------------------------------===//
 // Transfers between the general and floating-point registers

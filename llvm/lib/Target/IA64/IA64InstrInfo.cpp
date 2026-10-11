@@ -280,6 +280,22 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
+  case IA64::CMPXCHG: {
+    static const unsigned Opcodes[] = {IA64::CMPXCHG1_ACQ, IA64::CMPXCHG2_ACQ,
+                                       IA64::CMPXCHG4_ACQ, IA64::CMPXCHG8_ACQ};
+    BuildMI(MBB, MI, DL, get(IA64::MOV_AR), IA64::AR32)
+        .add(MI.getOperand(2))
+        .addReg(IA64::P0);
+    BuildMI(MBB, MI, DL, get(Opcodes[Log2_64(MI.getOperand(4).getImm())]))
+        .add(MI.getOperand(0))
+        .add(MI.getOperand(1))
+        .add(MI.getOperand(3))
+        .addImm(0)
+        .addReg(IA64::P0)
+        .addReg(IA64::AR32, RegState::Implicit | RegState::Kill);
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::ADJDYNALLOC: {
     const MachineFrameInfo &MFI = MBB.getParent()->getFrameInfo();
     uint64_t Offset = alignTo(MFI.getMaxCallFrameSize(), 16);

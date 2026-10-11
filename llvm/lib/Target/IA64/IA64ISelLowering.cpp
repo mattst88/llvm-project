@@ -143,7 +143,11 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   for (unsigned Opc : {ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS})
     setOperationAction(Opc, MVT::i64, Custom);
 
-  // Both halves of a product are two multiplications.
+  // MUL_LOHI expands to two multiplies, one for each half.
+  // Atomics wider than 64 bits are libcalls.
+  setMaxAtomicSizeInBitsSupported(64);
+  setMinCmpXchgSizeInBits(8);
+
   setOperationAction(ISD::SMUL_LOHI, MVT::i64, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i64, Expand);
 
@@ -564,4 +568,38 @@ IA64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   if (Glue.getNode())
     RetOps.push_back(Glue);
   return DAG.getNode(IA64ISD::RET_GLUE, DL, MVT::Other, RetOps);
+}
+
+// fetchadd adds one of eight immediates (+/-1, 4, 8, 16) to a 4- or 8-byte
+// location, and xchg stores a register. Everything else is a cmpxchg loop.
+bool IA64TargetLowering::isFetchAddIncrement(int64_t Inc) {
+  switch (Inc < 0 ? -uint64_t(Inc) : uint64_t(Inc)) {
+  case 1:
+  case 4:
+  case 8:
+  case 16:
+    return true;
+  default:
+    return false;
+  }
+}
+
+TargetLowering::AtomicExpansionKind
+IA64TargetLowering::shouldExpandAtomicRMWInIR(const AtomicRMWInst *RMW) const {
+  unsigned Bits = RMW->getType()->getPrimitiveSizeInBits();
+  switch (RMW->getOperation()) {
+  case AtomicRMWInst::Xchg:
+    if (RMW->getType()->isIntegerTy() && Bits <= 64)
+      return AtomicExpansionKind::None;
+    break;
+  case AtomicRMWInst::Add:
+  case AtomicRMWInst::Sub:
+    if (const auto *C = dyn_cast<ConstantInt>(RMW->getValOperand()))
+      if ((Bits == 32 || Bits == 64) && isFetchAddIncrement(C->getSExtValue()))
+        return AtomicExpansionKind::None;
+    break;
+  default:
+    break;
+  }
+  return AtomicExpansionKind::CmpXChg;
 }

@@ -201,6 +201,96 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
                          SDValue(GR, 0), P0);
     return;
   }
+  case ISD::ATOMIC_FENCE: {
+    // Atomic loads and stores already carry the ordering they need, so only a
+    // seq_cst fence emits anything.
+    SDValue Chain = Node->getOperand(0);
+    auto Ordering = AtomicOrdering(Node->getConstantOperandVal(1));
+    auto Scope = SyncScope::ID(Node->getConstantOperandVal(2));
+    if (Ordering != AtomicOrdering::SequentiallyConsistent ||
+        Scope == SyncScope::SingleThread) {
+      ReplaceUses(SDValue(Node, 0), Chain);
+      CurDAG->RemoveDeadNode(Node);
+      return;
+    }
+    CurDAG->SelectNodeTo(Node, IA64::MF, MVT::Other,
+                         CurDAG->getRegister(IA64::P0, MVT::i1), Chain);
+    return;
+  }
+  case ISD::ATOMIC_STORE: {
+    // st.rel orders the store after preceding accesses. Ordering it before
+    // subsequent loads as well (seq_cst) needs an mf.
+    static const unsigned Opcodes[] = {IA64::ST1_REL, IA64::ST2_REL,
+                                       IA64::ST4_REL, IA64::ST8_REL};
+    auto *Atomic = cast<AtomicSDNode>(Node);
+    SDValue P0 = CurDAG->getRegister(IA64::P0, MVT::i1);
+    SDValue Ops[] = {Node->getOperand(2), Node->getOperand(1),
+                     CurDAG->getTargetConstant(0, DL, MVT::i64), P0,
+                     Node->getOperand(0)};
+    unsigned Opcode = Opcodes[Log2_32(Atomic->getMemoryVT().getStoreSize())];
+    MachineMemOperand *MMO = Atomic->getMemOperand();
+    if (Atomic->getMergedOrdering() != AtomicOrdering::SequentiallyConsistent) {
+      SDNode *Store = CurDAG->SelectNodeTo(Node, Opcode, MVT::Other, Ops);
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(Store), {MMO});
+      return;
+    }
+    SDNode *Store = CurDAG->getMachineNode(Opcode, DL, MVT::Other, Ops);
+    CurDAG->setNodeMemRefs(cast<MachineSDNode>(Store), {MMO});
+    CurDAG->SelectNodeTo(Node, IA64::MF, MVT::Other, P0, SDValue(Store, 0));
+    return;
+  }
+  case ISD::ATOMIC_SWAP:
+  case ISD::ATOMIC_CMP_SWAP:
+  case ISD::ATOMIC_LOAD_ADD:
+  case ISD::ATOMIC_LOAD_SUB: {
+    // These have acquire semantics, and fetchadd can have release semantics
+    // instead. An operation that needs both is preceded by an mf.
+    auto *Atomic = cast<AtomicSDNode>(Node);
+    unsigned Size = Atomic->getMemoryVT().getStoreSize();
+    AtomicOrdering Ordering = Atomic->getMergedOrdering();
+    SDValue P0 = CurDAG->getRegister(IA64::P0, MVT::i1);
+    SDValue Hint = CurDAG->getTargetConstant(0, DL, MVT::i64);
+    SDValue Chain = Node->getOperand(0);
+    SDValue Ptr = Node->getOperand(1);
+    unsigned Opcode;
+    SmallVector<SDValue, 6> Ops = {Ptr};
+    bool Release = isReleaseOrStronger(Ordering);
+    if (Node->getOpcode() == ISD::ATOMIC_CMP_SWAP) {
+      Opcode = IA64::CMPXCHG;
+      Ops.append({Node->getOperand(2), Node->getOperand(3),
+                  CurDAG->getTargetConstant(Size, DL, MVT::i64)});
+    } else if (Node->getOpcode() == ISD::ATOMIC_SWAP) {
+      static const unsigned Opcodes[] = {IA64::XCHG1, IA64::XCHG2, IA64::XCHG4,
+                                         IA64::XCHG8};
+      Opcode = Opcodes[Log2_32(Size)];
+      Ops.append({Node->getOperand(2), Hint, P0});
+    } else {
+      auto *C = dyn_cast<ConstantSDNode>(Node->getOperand(2));
+      if (!C || Size < 4)
+        break;
+      int64_t Inc = C->getSExtValue();
+      if (Size == 4)
+        Inc = SignExtend64<32>(Inc);
+      if (Node->getOpcode() == ISD::ATOMIC_LOAD_SUB)
+        Inc = -uint64_t(Inc);
+      if (!IA64TargetLowering::isFetchAddIncrement(Inc))
+        break;
+      bool UseRel = Release && !isAcquireOrStronger(Ordering);
+      if (Size == 4)
+        Opcode = UseRel ? IA64::FETCHADD4_REL : IA64::FETCHADD4_ACQ;
+      else
+        Opcode = UseRel ? IA64::FETCHADD8_REL : IA64::FETCHADD8_ACQ;
+      Release &= !UseRel;
+      Ops.append({CurDAG->getTargetConstant(Inc, DL, MVT::i64), Hint, P0});
+    }
+    if (Release)
+      Chain = SDValue(
+          CurDAG->getMachineNode(IA64::MF, DL, MVT::Other, P0, Chain), 0);
+    Ops.push_back(Chain);
+    SDNode *New = CurDAG->SelectNodeTo(Node, Opcode, MVT::i64, MVT::Other, Ops);
+    CurDAG->setNodeMemRefs(cast<MachineSDNode>(New), {Atomic->getMemOperand()});
+    return;
+  }
   case ISD::SETCC: {
     static const unsigned Opcodes[] = {IA64::SETCC, IA64::SETCCi, IA64::SETCCf};
     SmallVector<SDValue, 4> Ops;
