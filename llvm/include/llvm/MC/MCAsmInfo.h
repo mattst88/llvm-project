@@ -176,6 +176,11 @@ protected:
   /// Defaults to false.
   bool AllowAtInName = false;
 
+  /// This is true if a symbol name can be followed by '#', which is not part
+  /// of the name and distinguishes the symbol from a register of the same name.
+  /// Defaults to false.
+  bool AllowHashAfterName = false;
+
   /// This is true if the assembler allows the "?" character at the start of
   /// of a string to be lexed as an AsmToken::Identifier.
   /// If the AsmLexer determines that the string can be lexed as a possible
@@ -582,6 +587,11 @@ public:
   }
   bool doesAllowAtInName() const { return AllowAtInName; }
   void setAllowAtInName(bool V) { AllowAtInName = V; }
+  bool doesAllowHashAfterName() const { return AllowHashAfterName; }
+
+  /// Whether \p Name must be printed as "Name#" in an expression to be parsed
+  /// back as a symbol. Only called when doesAllowHashAfterName().
+  virtual bool needsHashAfterName(StringRef Name) const { return false; }
   bool doesAllowQuestionAtStartOfIdentifier() const {
     return AllowQuestionAtStartOfIdentifier;
   }

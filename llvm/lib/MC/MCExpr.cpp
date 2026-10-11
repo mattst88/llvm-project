@@ -89,6 +89,9 @@ void MCExpr::print(raw_ostream &OS, const MCAsmInfo *MAI,
     const MCSymbolRefExpr &SRE = cast<MCSymbolRefExpr>(*this);
     const MCSymbol &Sym = SRE.getSymbol();
     Sym.print(OS, MAI);
+    if (MAI && MAI->doesAllowHashAfterName() &&
+        MAI->needsHashAfterName(Sym.getName()))
+      OS << '#';
 
     const MCSymbolRefExpr::VariantKind Kind = SRE.getKind();
     if (Kind) {

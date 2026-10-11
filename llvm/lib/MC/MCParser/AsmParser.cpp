@@ -2978,9 +2978,16 @@ bool AsmParser::parseIdentifier(StringRef &Res) {
   if (Lexer.isNot(AsmToken::Identifier) && Lexer.isNot(AsmToken::String))
     return true;
 
+  bool IsName = Lexer.is(AsmToken::Identifier);
   Res = getTok().getIdentifier();
 
   Lex(); // Consume the identifier token.
+
+  // "name#" is the symbol "name" where the assembler has registers and
+  // symbols share a namespace. The '#' has to be adjacent.
+  if (IsName && MAI.doesAllowHashAfterName() && Lexer.is(AsmToken::Hash) &&
+      getTok().getLoc().getPointer() == Res.end())
+    Lex();
 
   return false;
 }
