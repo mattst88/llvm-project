@@ -50,6 +50,7 @@
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCExpr.h"
@@ -237,6 +238,31 @@ public:
 
   void emitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) override;
 
+  /// Create the line entry for a .loc that has none yet. It refers to the
+  /// next instruction's slot, so unlike a label it does not end the bundle.
+  void makeLineEntry() {
+    MCContext &Ctx = getContext();
+    if (!Ctx.getDwarfLocSeen())
+      return;
+    MCSymbol *LineSym = Ctx.createTempSymbol();
+    NextTags.emplace_back(LineSym, SMLoc());
+    MCDwarfLineEntry LineEntry(LineSym, Ctx.getCurrentDwarfLoc());
+    Ctx.clearDwarfLocSeen();
+    Ctx.getMCDwarfLineTable(Ctx.getDwarfCompileUnitID())
+        .getMCLineSections()
+        .addLineEntry(LineEntry, getCurrentSectionOnly());
+  }
+  void emitDwarfLocDirective(unsigned FileNo, unsigned Line, unsigned Column,
+                             unsigned Flags, unsigned Isa,
+                             unsigned Discriminator, StringRef FileName,
+                             StringRef Comment) override {
+    // Of two consecutive .locs, the first gets its entry at the same place
+    // as the second.
+    makeLineEntry();
+    MCStreamer::emitDwarfLocDirective(FileNo, Line, Column, Flags, Isa,
+                                      Discriminator, FileName, Comment);
+  }
+
   // Anything else that has an address ends the bundle.
   void emitLabel(MCSymbol *Symbol, SMLoc Loc) override {
     // A label is not a stop: the instruction group may run on from the code
@@ -355,6 +381,7 @@ static unsigned countPlaced(const IA64II::BundleTemplate &T,
 void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
                                       const MCSubtargetInfo &STI) {
   MCStreamer::emitInstruction(Inst, STI);
+  makeLineEntry();
   unsigned Units =
       IA64::getSlotUnits(Inst, *MCII, *getContext().getRegisterInfo());
   // See the note on the packing above.
