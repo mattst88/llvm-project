@@ -265,9 +265,14 @@ public:
 
   // Anything else that has an address ends the bundle.
   void emitLabel(MCSymbol *Symbol, SMLoc Loc) override {
-    // A label is not a stop: the instruction group may run on from the code
-    // before it. The label is on a bundle, though, so the one before it ends.
+    // A label is not a stop: the instruction group may continue from the
+    // code before it. Labels must be on bundle boundaries, though, so the
+    // preceding bundle ends. A tag before the label still applies to the
+    // instruction after it.
+    auto Tags = std::move(NextTags);
+    NextTags.clear();
     flush(/*Stop=*/false);
+    NextTags = std::move(Tags);
     MCELFStreamer::emitLabel(Symbol, Loc);
   }
   void initSections(const MCSubtargetInfo &STI) override {

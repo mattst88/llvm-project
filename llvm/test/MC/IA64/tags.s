@@ -43,6 +43,12 @@ g:
 	.uleb128 i - .La
 	.global d
 [l:]
+// A label after a tag does not take the instruction from it.
+	.section .text.b, "ax"
+	nop 6
+[m:]
+n:
+	br.ret.sptk.many b0
 
 // CHECK:      Relocation section '.rela.data'
 // CHECK:      0000000000000000 {{.*}} R_IA64_DIR64LSB {{.*}} .text + 0
@@ -57,6 +63,8 @@ g:
 // CHECK-NEXT: 0000000000000060 0 NOTYPE LOCAL  DEFAULT [[#TEXT]] j
 // CHECK-NEXT: 0000000000000000 0 NOTYPE LOCAL  DEFAULT [[#DATA:]] k
 // CHECK-NEXT: 0000000000000020 0 NOTYPE LOCAL  DEFAULT [[#DATA]] l
+// CHECK-NEXT: 0000000000000010 0 NOTYPE LOCAL  DEFAULT [[#TEXTB:]] n
+// CHECK-NEXT: 0000000000000012 0 NOTYPE LOCAL  DEFAULT [[#TEXTB]] m
 // CHECK-NEXT: 0000000000000002 0 NOTYPE GLOBAL DEFAULT [[#TEXT]] d
 
 // CHECK:      Hex dump of section '.data':
