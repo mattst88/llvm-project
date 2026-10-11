@@ -23,6 +23,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
@@ -454,6 +455,22 @@ SDValue IA64TargetLowering::LowerGlobalAddress(SDValue Op,
     return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
                        DAG.getConstant(Offset, DL, MVT::i64));
   };
+
+  // A small-code-model variable is within reach of an absolute 22-bit add
+  // (from r0), whichever module defines it. Fold the offset into the symbol
+  // only if it stays inside the object, which is then in reach too.
+  if (const auto *Var = dyn_cast<GlobalVariable>(GV);
+      Var && Var->getCodeModel() == CodeModel::Small) {
+    uint64_t Size =
+        Var->getValueType()->isSized()
+            ? DAG.getDataLayout().getTypeAllocSize(Var->getValueType())
+            : 0;
+    int64_t InObject = Offset >= 0 && uint64_t(Offset) < Size ? Offset : 0;
+    return WithOffset(
+        DAG.getNode(IA64ISD::ABS22, DL, MVT::i64,
+                    DAG.getTargetGlobalAddress(GV, DL, MVT::i64, InObject)),
+        Offset - InObject);
+  }
 
   // An undefined weak symbol is not at a fixed offset from GP.
   if (GV->getValueType()->isFunctionTy() || !TM.shouldAssumeDSOLocal(GV) ||
