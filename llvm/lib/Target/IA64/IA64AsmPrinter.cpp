@@ -44,6 +44,8 @@ public:
   void emitInstruction(const MachineInstr *MI) override;
   void emitFunctionEntryLabel() override;
   void emitFunctionBodyEnd() override;
+  const MCExpr *lowerConstant(const Constant *CV, const Constant *BaseCV,
+                              uint64_t Offset) override;
 
 private:
   IA64TargetStreamer &getTargetStreamer() const {
@@ -60,6 +62,19 @@ private:
 } // end anonymous namespace
 
 char IA64AsmPrinter::ID = 0;
+
+const MCExpr *IA64AsmPrinter::lowerConstant(const Constant *CV,
+                                            const Constant *BaseCV,
+                                            uint64_t Offset) {
+  // A function pointer is the address of its function descriptor, which the
+  // linker creates via @fptr.
+  if (const auto *GV = dyn_cast<GlobalValue>(CV))
+    if (GV->getValueType()->isFunctionTy())
+      return MCSpecifierExpr::create(
+          MCSymbolRefExpr::create(getSymbol(GV), OutContext), IA64::S_FPTR,
+          OutContext);
+  return AsmPrinter::lowerConstant(CV, BaseCV, Offset);
+}
 
 MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
   switch (MO.getType()) {
