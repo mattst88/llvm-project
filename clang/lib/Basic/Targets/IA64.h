@@ -44,6 +44,10 @@ public:
     LongDoubleFormat = &llvm::APFloat::x87DoubleExtended();
     HasFloat128 = true;
 
+    // Every FP instruction rounds according to the FP status register and
+    // records its exceptions there.
+    HasStrictFP = true;
+
     SuitableAlign = 128;
 
     // Virtual tables hold function descriptors.
