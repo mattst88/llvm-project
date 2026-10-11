@@ -8,8 +8,11 @@ declare void @g(ptr, i64)
 define void @f(i64 %n) {
 ; CHECK-LABEL: f:
 ; CHECK:       alloc r34 = ar.pfs, 1, 4, 2, 0
+; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
+; CHECK-NEXT:  .vframe r36
 ; CHECK-NEXT:  mov r36 = r12
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r38 = r32 ;;
 ; CHECK-NEXT:  adds r14 = 15, r38 ;;
@@ -18,6 +21,7 @@ define void @f(i64 %n) {
 ; CHECK-NEXT:  adds r37 = 16, r12
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r33
+; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r36
 ; CHECK-NEXT:  mov b0 = r35
 ; CHECK-NEXT:  mov ar.pfs = r34
@@ -31,15 +35,19 @@ define void @f(i64 %n) {
 define i64 @fixed(i64 %n, i64 %m) {
 ; CHECK-LABEL: fixed:
 ; CHECK:       alloc r36 = ar.pfs, 2, 5, 2, 0
+; CHECK-NEXT:  .save rp, r37
 ; CHECK-NEXT:  mov r37 = b0
+; CHECK-NEXT:  .vframe r38
 ; CHECK-NEXT:  mov r38 = r12
 ; CHECK-NEXT:  adds r12 = -16, r12
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov r35 = r1 ;;
 ; CHECK-NEXT:  adds r34 = 8, r38 ;;
 ; CHECK-NEXT:  st8 [r34] = r33
 ; CHECK:       sub r12 = r12, r14 ;;
 ; CHECK-NEXT:  adds r39 = 16, r12
 ; CHECK:       ld8 r8 = [r34]
+; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r38
   %x = alloca i64
   store i64 %m, ptr %x
@@ -54,6 +62,7 @@ define i64 @fixed(i64 %n, i64 %m) {
 define i8 @leaf(i64 %n) {
 ; CHECK-LABEL: leaf:
 ; CHECK:       alloc r33 = ar.pfs, 1, 2, 0, 0
+; CHECK-NEXT:  .vframe r34
 ; CHECK-NEXT:  mov r34 = r12
 ; CHECK:       sub r12 = r12, r14
 ; CHECK:       mov r15 = r12 ;;

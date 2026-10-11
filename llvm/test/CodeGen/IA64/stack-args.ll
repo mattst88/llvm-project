@@ -21,8 +21,11 @@ define i64 @incoming(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 define i64 @outgoing(i64 %a) {
 ; CHECK-LABEL: outgoing:
 ; CHECK:       alloc r34 = ar.pfs, 1, 3, 8, 0
+; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
+; CHECK-NEXT:  .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  mov r15 = 10 ;;
@@ -33,6 +36,7 @@ define i64 @outgoing(i64 %a) {
 ; CHECK:       mov r43 = 8
 ; CHECK-NEXT:  br.call.sptk.many b0 = incoming ;;
 ; CHECK-NEXT:  mov r1 = r33
+; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
   %r = call i64 @incoming(i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7,
                           i64 8, i64 %a, i64 10)

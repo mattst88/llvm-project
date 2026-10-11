@@ -29,8 +29,11 @@ define ptr @return_address_call() {
 define ptr @frame_address() {
 ; CHECK-LABEL: frame_address:
 ; CHECK:       alloc r32 = ar.pfs, 0, 2, 0, 0
+; CHECK-NEXT:  .vframe r33
 ; CHECK-NEXT:  mov r33 = r12 ;;
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov r8 = r33
+; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r33
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = call ptr @llvm.frameaddress(i32 0)
@@ -40,14 +43,18 @@ define ptr @frame_address() {
 define ptr @frame_address_call() {
 ; CHECK-LABEL: frame_address_call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 4, 1, 0
+; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .vframe r35
 ; CHECK-NEXT:  mov r35 = r12
 ; CHECK-NEXT:  adds r12 = -48, r12
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  adds r36 = -24, r35
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  mov r8 = r35
+; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r35
   %b = alloca [40 x i8]
   call void @g(ptr %b)

@@ -10,7 +10,9 @@
 define void @spill(ptr %p, ptr %q) {
 ; CHECK-LABEL: spill:
 ; CHECK:         alloc r118 = ar.pfs, 2, 85, 8, 0
+; CHECK-NEXT:    .fframe 32
 ; CHECK-NEXT:    adds r12 = -32, r12 ;;
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    adds r2 = 40, r12 ;;
 ; CHECK-NEXT:    st8 [r2] = r4
 ; CHECK-NEXT:    adds r2 = 32, r12 ;;
@@ -43,6 +45,7 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    ld8 r7 = [r7]
 ; CHECK:         adds r4 = 40, r12 ;;
 ; CHECK-NEXT:    ld8 r4 = [r4]
+; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    adds r12 = 32, r12
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %v0 = load volatile i64, ptr %p

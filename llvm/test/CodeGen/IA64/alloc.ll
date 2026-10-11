@@ -19,6 +19,7 @@ define i64 @leaf(i64 %a, i64 %b) {
 define void @many(ptr %p, ptr %q) {
 ; CHECK-LABEL: many:
 ; CHECK:         alloc r35 = ar.pfs, 2, 2, 0, 0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    ld8 r14 = [r32]
 ; CHECK:         ld8 r34 = [r32]
 ; CHECK-NEXT:    ld8 r32 = [r32] ;;

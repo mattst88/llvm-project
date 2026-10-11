@@ -22,11 +22,13 @@ define i64 @scratch(i64 %a) {
 define i64 @frame(i64 %a) {
 ; CHECK-LABEL: frame:
 ; CHECK:         adds r12 = -16, r12 ;;
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    adds r14 = 8, r12 ;;
 ; CHECK-NEXT:    st8 [r14] = r32
 ; CHECK-NEXT:    adds r14 = 16, r14 ;;
 ; CHECK-NEXT:    st8 [r14] = r32
 ; CHECK-NEXT:    ld8 r8 = [r14]
+; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    adds r12 = 16, r12
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %p = alloca [3 x i64]
@@ -43,10 +45,13 @@ define i64 @frame(i64 %a) {
 define i64 @large(i64 %a) {
 ; CHECK-LABEL: large:
 ; CHECK:         mov r2 = -15984 ;;
+; CHECK-NEXT:    .fframe 15984
 ; CHECK-NEXT:    add r12 = r2, r12 ;;
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    mov r14 = r12 ;;
 ; CHECK-NEXT:    st8 [r14] = r32
 ; CHECK:         mov r2 = 15984 ;;
+; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    add r12 = r2, r12
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %p = alloca [2000 x i64]
@@ -57,8 +62,10 @@ define i64 @large(i64 %a) {
 define i64 @huge(i64 %a) {
 ; CHECK-LABEL: huge:
 ; CHECK:         movl r2 = -7999984 ;;
+; CHECK-NEXT:    .fframe 7999984
 ; CHECK-NEXT:    add r12 = r2, r12 ;;
 ; CHECK:         movl r2 = 7999984 ;;
+; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    add r12 = r2, r12
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %p = alloca [1000000 x i64]
@@ -72,7 +79,9 @@ define i64 @huge(i64 %a) {
 define ptr @far(ptr %q) {
 ; CHECK-LABEL: far:
 ; CHECK:         mov r2 = -16384 ;;
+; CHECK-NEXT:    .fframe 16384
 ; CHECK-NEXT:    add r12 = r2, r12 ;;
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    mov r14 = r12 ;;
 ; CHECK-NEXT:    st8 [r32] = r14
 ; CHECK-NEXT:    mov r8 = 16384 ;;

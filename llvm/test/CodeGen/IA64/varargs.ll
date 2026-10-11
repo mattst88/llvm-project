@@ -10,6 +10,7 @@ declare void @llvm.va_copy(ptr, ptr)
 define i64 @first(i32 %n, ...) {
 ; CHECK-LABEL: first:
 ; CHECK:       adds r12 = -48, r12 ;;
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  adds r14 = 56, r12 ;;
 ; CHECK-NEXT:  st8 [r14] = r39
 ; CHECK-NEXT:  adds r14 = 48, r12 ;;
@@ -29,6 +30,7 @@ define i64 @first(i32 %n, ...) {
 ; CHECK-NEXT:  adds r14 = 16, r12 ;;
 ; CHECK-NEXT:  st8 [r14] = r34
 ; CHECK-NEXT:  add r8 = r33, r34
+; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 48, r12
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %ap = alloca ptr

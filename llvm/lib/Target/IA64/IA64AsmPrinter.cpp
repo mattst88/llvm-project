@@ -20,6 +20,7 @@
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -44,7 +45,10 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override;
   void emitInstruction(const MachineInstr *MI) override;
   void emitFunctionEntryLabel() override;
+  void emitFunctionBodyStart() override;
   void emitFunctionBodyEnd() override;
+  void emitBasicBlockStart(const MachineBasicBlock &MBB) override;
+  void emitDebugInstrLabel(MCSymbol *Sym) override;
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        const char *ExtraCode, raw_ostream &OS) override;
   bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
@@ -61,10 +65,20 @@ private:
   }
 
   MCOperand lowerOperand(const MachineOperand &MO) const;
+  void emitUnwindDirectives(const MachineInstr &MI);
 
   // The physical register that r120, the first output register as codegen
   // numbers it, maps to in this function.
   MCRegister FirstOutput;
+
+  // The number of prologue instructions not yet emitted.
+  unsigned PrologueLeft = 0;
+  // Whether the prologue has emitted .vframe for the entry sp.
+  bool HasVFrame = false;
+  // The last .label_state number, and whether the following code must
+  // .copy_state it back because an epilogue undid it.
+  unsigned StateLabel = 0;
+  bool CopyState = false;
 };
 
 } // end anonymous namespace
@@ -171,6 +185,87 @@ void IA64AsmPrinter::emitFunctionEntryLabel() {
 
 void IA64AsmPrinter::emitFunctionBodyEnd() { getTargetStreamer().emitEndp(); }
 
+// Callee-saved registers are saved at function entry, in the prologue
+// region. The rest is a body region, where the unwinder undoes the frame
+// using the prologue's unwind directives.
+void IA64AsmPrinter::emitFunctionBodyStart() {
+  PrologueLeft = 0;
+  HasVFrame = false;
+  StateLabel = 0;
+  CopyState = false;
+  for (const MachineInstr &MI : MF->front())
+    if (MI.getFlag(MachineInstr::FrameSetup) && !MI.isMetaInstruction())
+      ++PrologueLeft;
+  getTargetStreamer().emitPrologue();
+  if (!PrologueLeft)
+    getTargetStreamer().emitBody();
+}
+
+// A label ends the bundle, and whether there is debug info is not to say
+// where a bundle ends. A tag is the slot of the instruction after it, which
+// is what the line table has for an address too.
+void IA64AsmPrinter::emitDebugInstrLabel(MCSymbol *Sym) {
+  getTargetStreamer().emitTag(Sym);
+}
+
+// An epilogue undoes the frame only for the rest of its region, so the code
+// after it is a new body region that copies the state from before the
+// epilogue.
+void IA64AsmPrinter::emitBasicBlockStart(const MachineBasicBlock &MBB) {
+  AsmPrinter::emitBasicBlockStart(MBB);
+  if (!CopyState)
+    return;
+  getTargetStreamer().emitBody();
+  getTargetStreamer().emitCopyState(StateLabel);
+  CopyState = false;
+}
+
+// Emit unwind directives for a prologue or epilogue instruction.
+void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
+  IA64TargetStreamer &TS = getTargetStreamer();
+  if (MI.getFlag(MachineInstr::FrameDestroy)) {
+    if (!MI.modifiesRegister(IA64::R12, /*TRI=*/nullptr))
+      return;
+    if (MI.getParent() != &MF->back()) {
+      TS.emitLabelState(++StateLabel);
+      CopyState = true;
+    }
+    TS.emitRestore();
+    return;
+  }
+  if (!MI.getFlag(MachineInstr::FrameSetup))
+    return;
+  switch (MI.getOpcode()) {
+  case IA64::ALLOC:
+    TS.emitSave(IA64TargetStreamer::UR_PFS,
+                MI.getOperand(0).getReg() - IA64::R0);
+    break;
+  case IA64::MOV_FROM_BR:
+    if (MI.getOperand(1).getReg() == IA64::B0)
+      TS.emitSave(IA64TargetStreamer::UR_RP,
+                  MI.getOperand(0).getReg() - IA64::R0);
+    break;
+  case IA64::ADDS:
+    // A copy of sp made before sp moves locates the frame from then on.
+    if (MI.getOperand(0).getReg() != IA64::R12) {
+      if (!HasVFrame && MI.getOperand(1).isImm() &&
+          MI.getOperand(1).getImm() == 0 && MI.getOperand(2).isReg() &&
+          MI.getOperand(2).getReg() == IA64::R12) {
+        TS.emitVFrame(MI.getOperand(0).getReg() - IA64::R0);
+        HasVFrame = true;
+      }
+      break;
+    }
+    [[fallthrough]];
+  case IA64::ADD:
+    if (!HasVFrame && MI.modifiesRegister(IA64::R12, /*TRI=*/nullptr))
+      TS.emitFFrame(MF->getFrameInfo().getStackSize());
+    break;
+  default:
+    break;
+  }
+}
+
 bool IA64AsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                                      const char *ExtraCode, raw_ostream &OS) {
   if (ExtraCode && ExtraCode[0])
@@ -214,6 +309,16 @@ void IA64AsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
 }
 
 void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
+  emitUnwindDirectives(*MI);
+  // The prologue ends where its last instruction does.
+  struct EndPrologue {
+    IA64AsmPrinter &AP;
+    bool Last;
+    ~EndPrologue() {
+      if (Last)
+        AP.getTargetStreamer().emitBody();
+    }
+  } End{*this, MI->getFlag(MachineInstr::FrameSetup) && --PrologueLeft == 0};
   MCInst OutMI;
   if (MI->getOpcode() == IA64::BRUNCOND) {
     // The branch nothing qualifies: "br.cond.sptk.few" under p0.

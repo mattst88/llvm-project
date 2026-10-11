@@ -7,6 +7,7 @@
 
 # CHECK-LABEL: outputs:
 # CHECK:         alloc r35 = ar.pfs, 2, 2, 2, 0
+# CHECK-NEXT:    .body
 # CHECK-NEXT:    add r34 = r32, r33
 # CHECK-NEXT:    mov r36 = r33 ;;
 # CHECK-NEXT:    add r37 = r34, r36 ;;

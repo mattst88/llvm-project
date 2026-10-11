@@ -108,6 +108,7 @@ define double @minus_zero() {
 define double @across(double %a) {
 ; CHECK-LABEL: across:
 ; CHECK:       adds r12 = -16, r12 ;;
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  adds r2 = 16, r12 ;;
 ; CHECK-NEXT:  stf.spill [r2] = f2
 ; CHECK:       mov f2 = f8
@@ -115,6 +116,7 @@ define double @across(double %a) {
 ; CHECK:       mov f8 = f2
 ; CHECK-NEXT:  adds r2 = 16, r12 ;;
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
+; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
   %r = call double @x(i64 1, float 2.0, i64 3, double 4.0)
   ret double %a
