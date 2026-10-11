@@ -126,6 +126,9 @@ IA64MCAsmInfo::IA64MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
   Data32bitsDirective = "\tdata4.ua\t";
   Data64bitsDirective = "\tdata8.ua\t";
 
+  // GCC writes every symbol as "name#" in case it is called r4.
+  AllowHashAfterName = true;
+
   UsesELFSectionDirectiveForBSS = true;
   SupportsDebugInformation = true;
 }

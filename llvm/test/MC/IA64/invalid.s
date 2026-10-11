@@ -300,3 +300,9 @@
 	data1.ua 3
 // CHECK: :[[#@LINE+1]]:2: error: unknown directive
 	.long.ua 3
+
+// The '#' of "name#" has to follow the name directly.
+// CHECK: :[[#@LINE+1]]:14: error: unknown token in expression
+	add r4 = r5 #, r6
+// CHECK: :[[#@LINE+1]]:12: error: unexpected token
+	.global f #

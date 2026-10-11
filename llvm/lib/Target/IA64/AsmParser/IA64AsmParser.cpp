@@ -604,6 +604,10 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     break;
   }
   case AsmToken::Identifier: {
+    // "r4#" is the symbol r4 and not the register.
+    const AsmToken &Next = getLexer().peekTok();
+    if (Next.is(AsmToken::Hash) && Next.getLoc() == Tok.getEndLoc())
+      break;
     MCRegister Reg;
     SMLoc E;
     if (tryParseRegister(Reg, S, E).isSuccess()) {
