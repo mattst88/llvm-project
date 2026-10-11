@@ -311,6 +311,7 @@ foreach K = IntLoadKinds in
         : IntLoad<!add(!shl(K.Code, 2), S.Code), "ld"#S.Name#K.Name>;
 // The fill restores a register and its NaT bit from a spill.
 defm LD8_FILL : IntLoad<0x1b, "ld8.fill">;
+def LD8_MOV : M1Mov<0x03, "ld8.mov">;
 def LD16     : M1_16<0x28, "ld16">;
 def LD16_ACQ : M1_16<0x2c, "ld16.acq">;
 

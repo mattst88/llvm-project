@@ -73,6 +73,7 @@ static const RelocRow RelocTable[] = {
     {IA64::fixup_ia64_pcrel21m, {R(PCREL21M)}},
     {IA64::fixup_ia64_pcrel21f, {R(PCREL21F)}},
     {IA64::fixup_ia64_pcrel60b, {R(PCREL60B)}},
+    {IA64::fixup_ia64_ldxmov, {R(LDXMOV)}},
 };
 #undef R
 

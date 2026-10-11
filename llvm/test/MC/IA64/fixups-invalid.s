@@ -44,6 +44,9 @@ f:
 	addl r4 = @ltoff(@fptr(x+8)), r1
 // CHECK: :[[#@LINE+1]]:9: error: @fptr cannot take an offset
 	.8byte @fptr(x+8)
+// The symbol of ld8.mov is the one the linkage table entry is for.
+// CHECK: :[[#@LINE+1]]:21: error: relocation specifier is not supported here
+	ld8.mov r1 = [r2], @ltoff(x)
 
 	.space 0x2000
 .Lb:

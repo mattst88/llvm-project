@@ -57,7 +57,7 @@ MCFixupKindInfo IA64AsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_ia64_imm64", 0, 41, 0},     {"fixup_ia64_pcrel21b", 13, 20, 0},
       {"fixup_ia64_pcrel21m", 20, 13, 0}, {"fixup_ia64_pcrel21f", 6, 20, 0},
       {"fixup_ia64_pcrel60b", 2, 39, 0},  {"fixup_ia64_tag13b", 6, 7, 0},
-      {"fixup_ia64_tag13i", 24, 9, 0},
+      {"fixup_ia64_tag13i", 24, 9, 0},    {"fixup_ia64_ldxmov", 0, 0, 0},
   };
   if (Kind < FirstTargetFixupKind)
     return MCAsmBackend::getFixupKindInfo(Kind);
@@ -97,6 +97,10 @@ void IA64AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
     Asm->getWriter().recordRelocation(F, Fixup, Target, Value);
     return;
   }
+
+  // The symbol of ld8.mov is there for the linker alone.
+  if (Kind == IA64::fixup_ia64_ldxmov)
+    return;
 
   if (Kind < FirstTargetFixupKind) {
     unsigned Size = getFixupKindInfo(Kind).TargetSize / 8;

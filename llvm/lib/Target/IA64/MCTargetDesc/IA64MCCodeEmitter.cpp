@@ -129,6 +129,10 @@ void IA64MCCodeEmitter::encodeInstruction(const MCInst &MI,
   } else {
     Slot = getBinaryCodeForInstr(MI, Fixups, STI);
   }
+  // The symbol of ld8.mov has no field to go in.
+  if (Opcode == IA64::LD8_MOV && MI.getOperand(2).isExpr())
+    Fixups.push_back(MCFixup::create(0, MI.getOperand(2).getExpr(),
+                                     IA64::fixup_ia64_ldxmov));
   for (unsigned I = 0; I != IA64::SlotBytes; ++I)
     CB.push_back(static_cast<char>(Slot >> (8 * I)));
 }

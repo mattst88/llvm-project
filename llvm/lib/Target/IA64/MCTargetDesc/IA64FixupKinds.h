@@ -37,6 +37,9 @@ enum Fixups {
   fixup_ia64_tag13b,
   // The same, in the tag field of a move to a branch register.
   fixup_ia64_tag13i,
+  // The symbol of ld8.mov. It fills no field: the relocation marks the
+  // instruction for linker relaxation.
+  fixup_ia64_ldxmov,
 
   fixup_ia64_invalid,
   NumTargetFixupKinds = fixup_ia64_invalid - FirstTargetFixupKind

@@ -1018,6 +1018,28 @@ class M1<bits<6> x6, string mnemonic>
   bits<7> r1;
   let Inst{12-6} = r1;
 }
+// A linkage table load that names the symbol whose address it loads. If the
+// address is at a constant offset from gp, the linker may relax the load to
+// a move. The symbol is only a relocation, so the encoding is that of the
+// plain load, which is what a disassembler sees.
+def SymbolAsmOperand : AsmOperandClass {
+  let Name = "Symbol";
+  let RenderMethod = "addImmOperands";
+  let PredicateMethod = "isImm";
+}
+def ldxmov : Operand<i64> {
+  let ParserMatchClass = SymbolAsmOperand;
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+class M1Mov<bits<6> x6, string mnemonic>
+    : MMemRegInst<4, 0, x6, 0, (outs GR:$r1), (ins GR:$r3, ldxmov:$sym),
+                  mnemonic, "$r1 = [$r3], $sym"> {
+  bits<7> r1;
+  let hint = 0;
+  let Inst{12-6} = r1;
+  let AsmString = mnemonic#"${qp}\t$r1 = [$r3], $sym";
+  let isAsmParserOnly = 1;
+}
 // The 16-byte load puts the high half in ar.csd.
 class M1_16<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 0, x6, 1, (outs GR:$r1), (ins GR:$r3, ldhint:$hint),
