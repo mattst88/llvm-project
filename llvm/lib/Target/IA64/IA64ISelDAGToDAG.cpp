@@ -31,8 +31,12 @@ public:
 
   bool runOnMachineFunction(MachineFunction &MF) override {
     Subtarget = &MF.getSubtarget<IA64Subtarget>();
-    return SelectionDAGISel::runOnMachineFunction(MF);
+    bool Changed = SelectionDAGISel::runOnMachineFunction(MF);
+    restoreGPAtLandingPads(MF);
+    return Changed;
   }
+
+  void restoreGPAtLandingPads(MachineFunction &MF);
 
   void Select(SDNode *Node) override;
 
@@ -64,6 +68,35 @@ public:
 } // end anonymous namespace
 
 char IA64DAGToDAGISelLegacy::ID = 0;
+
+// A throwing call does not return, and GP holds whatever the throwing
+// function had in it. Like the code after a call, a landing pad must restore
+// its own function's GP before anything else.
+void IA64DAGToDAGISel::restoreGPAtLandingPads(MachineFunction &MF) {
+  if (none_of(MF, [](const MachineBasicBlock &MBB) { return MBB.isEHPad(); }))
+    return;
+
+  const TargetInstrInfo &TII = *Subtarget->getInstrInfo();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  llvm::Register GPReg = MRI.getLiveInVirtReg(IA64::R1);
+  if (!GPReg) {
+    MachineBasicBlock &Entry = MF.front();
+    GPReg = MF.addLiveIn(IA64::R1, &IA64::GRSaveRegClass);
+    if (!Entry.isLiveIn(IA64::R1))
+      Entry.addLiveIn(IA64::R1);
+    BuildMI(Entry, Entry.begin(), DebugLoc(), TII.get(TargetOpcode::COPY),
+            GPReg)
+        .addReg(IA64::R1);
+  }
+
+  for (MachineBasicBlock &MBB : MF) {
+    if (!MBB.isEHPad())
+      continue;
+    BuildMI(MBB, MBB.SkipPHIsLabelsAndDebug(MBB.begin()), DebugLoc(),
+            TII.get(TargetOpcode::COPY), IA64::R1)
+        .addReg(GPReg);
+  }
+}
 
 static IA64CC::CondCode getIA64CC(ISD::CondCode CC) {
   switch (CC) {

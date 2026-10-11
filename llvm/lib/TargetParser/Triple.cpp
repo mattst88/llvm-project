@@ -2493,6 +2493,8 @@ ExceptionHandling Triple::getDefaultExceptionHandling() const {
     return ExceptionHandling::AIX;
   if (isOSBinFormatGOFF())
     return ExceptionHandling::ZOS;
+  if (getArch() == Triple::ia64)
+    return ExceptionHandling::IA64;
 
   if (isARM() || isThumb()) {
     if (isOSBinFormatELF()) {

@@ -20,8 +20,10 @@
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/EHStreamer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/IR/EHPersonalities.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
@@ -31,6 +33,50 @@
 using namespace llvm;
 
 namespace {
+
+// Whether a function's unwind info names a personality routine and is
+// followed by language-specific data for it. True for a function with a
+// landing pad, and for one that needs an unwind table entry and whose
+// personality routine is not a no-op without an invoke.
+bool hasHandlerData(const MachineFunction &MF) {
+  if (!MF.getLandingPads().empty())
+    return true;
+  const Function &F = MF.getFunction();
+  if (!F.hasPersonalityFn() || !F.needsUnwindTableEntry())
+    return false;
+  return !isNoOpWithoutInvoke(
+      classifyEHPersonality(F.getPersonalityFn()->stripPointerCasts()));
+}
+
+// The exception table is the last part of a function's unwind info. It is
+// emitted at the end of the procedure, between .handlerdata and .endp.
+class IA64Exception : public EHStreamer {
+public:
+  explicit IA64Exception(AsmPrinter *A) : EHStreamer(A) {}
+
+  void endModule() override {}
+  void beginFunction(const MachineFunction *MF) override {}
+
+  void endFunction(const MachineFunction *MF) override {
+    if (!hasHandlerData(*MF))
+      return;
+    MCStreamer &OS = *Asm->OutStreamer;
+    auto &TS = static_cast<IA64TargetStreamer &>(*OS.getTargetStreamer());
+
+    // Data emitted for the function, such as a jump table, may have left
+    // another section current.
+    OS.switchSection(MF->getSection());
+    const Function &F = MF->getFunction();
+    if (F.hasPersonalityFn())
+      if (const auto *Per =
+              dyn_cast<GlobalValue>(F.getPersonalityFn()->stripPointerCasts()))
+        TS.emitPersonality(Asm->getSymbol(Per));
+    TS.emitHandlerData();
+    emitExceptionTable();
+    OS.switchSection(MF->getSection());
+    TS.emitEndp();
+  }
+};
 
 class IA64AsmPrinter : public AsmPrinter {
 public:
@@ -42,6 +88,7 @@ public:
 
   StringRef getPassName() const override { return "IA64 Assembly Printer"; }
 
+  bool doInitialization(Module &M) override;
   bool runOnMachineFunction(MachineFunction &MF) override;
   void emitInstruction(const MachineInstr *MI) override;
   void emitFunctionEntryLabel() override;
@@ -183,7 +230,22 @@ void IA64AsmPrinter::emitFunctionEntryLabel() {
   AsmPrinter::emitFunctionEntryLabel();
 }
 
-void IA64AsmPrinter::emitFunctionBodyEnd() { getTargetStreamer().emitEndp(); }
+// A procedure with an exception table ends after the table, which is not
+// emitted yet. The table and the function size both need the end address of
+// the last bundle, and GNU as places a label after an instruction inside that
+// instruction's bundle unless the bundle has been closed.
+void IA64AsmPrinter::emitFunctionBodyEnd() {
+  if (hasHandlerData(*MF))
+    OutStreamer->emitValueToAlignment(Align(16));
+  else
+    getTargetStreamer().emitEndp();
+}
+
+bool IA64AsmPrinter::doInitialization(Module &M) {
+  bool Changed = AsmPrinter::doInitialization(M);
+  EHHandlers.push_back(std::make_unique<IA64Exception>(this));
+  return Changed;
+}
 
 // Callee-saved registers are saved at function entry, in the prologue
 // region. The rest is a body region, where the unwinder undoes the frame

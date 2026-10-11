@@ -519,6 +519,18 @@ unsigned IA64TargetLowering::getJumpTableEncoding() const {
   return MachineJumpTableInfo::EK_LabelDifference32;
 }
 
+Register
+IA64TargetLowering::getExceptionPointerRegister(ExceptionHandling,
+                                                const Constant *) const {
+  return IA64::R15;
+}
+
+Register
+IA64TargetLowering::getExceptionSelectorRegister(ExceptionHandling,
+                                                 const Constant *) const {
+  return IA64::R16;
+}
+
 SDValue IA64TargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,

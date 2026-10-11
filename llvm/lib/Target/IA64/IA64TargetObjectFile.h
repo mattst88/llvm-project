@@ -29,6 +29,19 @@ public:
 
   MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
                                     const TargetMachine &TM) const override;
+
+  /// A function's LSDA is part of its unwind info and has no section of its
+  /// own.
+  MCSection *getSectionForLSDA(const Function &, const MCSymbol &,
+                               const TargetMachine &) const override {
+    return nullptr;
+  }
+
+  const MCExpr *getTTypeGlobalReference(const GlobalValue *GV,
+                                        unsigned Encoding,
+                                        const TargetMachine &TM,
+                                        MachineModuleInfo *MMI,
+                                        MCStreamer &Streamer) const override;
 };
 
 } // end namespace llvm

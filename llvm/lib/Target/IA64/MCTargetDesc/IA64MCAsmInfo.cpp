@@ -189,4 +189,5 @@ IA64MCAsmInfo::IA64MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
 
   UsesELFSectionDirectiveForBSS = true;
   SupportsDebugInformation = true;
+  ExceptionsType = ExceptionHandling::IA64;
 }

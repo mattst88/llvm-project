@@ -3354,6 +3354,9 @@ TEST(TripleTest, DefaultExceptionHandling) {
   EXPECT_EQ(ExceptionHandling::DwarfCFI,
             Triple("thumbv7-none-netbsd").getDefaultExceptionHandling());
 
+  EXPECT_EQ(ExceptionHandling::IA64,
+            Triple("ia64-unknown-linux-gnu").getDefaultExceptionHandling());
+
   EXPECT_EQ(ExceptionHandling::ZOS,
             Triple("s390x-ibm-zos").getDefaultExceptionHandling());
   EXPECT_EQ(ExceptionHandling::DwarfCFI,

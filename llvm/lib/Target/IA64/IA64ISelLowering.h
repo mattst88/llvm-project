@@ -87,6 +87,14 @@ public:
   }
   bool isJumpTableRelative() const override { return true; }
 
+  // The unwinder provides four registers, r15-r18, that a personality routine
+  // may set for a landing pad; the C++ personality puts the exception pointer
+  // in r15 and the selector in r16.
+  Register getExceptionPointerRegister(ExceptionHandling,
+                                       const Constant *) const override;
+  Register getExceptionSelectorRegister(ExceptionHandling,
+                                        const Constant *) const override;
+
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 

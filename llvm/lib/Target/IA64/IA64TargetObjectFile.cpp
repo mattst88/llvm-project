@@ -15,11 +15,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64TargetObjectFile.h"
+#include "MCTargetDesc/IA64MCAsmInfo.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/IR/Comdat.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Target/TargetMachine.h"
@@ -29,12 +33,40 @@ using namespace llvm;
 void IA64TargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM) {
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
 
+  // Unwind info is read-only, so it cannot hold addresses needing dynamic
+  // relocations. The exception table references type info indirectly,
+  // through a GP-relative offset to a word holding its address, which the
+  // linker can resolve.
+  TTypeEncoding = dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_datarel |
+                  dwarf::DW_EH_PE_udata8;
+
   ShortDataSection =
       Ctx.getELFSection(".sdata", ELF::SHT_PROGBITS,
                         ELF::SHF_WRITE | ELF::SHF_ALLOC | ELF::SHF_IA_64_SHORT);
   ShortBSSSection =
       Ctx.getELFSection(".sbss", ELF::SHT_NOBITS,
                         ELF::SHF_WRITE | ELF::SHF_ALLOC | ELF::SHF_IA_64_SHORT);
+}
+
+const MCExpr *IA64TargetObjectFile::getTTypeGlobalReference(
+    const GlobalValue *GV, unsigned Encoding, const TargetMachine &TM,
+    MachineModuleInfo *MMI, MCStreamer &Streamer) const {
+  if ((Encoding & 0x70) != dwarf::DW_EH_PE_datarel)
+    return TargetLoweringObjectFileELF::getTTypeGlobalReference(
+        GV, Encoding, TM, MMI, Streamer);
+
+  const MCSymbol *Sym = TM.getSymbol(GV);
+  if (Encoding & dwarf::DW_EH_PE_indirect) {
+    MCSymbol *Stub = getSymbolWithGlobalValueBase(GV, ".DW.stub", TM);
+    MachineModuleInfoImpl::StubValueTy &Entry =
+        MMI->getObjFileInfo<MachineModuleInfoELF>().getGVStubEntry(Stub);
+    if (!Entry.getPointer())
+      Entry = MachineModuleInfoImpl::StubValueTy(TM.getSymbol(GV),
+                                                 !GV->hasLocalLinkage());
+    Sym = Stub;
+  }
+  return MCSpecifierExpr::create(MCSymbolRefExpr::create(Sym, getContext()),
+                                 IA64::S_GPREL, getContext());
 }
 
 bool IA64TargetObjectFile::isShortData(const GlobalValue *GV,
