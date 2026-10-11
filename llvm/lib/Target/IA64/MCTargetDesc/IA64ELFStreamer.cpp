@@ -31,6 +31,14 @@
 //     if they had. If that assigns one a B slot, the bundle ends before it,
 //     and a "hint" becomes hint.i in the next bundle.
 //
+// A template directive such as ".mmi" starts a new bundle with that template
+// for the next instruction. Instructions fill its slots as for any other
+// template, and those that do not fit go to the following bundle. The units
+// are kept regardless of stops: a stop at a position where the template has
+// no stop variant moves to the next position where it has one, or to the end
+// of the bundle, with nops in the slots up to there. Instructions before the
+// directive are packed as if it were absent, except that they end there.
+//
 //===----------------------------------------------------------------------===//
 
 #include "IA64ELFStreamer.h"
@@ -62,6 +70,9 @@ class IA64ELFStreamer : public MCELFStreamer {
     /// The slot units that can hold it, one bit per IA64II::Unit.
     unsigned Units;
     bool Stop;
+    /// The template a directive gave the bundle this instruction starts, or
+    /// -1.
+    int Template;
   };
 
   std::unique_ptr<MCInstrInfo> MCII;
@@ -72,6 +83,9 @@ class IA64ELFStreamer : public MCELFStreamer {
   /// label flushed it, and what follows the label may still end the group.
   MCFragment *OpenFragment = nullptr;
   size_t OpenOffset = 0;
+
+  /// The template named by a directive for the next instruction's bundle.
+  int NextTemplate = -1;
 
   /// Write the first of \p Insts into one bundle and return how many it took.
   size_t emitBundle(MutableArrayRef<PendingInst> Insts);
@@ -106,8 +120,11 @@ public:
   void reset() override {
     Pending.clear();
     OpenFragment = nullptr;
+    NextTemplate = -1;
     MCELFStreamer::reset();
   }
+
+  void emitTemplate(unsigned Index) { NextTemplate = Index; }
 
   void emitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) override;
 
@@ -228,26 +245,49 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   if (Inst.getOpcode() == IA64::HINT || Inst.getOpcode() == IA64::CHK_S)
     Units |= 1u << IA64II::UnitB;
   assert(Units != 0 && "instruction has no unit");
-  Pending.push_back(
-      {Inst, &STI, Units, (Inst.getFlags() & IA64II::StopAfter) != 0});
+  Pending.push_back({Inst, &STI, Units,
+                     (Inst.getFlags() & IA64II::StopAfter) != 0, NextTemplate});
+  NextTemplate = -1;
 }
 
 size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
-  constexpr unsigned MSemiMI = 5, MISemiI = 1;
+  constexpr unsigned MII = 0, MISemiI = 1, MMI = 4, MSemiMI = 5;
   constexpr uint64_t Nop = 0x8000000, NopB = uint64_t(2) << 37;
 
-  unsigned Index = 0, Best = 0;
-  for (unsigned I = 0; I != std::size(IA64II::BundleTemplates); ++I) {
-    const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
-    if (!T.Name || T.MidStop != -1)
-      continue;
-    unsigned N = countPlaced<PendingInst>(T, Insts.take_front(3));
-    if (N > Best) {
-      Best = N;
-      Index = I;
+  // A template from a directive must at least have a slot for the
+  // instruction after the directive.
+  bool Explicit = Insts[0].Template != -1;
+  if (Explicit) {
+    const IA64II::BundleTemplate &T =
+        IA64II::BundleTemplates[Insts[0].Template];
+    if (none_of(T.Slots, [&](IA64II::Unit Unit) {
+          return slotTakes(Unit, Insts[0].Units) &&
+                 IA64::getOpcodeForUnit(Insts[0].Inst.getOpcode(), Unit) != 0;
+        })) {
+      getContext().reportError(Insts[0].Inst.getLoc(),
+                               Twine("instruction does not fit the ") + T.Name +
+                                   " template");
+      Explicit = false;
     }
   }
-  assert(Best != 0 && "no template takes the instruction");
+
+  unsigned Index = 0;
+  if (Explicit) {
+    Index = Insts[0].Template;
+  } else {
+    unsigned Best = 0;
+    for (unsigned I = 0; I != std::size(IA64II::BundleTemplates); ++I) {
+      const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
+      if (!T.Name || T.MidStop != -1)
+        continue;
+      unsigned N = countPlaced<PendingInst>(T, Insts.take_front(3));
+      if (N > Best) {
+        Best = N;
+        Index = I;
+      }
+    }
+    assert(Best != 0 && "no template takes the instruction");
+  }
 
   ensureHeadroom(IA64II::BundleBytes);
   MCFragment *F = getCurrentFragment();
@@ -259,7 +299,12 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   SmallString<12> Code;
   size_t Taken = 0;
   bool EndStop = false;
-  for (unsigned Slot = 0; Slot != 3 && Taken != Insts.size(); ++Slot) {
+  // The bundle ends at the last instruction, or where a directive starts
+  // another.
+  auto AtEnd = [&] {
+    return Taken == Insts.size() || Insts[Taken].Template != -1;
+  };
+  for (unsigned Slot = 0; Slot != 3 && (Taken == 0 || !AtEnd()); ++Slot) {
     PendingInst &PI = Insts[Taken];
     IA64II::Unit Unit = IA64II::BundleTemplates[Index].Slots[Slot];
     if (!slotTakes(Unit, PI.Units))
@@ -270,8 +315,12 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
     Inst.setOpcode(IA64::getOpcodeForUnit(Inst.getOpcode(), Unit));
     if (Inst.getOpcode() == 0) {
       assert(Unit == IA64II::UnitB && Taken != 0 && "no form for the slot");
-      if (PI.Inst.getOpcode() == IA64::HINT)
+      if (PI.Inst.getOpcode() == IA64::HINT) {
+        if (Explicit)
+          getContext().reportError(PI.Inst.getLoc(),
+                                   "'hint' cannot be in a B slot");
         PI.Units = 1u << IA64II::UnitI;
+      }
       break;
     }
     size_t FirstFixup = Fixups.size();
@@ -292,12 +341,24 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
 
     if (!PI.Stop)
       continue;
-    if (Taken == Insts.size() || Slot == 2) {
+    if (AtEnd() || Slot == 2) {
       EndStop = true;
       break;
     }
     const IA64II::BundleTemplate &T = IA64II::BundleTemplates[Index];
-    if (Slot == 0 && T.Slots[0] == IA64II::UnitM) {
+    if (Explicit) {
+      // Only MMI has a form with a stop after slot 0, and only MII one with
+      // a stop after slot 1.
+      if (Slot == 0 && Index == MMI) {
+        Index = MSemiMI;
+      } else if (Index == MII) {
+        Index = MISemiI;
+        Slot = 1;
+      } else {
+        EndStop = true;
+        break;
+      }
+    } else if (Slot == 0 && T.Slots[0] == IA64II::UnitM) {
       Index = MSemiMI;
     } else if (Slot == 1 && T.Slots[1] == IA64II::UnitI && T.MidStop == -1) {
       Index = MISemiI;
@@ -310,7 +371,9 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   const IA64II::BundleTemplate &T = IA64II::BundleTemplates[Index];
   for (unsigned Slot = 0; Slot != 3; ++Slot)
     if (!Used[Slot])
-      Slots[Slot] = T.Slots[Slot] == IA64II::UnitB ? NopB : Nop;
+      Slots[Slot] = T.Slots[Slot] == IA64II::UnitB   ? NopB
+                    : T.Slots[Slot] == IA64II::UnitL ? 0
+                                                     : Nop;
 
   char Bytes[IA64II::BundleBytes];
   support::endian::write64le(Bytes, (Index << 1 | EndStop) | Slots[0] << 5 |
@@ -353,6 +416,10 @@ void IA64TargetELFStreamer::finish() {
 
 void IA64TargetELFStreamer::emitStop() {
   static_cast<IA64ELFStreamer &>(getStreamer()).emitStop();
+}
+
+void IA64TargetELFStreamer::emitTemplate(unsigned Index) {
+  static_cast<IA64ELFStreamer &>(getStreamer()).emitTemplate(Index);
 }
 
 MCStreamer *llvm::createIA64ELFStreamer(const Triple &T, MCContext &Ctx,

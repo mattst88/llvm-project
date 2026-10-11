@@ -21,6 +21,11 @@ public:
 
   /// End the current instruction group. Assembly writes this as ";;".
   virtual void emitStop();
+
+  /// Use template \p Index of IA64II::BundleTemplates for the next bundle.
+  /// Assembly writes this as a directive named after the template, such as
+  /// ".mmi".
+  virtual void emitTemplate(unsigned Index);
 };
 
 class IA64TargetAsmStreamer : public IA64TargetStreamer {
@@ -30,6 +35,7 @@ public:
   IA64TargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS);
 
   void emitStop() override;
+  void emitTemplate(unsigned Index) override;
 };
 
 } // end namespace llvm

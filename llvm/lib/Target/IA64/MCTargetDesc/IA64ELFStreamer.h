@@ -26,6 +26,7 @@ public:
 
   void finish() override;
   void emitStop() override;
+  void emitTemplate(unsigned Index) override;
 };
 
 MCStreamer *createIA64ELFStreamer(const Triple &T, MCContext &Ctx,

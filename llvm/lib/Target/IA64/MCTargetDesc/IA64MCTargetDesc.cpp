@@ -40,21 +40,24 @@ static MCAsmInfo *createIA64MCAsmInfo(const MCRegisterInfo &MRI,
 }
 
 unsigned IA64::getOpcodeForUnit(unsigned Opcode, IA64II::Unit Unit) {
-  // The M, I, F and B forms of each pseudo-op.
+  // The M, I, F, B and X forms of each pseudo-op. Only a template directive
+  // puts one in the L slot, where the X form goes.
   static const struct {
     unsigned Pseudo;
-    unsigned Forms[4];
+    unsigned Forms[5];
   } Table[] = {
-      {IA64::NOP, {IA64::NOP_M, IA64::NOP_I, IA64::NOP_F, IA64::NOP_B}},
+      {IA64::NOP,
+       {IA64::NOP_M, IA64::NOP_I, IA64::NOP_F, IA64::NOP_B, IA64::NOP_X}},
       // Older processors lack hint.b, and GNU as requires an option before
       // accepting "hint" as hint.b.
-      {IA64::HINT, {IA64::HINT_M, IA64::HINT_I, IA64::HINT_F, 0}},
+      {IA64::HINT, {IA64::HINT_M, IA64::HINT_I, IA64::HINT_F, 0, IA64::HINT_X}},
       {IA64::BREAK,
-       {IA64::BREAK_M, IA64::BREAK_I, IA64::BREAK_F, IA64::BREAK_B}},
-      {IA64::CHK_S, {IA64::CHK_S_M, IA64::CHK_S_I, 0, 0}},
-      {IA64::MOV_AR, {IA64::MOV_M_AR, IA64::MOV_I_AR, 0, 0}},
-      {IA64::MOV_ARi, {IA64::MOV_M_ARi, IA64::MOV_I_ARi, 0, 0}},
-      {IA64::MOV_FROM_AR, {IA64::MOV_M_FROM_AR, IA64::MOV_I_FROM_AR, 0, 0}},
+       {IA64::BREAK_M, IA64::BREAK_I, IA64::BREAK_F, IA64::BREAK_B,
+        IA64::BREAK_X}},
+      {IA64::CHK_S, {IA64::CHK_S_M, IA64::CHK_S_I, 0, 0, 0}},
+      {IA64::MOV_AR, {IA64::MOV_M_AR, IA64::MOV_I_AR, 0, 0, 0}},
+      {IA64::MOV_ARi, {IA64::MOV_M_ARi, IA64::MOV_I_ARi, 0, 0, 0}},
+      {IA64::MOV_FROM_AR, {IA64::MOV_M_FROM_AR, IA64::MOV_I_FROM_AR, 0, 0, 0}},
   };
   for (const auto &Entry : Table) {
     if (Entry.Pseudo != Opcode)
@@ -68,6 +71,8 @@ unsigned IA64::getOpcodeForUnit(unsigned Opcode, IA64II::Unit Unit) {
       return Entry.Forms[2];
     case IA64II::UnitB:
       return Entry.Forms[3];
+    case IA64II::UnitL:
+      return Entry.Forms[4];
     default:
       return 0;
     }
@@ -98,8 +103,8 @@ unsigned IA64::getSlotUnits(const MCInst &MI, const MCInstrInfo &MCII,
   }
 
   unsigned Units = 0;
-  for (IA64II::Unit Unit :
-       {IA64II::UnitM, IA64II::UnitI, IA64II::UnitF, IA64II::UnitB})
+  for (IA64II::Unit Unit : {IA64II::UnitM, IA64II::UnitI, IA64II::UnitF,
+                            IA64II::UnitB, IA64II::UnitL})
     if (unsigned Form = getOpcodeForUnit(Opcode, Unit);
         Form != 0 && Form != Opcode)
       Units |= 1u << Unit;

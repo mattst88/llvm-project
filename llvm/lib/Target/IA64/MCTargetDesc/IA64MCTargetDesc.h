@@ -51,8 +51,9 @@ unsigned getARUnits(unsigned Number);
 unsigned getSlotUnits(const MCInst &MI, const MCInstrInfo &MCII,
                       const MCRegisterInfo &MRI);
 
-/// The instruction that the pseudo-op \p Opcode is in a slot of unit
-/// \p Unit, or 0 if it has none. Any other opcode is returned as it is.
+/// The form of pseudo-op \p Opcode for a slot of unit \p Unit, or 0 if it
+/// has none. UnitL selects the X-unit form. Other opcodes are returned
+/// unchanged.
 unsigned getOpcodeForUnit(unsigned Opcode, IA64II::Unit Unit);
 
 /// The default form of pseudo-op \p MI: the one for the first unit that can

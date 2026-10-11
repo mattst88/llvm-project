@@ -839,7 +839,22 @@ ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
 }
 
 ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
-  return parseDataDirective(DirectiveID.getString());
+  StringRef Name = DirectiveID.getString();
+
+  // A template for the next bundle, named by its units, e.g. ".mmi".
+  if (Name.size() == 4)
+    for (unsigned I = 0; I != std::size(IA64II::BundleTemplates); ++I) {
+      const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
+      if (!T.Name || T.MidStop != -1 ||
+          !Name.substr(1).equals_insensitive(T.Name))
+        continue;
+      if (parseEOL())
+        return ParseStatus::Failure;
+      getTargetStreamer().emitTemplate(I);
+      return ParseStatus::Success;
+    }
+
+  return parseDataDirective(Name);
 }
 
 void IA64AsmParser::onEmptyStatement(const AsmToken &Terminator) {
