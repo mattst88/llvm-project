@@ -23,6 +23,14 @@ def IA64retglue : SDNode<"IA64ISD::RET_GLUE", SDTypeProfile<0, 0, []>,
 // The address of a symbol's linkage table entry: @ltoff(sym) + gp.
 def IA64ltoff : SDNode<"IA64ISD::LTOFF", SDTIntUnaryOp>;
 
+// Move the bits of an f32 to/from the low half of a GR.
+def IA64getfs
+    : SDNode<"IA64ISD::GETF_S",
+             SDTypeProfile<1, 1, [SDTCisVT<0, i64>, SDTCisVT<1, f32>]>>;
+def IA64setfs
+    : SDNode<"IA64ISD::SETF_S",
+             SDTypeProfile<1, 1, [SDTCisVT<0, f32>, SDTCisVT<1, i64>]>>;
+
 // A call: the callee, the register holding the GP to restore, and the
 // argument registers.
 def IA64call : SDNode<"IA64ISD::CALL",
@@ -143,6 +151,43 @@ foreach T = [["f32", "_S"], ["f64", "_D"]] in {
               (FMERGE_NS FR:$sign, FR:$mag)>;
   }
 }
+
+//===----------------------------------------------------------------------===//
+// Floating-point conversions
+//===----------------------------------------------------------------------===//
+
+// Integer conversions happen in an FP register, with the integer as the
+// significand, moved to and from GRs with setf.sig/getf.sig.
+foreach VT = [f32, f64] in {
+  def : Pat<(i64 (fp_to_sint (VT FR:$f))),
+            (GETF_SIG (f64 (FCVT_FX_TRUNC FR:$f, 0)))>;
+  def : Pat<(i64 (fp_to_uint (VT FR:$f))),
+            (GETF_SIG (f64 (FCVT_FXU_TRUNC FR:$f, 0)))>;
+}
+
+// In the other direction the 64-bit significand holds the integer exactly,
+// and is then rounded to the target precision. An unsigned integer is
+// already a valid, if unnormalized, FP value.
+foreach T = [["f32", "_S"], ["f64", "_D"]] in {
+  defvar VT = !cast<ValueType>(T[0]);
+  defvar FMA = !cast<Instruction>("FMA"#T[1]);
+  def : Pat<(VT (sint_to_fp GR:$r)),
+            (FMA (f64 (FCVT_XF (f64 (SETF_SIG GR:$r)))), (f64 F1), (f64 F0),
+             0)>;
+  def : Pat<(VT (uint_to_fp GR:$r)),
+            (FMA (f64 (SETF_SIG GR:$r)), (f64 F1), (f64 F0), 0)>;
+}
+
+// A narrower value is a wider one already, and a wider one is rounded to
+// make a narrower.
+def : Pat<(f64 (fpextend (f32 FR:$f))), (COPY_TO_REGCLASS FR:$f, FR)>;
+def : Pat<(f32 (fpround (f64 FR:$f))), (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
+
+// Bitcasts use the memory format.
+def : Pat<(i64 (bitconvert (f64 FR:$f))), (GETF_D FR:$f)>;
+def : Pat<(f64 (bitconvert GR:$r)), (SETF_D GR:$r)>;
+def : Pat<(IA64getfs FR:$f), (GETF_S FR:$f)>;
+def : Pat<(IA64setfs GR:$r), (SETF_S GR:$r)>;
 
 //===----------------------------------------------------------------------===//
 // Shifts

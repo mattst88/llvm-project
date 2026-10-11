@@ -76,6 +76,9 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
     setOperationAction(ISD::FSINCOS, VT, Expand);
   }
 
+  // The bits of a single-precision value are half a general register.
+  setOperationAction(ISD::BITCAST, MVT::i32, Custom);
+
   // Compares write predicates; materialized as a value, the result is 0 or 1.
   setBooleanContents(ZeroOrOneBooleanContent);
 
@@ -139,6 +142,14 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerJumpTable(Op, DAG);
   case ISD::BlockAddress:
     return LowerBlockAddress(Op, DAG);
+  case ISD::BITCAST:
+    // i32 to f32, while i32 is not yet legalized.
+    if (Op.getValueType() != MVT::f32 ||
+        Op.getOperand(0).getValueType() != MVT::i32)
+      return SDValue();
+    return DAG.getNode(
+        IA64ISD::SETF_S, SDLoc(Op), MVT::f32,
+        DAG.getNode(ISD::ANY_EXTEND, SDLoc(Op), MVT::i64, Op.getOperand(0)));
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -148,6 +159,25 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
   }
   default:
     llvm_unreachable("an operation with no custom lowering");
+  }
+}
+
+void IA64TargetLowering::ReplaceNodeResults(SDNode *N,
+                                            SmallVectorImpl<SDValue> &Results,
+                                            SelectionDAG &DAG) const {
+  SDLoc DL(N);
+  switch (N->getOpcode()) {
+  case ISD::BITCAST: {
+    // f32 to i32.
+    SDValue Src = N->getOperand(0);
+    if (N->getValueType(0) != MVT::i32 || Src.getValueType() != MVT::f32)
+      return;
+    SDValue Bits = DAG.getNode(IA64ISD::GETF_S, DL, MVT::i64, Src);
+    Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Bits));
+    return;
+  }
+  default:
+    llvm_unreachable("a result with no custom lowering");
   }
 }
 

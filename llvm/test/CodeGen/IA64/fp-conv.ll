@@ -1,0 +1,177 @@
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+
+; A floating-point register converts a value to an integer in place, which
+; is then its significand and crosses to a general register as that.
+define i64 @fptosi(double %a) {
+; CHECK-LABEL: fptosi:
+; CHECK:       fcvt.fx.trunc f6 = f8 ;;
+; CHECK-NEXT:  getf.sig r8 = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = fptosi double %a to i64
+  ret i64 %r
+}
+
+define i64 @fptoui(double %a) {
+; CHECK-LABEL: fptoui:
+; CHECK:       fcvt.fxu.trunc f6 = f8 ;;
+; CHECK-NEXT:  getf.sig r8 = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = fptoui double %a to i64
+  ret i64 %r
+}
+
+define i64 @fptosis(float %a) {
+; CHECK-LABEL: fptosis:
+; CHECK:       fcvt.fx.trunc f6 = f8 ;;
+; CHECK-NEXT:  getf.sig r8 = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = fptosi float %a to i64
+  ret i64 %r
+}
+
+; A narrower integer is the low bits of a wide one.
+define signext i32 @fptosi32(float %a) {
+; CHECK-LABEL: fptosi32:
+; CHECK:       fcvt.fx.trunc f6 = f8 ;;
+; CHECK-NEXT:  getf.sig r8 = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = fptosi float %a to i32
+  ret i32 %r
+}
+
+define zeroext i32 @fptoui32(double %a) {
+; CHECK-LABEL: fptoui32:
+; CHECK:       fcvt.fxu.trunc f6 = f8 ;;
+; CHECK-NEXT:  getf.sig r8 = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = fptoui double %a to i32
+  ret i32 %r
+}
+
+; The other way the significand is exact and is then rounded to the
+; precision of the result.
+define double @sitofp(i64 %a) {
+; CHECK-LABEL: sitofp:
+; CHECK:       setf.sig f6 = r32 ;;
+; CHECK-NEXT:  fcvt.xf f6 = f6 ;;
+; CHECK-NEXT:  fma.d f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = sitofp i64 %a to double
+  ret double %r
+}
+
+define float @sitofps(i64 %a) {
+; CHECK-LABEL: sitofps:
+; CHECK:       setf.sig f6 = r32 ;;
+; CHECK-NEXT:  fcvt.xf f6 = f6 ;;
+; CHECK-NEXT:  fma.s f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = sitofp i64 %a to float
+  ret float %r
+}
+
+; A significand that has no sign is a number as it stands.
+define double @uitofp(i64 %a) {
+; CHECK-LABEL: uitofp:
+; CHECK:       setf.sig f6 = r32 ;;
+; CHECK-NEXT:  fma.d f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = uitofp i64 %a to double
+  ret double %r
+}
+
+define float @uitofps(i64 %a) {
+; CHECK-LABEL: uitofps:
+; CHECK:       setf.sig f6 = r32 ;;
+; CHECK-NEXT:  fma.s f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = uitofp i64 %a to float
+  ret float %r
+}
+
+define double @sitofp32(i32 %a) {
+; CHECK-LABEL: sitofp32:
+; CHECK:       sxt4 r14 = r32 ;;
+; CHECK-NEXT:  setf.sig f6 = r14 ;;
+; CHECK-NEXT:  fcvt.xf f6 = f6 ;;
+; CHECK-NEXT:  fma.d f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = sitofp i32 %a to double
+  ret double %r
+}
+
+define double @uitofp32(i32 %a) {
+; CHECK-LABEL: uitofp32:
+; CHECK:       zxt4 r14 = r32 ;;
+; CHECK-NEXT:  setf.sig f6 = r14 ;;
+; CHECK-NEXT:  fma.d f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = uitofp i32 %a to double
+  ret double %r
+}
+
+; A register holds a value of either precision in the one format, so a
+; narrower one is a wider one already and a wider one is rounded.
+define double @fpext(float %a) {
+; CHECK-LABEL: fpext:
+; CHECK-NOT:   f8
+; CHECK:       br.ret.sptk.many b0 ;;
+  %r = fpext float %a to double
+  ret double %r
+}
+
+define float @fptrunc(double %a) {
+; CHECK-LABEL: fptrunc:
+; CHECK:       fma.s f8 = f8, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = fptrunc double %a to float
+  ret float %r
+}
+
+; The bits of a value are those of its format in memory.
+define i64 @bits(double %a) {
+; CHECK-LABEL: bits:
+; CHECK:       getf.d r8 = f8
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = bitcast double %a to i64
+  ret i64 %r
+}
+
+define double @from_bits(i64 %a) {
+; CHECK-LABEL: from_bits:
+; CHECK:       setf.d f8 = r32
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = bitcast i64 %a to double
+  ret double %r
+}
+
+define i32 @bitss(float %a) {
+; CHECK-LABEL: bitss:
+; CHECK:       getf.s r8 = f8
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = bitcast float %a to i32
+  ret i32 %r
+}
+
+define float @from_bitss(i32 %a) {
+; CHECK-LABEL: from_bitss:
+; CHECK:       setf.s f8 = r32
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = bitcast i32 %a to float
+  ret float %r
+}
+
+; An integer of two registers is converted in the library.
+define i128 @fptosi128(double %a) {
+; CHECK-LABEL: fptosi128:
+; CHECK:       br.call.sptk.many b0 = __fixdfti ;;
+  %r = fptosi double %a to i128
+  ret i128 %r
+}
+
+define double @sitofp128(i128 %a) {
+; CHECK-LABEL: sitofp128:
+; CHECK:       br.call.sptk.many b0 = __floattidf ;;
+  %r = sitofp i128 %a to double
+  ret double %r
+}

@@ -39,6 +39,8 @@ public:
                                SmallVectorImpl<SDValue> &InVals) const override;
 
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                          SelectionDAG &DAG) const override;
 
   // Both expand to a few branch-free instructions around popcnt.
   bool isCheapToSpeculateCttz(Type *Ty) const override { return true; }
