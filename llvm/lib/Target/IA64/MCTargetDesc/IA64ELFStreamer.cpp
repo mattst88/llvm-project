@@ -684,6 +684,10 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
       EndStop = true;
       break;
     }
+    // A last-slot-only instruction skips slot 1 before the stop is placed,
+    // so the stop goes after the skipped slot.
+    if (!Explicit && Slot == 0 && Insts[Taken].LastSlot)
+      Slot = 1;
     const IA64II::BundleTemplate &T = IA64II::BundleTemplates[Index];
     if (Explicit) {
       // Only MMI has a form with a stop after slot 0, and only MII one with

@@ -28,6 +28,20 @@ t2:
 	bsw.1
 	br.ret.sptk b0
 
+// A stop before one of them, or before a branch of a loop, which has the
+// last slot to be in as well, is after the slot that the instruction left:
+// in the middle of the bundle if the template has an I slot there, and at
+// its end if not.
+t3:
+	mov cr.iip = r15 ;;
+	rfi
+	mov r8 = r9 ;;
+	br.wtop.sptk t3
+	nop 0
+	mov r8 = r9 ;;
+	br.ret.sptk b0
+
+
 // CHECK-LABEL: <t1>:
 // CHECK-NEXT:  mov r8 = r9 // [MIB]
 // CHECK-NEXT:  nop.i 0
@@ -60,6 +74,25 @@ t2:
 // CHECK-NEXT:  mov r12 = r13 // [MBB]
 // CHECK-NEXT:  nop.b 0
 // CHECK-NEXT:  bsw.1 ;;
+// CHECK-NEXT:  nop.m 0 // [MIB]
+// CHECK-NEXT:  nop.i 0
+// CHECK-NEXT:  br.ret.sptk.few b0
+// CHECK-LABEL: <t3>:
+// CHECK-NEXT:  mov cr.iip = r15 // [MII]
+// CHECK-NEXT:  nop.i 0 ;;
+// CHECK-NEXT:  nop.i 0
+// CHECK-NEXT:  nop.m 0 // [MIB]
+// CHECK-NEXT:  nop.i 0
+// CHECK-NEXT:  rfi ;;
+// CHECK-NEXT:  mov r8 = r9 // [MBB]
+// CHECK-NEXT:  nop.b 0
+// CHECK-NEXT:  nop.b 0 ;;
+// CHECK-NEXT:  nop.m 0 // [MBB]
+// CHECK-NEXT:  nop.b 0
+// CHECK-NEXT:  br.wtop.sptk.few 0xb0
+// CHECK-NEXT:  nop.m 0 // [MII]
+// CHECK-NEXT:  mov r8 = r9 ;;
+// CHECK-NEXT:  nop.i 0
 // CHECK-NEXT:  nop.m 0 // [MIB]
 // CHECK-NEXT:  nop.i 0
 // CHECK-NEXT:  br.ret.sptk.few b0 ;;
