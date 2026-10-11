@@ -347,6 +347,10 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
 
+  // The rounding mode is two bits of the floating-point status register.
+  setOperationAction(ISD::GET_ROUNDING, MVT::i64, Custom);
+  setOperationAction(ISD::SET_ROUNDING, MVT::Other, Custom);
+
   // Prefetch, trap and debugtrap are single instructions.
   setOperationAction(ISD::PREFETCH, MVT::Other, Legal);
 
@@ -418,6 +422,10 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
         DAG.getNode(ISD::ANY_EXTEND, SDLoc(Op), MVT::i64, Op.getOperand(0)));
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
+  case ISD::GET_ROUNDING:
+    return LowerGET_ROUNDING(Op, DAG);
+  case ISD::SET_ROUNDING:
+    return LowerSET_ROUNDING(Op, DAG);
   case ISD::RETURNADDR:
     return LowerRETURNADDR(Op, DAG);
   case ISD::FRAMEADDR:
@@ -660,8 +668,60 @@ SDValue IA64TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
                       Op.getOperand(1), MachinePointerInfo(SV));
 }
 
-// The return link is in b0 as the function is entered. Only an unwinder can
-// say what that of a caller was.
+// The return address is in b0 on entry. Only an unwinder can recover a
+// caller's.
+// The rounding control of status field sf0 is bits 10-11 of ar.fpsr: 0 is
+// to nearest, 1 down, 2 up, 3 toward zero. FLT_ROUNDS numbers them 1, 3, 2,
+// 0. Each table constant below maps one encoding to the other, two bits per
+// entry.
+static const unsigned RoundingControlShift = 10;
+
+SDValue IA64TargetLowering::LowerGET_ROUNDING(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  EVT VT = Op.getValueType();
+  SDValue FPSR(DAG.getMachineNode(IA64::GET_FPSR, DL, MVT::i64, MVT::Other,
+                                  Op.getOperand(0)),
+               0);
+  SDValue RC =
+      DAG.getNode(ISD::SRL, DL, MVT::i64, FPSR,
+                  DAG.getConstant(RoundingControlShift - 1, DL, MVT::i64));
+  RC =
+      DAG.getNode(ISD::AND, DL, MVT::i64, RC, DAG.getConstant(6, DL, MVT::i64));
+  SDValue Mode = DAG.getNode(ISD::SRL, DL, MVT::i64,
+                             DAG.getConstant(0x2d, DL, MVT::i64), RC);
+  Mode = DAG.getNode(ISD::AND, DL, MVT::i64, Mode,
+                     DAG.getConstant(3, DL, MVT::i64));
+  return DAG.getMergeValues(
+      {DAG.getZExtOrTrunc(Mode, DL, VT), FPSR.getValue(1)}, DL);
+}
+
+SDValue IA64TargetLowering::LowerSET_ROUNDING(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue Chain = Op.getOperand(0);
+  SDValue Mode = DAG.getZExtOrTrunc(Op.getOperand(1), DL, MVT::i64);
+  Mode = DAG.getNode(ISD::AND, DL, MVT::i64, Mode,
+                     DAG.getConstant(3, DL, MVT::i64));
+  Mode = DAG.getNode(ISD::SHL, DL, MVT::i64, Mode,
+                     DAG.getConstant(1, DL, MVT::i64));
+  SDValue RC = DAG.getNode(ISD::SRL, DL, MVT::i64,
+                           DAG.getConstant(0x63, DL, MVT::i64), Mode);
+  RC =
+      DAG.getNode(ISD::AND, DL, MVT::i64, RC, DAG.getConstant(3, DL, MVT::i64));
+  RC = DAG.getNode(ISD::SHL, DL, MVT::i64, RC,
+                   DAG.getConstant(RoundingControlShift, DL, MVT::i64));
+  SDValue FPSR(
+      DAG.getMachineNode(IA64::GET_FPSR, DL, MVT::i64, MVT::Other, Chain), 0);
+  SDValue Rest = DAG.getNode(
+      ISD::AND, DL, MVT::i64, FPSR,
+      DAG.getConstant(~(uint64_t(3) << RoundingControlShift), DL, MVT::i64));
+  SDValue New = DAG.getNode(ISD::OR, DL, MVT::i64, Rest, RC);
+  return SDValue(
+      DAG.getMachineNode(IA64::SET_FPSR, DL, MVT::Other, New, FPSR.getValue(1)),
+      0);
+}
+
 SDValue IA64TargetLowering::LowerRETURNADDR(SDValue Op,
                                             SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();

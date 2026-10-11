@@ -322,6 +322,18 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
+  case IA64::GET_FPSR:
+    BuildMI(MBB, MI, DL, get(IA64::MOV_FROM_AR), MI.getOperand(0).getReg())
+        .addReg(IA64::AR40)
+        .addReg(IA64::P0);
+    MI.eraseFromParent();
+    return true;
+  case IA64::SET_FPSR:
+    BuildMI(MBB, MI, DL, get(IA64::MOV_AR), IA64::AR40)
+        .add(MI.getOperand(0))
+        .addReg(IA64::P0);
+    MI.eraseFromParent();
+    return true;
   case IA64::CMPXCHG: {
     static const unsigned Opcodes[] = {IA64::CMPXCHG1_ACQ, IA64::CMPXCHG2_ACQ,
                                        IA64::CMPXCHG4_ACQ, IA64::CMPXCHG8_ACQ};

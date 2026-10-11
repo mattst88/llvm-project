@@ -167,6 +167,17 @@ def CMPXCHG : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$r3, GR:$cmp, GR:$new, i64imm:$size),
                          "#CMPXCHG", []>;
 
+// Read and write ar.fpsr. The register is reserved, so in a function that
+// never writes it every read would look like the same value, even though a
+// callee may have changed the rounding mode in between; hence these are
+// side-effecting pseudos rather than plain moves.
+let hasSideEffects = 1 in {
+let Uses = [AR40] in
+def GET_FPSR : IA64Pseudo<(outs GR:$r1), (ins), "#GET_FPSR", []>;
+let Defs = [AR40] in
+def SET_FPSR : IA64Pseudo<(outs), (ins GR:$r2), "#SET_FPSR", []>;
+}
+
 // Single- and double-precision division. There is no divide instruction:
 // frcpa approximates the divisor's reciprocal to fewer than 9 bits; its
 // predicate output is clear when an operand is zero, infinite or NaN, in
