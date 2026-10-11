@@ -61,6 +61,11 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   for (unsigned Opc : {ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS})
     setOperationAction(Opc, MVT::i64, Custom);
 
+  // There is no integer divide instruction; division is a libcall.
+  for (unsigned Opc :
+       {ISD::SDIV, ISD::UDIV, ISD::SREM, ISD::UREM, ISD::SDIVREM, ISD::UDIVREM})
+    setOperationAction(Opc, MVT::i64, Expand);
+
   // No instruction sign-extends from i1; it takes two shifts.
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
 
