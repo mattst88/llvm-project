@@ -83,13 +83,19 @@ const char *const IA64TargetInfo::GCCRegNames[] = {
     "ar.pfs", "ar.lc", "ar.ec", "ar.ccv", "ar.unat",
 };
 
-// The names the software conventions give some of the registers. The local
-// and the output registers have names too, but which registers those are is
-// for each function to say.
+// Register names from the software conventions. Each function determines
+// which registers are its outputs, which is not known when its body is
+// parsed, so out0-out7 map to the last eight register numbers, which no frame
+// is large enough to reach, until the frame is laid out. The local registers
+// have names too, but they cannot be told apart until then.
 const TargetInfo::GCCRegAlias IA64TargetInfo::GCCRegAliases[] = {
-    {{"gp"}, "r1"},   {{"sp"}, "r12"},  {{"tp"}, "r13"},  {{"rp"}, "b0"},
-    {{"in0"}, "r32"}, {{"in1"}, "r33"}, {{"in2"}, "r34"}, {{"in3"}, "r35"},
-    {{"in4"}, "r36"}, {{"in5"}, "r37"}, {{"in6"}, "r38"}, {{"in7"}, "r39"},
+    {{"gp"}, "r1"},     {{"sp"}, "r12"},    {{"tp"}, "r13"},
+    {{"rp"}, "b0"},     {{"in0"}, "r32"},   {{"in1"}, "r33"},
+    {{"in2"}, "r34"},   {{"in3"}, "r35"},   {{"in4"}, "r36"},
+    {{"in5"}, "r37"},   {{"in6"}, "r38"},   {{"in7"}, "r39"},
+    {{"out0"}, "r120"}, {{"out1"}, "r121"}, {{"out2"}, "r122"},
+    {{"out3"}, "r123"}, {{"out4"}, "r124"}, {{"out5"}, "r125"},
+    {{"out6"}, "r126"}, {{"out7"}, "r127"},
 };
 
 ArrayRef<const char *> IA64TargetInfo::getGCCRegNames() const {

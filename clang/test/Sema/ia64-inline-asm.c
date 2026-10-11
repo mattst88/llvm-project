@@ -7,7 +7,10 @@ void registers(long x, double d) {
   __asm__("mov %0 = %1" : "=b"(y) : "r"(x));
   __asm__("fneg %0 = %1" : "=f"(d) : "f"(d));
   __asm__("" : : : "r14", "f6", "p6", "b6", "ar.pfs", "ar.lc", "ar.ccv",
-                   "ar.unat", "gp", "sp", "tp", "rp", "in0", "memory");
+                   "ar.unat", "gp", "sp", "tp", "rp", "in0", "in7", "out0",
+                   "out7", "memory");
+  __asm__("" : : : "loc0"); // expected-error {{unknown register name 'loc0' in asm}}
+  __asm__("" : : : "out8"); // expected-error {{unknown register name 'out8' in asm}}
   __asm__("" : : : "r128"); // expected-error {{unknown register name 'r128' in asm}}
   __asm__("" : : : "f128"); // expected-error {{unknown register name 'f128' in asm}}
   __asm__("" : : : "b8");   // expected-error {{unknown register name 'b8' in asm}}
