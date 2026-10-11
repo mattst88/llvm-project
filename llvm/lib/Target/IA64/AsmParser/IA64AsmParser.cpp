@@ -974,6 +974,47 @@ bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
         Res = IA64RegisterExpr::create(Reg, getContext());
         return false;
       }
+      // PSR bit names stand for their masks, as taken by rsm, ssm and
+      // similar instructions.
+      StringRef Name = Parser.getTok().getString();
+      if (Name.consume_front("psr.")) {
+        unsigned Bit = StringSwitch<unsigned>(Name)
+                           .Case("be", 1)
+                           .Case("up", 2)
+                           .Case("ac", 3)
+                           .Case("mfl", 4)
+                           .Case("mfh", 5)
+                           .Case("ic", 13)
+                           .Case("i", 14)
+                           .Case("pk", 15)
+                           .Case("dt", 17)
+                           .Case("dfl", 18)
+                           .Case("dfh", 19)
+                           .Case("sp", 20)
+                           .Case("pp", 21)
+                           .Case("di", 22)
+                           .Case("si", 23)
+                           .Case("db", 24)
+                           .Case("lp", 25)
+                           .Case("tb", 26)
+                           .Case("rt", 27)
+                           .Case("is", 34)
+                           .Case("mc", 35)
+                           .Case("it", 36)
+                           .Case("id", 37)
+                           .Case("da", 38)
+                           .Case("dd", 39)
+                           .Case("ss", 40)
+                           .Case("ed", 43)
+                           .Case("bn", 44)
+                           .Default(0);
+        if (Bit) {
+          EndLoc = Parser.getTok().getEndLoc();
+          Parser.Lex();
+          Res = MCConstantExpr::create(uint64_t(1) << Bit, getContext());
+          return false;
+        }
+      }
     }
   }
   if (Parser.getTok().isNot(AsmToken::At))

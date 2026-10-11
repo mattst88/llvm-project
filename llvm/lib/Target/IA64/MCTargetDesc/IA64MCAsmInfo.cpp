@@ -64,7 +64,8 @@ static bool isNumbered(StringRef Name, StringRef Prefix, unsigned Limit) {
 // An operand or a data directive reads a register name as the register, so a
 // symbol of the same name has to say that it is one. This takes every "ar."
 // and "cr." name rather than list the ones that exist; a '#' too many does no
-// harm.
+// harm. The names of the bits of psr are read as their masks, and so every
+// "psr." name is taken as well.
 bool IA64MCAsmInfo::needsHashAfterName(StringRef Name) const {
   std::string Lower = Name.lower();
   StringRef N = Lower;
@@ -75,11 +76,11 @@ bool IA64MCAsmInfo::needsHashAfterName(StringRef Name) const {
       isNumbered(N, "out", 96) || isNumbered(N, "ret", 4) ||
       isNumbered(N, "farg", 8) || isNumbered(N, "fret", 8))
     return true;
-  if (N.starts_with("ar.") || N.starts_with("cr."))
+  if (N.starts_with("ar.") || N.starts_with("cr.") || N.starts_with("psr."))
     return true;
   return StringSwitch<bool>(N)
       .Cases({"sp", "gp", "tp", "rp", "ip", "pr", "pr.rot"}, true)
-      .Cases({"psr", "psr.l", "psr.um"}, true)
+      .Case("psr", true)
       .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
       .Cases({"cpuid", "dtr", "itr", "msr"}, true)
       .Default(false);
