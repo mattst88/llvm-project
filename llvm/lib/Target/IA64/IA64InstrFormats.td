@@ -1525,11 +1525,14 @@ class FInst<dag outs, dag ins, string mnemonic, string operands>
   let DecoderNamespace = "F";
 }
 
-// An instruction that names its status field, as the last completer of the
-// mnemonic.
+// An instruction that names its status field as the last mnemonic
+// completer. The field is in ar.fpsr and selects the rounding mode and which
+// FP exceptions trap.
 class FSFInst<dag oops, dag iops, string mnemonic, string operands>
     : FInst<oops, !con(iops, (ins sfield:$sf)), mnemonic, operands> {
   bits<2> sf;
+  let Uses = [AR40];
+  let mayRaiseFPException = 1;
   let Inst{35-34} = sf;
   let AsmString = mnemonic#"${qp}${sf}"#
                   !if(!empty(operands), "", "\t"#operands);

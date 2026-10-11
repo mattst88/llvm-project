@@ -77,6 +77,7 @@ def SETCC  : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, GR:$rhs),
                         "#SETCC", []>;
 def SETCCi : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, i64imm:$rhs),
                         "#SETCCi", []>;
+let Uses = [AR40], mayRaiseFPException = 1 in
 def SETCCf : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
                         "#SETCCf", []>;
 
@@ -91,6 +92,7 @@ def SELECTi : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$false, GR:$true, i64imm:$cc, GR:$lhs,
                               i64imm:$rhs),
                          "#SELECTi", []>;
+let Uses = [AR40], mayRaiseFPException = 1 in
 def SELECTf : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$false, GR:$true, i64imm:$cc, FR:$lhs,
                               FR:$rhs),
@@ -105,6 +107,7 @@ def SELECT_FRi : IA64Pseudo<(outs FR:$r1),
                             (ins FR:$false, FR:$true, i64imm:$cc, GR:$lhs,
                                  i64imm:$rhs),
                             "#SELECT_FRi", []>;
+let Uses = [AR40], mayRaiseFPException = 1 in
 def SELECT_FRf : IA64Pseudo<(outs FR:$r1),
                             (ins FR:$false, FR:$true, i64imm:$cc, FR:$lhs,
                                  FR:$rhs),
@@ -121,6 +124,7 @@ def BRCCi : IA64Pseudo<(outs),
                        (ins brtarget:$target, i64imm:$cc, GR:$lhs,
                             i64imm:$rhs),
                        "#BRCCi", []>;
+let Uses = [AR40], mayRaiseFPException = 1 in
 def BRCCf : IA64Pseudo<(outs),
                        (ins brtarget:$target, i64imm:$cc, FR:$lhs, FR:$rhs),
                        "#BRCCf", []>;
@@ -167,7 +171,7 @@ def CMPXCHG : IA64Pseudo<(outs GR:$r1),
 // and raising the flags a true division would.
 // The temporaries are written before the operands' last reads, hence the
 // earlyclobbers.
-let hasSideEffects = 0, Defs = [P6],
+let hasSideEffects = 0, Defs = [P6], Uses = [AR40], mayRaiseFPException = 1,
     Constraints = "@earlyclobber $f1,@earlyclobber $q,@earlyclobber $e,"
                   "@earlyclobber $t" in {
 def FDIV_S : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),

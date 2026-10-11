@@ -191,6 +191,14 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
   return Register;
 }
 
+// Nodes selected here for non-strict operations raise no observable FP
+// exceptions, just like the ones selected by the tables.
+static void setNoFPExcept(SDNode *Node) {
+  SDNodeFlags Flags = Node->getFlags();
+  Flags.setNoFPExcept(true);
+  Node->setFlags(Flags);
+}
+
 // Memory operands are a register address, whatever the constraint.
 bool IA64DAGToDAGISel::SelectInlineAsmMemoryOperand(
     const SDValue &Op, InlineAsm::ConstraintCode ConstraintCode,
@@ -236,6 +244,7 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
         CurDAG->getMachineNode(VT == MVT::f32 ? IA64::FDIV_S : IA64::FDIV_D, DL,
                                {VT, MVT::f80, MVT::f80, MVT::f80},
                                {Node->getOperand(0), Node->getOperand(1)});
+    setNoFPExcept(Div);
     ReplaceNode(Node, Div);
     return;
   }
@@ -369,7 +378,9 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     CompareForm Form = selectCompare(
         Node->getOperand(0), Node->getOperand(1),
         cast<CondCodeSDNode>(Node->getOperand(2))->get(), DL, Ops);
-    CurDAG->SelectNodeTo(Node, Opcodes[Form], MVT::i64, Ops);
+    SDNode *New = CurDAG->SelectNodeTo(Node, Opcodes[Form], MVT::i64, Ops);
+    if (Form == FloatingPoint)
+      setNoFPExcept(New);
     return;
   }
   case ISD::BR_CC: {
@@ -379,7 +390,9 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
         Node->getOperand(2), Node->getOperand(3),
         cast<CondCodeSDNode>(Node->getOperand(1))->get(), DL, Ops);
     Ops.push_back(Node->getOperand(0));
-    CurDAG->SelectNodeTo(Node, Opcodes[Form], MVT::Other, Ops);
+    SDNode *New = CurDAG->SelectNodeTo(Node, Opcodes[Form], MVT::Other, Ops);
+    if (Form == FloatingPoint)
+      setNoFPExcept(New);
     return;
   }
   case ISD::SELECT_CC: {
@@ -393,7 +406,10 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     CompareForm Form = selectCompare(
         Node->getOperand(0), Node->getOperand(1),
         cast<CondCodeSDNode>(Node->getOperand(4))->get(), DL, Ops);
-    CurDAG->SelectNodeTo(Node, Opcodes[VT.isFloatingPoint()][Form], VT, Ops);
+    SDNode *New = CurDAG->SelectNodeTo(
+        Node, Opcodes[VT.isFloatingPoint()][Form], VT, Ops);
+    if (Form == FloatingPoint)
+      setNoFPExcept(New);
     return;
   }
   }
@@ -444,9 +460,10 @@ bool IA64DAGToDAGISel::selectMinMax(SDNode *Node) {
   else
     return false;
   SDLoc DL(Node);
-  CurDAG->SelectNodeTo(Node, Opcode, VT,
-                       {True, False, CurDAG->getTargetConstant(0, DL, MVT::i64),
-                        CurDAG->getRegister(IA64::P0, MVT::i1)});
+  setNoFPExcept(CurDAG->SelectNodeTo(
+      Node, Opcode, VT,
+      {True, False, CurDAG->getTargetConstant(0, DL, MVT::i64),
+       CurDAG->getRegister(IA64::P0, MVT::i1)}));
   return true;
 }
 

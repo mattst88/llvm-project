@@ -104,7 +104,7 @@ name: branch_fp
 body: |
   bb.0:
     liveins: $f8, $f9
-    $p6, $p7 = FCMP_EQ $f8, $f9, 0, $p0
+    $p6, $p7 = FCMP_EQ $f8, $f9, 0, $p0, implicit $ar40
     BR_RET $b0, 0, 1, 0, $p6
     BR_RET $b0, 0, 1, 0, $p0
 ...

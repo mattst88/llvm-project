@@ -61,6 +61,9 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // ar.unat, the NaT bits of spilled GRs.
   Reserved.set(IA64::AR36);
 
+  // ar.fpsr: the rounding mode and the raised exception flags.
+  Reserved.set(IA64::AR40);
+
   // RSE state: ar.rsc, ar.bsp, ar.bspstore and ar.rnat.
   Reserved.set(IA64::AR16);
   Reserved.set(IA64::AR17);
