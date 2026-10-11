@@ -47,10 +47,10 @@ b:
 
 	.proc c
 c:
-// CHECK: :[[#@LINE+1]]:2: error: .fframe outside of a prologue
+// CHECK: :[[#@LINE+1]]:2: warning: .fframe outside of a prologue is ignored
 	.fframe 16
 	.body
-// CHECK: :[[#@LINE+1]]:2: error: .save outside of a prologue
+// CHECK: :[[#@LINE+1]]:2: warning: .save outside of a prologue is ignored
 	.save rp, r32
 	.prologue 13, r32
 // CHECK: :[[#@LINE+1]]:10: error: expected a multiple of 16 that is at least 0
@@ -179,7 +179,7 @@ f:
 	.prologue
 	nop 0
 	.body
-// CHECK: :[[#@LINE+1]]:2: error: .save.g outside of a prologue
+// CHECK: :[[#@LINE+1]]:2: warning: .save.g outside of a prologue is ignored
 	.save.g 1
 	nop 0
 	.endp f

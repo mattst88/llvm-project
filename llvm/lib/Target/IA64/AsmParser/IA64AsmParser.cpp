@@ -2250,9 +2250,14 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     return ParseStatus::Success;
   }
 
-  // The rest tell what the instructions of a prologue do.
-  if (UnwindRegion != PrologueRegion)
-    return Error(NameLoc, Lower + " outside of a prologue");
+  // The remaining directives describe prologue instructions. Outside a
+  // prologue there is no descriptor to encode them, but existing assembly
+  // uses them there anyway, so they are ignored with a warning.
+  if (UnwindRegion != PrologueRegion) {
+    Warning(NameLoc, Lower + " outside of a prologue is ignored");
+    getParser().eatToEndOfStatement();
+    return ParseStatus::Success;
+  }
 
   // The GR that the prologue mask assigns to \p Bit, or -1.
   auto MaskGR = [&](unsigned Bit) -> int64_t {
