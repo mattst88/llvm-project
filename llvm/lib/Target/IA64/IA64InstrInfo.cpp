@@ -167,3 +167,104 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   MI.eraseFromParent();
   return true;
 }
+
+static bool isConditionalBranch(const MachineInstr &MI) {
+  return MI.getOpcode() == IA64::BRCC || MI.getOpcode() == IA64::BRCCi;
+}
+
+// A branch condition is three operands: the condition code, the LHS and the
+// RHS.
+static void getCondition(const MachineInstr &MI,
+                         SmallVectorImpl<MachineOperand> &Cond) {
+  for (unsigned I = 1; I <= 3; ++I)
+    Cond.push_back(MI.getOperand(I));
+}
+
+bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+                                  MachineBasicBlock *&TBB,
+                                  MachineBasicBlock *&FBB,
+                                  SmallVectorImpl<MachineOperand> &Cond,
+                                  bool AllowModify) const {
+  MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
+  if (I == MBB.end() || !isUnpredicatedTerminator(*I))
+    return false;
+
+  MachineInstr *Last = &*I;
+  if (I == MBB.begin() || !isUnpredicatedTerminator(*--I)) {
+    if (Last->getOpcode() == IA64::BRUNCOND) {
+      TBB = Last->getOperand(0).getMBB();
+      return false;
+    }
+    if (isConditionalBranch(*Last)) {
+      TBB = Last->getOperand(0).getMBB();
+      getCondition(*Last, Cond);
+      return false;
+    }
+    return true;
+  }
+
+  MachineInstr *SecondLast = &*I;
+  if (I != MBB.begin() && isUnpredicatedTerminator(*--I))
+    return true;
+
+  if (isConditionalBranch(*SecondLast) && Last->getOpcode() == IA64::BRUNCOND) {
+    TBB = SecondLast->getOperand(0).getMBB();
+    getCondition(*SecondLast, Cond);
+    FBB = Last->getOperand(0).getMBB();
+    return false;
+  }
+
+  // Nothing reaches the second of two unconditional branches.
+  if (SecondLast->getOpcode() == IA64::BRUNCOND &&
+      Last->getOpcode() == IA64::BRUNCOND) {
+    TBB = SecondLast->getOperand(0).getMBB();
+    if (AllowModify)
+      Last->eraseFromParent();
+    return false;
+  }
+  return true;
+}
+
+unsigned IA64InstrInfo::removeBranch(MachineBasicBlock &MBB,
+                                     int *BytesRemoved) const {
+  assert(!BytesRemoved && "Nothing asks for the size of a branch");
+  unsigned Count = 0;
+  MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
+  while (I != MBB.end() &&
+         (I->getOpcode() == IA64::BRUNCOND || isConditionalBranch(*I))) {
+    I->eraseFromParent();
+    ++Count;
+    I = MBB.getLastNonDebugInstr();
+  }
+  return Count;
+}
+
+unsigned IA64InstrInfo::insertBranch(
+    MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
+    ArrayRef<MachineOperand> Cond, const DebugLoc &DL, int *BytesAdded) const {
+  assert(!BytesAdded && "Nothing asks for the size of a branch");
+  assert(TBB && "A branch needs somewhere to go");
+  assert((Cond.empty() || Cond.size() == 3) && "Not a condition");
+
+  if (Cond.empty()) {
+    assert(!FBB && "Two destinations and no condition");
+    BuildMI(&MBB, DL, get(IA64::BRUNCOND)).addMBB(TBB);
+    return 1;
+  }
+
+  BuildMI(&MBB, DL, get(Cond[2].isImm() ? IA64::BRCCi : IA64::BRCC))
+      .addMBB(TBB)
+      .add(Cond);
+  if (!FBB)
+    return 1;
+  BuildMI(&MBB, DL, get(IA64::BRUNCOND)).addMBB(FBB);
+  return 2;
+}
+
+// Each condition has an opposite, and both accept the same immediates.
+bool IA64InstrInfo::reverseBranchCondition(
+    SmallVectorImpl<MachineOperand> &Cond) const {
+  assert(Cond.size() == 3 && "Not a condition");
+  Cond[0].setImm(IA64CC::getOpposite(IA64CC::CondCode(Cond[0].getImm())));
+  return false;
+}

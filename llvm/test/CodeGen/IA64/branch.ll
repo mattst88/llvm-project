@@ -1,14 +1,15 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
 
 ; A conditional branch is a compare and a branch under its predicate, which
-; can share a group: a branch reads the predicate as it is written.
+; can share a group: a branch reads the predicate as it is written. The
+; block that follows is the one the branch was to, so the condition is the
+; opposite of the one written here.
 
 define i64 @branch_eq(i64 %a, i64 %b, ptr %p) {
 ; CHECK-LABEL: branch_eq:
 ; CHECK:       cmp.eq p7, p6 = r32, r33
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2
-; CHECK-NEXT:  br.cond.sptk.few .LBB0_1 ;;
-; CHECK-NEXT:  .LBB0_1:
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2 ;;
+; CHECK-NEXT:  // %bb.1:
 ; CHECK-NEXT:  st8 [r34] = r32
 ; CHECK-NEXT:  mov r8 = 1
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
@@ -27,7 +28,8 @@ else:
 define i64 @branch_constant(i64 %a, ptr %p) {
 ; CHECK-LABEL: branch_constant:
 ; CHECK:       cmp.lt p6, p7 = 9, r32
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_2
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_2 ;;
+; CHECK-NEXT:  // %bb.1:
   %c = icmp slt i64 %a, 10
   br i1 %c, label %then, label %else
 then:
@@ -43,7 +45,8 @@ define i64 @branch_value(i1 %c, ptr %p) {
 ; CHECK-LABEL: branch_value:
 ; CHECK:       and [[C:r[0-9]+]] = 1, r32 ;;
 ; CHECK-NEXT:  cmp.eq p6, p7 = 0, [[C]]
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB2_2
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB2_2 ;;
+; CHECK-NEXT:  // %bb.1:
   br i1 %c, label %then, label %else
 then:
   store i64 1, ptr %p
@@ -59,7 +62,9 @@ define i64 @loop(i64 %n, ptr %p) {
 ; CHECK:       .LBB3_1:
 ; CHECK:       st8 [r33] = [[I:r[0-9]+]]
 ; CHECK:       cmp.eq p7, p6 = r32, [[I]]
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB3_1
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB3_1 ;;
+; CHECK-NEXT:  // %bb.2:
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 entry:
   br label %body
 body:
@@ -75,7 +80,8 @@ exit:
 define void @unlikely(i64 %a, ptr %p) {
 ; CHECK-LABEL: unlikely:
 ; CHECK:       cmp.eq p7, p6 = 0, r32
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB4_2
+; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB4_2 ;;
+; CHECK-NEXT:  // %bb.1:
   %c = icmp eq i64 %a, 0
   br i1 %c, label %then, label %else, !prof !0
 then:

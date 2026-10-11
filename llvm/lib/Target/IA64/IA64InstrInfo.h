@@ -56,6 +56,19 @@ public:
 
   bool expandPostRAPseudo(MachineInstr &MI) const override;
 
+  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                     MachineBasicBlock *&FBB,
+                     SmallVectorImpl<MachineOperand> &Cond,
+                     bool AllowModify) const override;
+  unsigned removeBranch(MachineBasicBlock &MBB,
+                        int *BytesRemoved = nullptr) const override;
+  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                        MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
+                        const DebugLoc &DL,
+                        int *BytesAdded = nullptr) const override;
+  bool
+  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+
   /// Compare \p LHS with \p RHS, a register or a constant, before \p I.
   /// It leaves p6 set if \p CC holds and p7 if it does not.
   void emitCompare(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
