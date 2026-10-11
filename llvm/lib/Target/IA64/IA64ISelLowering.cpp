@@ -706,11 +706,11 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     const CCValAssign &VA = ArgLocs[I];
     if (!VA.isRegLoc())
       continue;
-    // The convention is written from the callee's side, and the general
-    // registers are not the same ones on this side, unless the callee is to
-    // have this function's frame.
+    // The calling convention names the callee's input registers (r32-r39);
+    // the caller writes the corresponding output registers instead, except
+    // for a tail call, where the callee reuses this function's frame.
     Register Reg = VA.getLocReg();
-    if (IA64::GRRegClass.contains(Reg)) {
+    if (Reg >= IA64::R32 && Reg <= IA64::R39) {
       TailInputs = std::max(TailInputs, Reg - IA64::R32 + 1);
       if (!CLI.IsTailCall)
         Reg = IA64::R120 + (Reg - IA64::R32);

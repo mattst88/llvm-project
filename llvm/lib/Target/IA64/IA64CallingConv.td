@@ -19,6 +19,10 @@ def CC_IA64 : CallingConv<[
 
   CCIfType<[f80], CCCustom<"CC_IA64_Extended">>,
 
+  // Where a result that is returned in memory is to go is not an argument
+  // with a slot. It is in r8.
+  CCIfSRet<CCIfType<[i64], CCAssignToReg<[R8]>>>,
+
   // 16-byte aligned arguments start at an even slot.
   CCIfType<[i64], CCIfSplit<CCCustom<"CC_IA64_SkipOddSlot">>>,
 
