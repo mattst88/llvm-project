@@ -67,6 +67,12 @@ class IA64AsmParser : public MCTargetAsmParser {
 
   bool parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) override;
 
+  /// The directives that put data in the section, most of them written
+  /// without a dot. NoMatch if \p Name is not one.
+  ParseStatus parseDataDirective(StringRef Name);
+  bool parseDataValues(unsigned Size, bool Aligned);
+  bool parseDataStrings(bool ZeroTerminated);
+
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
   /// The operand of a floating-point instruction that names no status field.
@@ -370,6 +376,10 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                             MCStreamer &Out,
                                             uint64_t &ErrorInfo,
                                             bool MatchingInlineAsm) {
+  // The statement was a directive, which parseInstruction has dealt with.
+  if (Operands.empty())
+    return false;
+
   MCInst Inst;
   unsigned Result =
       MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm);
@@ -672,6 +682,11 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
                                      SMLoc NameLoc, OperandVector &Operands) {
   MCAsmParser &Parser = getParser();
 
+  // Data directives have no leading dot, so they arrive as instructions.
+  ParseStatus Directive = parseDataDirective(Name);
+  if (!Directive.isNoMatch())
+    return Directive.isFailure();
+
   // "(pN)" before the mnemonic is the qualifying predicate. The generic
   // parser has consumed the parenthesis and passed it as the name.
   MCRegister QP = IA64::P0;
@@ -734,8 +749,64 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
   return false;
 }
 
-ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
+bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
+  MCStreamer &Out = getParser().getStreamer();
+  if (getParser().checkForValidSection())
+    return true;
+  if (Aligned)
+    Out.emitValueToAlignment(Align(Size));
+  return getParser().parseMany([&]() -> bool {
+    SMLoc Loc = getParser().getTok().getLoc();
+    const MCExpr *Value;
+    if (getParser().parseExpression(Value))
+      return true;
+    if (const auto *CE = dyn_cast<MCConstantExpr>(Value)) {
+      if (!isUIntN(8 * Size, CE->getValue()) &&
+          !isIntN(8 * Size, CE->getValue()))
+        return Error(Loc, "value does not fit in " + Twine(Size) +
+                              (Size == 1 ? " byte" : " bytes"));
+      Out.emitIntValue(CE->getValue(), Size);
+    } else {
+      Out.emitValue(Value, Size, Loc);
+    }
+    return false;
+  });
+}
+
+bool IA64AsmParser::parseDataStrings(bool ZeroTerminated) {
+  if (getParser().checkForValidSection())
+    return true;
+  return getParser().parseMany([&]() -> bool {
+    std::string Data;
+    if (getParser().parseEscapedString(Data))
+      return true;
+    getParser().getStreamer().emitBytes(Data);
+    if (ZeroTerminated)
+      getParser().getStreamer().emitBytes(StringRef("\0", 1));
+    return false;
+  });
+}
+
+ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
+  // GNU as aligns an item to its size, unless the directive ends in ".ua" or
+  // says the size in bytes. That goes for ".long" and the like too, which
+  // everywhere else leave the location counter alone.
+  bool Aligned = !Name.consume_back(".ua");
+  unsigned Size = StringSwitch<unsigned>(Name)
+                      .Case("data1", 1)
+                      .Cases({"data2", ".short", ".word"}, 2)
+                      .Cases({"data4", ".long", ".int"}, 4)
+                      .Cases({"data8", ".quad"}, 8)
+                      .Default(0);
+  if (Size && (Aligned || (Name.starts_with("data") && Size != 1)))
+    return parseDataValues(Size, Aligned);
+  if (Aligned && (Name == "string" || Name == "stringz"))
+    return parseDataStrings(Name == "stringz");
   return ParseStatus::NoMatch;
+}
+
+ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
+  return parseDataDirective(DirectiveID.getString());
 }
 
 void IA64AsmParser::onEmptyStatement(const AsmToken &Terminator) {
