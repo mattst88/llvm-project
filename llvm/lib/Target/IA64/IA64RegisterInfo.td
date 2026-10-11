@@ -114,18 +114,24 @@ def GR : RegisterClass<"IA64", [i64], 64, (add
 def GRSave : RegisterClass<"IA64", [i64], 64, (add
   (sequence "R%u", 32, 119), (sequence "R%u", 4, 7), R0)>;
 
-def FR : RegisterClass<"IA64", [f64, f32], 64, (add
+// An FR is 82 bits regardless of the value type, and the only memory round
+// trip that preserves all of them is the 16-byte stf.spill/ldf.fill.
+def FR : RegisterClass<"IA64", [f64, f32], 128, (add
   (sequence "F%u", 6, 7),      // scratch
   (sequence "F%u", 8, 15),     // arguments and return values
   (sequence "F%u", 32, 127),   // scratch
   (sequence "F%u", 2, 5),      // preserved
   (sequence "F%u", 16, 31),    // preserved
-  F0, F1)>;                    // 0.0 and 1.0 (reserved)
+  F0, F1)> {                   // 0.0 and 1.0 (reserved)
+  let Size = 128;
+}
 
 // Valid fma addends. With f0 as the addend the instruction is a plain
 // multiply, and a zero product keeps its own sign, whereas adding 0.0 would
 // make it positive.
-def FRAddend : RegisterClass<"IA64", [f64, f32], 64, (sub FR, F0)>;
+def FRAddend : RegisterClass<"IA64", [f64, f32], 128, (sub FR, F0)> {
+  let Size = 128;
+}
 
 def PR : RegisterClass<"IA64", [i1], 8, (add
   (sequence "P%u", 6, 15),     // scratch

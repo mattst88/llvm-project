@@ -35,6 +35,15 @@ void IA64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
         .addReg(IA64::P0);
     return;
   }
+  // FR copy: fmerge.s f1 = f2, f2, which is what the "mov" pseudo-op
+  // assembles to.
+  if (IA64::FRRegClass.contains(DestReg, SrcReg)) {
+    BuildMI(MBB, MI, DL, get(IA64::FMERGE_S), DestReg)
+        .addReg(SrcReg)
+        .addReg(SrcReg, getKillRegState(KillSrc))
+        .addReg(IA64::P0);
+    return;
+  }
   report_fatal_error("IA64 cannot copy between these registers yet");
 }
 
@@ -46,14 +55,19 @@ void IA64InstrInfo::storeRegToStackSlot(
     bool IsKill, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
     MachineInstr::MIFlag Flags) const {
   DebugLoc DL;
-  if (!IA64::GRRegClass.hasSubClassEq(RC))
+  unsigned Opc;
+  if (IA64::GRRegClass.hasSubClassEq(RC))
+    Opc = IA64::ST8;
+  else if (IA64::FRRegClass.hasSubClassEq(RC))
+    Opc = IA64::STF_SPILL;
+  else
     report_fatal_error("IA64 cannot spill a register of this class yet");
   BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R2)
       .addImm(0)
       .addFrameIndex(FrameIndex)
       .addReg(IA64::P0)
       .setMIFlag(Flags);
-  BuildMI(MBB, MI, DL, get(IA64::ST8))
+  BuildMI(MBB, MI, DL, get(Opc))
       .addReg(IA64::R2, RegState::Kill)
       .addReg(SrcReg, getKillRegState(IsKill))
       .addImm(0)
@@ -68,15 +82,23 @@ void IA64InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                          Register VReg, unsigned SubReg,
                                          MachineInstr::MIFlag Flags) const {
   DebugLoc DL;
-  if (!IA64::GRRegClass.hasSubClassEq(RC))
+  unsigned Opc;
+  Register Addr = DestReg;
+  if (IA64::GRRegClass.hasSubClassEq(RC)) {
+    Opc = IA64::LD8;
+  } else if (IA64::FRRegClass.hasSubClassEq(RC)) {
+    Opc = IA64::LDF_FILL;
+    Addr = IA64::R2;
+  } else {
     report_fatal_error("IA64 cannot reload a register of this class yet");
-  BuildMI(MBB, MI, DL, get(IA64::ADDS), DestReg)
+  }
+  BuildMI(MBB, MI, DL, get(IA64::ADDS), Addr)
       .addImm(0)
       .addFrameIndex(FrameIndex)
       .addReg(IA64::P0)
       .setMIFlag(Flags);
-  BuildMI(MBB, MI, DL, get(IA64::LD8), DestReg)
-      .addReg(DestReg, RegState::Kill)
+  BuildMI(MBB, MI, DL, get(Opc), DestReg)
+      .addReg(Addr, RegState::Kill)
       .addImm(0)
       .addReg(IA64::P0)
       .setMIFlag(Flags);

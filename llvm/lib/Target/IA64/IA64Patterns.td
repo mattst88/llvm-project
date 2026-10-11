@@ -75,6 +75,19 @@ def : Pat<(and GR:$r2, GR:$r3), (AND GR:$r2, GR:$r3)>;
 def : Pat<(or GR:$r2, GR:$r3), (OR GR:$r2, GR:$r3)>;
 def : Pat<(xor GR:$r2, GR:$r3), (XOR GR:$r2, GR:$r3)>;
 
+// The integer multiplier is in the FP unit and operates on the significands
+// of FP registers, so a product costs a round trip through setf.sig/getf.sig.
+// The addend is f0.
+def : Pat<(mul GR:$a, GR:$b),
+          (GETF_SIG (f64 (XMA_L (f64 (SETF_SIG GR:$a)),
+                                (f64 (SETF_SIG GR:$b)), (f64 F0))))>;
+def : Pat<(mulhu GR:$a, GR:$b),
+          (GETF_SIG (f64 (XMA_HU (f64 (SETF_SIG GR:$a)),
+                                 (f64 (SETF_SIG GR:$b)), (f64 F0))))>;
+def : Pat<(mulhs GR:$a, GR:$b),
+          (GETF_SIG (f64 (XMA_H (f64 (SETF_SIG GR:$a)),
+                                (f64 (SETF_SIG GR:$b)), (f64 F0))))>;
+
 // andcm computes r2 & ~r3.
 def : Pat<(and GR:$r2, (not GR:$r3)), (ANDCM GR:$r2, GR:$r3)>;
 
