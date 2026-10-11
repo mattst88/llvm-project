@@ -498,11 +498,29 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
 
 bool IA64AsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                                      const char *ExtraCode, raw_ostream &OS) {
-  if (ExtraCode && ExtraCode[0])
-    return AsmPrinter::PrintAsmOperand(MI, OpNo, ExtraCode, OS);
+  MachineOperand MO = MI->getOperand(OpNo);
+  if (ExtraCode && ExtraCode[0]) {
+    if (ExtraCode[1])
+      return true;
+    switch (ExtraCode[0]) {
+    case 'r':
+      // A register, printing r0 for an immediate zero.
+      if (MO.isImm() && MO.getImm() == 0) {
+        OS << "r0";
+        return false;
+      }
+      if (!MO.isReg())
+        return true;
+      break;
+    case 'P':
+      // The post-increment of a memory operand. There is none.
+      return false;
+    default:
+      return AsmPrinter::PrintAsmOperand(MI, OpNo, ExtraCode, OS);
+    }
+  }
   // A register named in the asm source is an implicit operand but is still
   // printed.
-  MachineOperand MO = MI->getOperand(OpNo);
   if (MO.isReg())
     MO.setImplicit(false);
   MCOperand MCOp = lowerOperand(MO);
@@ -520,6 +538,9 @@ bool IA64AsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
 bool IA64AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
                                            unsigned OpNo, const char *ExtraCode,
                                            raw_ostream &OS) {
+  // "P" is the post-increment of the operand, which is nothing.
+  if (ExtraCode && ExtraCode[0] == 'P' && !ExtraCode[1])
+    return false;
   if (ExtraCode && ExtraCode[0])
     return true;
   OS << '[';
