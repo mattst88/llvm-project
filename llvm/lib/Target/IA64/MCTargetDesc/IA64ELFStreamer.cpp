@@ -1116,6 +1116,12 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End, bool Stay) {
   SmallString<64> Info;
   raw_svector_ostream OS(Info);
   uint64_t RegionStart = 0, RegionLength = 0;
+  // The slot within its region at which a record takes effect. A record
+  // with no instruction of the region after it takes effect at the region's
+  // end.
+  auto TimeOf = [&](const UnwindRecord &R) {
+    return std::min(SlotOfRecord(R) - RegionStart, RegionLength);
+  };
   for (size_t I = 0; I != Records.size(); ++I) {
     const UnwindRecord &R = Records[I];
     switch (R.Kind) {
@@ -1146,7 +1152,7 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End, bool Stay) {
     case UnwindRecord::P7When:
     case UnwindRecord::P7WhenSize:
       OS << char(0xe0 | R.Args[0]);
-      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
+      encodeULEB128(TimeOf(R), OS);
       if (R.Kind == UnwindRecord::P7WhenSize)
         encodeULEB128(R.Args[1], OS);
       continue;
@@ -1156,7 +1162,7 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End, bool Stay) {
       continue;
     case UnwindRecord::P8When:
       OS << char(0xf0) << char(R.Args[0]);
-      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
+      encodeULEB128(TimeOf(R), OS);
       continue;
     case UnwindRecord::P10:
       OS << char(0xff) << char(R.Args[0]) << char(R.Args[1]);
@@ -1193,7 +1199,7 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End, bool Stay) {
         OS << char(0xfb) << char((Reg & 0x80) | QP) << char(Reg & 0x7f);
       else
         OS << char(0xf9) << char(Reg);
-      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
+      encodeULEB128(TimeOf(R), OS);
       encodeULEB128(R.Args[1], OS);
       continue;
     }
@@ -1206,7 +1212,7 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End, bool Stay) {
       else
         OS << char(0xfa);
       OS << char(Reg) << char(R.Args[1]);
-      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
+      encodeULEB128(TimeOf(R), OS);
       continue;
     }
     }
