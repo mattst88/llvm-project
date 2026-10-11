@@ -51,6 +51,16 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
 
+  // popcnt exists, and ctlz and cttz are expanded using it. clz exists only
+  // on the latest processors.
+  for (unsigned Opc :
+       {ISD::CTLZ, ISD::CTTZ, ISD::BITREVERSE, ISD::ROTL, ISD::ROTR})
+    setOperationAction(Opc, MVT::i64, Expand);
+
+  // Expand double-register shifts inline instead of calling a libcall.
+  for (unsigned Opc : {ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS})
+    setOperationAction(Opc, MVT::i64, Custom);
+
   // No instruction sign-extends from i1; it takes two shifts.
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
 
@@ -69,6 +79,13 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
   switch (Op.getOpcode()) {
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
+  case ISD::SHL_PARTS:
+  case ISD::SRL_PARTS:
+  case ISD::SRA_PARTS: {
+    SDValue Lo, Hi;
+    expandShiftParts(Op.getNode(), Lo, Hi, DAG);
+    return DAG.getMergeValues({Lo, Hi}, SDLoc(Op));
+  }
   default:
     llvm_unreachable("an operation with no custom lowering");
   }

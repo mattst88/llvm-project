@@ -40,6 +40,10 @@ public:
 
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
+  // Both expand to a few branch-free instructions around popcnt.
+  bool isCheapToSpeculateCttz(Type *Ty) const override { return true; }
+  bool isCheapToSpeculateCtlz(Type *Ty) const override { return true; }
+
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 
