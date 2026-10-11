@@ -50,6 +50,16 @@ public:
   ISD::NodeType getExtendForAtomicCmpSwapArg() const override {
     return ISD::ZERO_EXTEND;
   }
+  ConstraintType getConstraintType(StringRef Constraint) const override;
+  std::pair<unsigned, const TargetRegisterClass *>
+  getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                               StringRef Constraint, MVT VT) const override;
+  void LowerAsmOperandForConstraint(SDValue Op, StringRef Constraint,
+                                    std::vector<SDValue> &Ops,
+                                    SelectionDAG &DAG) const override;
+  InlineAsm::ConstraintCode
+  getInlineAsmMemConstraint(StringRef ConstraintCode) const override;
+
   AtomicExpansionKind
   shouldExpandAtomicRMWInIR(const AtomicRMWInst *RMW) const override;
   static bool isFetchAddIncrement(int64_t Inc);

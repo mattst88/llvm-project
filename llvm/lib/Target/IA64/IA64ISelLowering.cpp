@@ -14,6 +14,7 @@
 #include "IA64Subtarget.h"
 #include "IA64TargetMachine.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -602,4 +603,125 @@ IA64TargetLowering::shouldExpandAtomicRMWInIR(const AtomicRMWInst *RMW) const {
     break;
   }
   return AtomicExpansionKind::CmpXChg;
+}
+
+//===----------------------------------------------------------------------===//
+// Inline assembly
+//===----------------------------------------------------------------------===//
+
+// These are GCC's IA-64 constraints: "a" is a register usable as the addl
+// base (r0-r3), "b" a branch register and "f" an FP register. The capitals
+// are immediates of various field widths, and "Q" and "S" are memory.
+TargetLowering::ConstraintType
+IA64TargetLowering::getConstraintType(StringRef Constraint) const {
+  if (Constraint.size() == 1) {
+    switch (Constraint[0]) {
+    case 'a':
+    case 'b':
+    case 'f':
+      return C_RegisterClass;
+    case 'I':
+    case 'J':
+    case 'K':
+    case 'L':
+    case 'M':
+    case 'N':
+    case 'O':
+    case 'P':
+    case 'R':
+      return C_Immediate;
+    case 'Q':
+    case 'S':
+      return C_Memory;
+    default:
+      break;
+    }
+  }
+  return TargetLowering::getConstraintType(Constraint);
+}
+
+std::pair<unsigned, const TargetRegisterClass *>
+IA64TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                 StringRef Constraint,
+                                                 MVT VT) const {
+  if (Constraint.size() == 1) {
+    switch (Constraint[0]) {
+    case 'r':
+      return {0U, &IA64::GRRegClass};
+    case 'a':
+      return {0U, &IA64::GR0_3RegClass};
+    case 'b':
+      return {0U, &IA64::BRRegClass};
+    case 'f':
+      return {0U, &IA64::FRRegClass};
+    default:
+      break;
+    }
+  }
+  // ABI aliases for some registers.
+  unsigned Reg = StringSwitch<unsigned>(Constraint.lower())
+                     .Case("{gp}", IA64::R1)
+                     .Case("{sp}", IA64::R12)
+                     .Case("{tp}", IA64::R13)
+                     .Case("{rp}", IA64::B0)
+                     .Default(0);
+  if (Reg)
+    return {Reg, Reg == IA64::B0 ? &IA64::BRRegClass : &IA64::GRRegClass};
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
+}
+
+void IA64TargetLowering::LowerAsmOperandForConstraint(SDValue Op,
+                                                      StringRef Constraint,
+                                                      std::vector<SDValue> &Ops,
+                                                      SelectionDAG &DAG) const {
+  if (Constraint.size() != 1)
+    return TargetLowering::LowerAsmOperandForConstraint(Op, Constraint, Ops,
+                                                        DAG);
+  auto *C = dyn_cast<ConstantSDNode>(Op);
+  int64_t Value = C ? C->getSExtValue() : 0;
+  bool Fits;
+  switch (Constraint[0]) {
+  default:
+    return TargetLowering::LowerAsmOperandForConstraint(Op, Constraint, Ops,
+                                                        DAG);
+  case 'I': // adds immediate.
+    Fits = isInt<14>(Value);
+    break;
+  case 'J': // addl immediate.
+    Fits = isInt<22>(Value);
+    break;
+  case 'K': // Logical instruction immediate.
+    Fits = isInt<8>(Value);
+    break;
+  case 'L': // Compare immediate plus one.
+    Fits = Value >= -127 && Value <= 128;
+    break;
+  case 'M': // A shift count.
+    Fits = isUInt<6>(Value);
+    break;
+  case 'N': // Load/store post-increment immediate.
+    Fits = isInt<9>(Value);
+    break;
+  case 'O':
+    Fits = Value == 0;
+    break;
+  case 'P': // dep immediate form.
+    Fits = Value == 0 || Value == -1;
+    break;
+  case 'R': // shladd shift count.
+    Fits = Value >= 1 && Value <= 4;
+    break;
+  }
+  if (C && Fits)
+    Ops.push_back(
+        DAG.getSignedTargetConstant(Value, SDLoc(Op), Op.getValueType()));
+}
+
+InlineAsm::ConstraintCode
+IA64TargetLowering::getInlineAsmMemConstraint(StringRef ConstraintCode) const {
+  if (ConstraintCode == "Q")
+    return InlineAsm::ConstraintCode::Q;
+  if (ConstraintCode == "S")
+    return InlineAsm::ConstraintCode::S;
+  return TargetLowering::getInlineAsmMemConstraint(ConstraintCode);
 }

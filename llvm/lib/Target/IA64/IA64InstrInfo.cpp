@@ -52,6 +52,13 @@ void IA64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
         .addReg(IA64::P0);
     return;
   }
+  if (IA64::BRRegClass.contains(DestReg) && IA64::GRRegClass.contains(SrcReg)) {
+    BuildMI(MBB, MI, DL, get(IA64::MOV_BR), DestReg)
+        .addReg(SrcReg, getKillRegState(KillSrc))
+        .addImm(0)
+        .addReg(IA64::P0);
+    return;
+  }
   report_fatal_error("IA64 cannot copy between these registers yet");
 }
 

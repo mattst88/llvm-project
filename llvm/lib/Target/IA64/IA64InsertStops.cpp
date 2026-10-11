@@ -90,6 +90,13 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     for (MachineInstr &MI : MBB) {
       if (MI.isMetaInstruction())
         continue;
+      // Inline asm may read and write anything, so it gets a group of its
+      // own. The asm printer emits the stop after it.
+      if (MI.isInlineAsm()) {
+        EndGroup();
+        Last = nullptr;
+        continue;
+      }
       IA64II::Unit Unit = IA64II::getUnit(MI.getDesc().TSFlags);
 
       // Whether MO counts for the dependency rules. A branch executes last,

@@ -36,6 +36,10 @@ public:
 
   void Select(SDNode *Node) override;
 
+  bool SelectInlineAsmMemoryOperand(const SDValue &Op,
+                                    InlineAsm::ConstraintCode ConstraintCode,
+                                    std::vector<SDValue> &OutOps) override;
+
   // Compare instruction forms, by the kind of compare operands.
   enum CompareForm { Register, Immediate, FloatingPoint };
   CompareForm selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
@@ -151,6 +155,14 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
   }
   Ops.push_back(RHS);
   return Register;
+}
+
+// Memory operands are a register address, whatever the constraint.
+bool IA64DAGToDAGISel::SelectInlineAsmMemoryOperand(
+    const SDValue &Op, InlineAsm::ConstraintCode ConstraintCode,
+    std::vector<SDValue> &OutOps) {
+  OutOps.push_back(Op);
+  return false;
 }
 
 void IA64DAGToDAGISel::Select(SDNode *Node) {

@@ -15,6 +15,7 @@
 #include "IA64InstrInfo.h"
 #include "IA64TargetMachine.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64InstPrinter.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
@@ -44,6 +45,13 @@ public:
   void emitInstruction(const MachineInstr *MI) override;
   void emitFunctionEntryLabel() override;
   void emitFunctionBodyEnd() override;
+  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                       const char *ExtraCode, raw_ostream &OS) override;
+  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
+                             const char *ExtraCode, raw_ostream &OS) override;
+  void emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
+                        const MCSubtargetInfo *EndInfo,
+                        const MachineInstr *MI) override;
   const MCExpr *lowerConstant(const Constant *CV, const Constant *BaseCV,
                               uint64_t Offset) override;
 
@@ -152,6 +160,48 @@ void IA64AsmPrinter::emitFunctionEntryLabel() {
 }
 
 void IA64AsmPrinter::emitFunctionBodyEnd() { getTargetStreamer().emitEndp(); }
+
+bool IA64AsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                     const char *ExtraCode, raw_ostream &OS) {
+  if (ExtraCode && ExtraCode[0])
+    return AsmPrinter::PrintAsmOperand(MI, OpNo, ExtraCode, OS);
+  // A register named in the asm source is an implicit operand but is still
+  // printed.
+  MachineOperand MO = MI->getOperand(OpNo);
+  if (MO.isReg())
+    MO.setImplicit(false);
+  MCOperand MCOp = lowerOperand(MO);
+  if (MCOp.isReg())
+    OS << IA64InstPrinter::getRegisterName(MCOp.getReg());
+  else if (MCOp.isImm())
+    OS << MCOp.getImm();
+  else if (MCOp.isExpr())
+    MAI.printExpr(OS, *MCOp.getExpr());
+  else
+    return true;
+  return false;
+}
+
+bool IA64AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
+                                           unsigned OpNo, const char *ExtraCode,
+                                           raw_ostream &OS) {
+  if (ExtraCode && ExtraCode[0])
+    return true;
+  OS << '[';
+  if (PrintAsmOperand(MI, OpNo, nullptr, OS))
+    return true;
+  OS << ']';
+  return false;
+}
+
+// Inline asm is its own instruction group: the stops pass ends the group
+// before it, and this ends the group it leaves open.
+void IA64AsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
+                                      const MCSubtargetInfo *EndInfo,
+                                      const MachineInstr *MI) {
+  if (MI)
+    getTargetStreamer().emitStop();
+}
 
 void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   MCInst OutMI;
