@@ -172,8 +172,14 @@ static bool CC_IA64_HFA(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
     return true;
   }
 
+  // A 16-byte-aligned HFA starts at an even slot like any other argument, and
+  // its size is rounded up to a multiple of 16 bytes.
   unsigned Size = ValVT.getStoreSize();
   unsigned NumSlots = alignTo(Pending.size() * Size, 8) / 8;
+  if (ArgFlags.getNonZeroMemAlign() >= Align(16)) {
+    skipOddSlot(State);
+    NumSlots = alignTo(NumSlots, 2);
+  }
   SmallVector<std::pair<MCRegister, int64_t>, 8> Places;
   for (unsigned I = 0; I != NumSlots; ++I) {
     MCRegister Reg = State.AllocateReg(Slots);

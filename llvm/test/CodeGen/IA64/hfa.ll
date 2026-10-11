@@ -165,3 +165,51 @@ define double @pass_none_left([8 x float] %h, double %d, x86_fp80 %l) {
   %r = call double @take_none_left([8 x float] %h, double %d, x86_fp80 %l)
   ret double %r
 }
+
+; An aggregate that was declared to be aligned to sixteen bytes begins at an
+; even slot, and is a multiple of sixteen bytes whatever its members come to,
+; so the argument after it is two slots on.
+
+define i64 @aligned_double(i64 %x, [2 x double] alignstack(16) %a, i64 %y) {
+; CHECK-LABEL: aligned_double:
+; CHECK:       mov r8 = r36
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  ret i64 %y
+}
+
+define i64 @aligned_single(i64 %x, [2 x float] alignstack(16) %a, i64 %y) {
+; CHECK-LABEL: aligned_single:
+; CHECK:       mov r8 = r36
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  ret i64 %y
+}
+
+; The registers are still the next of f8 to f15.
+define double @aligned_member(i64 %x, [2 x double] alignstack(16) %a) {
+; CHECK-LABEL: aligned_member:
+; CHECK:       mov f8 = f9
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %b = extractvalue [2 x double] %a, 1
+  ret double %b
+}
+
+; The slot that is passed over may be the last of the registers.
+define double @aligned_memory(i64, i64, i64, i64, i64, i64, i64,
+                              [2 x double] alignstack(16) %a) {
+; CHECK-LABEL: aligned_memory:
+; CHECK:       adds r14 = 24, r12 ;;
+; CHECK-NEXT:  ldfd f8 = [r14]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %b = extractvalue [2 x double] %a, 1
+  ret double %b
+}
+
+declare void @take_aligned(i64, [2 x double] alignstack(16), i64)
+
+define void @pass_aligned([2 x double] %a) {
+; CHECK-LABEL: pass_aligned:
+; CHECK:       mov r39 = 2
+; CHECK:       br.call.sptk.many b0 = take_aligned ;;
+  call void @take_aligned(i64 1, [2 x double] alignstack(16) %a, i64 2)
+  ret void
+}
