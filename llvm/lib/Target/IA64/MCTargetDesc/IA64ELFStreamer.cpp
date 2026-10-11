@@ -135,9 +135,22 @@ public:
       : MCELFStreamer(Ctx, std::move(MAB), std::move(MOW), std::move(MCE)),
         MCII(createIA64MCInstrInfo()) {}
 
-  /// Bundle the pending instructions. \p Stop ends the instruction group
-  /// there too.
-  void flush(bool Stop = true);
+  /// Bundle the pending instructions. \p Stop also ends the instruction
+  /// group. Unless \p KeepLast, a following region no longer starts right
+  /// after the last instruction.
+  void flush(bool Stop = true, bool KeepLast = false);
+
+  /// Bundle the pending instructions before padding. A pending region start
+  /// with only the padding before its first instruction includes the
+  /// padding: it starts at the end of the last instruction's bundle.
+  void flushForAlignment() {
+    flush(/*Stop=*/true, /*KeepLast=*/true);
+    if (NextStartMark != -1 && LastFragment) {
+      Marks[NextStartMark] = {createBundleSymbol(*LastFragment, LastOffset), 3};
+      NextStartMark = -1;
+    }
+    LastFragment = nullptr;
+  }
 
   /// End the instruction group at the last instruction.
   void emitStop() {
@@ -257,18 +270,18 @@ public:
   }
   void emitValueToAlignment(Align Alignment, int64_t Fill, uint8_t FillLen,
                             unsigned MaxBytesToEmit) override {
-    flush();
+    flushForAlignment();
     MCELFStreamer::emitValueToAlignment(Alignment, Fill, FillLen,
                                         MaxBytesToEmit);
   }
   void emitCodeAlignment(Align Alignment, const MCSubtargetInfo &STI,
                          unsigned MaxBytesToEmit) override {
-    flush();
+    flushForAlignment();
     MCELFStreamer::emitCodeAlignment(Alignment, STI, MaxBytesToEmit);
   }
   void emitPrefAlign(Align Alignment, const MCSymbol &End, bool EmitNops,
                      uint8_t Fill, const MCSubtargetInfo &STI) override {
-    flush();
+    flushForAlignment();
     MCELFStreamer::emitPrefAlign(Alignment, End, EmitNops, Fill, STI);
   }
   void emitValueToOffset(const MCExpr *Offset, unsigned char Value,
@@ -509,10 +522,10 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   return Taken;
 }
 
-void IA64ELFStreamer::flush(bool Stop) {
+void IA64ELFStreamer::flush(bool Stop, bool KeepLast) {
   // Only a label lets a region start in the preceding bundle.
   auto Break = [&] {
-    if (Stop)
+    if (Stop && !KeepLast)
       LastFragment = nullptr;
     // A tag with no following instruction becomes a label at the current
     // position.
