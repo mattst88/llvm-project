@@ -1003,6 +1003,12 @@ bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
     Res = MCConstantExpr::create(FloatClass, getContext());
     return false;
   }
+  // The hint that a loop is waiting for another processor is a name too.
+  if (Name == "pause") {
+    EndLoc = SMLoc::getFromPointer(Name.end());
+    Res = MCConstantExpr::create(0, getContext());
+    return false;
+  }
   IA64::Specifier Spec = IA64::parseSpecifierName(Name);
   if (Spec == IA64::S_None)
     return Error(S, "unknown operand '@" + Name + "'");
