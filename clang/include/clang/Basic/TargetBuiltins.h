@@ -446,6 +446,17 @@ namespace clang {
     };
   }
 
+  /// IA-64 builtins
+  namespace IA64 {
+  enum {
+    LastTIBuiltin = clang::Builtin::FirstTSBuiltin - 1,
+#define GET_BUILTIN_ENUMERATORS
+#include "clang/Basic/BuiltinsIA64.inc"
+#undef GET_BUILTIN_ENUMERATORS
+    LastTSBuiltin
+  };
+  } // namespace IA64
+
   /// XCore builtins
   namespace XCore {
     enum {

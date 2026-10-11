@@ -166,6 +166,10 @@ clang_tablegen("BuiltinsDirectX") {
   args = [ "-gen-clang-builtins" ]
 }
 
+clang_tablegen("BuiltinsIA64") {
+  args = [ "-gen-clang-builtins" ]
+}
+
 clang_tablegen("BuiltinsHexagon") {
   args = [ "-gen-clang-builtins" ]
 }
