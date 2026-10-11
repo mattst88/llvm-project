@@ -128,6 +128,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
 
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
+  setOperationAction(ISD::GlobalTLSAddress, MVT::i64, Custom);
   setOperationAction(ISD::JumpTable, MVT::i64, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
 
@@ -175,6 +176,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
   switch (Op.getOpcode()) {
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
+  case ISD::GlobalTLSAddress:
+    return LowerGlobalTLSAddress(Op, DAG);
   case ISD::JumpTable:
     return LowerJumpTable(Op, DAG);
   case ISD::BlockAddress:
@@ -240,6 +243,70 @@ SDValue IA64TargetLowering::LowerGlobalAddress(SDValue Op,
       GV->getValueType()->isFunctionTy() ? IA64::S_LTOFF_FPTR : IA64::S_LTOFF;
   SDValue Addr = loadLinkageTableEntry(
       DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags), DL, DAG);
+  if (N->getOffset() == 0)
+    return Addr;
+  return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
+                     DAG.getConstant(N->getOffset(), DL, MVT::i64));
+}
+
+// From the executable, a TLS variable is at an offset from the thread
+// pointer: a link-time constant if the executable defines it (local-exec),
+// or loaded from a GOT entry the dynamic loader fills in (initial-exec).
+// Otherwise its module ID and DTP-relative offset are passed to
+// __tls_get_addr (general-dynamic); for a symbol in this module, the
+// link-time constant offset is added to the result of __tls_get_addr for
+// offset 0 (local-dynamic).
+SDValue IA64TargetLowering::LowerGlobalTLSAddress(SDValue Op,
+                                                  SelectionDAG &DAG) const {
+  const auto *N = cast<GlobalAddressSDNode>(Op);
+  const GlobalValue *GV = N->getGlobal();
+  SDLoc DL(Op);
+
+  if (DAG.getTarget().useEmulatedTLS())
+    return LowerToTLSEmulatedModel(N, DAG);
+
+  auto Sym = [&](unsigned Flags) {
+    return DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags);
+  };
+  auto ThreadPointer = [&] {
+    return DAG.getCopyFromReg(DAG.getEntryNode(), DL, IA64::R13, MVT::i64);
+  };
+  auto GetAddr = [&](SDValue Module, SDValue Offset) {
+    ArgListTy Args;
+    Type *Ty = Type::getInt64Ty(*DAG.getContext());
+    Args.emplace_back(Module, Ty);
+    Args.emplace_back(Offset, Ty);
+    TargetLowering::CallLoweringInfo CLI(DAG);
+    CLI.setDebugLoc(DL)
+        .setChain(DAG.getEntryNode())
+        .setLibCallee(CallingConv::C, PointerType::getUnqual(*DAG.getContext()),
+                      DAG.getExternalSymbol("__tls_get_addr", MVT::i64),
+                      std::move(Args));
+    return LowerCallTo(CLI).first;
+  };
+
+  SDValue Addr;
+  switch (getTargetMachine().getTLSModel(GV)) {
+  case TLSModel::LocalExec:
+    Addr = DAG.getNode(IA64ISD::TLSOFF, DL, MVT::i64, Sym(IA64::S_TPREL),
+                       ThreadPointer());
+    break;
+  case TLSModel::InitialExec:
+    Addr = DAG.getNode(ISD::ADD, DL, MVT::i64,
+                       loadLinkageTableEntry(Sym(IA64::S_LTOFF_TPREL), DL, DAG),
+                       ThreadPointer());
+    break;
+  case TLSModel::LocalDynamic:
+    Addr = DAG.getNode(
+        IA64ISD::TLSOFF, DL, MVT::i64, Sym(IA64::S_DTPREL),
+        GetAddr(loadLinkageTableEntry(Sym(IA64::S_LTOFF_DTPMOD), DL, DAG),
+                DAG.getConstant(0, DL, MVT::i64)));
+    break;
+  case TLSModel::GeneralDynamic:
+    Addr = GetAddr(loadLinkageTableEntry(Sym(IA64::S_LTOFF_DTPMOD), DL, DAG),
+                   loadLinkageTableEntry(Sym(IA64::S_LTOFF_DTPREL), DL, DAG));
+    break;
+  }
   if (N->getOffset() == 0)
     return Addr;
   return DAG.getNode(ISD::ADD, DL, MVT::i64, Addr,
