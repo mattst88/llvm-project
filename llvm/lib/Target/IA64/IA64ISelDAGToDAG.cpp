@@ -36,6 +36,10 @@ public:
 
   void Select(SDNode *Node) override;
 
+  bool selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
+                     const SDLoc &DL, SmallVectorImpl<SDValue> &Ops,
+                     bool &IsImm);
+
 #include "IA64GenDAGISel.inc"
 };
 
@@ -56,6 +60,55 @@ public:
 
 char IA64DAGToDAGISelLegacy::ID = 0;
 
+static IA64CC::CondCode getIA64CC(ISD::CondCode CC) {
+  switch (CC) {
+  case ISD::SETEQ:
+    return IA64CC::EQ;
+  case ISD::SETNE:
+    return IA64CC::NE;
+  case ISD::SETLT:
+    return IA64CC::LT;
+  case ISD::SETGE:
+    return IA64CC::GE;
+  case ISD::SETGT:
+    return IA64CC::GT;
+  case ISD::SETLE:
+    return IA64CC::LE;
+  case ISD::SETULT:
+    return IA64CC::LTU;
+  case ISD::SETUGE:
+    return IA64CC::GEU;
+  case ISD::SETUGT:
+    return IA64CC::GTU;
+  case ISD::SETULE:
+    return IA64CC::LEU;
+  default:
+    llvm_unreachable("Not the condition of an integer compare");
+  }
+}
+
+/// The operands that say what a compare compares: the condition, the left
+/// side and the right, which is a constant if there is a compare that
+/// takes it. They are the same in every instruction that has a compare in
+/// it. Fails if the operands are not integers.
+bool IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
+                                     const SDLoc &DL,
+                                     SmallVectorImpl<SDValue> &Ops,
+                                     bool &IsImm) {
+  if (LHS.getValueType() != MVT::i64)
+    return false;
+  IA64CC::CondCode IACC = getIA64CC(CC);
+  Ops.push_back(CurDAG->getTargetConstant(IACC, DL, MVT::i64));
+  Ops.push_back(LHS);
+  auto *C = dyn_cast<ConstantSDNode>(RHS);
+  IsImm = C && IA64CC::isLegalImmediate(IACC, C->getSExtValue());
+  if (IsImm)
+    Ops.push_back(CurDAG->getTargetConstant(C->getSExtValue(), DL, MVT::i64));
+  else
+    Ops.push_back(RHS);
+  return true;
+}
+
 void IA64DAGToDAGISel::Select(SDNode *Node) {
   if (Node->isMachineOpcode()) {
     Node->setNodeId(-1);
@@ -68,6 +121,23 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
                                           IA64::R0, MVT::i64);
     ReplaceNode(Node, Zero.getNode());
     return;
+  }
+
+  SDLoc DL(Node);
+  switch (Node->getOpcode()) {
+  default:
+    break;
+  case ISD::SETCC: {
+    SmallVector<SDValue, 4> Ops;
+    bool IsImm;
+    if (!selectCompare(Node->getOperand(0), Node->getOperand(1),
+                       cast<CondCodeSDNode>(Node->getOperand(2))->get(), DL,
+                       Ops, IsImm))
+      break;
+    CurDAG->SelectNodeTo(Node, IsImm ? IA64::SETCCi : IA64::SETCC, MVT::i64,
+                         Ops);
+    return;
+  }
   }
 
   SelectCode(Node);

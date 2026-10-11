@@ -120,6 +120,9 @@ def PR : RegisterClass<"IA64", [i1], 8, (add
   (sequence "P%u", 16, 63),    // preserved (rotating)
   P0)> {                       // always 1 (reserved)
   let Size = 8;
+  // No value lives in a predicate: a compare writes a predicate pair and its
+  // users read it immediately.
+  let isAllocatable = 0;
 }
 
 def BR : RegisterClass<"IA64", [i64], 64, (add

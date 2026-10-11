@@ -31,6 +31,16 @@ enum : uint8_t {
 };
 } // namespace IA64
 
+namespace IA64CC {
+// The conditions of an integer compare. Each is next to its opposite.
+enum CondCode : unsigned { EQ, NE, LT, GE, GT, LE, LTU, GEU, GTU, LEU };
+
+inline CondCode getOpposite(CondCode CC) { return CondCode(CC ^ 1); }
+
+// Whether a compare against the constant has an immediate form.
+bool isLegalImmediate(CondCode CC, int64_t Imm);
+} // namespace IA64CC
+
 class IA64InstrInfo : public IA64GenInstrInfo {
   const IA64RegisterInfo RI;
 
@@ -43,6 +53,14 @@ public:
                    const DebugLoc &DL, Register DestReg, Register SrcReg,
                    bool KillSrc, bool RenamableDest = false,
                    bool RenamableSrc = false) const override;
+
+  bool expandPostRAPseudo(MachineInstr &MI) const override;
+
+  /// Compare \p LHS with \p RHS, a register or a constant, before \p I.
+  /// It leaves p6 set if \p CC holds and p7 if it does not.
+  void emitCompare(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                   const DebugLoc &DL, IA64CC::CondCode CC, Register LHS,
+                   const MachineOperand &RHS) const;
 };
 
 } // end namespace llvm

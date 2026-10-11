@@ -37,3 +37,121 @@ void IA64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   }
   report_fatal_error("IA64 cannot copy between these registers yet");
 }
+
+// The encoded compares are EQ and LT, signed and unsigned, with any
+// immediate as the left operand. The other conditions swap the operands,
+// swap the two result predicates, or compare against the constant minus
+// one: r < c is !(c - 1 < r).
+bool IA64CC::isLegalImmediate(CondCode CC, int64_t Imm) {
+  switch (CC) {
+  case LT:
+  case GE:
+    return isInt<8>(Imm - 1);
+  case LTU:
+  case GEU:
+    return Imm != 0 && isInt<8>(Imm - 1);
+  default:
+    return isInt<8>(Imm);
+  }
+}
+
+void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator I,
+                                const DebugLoc &DL, IA64CC::CondCode CC,
+                                Register LHS, const MachineOperand &RHS) const {
+  bool IsImm = RHS.isImm();
+  unsigned Opcode;
+  // Whether the encoded compare is the inverse of the requested one, and
+  // whether the requested LHS register becomes its right operand.
+  bool Invert = false, Swap = false;
+  int64_t Adjust = 0;
+  switch (CC) {
+  case IA64CC::NE:
+    Invert = true;
+    [[fallthrough]];
+  case IA64CC::EQ:
+    Opcode = IsImm ? IA64::CMP_EQi : IA64::CMP_EQ;
+    break;
+  case IA64CC::GE:
+  case IA64CC::GEU:
+    Invert = true;
+    [[fallthrough]];
+  case IA64CC::LT:
+  case IA64CC::LTU:
+    // With an immediate: r < c is !(c - 1 < r).
+    Invert ^= IsImm;
+    Adjust = -1;
+    break;
+  case IA64CC::LE:
+  case IA64CC::LEU:
+    Invert = true;
+    [[fallthrough]];
+  case IA64CC::GT:
+  case IA64CC::GTU:
+    // r > s is s < r, and an immediate is already on the left.
+    Swap = !IsImm;
+    break;
+  }
+  switch (CC) {
+  case IA64CC::EQ:
+  case IA64CC::NE:
+    break;
+  case IA64CC::LT:
+  case IA64CC::GE:
+  case IA64CC::GT:
+  case IA64CC::LE:
+    Opcode = IsImm ? IA64::CMP_LTi : IA64::CMP_LT;
+    break;
+  case IA64CC::LTU:
+  case IA64CC::GEU:
+  case IA64CC::GTU:
+  case IA64CC::LEU:
+    Opcode = IsImm ? IA64::CMP_LTUi : IA64::CMP_LTU;
+    break;
+  }
+
+  MachineInstrBuilder MIB =
+      BuildMI(MBB, I, DL, get(Opcode))
+          .addReg(Invert ? IA64::P7 : IA64::P6, RegState::Define)
+          .addReg(Invert ? IA64::P6 : IA64::P7, RegState::Define);
+  if (IsImm) {
+    assert(IA64CC::isLegalImmediate(CC, RHS.getImm()) &&
+           "No compare takes this constant");
+    MIB.addImm(RHS.getImm() + Adjust).addReg(LHS);
+  } else if (Swap) {
+    MIB.addReg(RHS.getReg()).addReg(LHS);
+  } else {
+    MIB.addReg(LHS).addReg(RHS.getReg());
+  }
+  MIB.addReg(IA64::P0);
+}
+
+bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
+  MachineBasicBlock &MBB = *MI.getParent();
+  const DebugLoc &DL = MI.getDebugLoc();
+  switch (MI.getOpcode()) {
+  default:
+    return false;
+  case IA64::SETCC:
+  case IA64::SETCCi: {
+    // Set the result to 0, then to 1 under p6. The result may be an operand
+    // register, so the compare goes first; they can still share an
+    // instruction group, since a write after a read is not a dependency.
+    Register Dst = MI.getOperand(0).getReg();
+    emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
+                MI.getOperand(2).getReg(), MI.getOperand(3));
+    BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
+        .addImm(0)
+        .addReg(IA64::R0)
+        .addReg(IA64::P0);
+    BuildMI(MBB, MI, DL, get(IA64::ADDL), Dst)
+        .addImm(1)
+        .addReg(IA64::R0)
+        .addReg(IA64::P6)
+        .addReg(Dst, RegState::Implicit);
+    break;
+  }
+  }
+  MI.eraseFromParent();
+  return true;
+}

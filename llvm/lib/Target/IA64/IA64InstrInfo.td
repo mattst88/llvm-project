@@ -35,6 +35,19 @@ def ADJCALLSTACKUP   : IA64Pseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
                                    [(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
+// A compare writes a predicate and its complement, and what depends on the
+// outcome is an instruction that one of them qualifies. Until the registers
+// are assigned the two are one instruction, so that nothing has to keep a
+// predicate alive and a condition can be reversed by saying so. The pair is
+// always p6 and p7. The condition is an IA64CC::CondCode, and the second
+// operand of the compare is a register or a constant.
+let Defs = [P6, P7] in {
+def SETCC  : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, GR:$rhs),
+                        "#SETCC", []>;
+def SETCCi : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, i64imm:$rhs),
+                        "#SETCCi", []>;
+}
+
 //===----------------------------------------------------------------------===//
 // Integer ALU
 //===----------------------------------------------------------------------===//

@@ -37,6 +37,9 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   computeRegisterProperties(STI.getRegisterInfo());
 
+  // Compares write predicates; materialized as a value, the result is 0 or 1.
+  setBooleanContents(ZeroOrOneBooleanContent);
+
   // No instruction sign-extends from i1; it takes two shifts.
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
 
