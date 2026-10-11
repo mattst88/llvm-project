@@ -9,6 +9,7 @@
 #include "IA64ISelLowering.h"
 #include "IA64.h"
 #include "IA64FrameLowering.h"
+#include "IA64MachineFunctionInfo.h"
 #include "IA64SelectionDAGInfo.h"
 #include "IA64Subtarget.h"
 #include "IA64TargetMachine.h"
@@ -94,6 +95,13 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   }
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
 
+  // va_list is a pointer to the next argument; each argument occupies one or
+  // more 8-byte slots.
+  setOperationAction(ISD::VASTART, MVT::Other, Custom);
+  for (unsigned Opc : {ISD::VAARG, ISD::VACOPY, ISD::VAEND})
+    setOperationAction(Opc, MVT::Other, Expand);
+  setMinStackArgumentAlignment(Align(8));
+
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
   setOperationAction(ISD::JumpTable, MVT::i64, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
@@ -150,6 +158,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return DAG.getNode(
         IA64ISD::SETF_S, SDLoc(Op), MVT::f32,
         DAG.getNode(ISD::ANY_EXTEND, SDLoc(Op), MVT::i64, Op.getOperand(0)));
+  case ISD::VASTART:
+    return LowerVASTART(Op, DAG);
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -232,6 +242,16 @@ SDValue IA64TargetLowering::LowerBlockAddress(SDValue Op,
                      DAG.getConstant(N->getOffset(), DL, MVT::i64));
 }
 
+// va_list is the address of the next argument.
+SDValue IA64TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  const auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), SDLoc(Op),
+                      DAG.getFrameIndex(FI->getVarArgsFrameIndex(), MVT::i64),
+                      Op.getOperand(1), MachinePointerInfo(SV));
+}
+
 // An entry of a jump table is the distance from the table to the block,
 // which needs nothing done to it when the module is loaded.
 unsigned IA64TargetLowering::getJumpTableEncoding() const {
@@ -243,8 +263,6 @@ SDValue IA64TargetLowering::LowerFormalArguments(
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   MachineFunction &MF = DAG.getMachineFunction();
-  if (IsVarArg)
-    report_fatal_error("IA64 variable argument lists are not yet implemented");
 
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
@@ -269,6 +287,31 @@ SDValue IA64TargetLowering::LowerFormalArguments(
                                                      : &IA64::GRRegClass);
     InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT()));
   }
+  if (!IsVarArg)
+    return Chain;
+
+  // The arguments with no names are read from memory, one slot after
+  // another, so those that came in registers are written below the ones
+  // that did not. The last two of them fit in the scratch area and the
+  // frame has the rest at its top.
+  static const MCPhysReg Slots[] = {IA64::R32, IA64::R33, IA64::R34, IA64::R35,
+                                    IA64::R36, IA64::R37, IA64::R38, IA64::R39};
+  unsigned First = CCInfo.getFirstUnallocated(Slots);
+  auto SlotOffset = [](unsigned Slot) { return -8 * int64_t(8 - Slot); };
+  SmallVector<SDValue, 8> Stores;
+  for (unsigned Slot = First; Slot != 8; ++Slot) {
+    int FI = MFI.CreateFixedObject(8, SlotOffset(Slot), true);
+    Register VReg = MF.addLiveIn(Slots[Slot], &IA64::GRRegClass);
+    Stores.push_back(
+        DAG.getStore(Chain, DL, DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64),
+                     DAG.getFrameIndex(FI, MVT::i64),
+                     MachinePointerInfo::getFixedStack(MF, FI)));
+  }
+  if (!Stores.empty())
+    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
+  MF.getInfo<IA64MachineFunctionInfo>()->setVarArgsFrameIndex(
+      MFI.CreateFixedObject(
+          8, First != 8 ? SlotOffset(First) : CCInfo.getStackSize(), true));
   return Chain;
 }
 
@@ -286,8 +329,6 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
 
   CLI.IsTailCall = false;
-  if (CLI.IsVarArg)
-    report_fatal_error("IA64 variable argument lists are not yet implemented");
 
   // A pointer to a function is the address of its descriptor: the entry
   // point, and then the global pointer that the function expects.
@@ -312,6 +353,20 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
       IA64FrameLowering::ScratchAreaSize + CCInfo.getStackSize();
   Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
 
+  // An argument the callee has not named goes as its bits, which for a
+  // single-precision value are the low half of the slot.
+  SmallVector<SDValue, 8> OutVals(CLI.OutVals.begin(), CLI.OutVals.end());
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    if (ArgLocs[I].getLocInfo() != CCValAssign::BCvt)
+      continue;
+    SDValue &Val = OutVals[I];
+    if (Val.getValueType() == MVT::f32)
+      Val = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64,
+                        DAG.getBitcast(MVT::i32, Val));
+    else
+      Val = DAG.getBitcast(MVT::i64, Val);
+  }
+
   // Store stack arguments first, so the copies to the output registers are
   // adjacent to the call.
   SmallVector<SDValue, 8> MemOps;
@@ -324,7 +379,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
       StackPtr = DAG.getCopyFromReg(Chain, DL, IA64::R12, MVT::i64);
     unsigned Offset = IA64FrameLowering::ScratchAreaSize + VA.getLocMemOffset();
     MemOps.push_back(DAG.getStore(
-        Chain, DL, CLI.OutVals[I],
+        Chain, DL, OutVals[I],
         DAG.getMemBasePlusOffset(StackPtr, TypeSize::getFixed(Offset), DL),
         MachinePointerInfo::getStack(MF, Offset)));
   }
@@ -342,7 +397,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Register Reg = VA.getLocReg();
     if (IA64::GRRegClass.contains(Reg))
       Reg = IA64::R120 + (Reg - IA64::R32);
-    Chain = DAG.getCopyToReg(Chain, DL, Reg, CLI.OutVals[I], Glue);
+    Chain = DAG.getCopyToReg(Chain, DL, Reg, OutVals[I], Glue);
     Glue = Chain.getValue(1);
     ArgRegs.push_back({Reg, VA.getLocVT()});
   }

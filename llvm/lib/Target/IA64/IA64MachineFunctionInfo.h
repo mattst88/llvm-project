@@ -19,6 +19,9 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   Register SavedPFS;
   Register SavedRP;
 
+  // Where the arguments that have no names start.
+  int VarArgsFrameIndex = 0;
+
 public:
   IA64MachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {}
 
@@ -33,6 +36,8 @@ public:
   void setSavedPFS(Register Reg) { SavedPFS = Reg; }
   Register getSavedRP() const { return SavedRP; }
   void setSavedRP(Register Reg) { SavedRP = Reg; }
+  int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
+  void setVarArgsFrameIndex(int FI) { VarArgsFrameIndex = FI; }
 };
 
 } // end namespace llvm

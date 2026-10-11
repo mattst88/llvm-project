@@ -13,6 +13,10 @@
 // The first eight argument slots are the caller's output registers, which the
 // callee sees as its first input registers.
 def CC_IA64 : CallingConv<[
+  // An unnamed (varargs) FP argument is passed as its bits in the GR slot,
+  // since the callee reads it from memory.
+  CCIfArgVarArg<CCIfType<[f32, f64], CCBitConvertToType<i64>>>,
+
   CCIfType<[i64], CCAssignToReg<[R32, R33, R34, R35, R36, R37, R38, R39]>>,
 
   // An FP argument still takes a slot, and while slots remain it goes in the
