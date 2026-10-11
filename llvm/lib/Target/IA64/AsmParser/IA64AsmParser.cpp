@@ -24,6 +24,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/MathExtras.h"
@@ -79,6 +80,11 @@ class IA64AsmParser : public MCTargetAsmParser {
   /// A list of predicate registers and of ranges of them: "p1-p5, p16".
   /// \p Count is the number of registers.
   bool parsePredicateList(unsigned &Count);
+
+  /// ".proc" and ".endp", which bracket a procedure.
+  ParseStatus parseProcDirective(StringRef Name);
+  /// The entry points of the open procedure, if any.
+  SmallVector<MCSymbol *, 2> ProcEntries;
 
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
@@ -861,10 +867,70 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
       return ParseStatus::Success;
     }
 
-  ParseStatus Status = parseAnnotationDirective(Name);
+  ParseStatus Status = parseProcDirective(Name);
+  if (!Status.isNoMatch())
+    return Status;
+  Status = parseAnnotationDirective(Name);
   if (!Status.isNoMatch())
     return Status;
   return parseDataDirective(Name);
+}
+
+ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
+  SMLoc Loc = getTok().getLoc();
+  if (Name.equals_insensitive(".proc")) {
+    if (!ProcEntries.empty())
+      Warning(Loc, "the previous .proc has no .endp");
+    ProcEntries.clear();
+    SmallVector<MCSymbol *, 2> Entries;
+    do {
+      SMLoc SymLoc = getTok().getLoc();
+      MCSymbol *Sym;
+      if (getParser().parseSymbol(Sym))
+        return Error(SymLoc, "expected a symbol");
+      // Entries must be defined inside their procedure.
+      if (Sym->isDefined())
+        return Error(SymLoc, "symbol '" + Sym->getName() +
+                                 "' is defined before its procedure");
+      Entries.push_back(Sym);
+    } while (parseOptionalToken(AsmToken::Comma));
+    if (parseEOL())
+      return ParseStatus::Failure;
+    ProcEntries = std::move(Entries);
+    getTargetStreamer().emitProc(ProcEntries);
+    return ParseStatus::Success;
+  }
+
+  if (Name.equals_insensitive(".endp")) {
+    if (ProcEntries.empty())
+      return Error(Loc, ".endp without a .proc");
+    // The names are redundant and only checked.
+    while (!getTok().is(AsmToken::EndOfStatement)) {
+      SMLoc SymLoc = getTok().getLoc();
+      MCSymbol *Sym;
+      if (getParser().parseSymbol(Sym))
+        return Error(SymLoc, "expected a symbol");
+      if (!is_contained(ProcEntries, Sym))
+        Warning(SymLoc, "symbol '" + Sym->getName() +
+                            "' is not an entry of the procedure");
+      if (!parseOptionalToken(AsmToken::Comma))
+        break;
+    }
+    if (parseEOL())
+      return ParseStatus::Failure;
+    bool Undefined = false;
+    const MCSection *Section = getStreamer().getCurrentSectionOnly();
+    for (MCSymbol *Entry : ProcEntries)
+      if (!Entry->isInSection() || &Entry->getSection() != Section)
+        Undefined |= Error(Loc, "symbol '" + Entry->getName() +
+                                    "' is not defined in its procedure");
+    if (!Undefined)
+      getTargetStreamer().emitEndp();
+    ProcEntries.clear();
+    return Undefined ? ParseStatus::Failure : ParseStatus::Success;
+  }
+
+  return ParseStatus::NoMatch;
 }
 
 bool IA64AsmParser::parsePredicateList(unsigned &Count) {

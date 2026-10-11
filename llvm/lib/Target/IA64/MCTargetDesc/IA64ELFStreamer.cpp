@@ -422,6 +422,33 @@ void IA64TargetELFStreamer::emitTemplate(unsigned Index) {
   static_cast<IA64ELFStreamer &>(getStreamer()).emitTemplate(Index);
 }
 
+void IA64TargetELFStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {
+  auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
+  // A procedure starts on a bundle of its own, and in an instruction group
+  // of its own.
+  S.flush();
+  this->Entries.assign(Entries.begin(), Entries.end());
+  for (MCSymbol *Entry : Entries)
+    S.emitSymbolAttribute(Entry, MCSA_ELF_TypeFunction);
+}
+
+void IA64TargetELFStreamer::emitEndp() {
+  auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
+  MCContext &Ctx = S.getContext();
+  S.flush();
+  MCSymbol *End = Ctx.createTempSymbol();
+  S.emitLabel(End, SMLoc());
+  // An explicit size from the source takes precedence.
+  for (MCSymbol *Entry : Entries) {
+    auto *Sym = static_cast<MCSymbolELF *>(Entry);
+    if (!Sym->getSize())
+      Sym->setSize(MCBinaryExpr::createSub(MCSymbolRefExpr::create(End, Ctx),
+                                           MCSymbolRefExpr::create(Sym, Ctx),
+                                           Ctx));
+  }
+  Entries.clear();
+}
+
 MCStreamer *llvm::createIA64ELFStreamer(const Triple &T, MCContext &Ctx,
                                         std::unique_ptr<MCAsmBackend> &&MAB,
                                         std::unique_ptr<MCObjectWriter> &&MOW,

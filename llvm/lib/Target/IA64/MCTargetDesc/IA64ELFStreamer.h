@@ -27,6 +27,11 @@ public:
   void finish() override;
   void emitStop() override;
   void emitTemplate(unsigned Index) override;
+  void emitProc(ArrayRef<MCSymbol *> Entries) override;
+  void emitEndp() override;
+
+private:
+  SmallVector<MCSymbol *, 2> Entries;
 };
 
 MCStreamer *createIA64ELFStreamer(const Triple &T, MCContext &Ctx,
