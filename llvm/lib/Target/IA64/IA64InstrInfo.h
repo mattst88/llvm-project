@@ -23,6 +23,14 @@ namespace llvm {
 
 class IA64Subtarget;
 
+namespace IA64 {
+// Machine instruction flags, which the assembly printer reads.
+enum : uint8_t {
+  // A stop follows the instruction.
+  StopAfter = MachineInstr::TAsmComments,
+};
+} // namespace IA64
+
 class IA64InstrInfo : public IA64GenInstrInfo {
   const IA64RegisterInfo RI;
 

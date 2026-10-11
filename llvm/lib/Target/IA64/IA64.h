@@ -21,9 +21,13 @@ namespace llvm {
 
 class IA64TargetMachine;
 class FunctionPass;
+class PassRegistry;
 
 FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
+FunctionPass *createIA64InsertStopsPass();
+
+void initializeIA64InsertStopsPass(PassRegistry &);
 
 } // namespace llvm
 

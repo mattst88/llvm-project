@@ -12,7 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
+#include "IA64InstrInfo.h"
 #include "IA64TargetMachine.h"
+#include "MCTargetDesc/IA64BaseInfo.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -66,6 +68,8 @@ void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     if (MCOp.isValid())
       OutMI.addOperand(MCOp);
   }
+  if (MI->getAsmPrinterFlag(IA64::StopAfter))
+    OutMI.setFlags(IA64II::StopAfter);
   EmitToStreamer(*OutStreamer, OutMI);
 }
 

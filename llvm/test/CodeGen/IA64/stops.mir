@@ -1,0 +1,155 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# A stop ends an instruction group wherever the next instruction would read
+# or write again what the group has written.
+
+---
+# A read of what was written.
+# CHECK-LABEL: read_after_write:
+# CHECK:       mov r14 = r32 ;;
+# CHECK-NEXT:  mov r8 = r14
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: read_after_write
+body: |
+  bb.0:
+    liveins: $r32
+    $r14 = ADDS 0, $r32, $p0
+    $r8 = ADDS 0, $r14, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A second write.
+# CHECK-LABEL: write_after_write:
+# CHECK:       mov r8 = r32 ;;
+# CHECK-NEXT:  mov r8 = r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: write_after_write
+body: |
+  bb.0:
+    liveins: $r32, $r33
+    $r8 = ADDS 0, $r32, $p0
+    $r8 = ADDS 0, $r33, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A write of what was read is no dependency: every instruction of the group
+# reads what was there before it.
+# CHECK-LABEL: write_after_read:
+# CHECK:       mov r8 = r32
+# CHECK-NEXT:  mov r32 = r33
+# CHECK-NEXT:  add r9 = r33, r34
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: write_after_read
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34
+    $r8 = ADDS 0, $r32, $p0
+    $r32 = ADDS 0, $r33, $p0
+    $r9 = ADD $r33, $r34, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...
+---
+# r0 reads as zero whatever is written to it, and p0 as one.
+# CHECK-LABEL: constants:
+# CHECK:       add r8 = r0, r33
+# CHECK-NEXT:  cmp.eq p0, p6 = r32, r33
+# CHECK-NEXT:  mov r9 = r32
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: constants
+body: |
+  bb.0:
+    liveins: $r32, $r33
+    $r8 = ADD $r0, $r33, $p0
+    $p0, $p6 = CMP_EQ $r32, $r33, $p0
+    $r9 = ADDS 0, $r32, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...
+---
+# The predicate that qualifies an instruction is read by it.
+# CHECK-LABEL: qualified:
+# CHECK:       cmp.eq p6, p7 = r32, r33 ;;
+# CHECK-NEXT:  (p6) mov r8 = r32
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: qualified
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r8
+    $p6, $p7 = CMP_EQ $r32, $r33, $p0
+    $r8 = ADDS 0, $r32, $p6, implicit $r8
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A branch is the exception: it may be qualified by a predicate computed in
+# its own group.
+# CHECK-LABEL: branch:
+# CHECK:       cmp.eq p6, p7 = r32, r33
+# CHECK-NEXT:  (p6) br.ret.sptk.many b0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: branch
+body: |
+  bb.0:
+    liveins: $r32, $r33
+    $p6, $p7 = CMP_EQ $r32, $r33, $p0
+    BR_RET $b0, 0, 1, 0, $p6
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# Unless a floating-point instruction computed it.
+# CHECK-LABEL: branch_fp:
+# CHECK:       fcmp.eq p6, p7 = f8, f9 ;;
+# CHECK-NEXT:  (p6) br.ret.sptk.many b0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: branch_fp
+body: |
+  bb.0:
+    liveins: $f8, $f9
+    $p6, $p7 = FCMP_EQ $f8, $f9, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p6
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# A branch may also go through a register that its group has written, and a
+# return may follow the restoring of the previous function state.
+# CHECK-LABEL: link:
+# CHECK:       mov ar.pfs = r34
+# CHECK-NEXT:  mov b0 = r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: link
+body: |
+  bb.0:
+    liveins: $r33, $r34
+    $ar64 = MOV_AR $r34, $p0
+    $b0 = MOV_BR $r33, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $ar64
+...
+---
+# The loop count is not such a register.
+# CHECK-LABEL: count:
+# CHECK:       mov ar.lc = r32 ;;
+# CHECK-NEXT:  br.cloop.sptk.few
+name: count
+body: |
+  bb.0:
+    liveins: $r32
+    $ar65 = MOV_AR $r32, $p0
+    BR_CLOOP 0, 0, 0, 0, implicit-def $ar65, implicit $ar65
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# A group does not run from one block into the next.
+# CHECK-LABEL: blocks:
+# CHECK:       mov r14 = r32 ;;
+# CHECK:       mov r8 = r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: blocks
+body: |
+  bb.0:
+    liveins: $r32, $r33
+    $r14 = ADDS 0, $r32, $p0
+
+  bb.1:
+    liveins: $r33
+    $r8 = ADDS 0, $r33, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

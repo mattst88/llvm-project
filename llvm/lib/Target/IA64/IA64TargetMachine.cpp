@@ -12,11 +12,15 @@
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/PassRegistry.h"
 
 using namespace llvm;
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   RegisterTargetMachine<IA64TargetMachine> X(getTheIA64Target());
+
+  PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeIA64InsertStopsPass(PR);
 }
 
 // Code addresses data relative to GP and other code relative to IP, so it is
@@ -69,12 +73,18 @@ public:
   }
 
   bool addInstSelector() override;
+  void addPreEmitPass2() override;
 };
 } // end anonymous namespace
 
 bool IA64PassConfig::addInstSelector() {
   addPass(createIA64ISelDag(getIA64TargetMachine(), getOptLevel()));
   return false;
+}
+
+void IA64PassConfig::addPreEmitPass2() {
+  // Nothing may add, remove or reorder an instruction after this.
+  addPass(createIA64InsertStopsPass());
 }
 
 TargetPassConfig *IA64TargetMachine::createPassConfig(PassManagerBase &PM) {
