@@ -226,6 +226,19 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
                          CurDAG->getRegister(IA64::P0, MVT::i1));
     return;
   }
+  case ISD::PREFETCH: {
+    // lfetch's hint is how many cache levels the line may skip, which grows
+    // as the expected locality drops, and whether the line will be written.
+    // The cache type (data or instruction) is not expressible.
+    bool Write = Node->getConstantOperandVal(2);
+    uint64_t Locality = Node->getConstantOperandVal(3);
+    CurDAG->SelectNodeTo(
+        Node, Write ? IA64::LFETCH_EXCL : IA64::LFETCH, MVT::Other,
+        {Node->getOperand(1),
+         CurDAG->getTargetConstant(3 - Locality, DL, MVT::i64),
+         CurDAG->getRegister(IA64::P0, MVT::i1), Node->getOperand(0)});
+    return;
+  }
   case ISD::ConstantFP: {
     // f0 reads as 0.0 and f1 as 1.0. Other constants are materialized in a GR
     // and moved over with setf.
