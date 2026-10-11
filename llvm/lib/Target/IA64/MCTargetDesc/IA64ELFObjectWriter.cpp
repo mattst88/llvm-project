@@ -14,6 +14,7 @@
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCObjectWriter.h"
+#include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCValue.h"
 
@@ -123,6 +124,12 @@ unsigned IA64ELFObjectWriter::getRelocType(const MCFixup &Fixup,
 
 bool IA64ELFObjectWriter::needsRelocateWithSymbol(const MCValue &V,
                                                   unsigned Type) const {
+  // GNU as keeps a symbol that is in a section group and has a name to keep.
+  // The section may be discarded, and the symbol then tells what is gone.
+  if (const MCSymbol *Sym = V.getAddSym())
+    if (!Sym->isTemporary() && Sym->isInSection() &&
+        static_cast<const MCSectionELF &>(Sym->getSection()).getGroup())
+      return true;
   // The linker creates one function descriptor per function, and TLS is laid
   // out per symbol.
   switch (V.getSpecifier()) {
