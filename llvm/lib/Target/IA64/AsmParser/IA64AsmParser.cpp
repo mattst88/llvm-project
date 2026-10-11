@@ -580,6 +580,14 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
             ->getRegClass(IA64::GR0_3RegClassID)
             .contains(Inst.getOperand(2).getReg()))
       Inst.setOpcode(IA64::ADDL);
+    // A zero, unorm, norm or inf class with no sign bit selected means
+    // either sign.
+    if (Inst.getOpcode() == IA64::FCLASS_M ||
+        Inst.getOpcode() == IA64::FCLASS_M_UNC) {
+      MCOperand &Class = Inst.getOperand(3);
+      if (Class.isImm() && (Class.getImm() & 0x3c) && !(Class.getImm() & 0x3))
+        Class.setImm(Class.getImm() | 0x3);
+    }
     Inst.setLoc(IDLoc);
     Opcode = Inst.getOpcode();
     Out.emitInstruction(Inst, getSTI());
@@ -978,6 +986,23 @@ bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
   if (Parser.getTok().isNot(AsmToken::Identifier) ||
       Parser.parseIdentifier(Name))
     return Error(S, "expected a name after '@'");
+  // fclass class names stand for their mask bits.
+  int64_t FloatClass = StringSwitch<int64_t>(Name)
+                           .Case("pos", 0x001)
+                           .Case("neg", 0x002)
+                           .Case("zero", 0x004)
+                           .Case("unorm", 0x008)
+                           .Case("norm", 0x010)
+                           .Case("inf", 0x020)
+                           .Case("snan", 0x040)
+                           .Case("qnan", 0x080)
+                           .Case("nat", 0x100)
+                           .Default(0);
+  if (FloatClass) {
+    EndLoc = SMLoc::getFromPointer(Name.end());
+    Res = MCConstantExpr::create(FloatClass, getContext());
+    return false;
+  }
   IA64::Specifier Spec = IA64::parseSpecifierName(Name);
   if (Spec == IA64::S_None)
     return Error(S, "unknown operand '@" + Name + "'");
