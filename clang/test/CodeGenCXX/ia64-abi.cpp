@@ -37,5 +37,20 @@ struct derived : base { double b; };
 void pass_derived(derived d) {}
 // CHECK-LABEL: define dso_local void @_Z12pass_derived7derived([2 x double] %d.coerce)
 
+// A base that is empty is not a member, and nor is a member that needs no
+// address of its own. An empty member that has one is a byte.
+
+struct empty_base : empty { double a; };
+void pass_empty_base(empty_base e) {}
+// CHECK-LABEL: define dso_local void @_Z15pass_empty_base10empty_base([1 x double] %e.coerce)
+
+struct no_address { double a; [[no_unique_address]] empty e; };
+void pass_no_address(no_address n) {}
+// CHECK-LABEL: define dso_local void @_Z15pass_no_address10no_address([1 x double] %n.coerce)
+
+struct empty_member { empty e; double a; };
+void pass_empty_member(empty_member e) {}
+// CHECK-LABEL: define dso_local void @_Z17pass_empty_member12empty_member([2 x i64] %e.coerce)
+
 bool narrow_bool(bool b) { return b; }
 // CHECK-LABEL: define dso_local noundef i8 @_Z11narrow_boolb(i8 noundef %b.coerce)

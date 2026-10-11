@@ -940,6 +940,13 @@ features cannot lower the translation-unit ABI level;
   subsequent base; Clang now does the same.
   ([#210174](https://github.com/llvm/llvm-project/issues/210174))
 
+#### IA-64 Support
+
+- Added support for the `ia64-unknown-linux-gnu` target, backed by the new
+  experimental IA-64 backend. This covers the Itanium psABI for argument
+  passing and aggregate return, function descriptors, the 80-bit
+  `long double`, and driver support for the GNU toolchain.
+
 #### LoongArch Support
 
 - `loongarch32-*-none-elf` and `loongarch64-*-none-elf` targets now use the

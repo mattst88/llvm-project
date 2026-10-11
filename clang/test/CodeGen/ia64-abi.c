@@ -105,6 +105,99 @@ struct not_hfa_field { double a; int : 0; double b; };
 void pass_not_hfa_field(struct not_hfa_field s) {}
 // CHECK-LABEL: define dso_local void @pass_not_hfa_field([2 x i64] %s.coerce)
 
+// The padding of one that was declared to be aligned to more than its
+// members are counts as members.
+
+struct hfa_padded { float a; float b __attribute__((aligned(8))); };
+void pass_hfa_padded(struct hfa_padded s) {}
+// CHECK-LABEL: define dso_local void @pass_hfa_padded([4 x float] %s.coerce)
+
+struct hfa_padded_aligned { double a; } __attribute__((aligned(16)));
+void pass_hfa_padded_aligned(struct hfa_padded_aligned s) {}
+// CHECK-LABEL: define dso_local void @pass_hfa_padded_aligned([2 x double] alignstack(16) %s.coerce)
+
+// One of extended-precision members that was declared to be aligned to less
+// than they are does not begin at an even slot.
+
+typedef long double unaligned_extended __attribute__((aligned(2)));
+struct hfa_unaligned { unaligned_extended a; };
+void pass_hfa_unaligned(struct hfa_unaligned s) {}
+// CHECK-LABEL: define dso_local void @pass_hfa_unaligned([1 x x86_fp80] alignstack(8) %s.coerce)
+
+// An array of no members is of the type of its members all the same.
+
+struct hfa_no_length { double a; double b[]; };
+void pass_hfa_no_length(struct hfa_no_length s) {}
+// CHECK-LABEL: define dso_local void @pass_hfa_no_length([1 x double] %s.coerce)
+
+union hfa_union { double a[2]; struct { double b; } s; };
+void pass_hfa_union(union hfa_union u) {}
+// CHECK-LABEL: define dso_local void @pass_hfa_union([2 x double] %u.coerce)
+
+// A member of another type is not overlooked for being of no size, and the
+// aggregate is not homogeneous.
+
+struct none {};
+struct not_hfa_empty { float a; struct none n; float b; };
+void pass_not_hfa_empty(struct not_hfa_empty s) {}
+// CHECK-LABEL: define dso_local void @pass_not_hfa_empty(i64 %s.coerce)
+
+struct not_hfa_no_ints { double a, b; int c[0]; };
+void pass_not_hfa_no_ints(struct not_hfa_no_ints s) {}
+// CHECK-LABEL: define dso_local void @pass_not_hfa_no_ints([2 x i64] %s.coerce)
+
+// But one that is a single floating-point or complex value and nothing else
+// of any size is passed as that value is, though it is not returned so.
+
+struct single_double { struct none n; double a; };
+void pass_single_double(struct single_double s) {}
+// CHECK-LABEL: define dso_local void @pass_single_double([1 x double] %s.coerce)
+
+struct single_double return_single_double(void) {
+  return (struct single_double){};
+}
+// CHECK-LABEL: define dso_local i64 @return_single_double()
+
+struct single_field { double a; int : 0; };
+void pass_single_field(struct single_field s) {}
+// CHECK-LABEL: define dso_local void @pass_single_field([1 x double] %s.coerce)
+
+struct single_extended { struct none n; long double a; };
+void pass_single_extended(struct single_extended s) {}
+// CHECK-LABEL: define dso_local void @pass_single_extended([1 x x86_fp80] alignstack(16) %s.coerce)
+
+struct single_complex { struct none n; _Complex double z; };
+void pass_single_complex(struct single_complex s) {}
+// CHECK-LABEL: define dso_local void @pass_single_complex([2 x double] %s.coerce)
+
+// Nor is one that is aligned to less than the value is.
+struct __attribute__((packed)) not_single_packed { float a; struct none n; };
+void pass_not_single_packed(struct not_single_packed s) {}
+// CHECK-LABEL: define dso_local void @pass_not_single_packed(i32 %s.coerce)
+
+struct __attribute__((packed, aligned(8))) not_single_extended {
+  struct none n;
+  long double a;
+};
+void pass_not_single_extended(struct not_single_extended s) {}
+// CHECK-LABEL: define dso_local void @pass_not_single_extended([2 x i64] %s.coerce)
+
+struct __attribute__((packed, aligned(8))) single_packed { double a; struct none n; };
+void pass_single_packed(struct single_packed s) {}
+// CHECK-LABEL: define dso_local void @pass_single_packed([1 x double] %s.coerce)
+
+struct not_single_array { struct none n; double a[2]; };
+void pass_not_single_array(struct not_single_array s) {}
+// CHECK-LABEL: define dso_local void @pass_not_single_array([2 x i64] %s.coerce)
+
+struct not_single_union { union { double a; struct none n; } u; };
+void pass_not_single_union(struct not_single_union s) {}
+// CHECK-LABEL: define dso_local void @pass_not_single_union(i64 %s.coerce)
+
+struct not_single_no_length { double a; int b[]; };
+void pass_not_single_no_length(struct not_single_no_length s) {}
+// CHECK-LABEL: define dso_local void @pass_not_single_no_length(i64 %s.coerce)
+
 // A result of up to four words is in r8 to r11, and one of up to eight
 // members of one floating-point type is in f8 to f15. The rest are in
 // memory.

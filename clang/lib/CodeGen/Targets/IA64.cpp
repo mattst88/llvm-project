@@ -48,12 +48,14 @@ private:
 
   bool isInSlots(QualType Ty) const;
   llvm::Type *getSlotsType(uint64_t Bits, bool Aligned) const;
+  struct Members {
+    const Type *Base = nullptr;
+    bool HasComplex = false;
+  };
+  bool isOfOneFloatType(QualType Ty, Members &M, bool AsPassed) const;
+  llvm::ArrayType *getMembersType(QualType Ty, const Type *Base) const;
   llvm::ArrayType *getHomogeneousType(QualType Ty) const;
-
-  bool isHomogeneousAggregateBaseType(QualType Ty) const override;
-  bool isHomogeneousAggregateSmallEnough(const Type *Base,
-                                         uint64_t Members) const override;
-  bool isZeroLengthBitfieldPermittedInHomogeneousAggregate() const override;
+  llvm::ArrayType *getSingleMemberType(QualType Ty) const;
 };
 
 class IA64TargetCodeGenInfo : public TargetCodeGenInfo {
@@ -65,7 +67,7 @@ public:
 
 // HFA members can be single, double or extended precision. A quad-precision
 // value is always passed as two words in general registers.
-bool IA64ABIInfo::isHomogeneousAggregateBaseType(QualType Ty) const {
+static bool isFloatMemberType(const Type *Ty) {
   const auto *BT = Ty->getAs<BuiltinType>();
   if (!BT)
     return false;
@@ -79,17 +81,58 @@ bool IA64ABIInfo::isHomogeneousAggregateBaseType(QualType Ty) const {
   }
 }
 
-// An argument has as many members as it likes, and those that f8 to f15 have
-// no room for are in the general registers and in memory. A result has no
-// more than there are registers, which is for whoever classifies it to see.
-bool IA64ABIInfo::isHomogeneousAggregateSmallEnough(const Type *Base,
-                                                    uint64_t Members) const {
-  return true;
-}
+// Whether Ty consists entirely of a single floating-point type, which is
+// recorded in M. A zero-length array of that type still qualifies, but a
+// member of any other type disqualifies it even if zero-sized: an empty
+// struct in C, a zero-length integer array, a zero-width bit-field. Things
+// C++ gives no storage (an empty base class, a [[no_unique_address]] member)
+// are not members.
+//
+// With AsPassed, instead check whether Ty is of that type ignoring zero-sized
+// members, and is neither a union nor ends in a flexible array member.
+bool IA64ABIInfo::isOfOneFloatType(QualType Ty, Members &M,
+                                   bool AsPassed) const {
+  if (const ArrayType *AT = getContext().getAsArrayType(Ty))
+    return isOfOneFloatType(AT->getElementType(), M, AsPassed);
+  if (const auto *CT = Ty->getAs<ComplexType>()) {
+    M.HasComplex = true;
+    return isOfOneFloatType(CT->getElementType(), M, AsPassed);
+  }
 
-// GCC does not overlook a bit-field of no width, in C or in C++.
-bool IA64ABIInfo::isZeroLengthBitfieldPermittedInHomogeneousAggregate() const {
-  return false;
+  if (const RecordDecl *RD = Ty->getAsRecordDecl()) {
+    if (AsPassed && (RD->isUnion() || RD->hasFlexibleArrayMember()))
+      return false;
+    bool HasMember = false;
+    if (const auto *CXXRD = dyn_cast<CXXRecordDecl>(RD)) {
+      for (const CXXBaseSpecifier &B : CXXRD->bases()) {
+        if (isEmptyRecord(getContext(), B.getType(), true))
+          continue;
+        if (!isOfOneFloatType(B.getType(), M, AsPassed))
+          return false;
+        HasMember = true;
+      }
+    }
+    for (const FieldDecl *FD : RD->fields()) {
+      if (AsPassed && (FD->isZeroLengthBitField() ||
+                       getContext().getTypeSize(FD->getType()) == 0))
+        continue;
+      if (FD->isBitField())
+        return false;
+      if (FD->isZeroSize(getContext()))
+        continue;
+      if (!isOfOneFloatType(FD->getType(), M, AsPassed))
+        return false;
+      HasMember = true;
+    }
+    return HasMember;
+  }
+
+  const Type *T = Ty.getCanonicalType().getTypePtr();
+  if (!isFloatMemberType(T))
+    return false;
+  if (!M.Base)
+    M.Base = T;
+  return M.Base == T;
 }
 
 // Types passed in slots as their bytes rather than as a scalar: aggregates,
@@ -110,13 +153,46 @@ llvm::Type *IA64ABIInfo::getSlotsType(uint64_t Bits, bool Aligned) const {
   return llvm::ArrayType::get(UnitTy, llvm::alignTo(Bits, Unit) / Unit);
 }
 
+// An array of Base filling Ty. Padding in an aggregate declared with greater
+// alignment than its members is counted as members and passed in registers
+// like them.
+llvm::ArrayType *IA64ABIInfo::getMembersType(QualType Ty,
+                                             const Type *Base) const {
+  uint64_t Bits = getContext().getTypeSize(Ty);
+  uint64_t BaseBits = getContext().getTypeSize(Base);
+  if (Bits == 0 || Bits % BaseBits != 0)
+    return nullptr;
+  return llvm::ArrayType::get(CGT.ConvertType(QualType(Base, 0)),
+                              Bits / BaseBits);
+}
+
 // The member array that makes Ty an HFA, or null if it is not one.
 llvm::ArrayType *IA64ABIInfo::getHomogeneousType(QualType Ty) const {
-  const Type *Base = nullptr;
-  uint64_t Members = 0;
-  if (!isHomogeneousAggregate(Ty, Base, Members))
+  Members M;
+  if (!isOfOneFloatType(Ty, M, /*AsPassed=*/false) || !M.Base)
     return nullptr;
-  return llvm::ArrayType::get(CGT.ConvertType(QualType(Base, 0)), Members);
+  return getMembersType(Ty, M.Base);
+}
+
+// An aggregate that is a single floating-point or complex value plus
+// zero-sized members, and so not an HFA, is passed by GCC like that value,
+// though not returned that way. Single-precision complex is the exception,
+// as is an aggregate declared with less alignment than the value.
+llvm::ArrayType *IA64ABIInfo::getSingleMemberType(QualType Ty) const {
+  Members M;
+  if (!isOfOneFloatType(Ty, M, /*AsPassed=*/true) || !M.Base)
+    return nullptr;
+  if (getContext().getTypeAlign(Ty) < getContext().getTypeAlign(M.Base))
+    return nullptr;
+  llvm::ArrayType *Type = getMembersType(Ty, M.Base);
+  if (!Type)
+    return nullptr;
+  if (Type->getNumElements() == 1 && !M.HasComplex)
+    return Type;
+  if (Type->getNumElements() == 2 && M.HasComplex &&
+      !M.Base->isSpecificBuiltinType(BuiltinType::Float))
+    return Type;
+  return nullptr;
 }
 
 // Integers narrower than a register are extended by the receiver, not the
@@ -157,8 +233,17 @@ ABIArgInfo IA64ABIInfo::classifyArgumentType(QualType Ty) const {
   // An aggregate declared 16-byte aligned starts at an even slot even if its
   // members do not require that alignment.
   bool Aligned = getContext().getTypeAlign(Ty) > 64;
-  if (llvm::Type *Members = getHomogeneousType(Ty))
-    return ABIArgInfo::getDirect(Members, 0, nullptr, true, Aligned ? 16 : 0);
+  llvm::ArrayType *Members = getHomogeneousType(Ty);
+  if (!Members)
+    Members = getSingleMemberType(Ty);
+  if (Members) {
+    // Extended-precision members do not make the aggregate 16-byte aligned
+    // if it was declared with less alignment.
+    unsigned Align = Aligned ? 16 : 0;
+    if (!Aligned && Members->getElementType()->isX86_FP80Ty())
+      Align = 8;
+    return ABIArgInfo::getDirect(Members, 0, nullptr, true, Align);
+  }
 
   // A large aggregate uses the same slots, but the backend copies it from
   // memory (byval) instead of receiving it a word at a time.
