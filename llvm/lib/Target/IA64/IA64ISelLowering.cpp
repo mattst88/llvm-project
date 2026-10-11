@@ -893,6 +893,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     CLI.IsTailCall =
         G && getTargetMachine().shouldAssumeDSOLocal(G->getGlobal()) &&
         CCInfo.getStackSize() == 0 && !Caller.isVarArg() &&
+        !Caller.hasFnAttribute("syscall-linkage") &&
         Caller.getCallingConv() == CLI.CallConv &&
         none_of(CLI.Outs,
                 [](const ISD::OutputArg &Out) { return Out.Flags.isByVal(); });

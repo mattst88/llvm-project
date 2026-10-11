@@ -38,6 +38,11 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
     if (Reg >= IA64::R32 && Reg <= IA64::R39)
       Inputs = std::max(Inputs, Reg - IA64::R32 + 1);
 
+  // A syscall-linkage function has all eight inputs, whatever its declared
+  // arguments, and none of them may be reused.
+  if (MF.getFunction().hasFnAttribute("syscall-linkage"))
+    Inputs = 8;
+
   // Skip the regmask test: a call clobbering the outputs does not make this
   // function use them.
   unsigned Locals = Inputs, Outputs = 0;

@@ -73,6 +73,12 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   for (unsigned Reg = IA64::R115; Reg <= IA64::R119; ++Reg)
     Reserved.set(Reg);
 
+  // The kernel may restart a syscall with the arguments left in its input
+  // registers, so a syscall-linkage function must not modify them.
+  if (MF.getFunction().hasFnAttribute("syscall-linkage"))
+    for (unsigned Reg = IA64::R32; Reg <= IA64::R39; ++Reg)
+      Reserved.set(Reg);
+
   // Registers reserved by the user.
   const TargetSubtargetInfo &STI = MF.getSubtarget();
   for (unsigned Reg = IA64::R2; Reg <= IA64::R31; ++Reg)
