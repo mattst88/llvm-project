@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/IR/EHPersonalities.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
@@ -103,6 +104,7 @@ public:
   void emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
                         const MCSubtargetInfo *EndInfo,
                         const MachineInstr *MI) override;
+  void emitGlobalVariableInitializer(const GlobalVariable *GV) override;
   const MCExpr *lowerConstant(const Constant *CV, const Constant *BaseCV,
                               uint64_t Offset) override;
 
@@ -143,6 +145,49 @@ const MCExpr *IA64AsmPrinter::lowerConstant(const Constant *CV,
           MCSymbolRefExpr::create(getSymbol(GV), OutContext), IA64::S_FPTR,
           OutContext);
   return AsmPrinter::lowerConstant(CV, BaseCV, Offset);
+}
+
+void IA64AsmPrinter::emitGlobalVariableInitializer(const GlobalVariable *GV) {
+  if (!GV->hasAttribute("function-descriptors"))
+    return AsmPrinter::emitGlobalVariableInitializer(GV);
+
+  // A virtual table holds the descriptor of each function and not a pointer
+  // to it, and only the linker knows what a descriptor holds. The table says
+  // which function a pair of its words is to describe by pointing the first
+  // of them at the function.
+  const DataLayout &DL = GV->getDataLayout();
+  auto &TS =
+      static_cast<IA64TargetStreamer &>(*OutStreamer->getTargetStreamer());
+  auto EmitArray = [&](const Constant *Array) {
+    const auto *CA = dyn_cast<ConstantArray>(Array);
+    if (!CA || !CA->getType()->getElementType()->isPointerTy())
+      return emitGlobalConstant(DL, Array);
+    for (unsigned I = 0, E = CA->getNumOperands(); I != E; ++I) {
+      const auto *F = dyn_cast<GlobalValue>(CA->getOperand(I));
+      if (!F || !F->getValueType()->isFunctionTy() || I + 1 == E ||
+          !CA->getOperand(I + 1)->isNullValue()) {
+        emitGlobalConstant(DL, CA->getOperand(I));
+        continue;
+      }
+      TS.emitData16(MCSpecifierExpr::create(
+          MCSymbolRefExpr::create(getSymbol(F), OutContext), IA64::S_IPLT,
+          OutContext));
+      ++I;
+    }
+  };
+
+  const Constant *Init = GV->getInitializer();
+  if (const auto *CS = dyn_cast<ConstantStruct>(Init);
+      CS && !CS->getType()->isPacked() &&
+      all_of(CS->operands(), [](const Use &U) {
+        const auto *AT = dyn_cast<ArrayType>(U->getType());
+        return AT && AT->getElementType()->isPointerTy();
+      })) {
+    for (const Use &U : CS->operands())
+      EmitArray(cast<Constant>(U));
+    return;
+  }
+  EmitArray(Init);
 }
 
 MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
