@@ -37,6 +37,9 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   computeRegisterProperties(STI.getRegisterInfo());
 
+  // No instruction sign-extends from i1; it takes two shifts.
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
+
   // No load sign-extends, and an i1 is a byte in memory.
   for (MVT VT : MVT::integer_valuetypes()) {
     setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);

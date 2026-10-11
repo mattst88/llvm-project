@@ -96,6 +96,17 @@ def : Pat<(add (shl GR:$r2, shladdamt:$count), GR:$r3),
           (SHLADD GR:$r2, shladdamt:$count, GR:$r3)>;
 
 //===----------------------------------------------------------------------===//
+// Extension
+//===----------------------------------------------------------------------===//
+
+def : Pat<(sext_inreg GR:$r3, i8), (SXT1 GR:$r3)>;
+def : Pat<(sext_inreg GR:$r3, i16), (SXT2 GR:$r3)>;
+def : Pat<(sext_inreg GR:$r3, i32), (SXT4 GR:$r3)>;
+def : Pat<(and GR:$r3, 0xff), (ZXT1 GR:$r3)>;
+def : Pat<(and GR:$r3, 0xffff), (ZXT2 GR:$r3)>;
+def : Pat<(and GR:$r3, 0xffffffff), (ZXT4 GR:$r3)>;
+
+//===----------------------------------------------------------------------===//
 // Constants
 //===----------------------------------------------------------------------===//
 
