@@ -40,7 +40,7 @@ t3:
 	shr r4 = r5, 3
 // CHECK-LABEL: <t3>:
 // CHECK-NEXT: nop.m 0 // [MIB]{{$}}
-// CHECK-NEXT: extr r4 = r5, 3, 61{{$}}
+// CHECK-NEXT: shr r4 = r5, 3{{$}}
 // CHECK-NEXT: nop.b 0{{$}}
 t4:
 	.mmb
@@ -108,7 +108,7 @@ t10:
 // CHECK-NEXT: add r4 = r5, r6{{$}}
 // CHECK-NEXT: add r4 = r5, r6{{$}}
 // CHECK-NEXT: add r4 = r5, r6 // [MII]{{$}}
-// CHECK-NEXT: extr r4 = r5, 3, 61{{$}}
+// CHECK-NEXT: shr r4 = r5, 3{{$}}
 // CHECK-NEXT: nop.i 0{{$}}
 t11:
 	.mib
@@ -238,7 +238,7 @@ t21:
 // CHECK-NEXT: nop.i 0 ;;{{$}}
 // CHECK-NEXT: nop.m 0 // [MFI]{{$}}
 // CHECK-NEXT: fma f6 = f7, f1, f8{{$}}
-// CHECK-NEXT: extr r4 = r5, 3, 61{{$}}
+// CHECK-NEXT: shr r4 = r5, 3{{$}}
 t22:
 	.mib
 	add r4 = r5, r6
@@ -246,7 +246,7 @@ t22:
 	br.ret.sptk.many b0
 // CHECK-LABEL: <t22>:
 // CHECK-NEXT: add r4 = r5, r6 // [MIB]{{$}}
-// CHECK-NEXT: extr r4 = r5, 3, 61{{$}}
+// CHECK-NEXT: shr r4 = r5, 3{{$}}
 // CHECK-NEXT: nop.b 0 ;;{{$}}
 // CHECK-NEXT: nop.m 0 // [MIB]{{$}}
 // CHECK-NEXT: nop.i 0{{$}}

@@ -28,6 +28,33 @@ using namespace llvm;
 #define PRINT_ALIAS_INSTR
 #include "IA64GenAsmWriter.inc"
 
+// A dep.z that reaches the top bit is a shift left by a constant, and an
+// extr that reaches the top bit a shift right: such shifts are encoded that
+// way and printed as shifts.
+bool IA64InstPrinter::printShift(const MCInst *MI, raw_ostream &O) {
+  const char *Mnemonic;
+  switch (MI->getOpcode()) {
+  default:
+    return false;
+  case IA64::DEP_Z:
+    Mnemonic = "shl";
+    break;
+  case IA64::EXTR:
+    Mnemonic = "shr";
+    break;
+  case IA64::EXTR_U:
+    Mnemonic = "shr.u";
+    break;
+  }
+  const MCOperand &Pos = MI->getOperand(2), &Len = MI->getOperand(3);
+  if (!Pos.isImm() || !Len.isImm() || Pos.getImm() + Len.getImm() != 64)
+    return false;
+  O << '\t' << Mnemonic << '\t' << getRegisterName(MI->getOperand(0).getReg())
+    << " = " << getRegisterName(MI->getOperand(1).getReg()) << ", "
+    << Pos.getImm();
+  return true;
+}
+
 void IA64InstPrinter::printInst(const MCInst *MI, uint64_t Address,
                                 StringRef Annot, const MCSubtargetInfo &STI,
                                 raw_ostream &O) {
@@ -38,11 +65,11 @@ void IA64InstPrinter::printInst(const MCInst *MI, uint64_t Address,
   if (QP >= 0 && MI->getOperand(QP).getReg() != IA64::P0) {
     SmallString<64> Buf;
     raw_svector_ostream OS(Buf);
-    if (!printAliasInstr(MI, Address, OS))
+    if (!printShift(MI, OS) && !printAliasInstr(MI, Address, OS))
       printInstruction(MI, Address, OS);
     O << "\t(" << getRegisterName(MI->getOperand(QP).getReg()) << ") "
       << StringRef(Buf).ltrim('\t');
-  } else if (!printAliasInstr(MI, Address, O)) {
+  } else if (!printShift(MI, O) && !printAliasInstr(MI, Address, O)) {
     printInstruction(MI, Address, O);
   }
   if (MI->getFlags() & IA64II::StopAfter)

@@ -108,7 +108,7 @@ t13:
 	chk.s r4, t0
 // CHECK-LABEL: <t13>:
 // CHECK-NEXT: nop.m 0 // [MII]{{$}}
-// CHECK-NEXT: extr r4 = r5, 3, 61{{$}}
+// CHECK-NEXT: shr r4 = r5, 3{{$}}
 // CHECK-NEXT: chk.s.i r4, 0x0{{$}}
 
 // A move to or from an application register goes to the unit that has the
