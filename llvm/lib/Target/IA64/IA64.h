@@ -25,8 +25,10 @@ class PassRegistry;
 
 FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
+FunctionPass *createIA64ExpandBranchesPass();
 FunctionPass *createIA64InsertStopsPass();
 
+void initializeIA64ExpandBranchesPass(PassRegistry &);
 void initializeIA64InsertStopsPass(PassRegistry &);
 
 } // namespace llvm

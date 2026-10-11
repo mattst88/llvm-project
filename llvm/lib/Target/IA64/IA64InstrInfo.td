@@ -26,6 +26,8 @@ def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_IA64CallSeqStart,
 def callseq_end   : SDNode<"ISD::CALLSEQ_END", SDT_IA64CallSeqEnd,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
+def brtarget : Operand<OtherVT>;
+
 let Defs = [R12], Uses = [R12] in {
 def ADJCALLSTACKDOWN : IA64Pseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
                                    "#ADJCALLSTACKDOWN",
@@ -59,7 +61,25 @@ def SELECTi : IA64Pseudo<(outs GR:$r1),
                               i64imm:$rhs),
                          "#SELECTi", []>;
 }
+
+// A conditional branch, predicated on the compare. It is not expanded until
+// blocks can no longer be moved.
+let isBranch = 1, isTerminator = 1 in {
+def BRCC  : IA64Pseudo<(outs),
+                       (ins brtarget:$target, i64imm:$cc, GR:$lhs, GR:$rhs),
+                       "#BRCC", []>;
+def BRCCi : IA64Pseudo<(outs),
+                       (ins brtarget:$target, i64imm:$cc, GR:$lhs,
+                            i64imm:$rhs),
+                       "#BRCCi", []>;
 }
+}
+
+// An unconditional branch. Hardware branches are unconditional only by having
+// p0 as their qualifying predicate, but the code generator needs a distinct
+// opcode, so this stands for "br.cond" until it is emitted.
+let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+def BRUNCOND : IA64Pseudo<(outs), (ins brtarget:$target), "#BRUNCOND", []>;
 
 //===----------------------------------------------------------------------===//
 // Integer ALU

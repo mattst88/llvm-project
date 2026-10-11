@@ -20,6 +20,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   RegisterTargetMachine<IA64TargetMachine> X(getTheIA64Target());
 
   PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeIA64ExpandBranchesPass(PR);
   initializeIA64InsertStopsPass(PR);
 }
 
@@ -83,6 +84,8 @@ bool IA64PassConfig::addInstSelector() {
 }
 
 void IA64PassConfig::addPreEmitPass2() {
+  // Block placement is final, so branches can be split from their compares.
+  addPass(createIA64ExpandBranchesPass());
   // Nothing may add, remove or reorder an instruction after this.
   addPass(createIA64InsertStopsPass());
 }

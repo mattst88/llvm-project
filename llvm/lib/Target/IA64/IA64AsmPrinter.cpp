@@ -62,6 +62,9 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
     return MCOperand::createReg(MO.getReg());
   case MachineOperand::MO_Immediate:
     return MCOperand::createImm(MO.getImm());
+  case MachineOperand::MO_MachineBasicBlock:
+    return MCOperand::createExpr(
+        MCSymbolRefExpr::create(MO.getMBB()->getSymbol(), OutContext));
   default:
     llvm_unreachable("unknown operand type");
   }
@@ -86,6 +89,19 @@ void IA64AsmPrinter::emitFunctionBodyEnd() { getTargetStreamer().emitEndp(); }
 
 void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   MCInst OutMI;
+  if (MI->getOpcode() == IA64::BRUNCOND) {
+    // The branch nothing qualifies: "br.cond.sptk.few" under p0.
+    OutMI.setOpcode(IA64::BR_COND);
+    OutMI.addOperand(lowerOperand(MI->getOperand(0)));
+    OutMI.addOperand(MCOperand::createImm(IA64II::WhetherSPTK));
+    OutMI.addOperand(MCOperand::createImm(0));
+    OutMI.addOperand(MCOperand::createImm(0));
+    OutMI.addOperand(MCOperand::createReg(IA64::P0));
+    if (MI->getAsmPrinterFlag(IA64::StopAfter))
+      OutMI.setFlags(IA64II::StopAfter);
+    EmitToStreamer(*OutStreamer, OutMI);
+    return;
+  }
   OutMI.setOpcode(MI->getOpcode());
   for (const MachineOperand &MO : MI->operands()) {
     MCOperand MCOp = lowerOperand(MO);

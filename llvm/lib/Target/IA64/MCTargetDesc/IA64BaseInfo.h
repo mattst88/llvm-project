@@ -52,15 +52,22 @@ enum : unsigned {
 /// The most registers a register stack frame can have.
 const unsigned MaxFrameSize = 96;
 
-/// The completer for whether a branch is predicted taken, statically or
-/// dynamically.
+/// Whether a branch is predicted taken, statically or dynamically.
+enum BranchWhether : unsigned {
+  WhetherSPTK,
+  WhetherSPNT,
+  WhetherDPTK,
+  WhetherDPNT,
+};
+
+/// The completer for a branch prediction hint.
 inline const char *getBranchWhetherName(uint64_t Whether) {
   switch (Whether) {
-  case 0:
+  case WhetherSPTK:
     return ".sptk";
-  case 1:
+  case WhetherSPNT:
     return ".spnt";
-  case 2:
+  case WhetherDPTK:
     return ".dptk";
   default:
     return ".dpnt";

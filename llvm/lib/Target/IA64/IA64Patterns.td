@@ -37,11 +37,12 @@ def RestOf64 : SDNodeXForm<imm, [{
 def shladdamt : ImmLeaf<i64, [{ return Imm >= 1 && Imm <= 4; }]>;
 
 //===----------------------------------------------------------------------===//
-// Returns
+// Branches and returns
 //===----------------------------------------------------------------------===//
 
 // br.ret.sptk.many b0
 def : Pat<(IA64retglue), (BR_RET B0, 0, 1, 0)>;
+def : Pat<(br bb:$target), (BRUNCOND bb:$target)>;
 
 //===----------------------------------------------------------------------===//
 // Integer arithmetic

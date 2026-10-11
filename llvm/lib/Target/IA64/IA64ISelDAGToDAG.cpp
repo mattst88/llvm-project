@@ -138,6 +138,18 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
                          Ops);
     return;
   }
+  case ISD::BR_CC: {
+    SmallVector<SDValue, 5> Ops = {Node->getOperand(4)};
+    bool IsImm;
+    if (!selectCompare(Node->getOperand(2), Node->getOperand(3),
+                       cast<CondCodeSDNode>(Node->getOperand(1))->get(), DL,
+                       Ops, IsImm))
+      break;
+    Ops.push_back(Node->getOperand(0));
+    CurDAG->SelectNodeTo(Node, IsImm ? IA64::BRCCi : IA64::BRCC, MVT::Other,
+                         Ops);
+    return;
+  }
   case ISD::SELECT_CC: {
     if (Node->getValueType(0) != MVT::i64)
       break;

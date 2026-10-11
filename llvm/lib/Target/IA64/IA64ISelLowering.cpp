@@ -43,6 +43,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // Selects are predicated on the compare itself, so a select on a value
   // becomes a select on its comparison with zero.
   setOperationAction(ISD::SELECT, MVT::i64, Expand);
+  setOperationAction(ISD::BRCOND, MVT::Other, Expand);
 
   // No instruction sign-extends from i1; it takes two shifts.
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
