@@ -21,11 +21,15 @@ def RetCC_IA64 : CallingConv<[
   CCIfType<[i64], CCAssignToReg<[R8, R9, R10, R11]>>
 ]>;
 
-// The stacked registers a function keeps across a call are preserved by the
-// register stack engine, not by the callee, so they are not listed here.
+// Stacked registers are preserved across calls by the RSE, not by the
+// callee, so they are listed in the call-preserved mask rather than here.
 def CSR_IA64 : CalleeSavedRegs<(add (sequence "R%u", 4, 7),
                                     (sequence "F%u", 2, 5),
                                     (sequence "F%u", 16, 31),
                                     (sequence "B%u", 1, 5),
                                     (sequence "P%u", 1, 5),
                                     (sequence "P%u", 16, 63))>;
+
+// The caller's inputs and locals are not visible to the callee.
+def CSR_IA64_Call : CalleeSavedRegs<(add CSR_IA64,
+                                         (sequence "R%u", 32, 119))>;

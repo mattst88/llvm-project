@@ -75,12 +75,16 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     Written.reset();
     WrittenByF.reset();
     MachineInstr *Last = nullptr;
+    // Whether the current group contains an alloc. No register models the
+    // current frame marker, which calls and returns replace.
+    bool NewFrame = false;
 
     auto EndGroup = [&] {
       if (Last)
         Last->setAsmPrinterFlag(IA64::StopAfter);
       Written.reset();
       WrittenByF.reset();
+      NewFrame = false;
     };
 
     for (MachineInstr &MI : MBB) {
@@ -109,10 +113,12 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         return false;
       };
 
-      if (any_of(MI.operands(), [&](const MachineOperand &MO) {
+      if ((NewFrame && (MI.isCall() || MI.isReturn())) ||
+          any_of(MI.operands(), [&](const MachineOperand &MO) {
             return Touches(MO) && Written.test(MO.getReg().id());
           }))
         EndGroup();
+      NewFrame |= MI.getOpcode() == IA64::ALLOC;
 
       for (const MachineOperand &MO : MI.operands()) {
         if (!MO.isReg() || !MO.isDef() || !Touches(MO))

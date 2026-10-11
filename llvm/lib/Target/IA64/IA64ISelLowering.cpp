@@ -8,12 +8,14 @@
 
 #include "IA64ISelLowering.h"
 #include "IA64.h"
+#include "IA64FrameLowering.h"
 #include "IA64SelectionDAGInfo.h"
 #include "IA64Subtarget.h"
 #include "IA64TargetMachine.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -116,6 +118,90 @@ SDValue IA64TargetLowering::LowerFormalArguments(
     // attributes say: a caller built by another compiler may not extend.
     Register VReg = MF.addLiveIn(VA.getLocReg(), &IA64::GRRegClass);
     InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT()));
+  }
+  return Chain;
+}
+
+// The arguments go in the output registers, which the callee finds as its
+// inputs, and the sixteen bytes at the stack pointer are the callee's to
+// scribble on.
+SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
+                                      SmallVectorImpl<SDValue> &InVals) const {
+  SelectionDAG &DAG = CLI.DAG;
+  const SDLoc &DL = CLI.DL;
+  SDValue Chain = CLI.Chain;
+  SDValue Callee = CLI.Callee;
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
+
+  CLI.IsTailCall = false;
+  if (CLI.IsVarArg)
+    report_fatal_error("IA64 variable argument lists are not yet implemented");
+
+  SmallVector<CCValAssign, 16> ArgLocs;
+  CCState CCInfo(CLI.CallConv, CLI.IsVarArg, MF, ArgLocs, *DAG.getContext());
+  CCInfo.AnalyzeCallOperands(CLI.Outs, CC_IA64);
+
+  unsigned NumBytes =
+      IA64FrameLowering::ScratchAreaSize + CCInfo.getStackSize();
+  Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
+
+  SDValue Glue;
+  SmallVector<Register, 8> ArgRegs;
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    const CCValAssign &VA = ArgLocs[I];
+    if (!VA.isRegLoc())
+      report_fatal_error("IA64 arguments in memory are not yet implemented");
+    // The convention is written from the callee's side.
+    Register Reg = IA64::R120 + (VA.getLocReg() - IA64::R32);
+    Chain = DAG.getCopyToReg(Chain, DL, Reg, CLI.OutVals[I], Glue);
+    Glue = Chain.getValue(1);
+    ArgRegs.push_back(Reg);
+  }
+
+  // A callee that is certain to be in this module has the same global
+  // pointer. Any other may come back with its own.
+  bool SameModule = false;
+  if (const auto *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
+    SameModule = getTargetMachine().shouldAssumeDSOLocal(G->getGlobal());
+    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), DL, MVT::i64);
+  } else if (const auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
+    Callee = DAG.getTargetExternalSymbol(S->getSymbol(), MVT::i64);
+  } else {
+    report_fatal_error("IA64 indirect calls are not yet implemented");
+  }
+
+  SDValue GP = DAG.getRegister(IA64::R0, MVT::i64);
+  if (!SameModule) {
+    Register GPReg = MRI.getLiveInVirtReg(IA64::R1);
+    if (!GPReg)
+      GPReg = MF.addLiveIn(IA64::R1, &IA64::GRSaveRegClass);
+    GP = DAG.getCopyFromReg(DAG.getEntryNode(), DL, GPReg, MVT::i64);
+  }
+
+  SmallVector<SDValue, 12> Ops = {Chain, Callee, GP};
+  for (Register Reg : ArgRegs)
+    Ops.push_back(DAG.getRegister(Reg, MVT::i64));
+  Ops.push_back(
+      DAG.getRegisterMask(TRI->getCallPreservedMask(MF, CLI.CallConv)));
+  if (Glue.getNode())
+    Ops.push_back(Glue);
+
+  Chain =
+      DAG.getNode(IA64ISD::CALL, DL, DAG.getVTList(MVT::Other, MVT::Glue), Ops);
+  Glue = Chain.getValue(1);
+  Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, Glue, DL);
+  Glue = Chain.getValue(1);
+
+  SmallVector<CCValAssign, 4> RVLocs;
+  CCState RetCCInfo(CLI.CallConv, CLI.IsVarArg, MF, RVLocs, *DAG.getContext());
+  RetCCInfo.AnalyzeCallResult(CLI.Ins, RetCC_IA64);
+  for (const CCValAssign &VA : RVLocs) {
+    Chain = DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), Glue)
+                .getValue(1);
+    InVals.push_back(Chain.getValue(0));
+    Glue = Chain.getValue(2);
   }
   return Chain;
 }

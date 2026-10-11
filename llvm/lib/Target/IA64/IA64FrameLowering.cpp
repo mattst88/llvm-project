@@ -8,6 +8,7 @@
 
 #include "IA64FrameLowering.h"
 #include "IA64InstrInfo.h"
+#include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -47,8 +48,15 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
     if (MRI.isPhysRegUsed(IA64::R120 + I, /*SkipRegMaskTest=*/true))
       Outputs = I + 1;
 
-  if (Locals != Inputs || Outputs != 0) {
+  // A call overwrites ar.pfs and b0, so a function with calls saves both and
+  // needs a register stack frame to hold them.
+  auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  bool SaveRP = MF.getFrameInfo().hasCalls();
+  if (Locals != Inputs || Outputs != 0 || SaveRP) {
     Register SavedPFS = IA64::R32 + Locals++;
+    FI->setSavedPFS(SavedPFS);
+    if (SaveRP)
+      FI->setSavedRP(IA64::R32 + Locals++);
     BuildMI(MBB, MBBI, DL, TII.get(IA64::ALLOC), SavedPFS)
         .addImm(Inputs)
         .addImm(Locals - Inputs)
@@ -56,6 +64,19 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
         .addImm(0)
         .addReg(IA64::P0)
         .setMIFlag(MachineInstr::FrameSetup);
+    if (SaveRP) {
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_BR), FI->getSavedRP())
+          .addReg(IA64::B0)
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameSetup);
+      MBB.addLiveIn(IA64::B0);
+    }
+    // Both are kept until the function returns, wherever it does.
+    for (MachineBasicBlock &Other : llvm::drop_begin(MF)) {
+      Other.addLiveIn(SavedPFS);
+      if (SaveRP)
+        Other.addLiveIn(FI->getSavedRP());
+    }
   }
 
   // The 16 bytes at the incoming sp are the caller's scratch area, which
@@ -74,6 +95,20 @@ void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
   adjustStackPointer(MBB, MBBI, DL, MF.getFrameInfo().getStackSize(),
                      MachineInstr::FrameDestroy);
+
+  const auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  if (!FI->getSavedRP())
+    return;
+  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B0)
+      .addReg(FI->getSavedRP(), RegState::Kill)
+      .addImm(0)
+      .addReg(IA64::P0)
+      .setMIFlag(MachineInstr::FrameDestroy);
+  BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR), IA64::AR64)
+      .addReg(FI->getSavedPFS(), RegState::Kill)
+      .addReg(IA64::P0)
+      .setMIFlag(MachineInstr::FrameDestroy);
 }
 
 // Adjust sp in a single instruction, so it is never in an intermediate
@@ -100,6 +135,14 @@ void IA64FrameLowering::adjustStackPointer(MachineBasicBlock &MBB,
       .addReg(IA64::R12)
       .addReg(IA64::P0)
       .setMIFlag(Flag);
+}
+
+// Outgoing argument space is part of the fixed frame, so the call frame
+// pseudos need no code.
+MachineBasicBlock::iterator IA64FrameLowering::eliminateCallFramePseudoInstr(
+    MachineFunction &MF, MachineBasicBlock &MBB,
+    MachineBasicBlock::iterator I) const {
+  return MBB.erase(I);
 }
 
 StackOffset

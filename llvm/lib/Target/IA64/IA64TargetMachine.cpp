@@ -8,6 +8,7 @@
 
 #include "IA64TargetMachine.h"
 #include "IA64.h"
+#include "IA64MachineFunctionInfo.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -42,6 +43,13 @@ IA64TargetMachine::IA64TargetMachine(const Target &T, const Triple &TT,
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
       TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
   initAsmInfo();
+}
+
+MachineFunctionInfo *IA64TargetMachine::createMachineFunctionInfo(
+    BumpPtrAllocator &Allocator, const Function &F,
+    const TargetSubtargetInfo *STI) const {
+  return IA64MachineFunctionInfo::create<IA64MachineFunctionInfo>(Allocator, F,
+                                                                  STI);
 }
 
 const IA64Subtarget *

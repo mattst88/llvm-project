@@ -23,6 +23,12 @@ def IA64retglue : SDNode<"IA64ISD::RET_GLUE", SDTypeProfile<0, 0, []>,
 // The address of a symbol's linkage table entry: @ltoff(sym) + gp.
 def IA64ltoff : SDNode<"IA64ISD::LTOFF", SDTIntUnaryOp>;
 
+// A call: the callee, the register holding the GP to restore, and the
+// argument registers.
+def IA64call : SDNode<"IA64ISD::CALL",
+                      SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>]>,
+                      [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue, SDNPVariadic]>;
+
 //===----------------------------------------------------------------------===//
 // Immediates
 //===----------------------------------------------------------------------===//
@@ -46,6 +52,11 @@ def shladdamt : ImmLeaf<i64, [{ return Imm >= 1 && Imm <= 4; }]>;
 // br.ret.sptk.many b0
 def : Pat<(IA64retglue), (BR_RET B0, 0, 1, 0)>;
 def : Pat<(br bb:$target), (BRUNCOND bb:$target)>;
+
+def : Pat<(IA64call tglobaladdr:$target, GRSave:$gp),
+          (CALL tglobaladdr:$target, GRSave:$gp)>;
+def : Pat<(IA64call texternalsym:$target, GRSave:$gp),
+          (CALL texternalsym:$target, GRSave:$gp)>;
 
 //===----------------------------------------------------------------------===//
 // Integer arithmetic

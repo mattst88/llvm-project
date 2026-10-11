@@ -81,6 +81,11 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
       Expr = MCSpecifierExpr::create(Expr, Spec, OutContext);
     return MCOperand::createExpr(Expr);
   }
+  case MachineOperand::MO_ExternalSymbol:
+    return MCOperand::createExpr(MCSymbolRefExpr::create(
+        GetExternalSymbolSymbol(MO.getSymbolName()), OutContext));
+  case MachineOperand::MO_RegisterMask:
+    return MCOperand();
   case MachineOperand::MO_MachineBasicBlock:
     return MCOperand::createExpr(
         MCSymbolRefExpr::create(MO.getMBB()->getSymbol(), OutContext));

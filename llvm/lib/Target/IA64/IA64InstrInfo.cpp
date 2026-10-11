@@ -193,6 +193,35 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   switch (MI.getOpcode()) {
   default:
     return false;
+  case IA64::CALL: {
+    // br.call.sptk.many b0 = target, and then gp back from where it is kept.
+    MachineInstrBuilder Call =
+        BuildMI(MBB, MI, DL, get(IA64::BR_CALL), IA64::B0)
+            .add(MI.getOperand(0))
+            .addImm(IA64II::WhetherSPTK)
+            .addImm(1)
+            .addImm(0)
+            .addReg(IA64::P0);
+    // The argument registers were explicit operands of the pseudo.
+    for (const MachineOperand &MO : drop_begin(MI.operands(), 2)) {
+      if (!MO.isReg())
+        Call.add(MO);
+      else if (!(MO.isDef() && MO.getReg() == IA64::B0))
+        Call.addReg(MO.getReg(), (MO.isDef() ? RegState::ImplicitDefine
+                                             : RegState::Implicit) |
+                                     getKillRegState(MO.isKill()) |
+                                     getDeadRegState(MO.isDead()) |
+                                     getUndefRegState(MO.isUndef()));
+    }
+    Register GP = MI.getOperand(1).getReg();
+    if (GP != IA64::R0)
+      BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
+          .addImm(0)
+          .addReg(GP, getKillRegState(MI.getOperand(1).isKill()))
+          .addReg(IA64::P0);
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::SETCC:
   case IA64::SETCCi: {
     // Set the result to 0, then to 1 under p6. The result may be an operand

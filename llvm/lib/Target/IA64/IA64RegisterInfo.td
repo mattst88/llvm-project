@@ -109,6 +109,11 @@ def GR : RegisterClass<"IA64", [i64], 64, (add
   (sequence "R%u", 4, 7),      // preserved
   R0, R1, R12, R13)>;          // zero, gp, sp, tp (reserved)
 
+// Registers that can hold GP across a call: those the call preserves, or r0
+// to mean it need not be preserved.
+def GRSave : RegisterClass<"IA64", [i64], 64, (add
+  (sequence "R%u", 32, 119), (sequence "R%u", 4, 7), R0)>;
+
 def FR : RegisterClass<"IA64", [f64, f32], 64, (add
   (sequence "F%u", 6, 7),      // scratch
   (sequence "F%u", 8, 15),     // arguments and return values

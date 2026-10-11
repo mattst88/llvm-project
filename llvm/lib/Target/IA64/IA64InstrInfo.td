@@ -27,6 +27,7 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END", SDT_IA64CallSeqEnd,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
 def brtarget : Operand<OtherVT>;
+def calltarget : Operand<i64>;
 
 let Defs = [R12], Uses = [R12] in {
 def ADJCALLSTACKDOWN : IA64Pseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
@@ -36,6 +37,16 @@ def ADJCALLSTACKUP   : IA64Pseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
                                    "#ADJCALLSTACKUP",
                                    [(callseq_end timm:$amt1, timm:$amt2)]>;
 }
+
+// A direct call, together with the register holding this function's GP, which
+// is restored after the call returns because the callee may be in another
+// module and leave its own GP in r1. They are one instruction so that nothing
+// can be scheduled between them. The save register is preserved across the
+// call, which also keeps it from being coalesced with r1. An r0 save register
+// means the callee is known to be in this module.
+let isCall = 1, Defs = [B0, R1] in
+def CALL : IA64Pseudo<(outs), (ins calltarget:$target, GRSave:$gp, variable_ops),
+                      "#CALL", []>;
 
 // A compare writes a predicate and its complement, and what depends on the
 // outcome is an instruction that one of them qualifies. Until the registers
