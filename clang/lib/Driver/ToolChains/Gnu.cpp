@@ -415,6 +415,10 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         const char *crtbegin;
         if (Args.hasArg(options::OPT_shared))
           crtbegin = isAndroid ? "crtbegin_so.o" : "crtbeginS.o";
+        else if (IsStatic && Triple.getArch() == llvm::Triple::ia64)
+          // GCC does not build crtbeginT.o for IA-64, where all code is
+          // position-independent.
+          crtbegin = "crtbegin.o";
         else if (IsStatic)
           crtbegin = isAndroid ? "crtbegin_static.o" : "crtbeginT.o";
         else if (IsPIE || IsStaticPIE)
@@ -647,6 +651,11 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
 
   switch (getToolChain().getArch()) {
   default:
+    break;
+  case llvm::Triple::ia64:
+    // Use only the stop bits in the input; the assembler must not insert its
+    // own.
+    CmdArgs.push_back("-x");
     break;
   // Add --32/--64 to make sure we get the format we want.
   // This is incomplete
@@ -2353,6 +2362,10 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
   // They are not needed when the user has correct LLVM_DEFAULT_TARGET_TRIPLE
   // and always uses the full --target (e.g. --target=aarch64-linux-gnu).  The
   // lists should shrink over time. Please don't add more elements to *Triples.
+  static const char *const IA64LibDirs[] = {"/lib"};
+  static const char *const IA64Triples[] = {"ia64-unknown-linux-gnu",
+                                            "ia64-linux-gnu"};
+
   static const char *const AArch64LibDirs[] = {"/lib64", "/lib"};
   static const char *const AArch64Triples[] = {
       "aarch64-none-linux-gnu", "aarch64-redhat-linux", "aarch64-suse-linux"};
@@ -2608,6 +2621,10 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
   }
 
   switch (TargetTriple.getArch()) {
+  case llvm::Triple::ia64:
+    LibDirs.append(begin(IA64LibDirs), end(IA64LibDirs));
+    TripleAliases.append(begin(IA64Triples), end(IA64Triples));
+    break;
   case llvm::Triple::aarch64:
     LibDirs.append(begin(AArch64LibDirs), end(AArch64LibDirs));
     TripleAliases.append(begin(AArch64Triples), end(AArch64Triples));
@@ -3084,6 +3101,10 @@ void Generic_GCC::printVerboseInfo(raw_ostream &OS) const {
 ToolChain::UnwindTableLevel
 Generic_GCC::getDefaultUnwindTableLevel(const ArgList &Args) const {
   switch (getArch()) {
+  case llvm::Triple::ia64:
+    // Unwind info is the only way debuggers, backtraces and exception handling
+    // can unwind an IA-64 function. Like GCC, make it accurate at call sites.
+    return UnwindTableLevel::Synchronous;
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_be:
   case llvm::Triple::amdgpu:
@@ -3128,6 +3149,10 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
   case llvm::Triple::xcore:
+    return false;
+  case llvm::Triple::ia64:
+    // The compiler says where an instruction group ends and leaves it to the
+    // assembler to pack the instructions into bundles.
     return false;
   default:
     return true;

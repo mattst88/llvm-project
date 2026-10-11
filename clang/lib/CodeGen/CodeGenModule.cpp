@@ -2392,6 +2392,12 @@ static bool shouldAssumeDSOLocal(const CodeGenModule &CGM,
   if (TT.isPPC64())
     return false;
 
+  // IA-64 has no copy relocations, and the linker creates no canonical PLT
+  // address for a function (its address is its descriptor's), so undefined
+  // symbols are accessed through the linkage table.
+  if (TT.getArch() == llvm::Triple::ia64)
+    return false;
+
   if (CGOpts.DirectAccessExternalData) {
     // If -fdirect-access-external-data (default for -fno-pic), set dso_local
     // for non-thread-local variables. If the symbol is not defined in the

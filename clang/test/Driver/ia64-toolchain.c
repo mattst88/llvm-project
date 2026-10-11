@@ -1,0 +1,38 @@
+// The frame pointer is never needed to unwind a frame, so none is kept unless
+// one is asked for, and the unwind tables are on as they are for gcc.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=CC1
+// CC1:     "-cc1" "-triple" "ia64-unknown-linux-gnu"
+// CC1-NOT: "-mframe-pointer=all"
+// CC1:     "-funwind-tables=1"
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -fno-omit-frame-pointer -### \
+// RUN:   -c %s 2>&1 | FileCheck %s --check-prefix=FP
+// FP: "-mframe-pointer=all"
+
+// The compiler writes the stops and the assembler packs the bundles, and is
+// told that the stops in the file are all there are.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=AS
+// AS: "-no-integrated-as"
+// AS: as{{(.exe)?}}" "-x"
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -### %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=LD
+// LD: ld{{(.exe)?}}"
+// LD: "-m" "elf64_ia64"
+// LD: "-dynamic-linker" "{{.*}}/lib/ld-linux-ia64.so.2"
+
+// gcc builds no crtbeginT.o for a static link.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -static -### %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=STATIC
+// STATIC:     "-static"
+// STATIC:     crtbegin.o"
+// STATIC-NOT: crtbeginT.o
+
+// RUN: not %clang --target=ia64-unknown-linux-gnu -fsanitize=memory -### %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=MSAN
+// MSAN: unsupported option '-fsanitize=memory' for target 'ia64-unknown-linux-gnu'

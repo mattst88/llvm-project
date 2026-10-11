@@ -52,6 +52,9 @@ std::string Linux::getMultiarchTriple(const Driver &D,
   default:
     break;
 
+  case llvm::Triple::ia64:
+    return "ia64-linux-gnu";
+
   // We use the existence of '/lib/<triple>' as a directory to detect some
   // common linux triples that don't quite match the Clang triple for both
   // 32-bit and 64-bit targets. Multiarch fixes its install triples to these
@@ -205,6 +208,10 @@ static StringRef getOSLibDir(const llvm::Triple &Triple, const ArgList &Args) {
 
   if (Triple.isRISCV32())
     return "lib32";
+
+  // IA-64 is LP64 but uses lib, not lib64.
+  if (Triple.getArch() == llvm::Triple::ia64)
+    return "lib";
 
   if (Triple.getArch() == llvm::Triple::loongarch32) {
     switch (Triple.getEnvironment()) {
@@ -630,6 +637,10 @@ std::string Linux::getDynamicLinker(const ArgList &Args) const {
   default:
     llvm_unreachable("unsupported architecture");
 
+  case llvm::Triple::ia64:
+    LibDir = "lib";
+    Loader = "ld-linux-ia64.so.2";
+    break;
   case llvm::Triple::aarch64:
     LibDir = "lib";
     Loader = "ld-linux-aarch64.so.1";
@@ -988,6 +999,7 @@ Linux::getSupportedSanitizers(BoundArch BA,
   const bool IsRISCV64 = getTriple().isRISCV64();
   const bool IsSystemZ = getTriple().getArch() == llvm::Triple::systemz;
   const bool IsHexagon = getTriple().getArch() == llvm::Triple::hexagon;
+  const bool IsIA64 = getTriple().getArch() == llvm::Triple::ia64;
   const bool IsAndroid = getTriple().isAndroid();
   SanitizerMask Res = ToolChain::getSupportedSanitizers(BA, DeviceOffloadKind);
   Res |= SanitizerKind::Address;
@@ -1024,7 +1036,8 @@ Linux::getSupportedSanitizers(BoundArch BA,
   }
   if (IsX86_64)
     Res |= SanitizerKind::NumericalStability;
-  if (!IsAndroid)
+  // MemorySanitizer has no shadow mapping for IA-64.
+  if (!IsAndroid && !IsIA64)
     Res |= SanitizerKind::Memory;
 
   // Work around "Cannot represent a difference across sections".
