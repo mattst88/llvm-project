@@ -7,11 +7,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64MCTargetDesc.h"
+#include "IA64ELFStreamer.h"
 #include "IA64InstPrinter.h"
 #include "IA64MCAsmInfo.h"
 #include "IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
+#include "llvm/MC/MCAsmBackend.h"
+#include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -34,7 +38,7 @@ static MCAsmInfo *createIA64MCAsmInfo(const MCRegisterInfo &MRI,
   return new IA64MCAsmInfo(TT, Options);
 }
 
-static MCInstrInfo *createIA64MCInstrInfo() {
+MCInstrInfo *llvm::createIA64MCInstrInfo() {
   MCInstrInfo *X = new MCInstrInfo();
   InitIA64MCInstrInfo(X);
   return X;
@@ -67,6 +71,11 @@ static MCTargetStreamer *createIA64AsmTargetStreamer(MCStreamer &S,
   return new IA64TargetAsmStreamer(S, OS);
 }
 
+static MCTargetStreamer *
+createIA64ObjectTargetStreamer(MCStreamer &S, const MCSubtargetInfo &STI) {
+  return new IA64TargetELFStreamer(S, STI);
+}
+
 static MCTargetStreamer *createIA64NullTargetStreamer(MCStreamer &S) {
   return new IA64TargetStreamer(S);
 }
@@ -79,6 +88,10 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64TargetMC() {
   TargetRegistry::RegisterMCSubtargetInfo(T, createIA64MCSubtargetInfo);
   TargetRegistry::RegisterMCInstPrinter(T, createIA64MCInstPrinter);
   TargetRegistry::RegisterMCCodeEmitter(T, createIA64MCCodeEmitter);
+  TargetRegistry::RegisterMCAsmBackend(T, createIA64AsmBackend);
+  TargetRegistry::RegisterELFStreamer(T, createIA64ELFStreamer);
+  TargetRegistry::RegisterObjectTargetStreamer(T,
+                                               createIA64ObjectTargetStreamer);
   TargetRegistry::RegisterAsmTargetStreamer(T, createIA64AsmTargetStreamer);
   TargetRegistry::RegisterNullTargetStreamer(T, createIA64NullTargetStreamer);
 }
