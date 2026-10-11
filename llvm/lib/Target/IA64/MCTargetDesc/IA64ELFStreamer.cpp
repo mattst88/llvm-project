@@ -234,6 +234,21 @@ public:
   void emitTemplate(unsigned Index) { NextTemplate = Index; }
 
   void emitTag(MCSymbol *Symbol, SMLoc Loc) {
+    Symbol->redefineIfPossible();
+    if (!Symbol->isUndefined()) {
+      getContext().reportError(Loc, "symbol '" + Twine(Symbol->getName()) +
+                                        "' is already defined");
+      return;
+    }
+    // The tag has no address until its instruction is bundled, but it must
+    // be defined from here on so that "1b" can refer to "[1:]". Until then it
+    // lives in a placeholder fragment not linked into any section, so nothing
+    // computes with its address.
+    auto *Placeholder =
+        new (getContext().allocate(sizeof(MCFragment), alignof(MCFragment)))
+            MCFragment();
+    Placeholder->setParent(getCurrentSectionOnly());
+    Symbol->setFragment(Placeholder);
     NextTags.emplace_back(Symbol, Loc);
   }
 
@@ -509,9 +524,11 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
     }
     if (PI.Mark != -1)
       Marks[PI.Mark] = {GetBundleSym(), Slot};
-    for (auto [Tag, Loc] : PI.Tags)
+    for (auto [Tag, Loc] : PI.Tags) {
+      Tag->setFragment(nullptr);
       MCELFStreamer::emitLabelAtPos(Tag, Loc, *getCurrentFragment(),
                                     BundleOffset + Slot);
+    }
     for (unsigned I = 0; I != Code.size(); I += IA64::SlotBytes) {
       if (I != 0)
         ++Slot;
@@ -580,8 +597,10 @@ void IA64ELFStreamer::flush(bool Stop, bool KeepLast) {
       LastFragment = nullptr;
     // A tag with no following instruction becomes a label at the current
     // position.
-    for (auto [Tag, Loc] : NextTags)
+    for (auto [Tag, Loc] : NextTags) {
+      Tag->setFragment(nullptr);
       MCELFStreamer::emitLabel(Tag, Loc);
+    }
     NextTags.clear();
   };
   if (Pending.empty()) {

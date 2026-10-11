@@ -127,7 +127,9 @@ void IA64AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
   if (Fixup.isPCRel()) {
     Value += Slot;
     unsigned Width = Kind == IA64::fixup_ia64_pcrel60b ? 60 : IsTag ? 9 : 21;
-    if (Value % IA64II::BundleBytes) {
+    // The target may be a slot address, as a tag's is; the branch goes to
+    // its bundle.
+    if (Value % IA64II::BundleBytes > 2) {
       getContext().reportError(Fixup.getLoc(),
                                "target is not the start of a bundle");
       return;

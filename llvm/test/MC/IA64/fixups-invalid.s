@@ -7,7 +7,7 @@ f:
 	nop.i 0
 	nop.i 0
 	nop.i 0
-// A branch is to a bundle.
+// A branch is to a bundle, or to a slot of one.
 // CHECK: :[[#@LINE+1]]:18: error: target is not the start of a bundle
 	br.sptk.many .La+4
 // CHECK: :[[#@LINE+1]]:16: error: target is out of range

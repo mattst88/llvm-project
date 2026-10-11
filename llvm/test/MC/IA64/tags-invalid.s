@@ -5,9 +5,6 @@
 [a]	nop 0
 // CHECK: :[[#@LINE+1]]:5: error: expected ']'
 [a:	nop 0
-// A local label of a digit cannot be one.
-// CHECK: :[[#@LINE+1]]:2: error: expected a symbol
-[1:]	nop 0
 // CHECK: :[[#@LINE+1]]:2: error: expected a symbol
 [(p6):]	nop 0
 // Only an instruction or data can follow on the line.

@@ -932,13 +932,19 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
   while (Name == "[") {
     SMLoc SymLoc = Parser.getTok().getLoc();
     MCSymbol *Sym;
-    // A local label of a digit would have to be defined at once to be
-    // referred to backwards, and a tag is not until its instruction is in
-    // a bundle.
-    if ((Parser.getTok().isNot(AsmToken::Identifier) &&
-         Parser.getTok().isNot(AsmToken::String)) ||
-        Parser.parseSymbol(Sym))
+    // "[1:]" is a local label; "1b" can refer to it from here on, even
+    // though the tag has no address until its instruction is bundled.
+    if (Parser.getTok().is(AsmToken::Integer)) {
+      int64_t Number = Parser.getTok().getIntVal();
+      if (Number < 0)
+        return Error(SymLoc, "expected a symbol");
+      Sym = getContext().createDirectionalLocalSymbol(Number);
+      Lex();
+    } else if ((Parser.getTok().isNot(AsmToken::Identifier) &&
+                Parser.getTok().isNot(AsmToken::String)) ||
+               Parser.parseSymbol(Sym)) {
       return Error(SymLoc, "expected a symbol");
+    }
     if (Parser.parseToken(AsmToken::Colon, "expected ':'") ||
         Parser.parseToken(AsmToken::RBrac, "expected ']'"))
       return true;

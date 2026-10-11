@@ -171,6 +171,9 @@ void IA64TargetAsmStreamer::emitTemplate(unsigned Index) {
 }
 
 void IA64TargetAsmStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {
+  // The symbol is now defined, as one printed by emitLabel() is.
+  if (MCSection *Section = getStreamer().getCurrentSectionOnly())
+    Symbol->setFragment(&Section->getDummyFragment());
   OS << '[';
   Symbol->print(OS, &getStreamer().getContext().getAsmInfo());
   OS << ":]\n";
