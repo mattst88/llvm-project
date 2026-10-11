@@ -2921,7 +2921,10 @@ def IA64SystemLibrary
            // helpers for the operations without hardware support.
            LibcallImpls<(add DefaultRuntimeLibcallImpls_longdouble_f80),
                         isLongDoubleX87>,
-           DefaultRuntimeLibcallImpls_f80_helpers)>;
+           DefaultRuntimeLibcallImpls_f80_helpers,
+           // IEEE quad is __float128, never long double, so the C library
+           // uses the *f128 names for it.
+           LibmF128Libcalls)>;
 
 //===----------------------------------------------------------------------===//
 // Lanai Runtime Libcalls
