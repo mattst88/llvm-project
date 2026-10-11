@@ -783,6 +783,10 @@ MCSymbol *AsmPrinter::getSymbolPreferLocal(const GlobalValue &GV) const {
   return TM.getSymbol(&GV);
 }
 
+void AsmPrinter::emitGlobalVariableInitializer(const GlobalVariable *GV) {
+  emitGlobalConstant(GV->getDataLayout(), GV->getInitializer());
+}
+
 /// EmitGlobalVariable - Emit the specified global variable to the .s file.
 void AsmPrinter::emitGlobalVariable(const GlobalVariable *GV) {
   MaybeAlign AlignmentGranule = getRequiredGlobalAlignmentGranule(*GV);
@@ -983,7 +987,7 @@ void AsmPrinter::emitGlobalVariable(const GlobalVariable *GV,
   if (LocalAlias != EmittedInitSym)
     OutStreamer->emitLabel(LocalAlias);
 
-  emitGlobalConstant(GV->getDataLayout(), GV->getInitializer());
+  emitGlobalVariableInitializer(GV);
 
   if (MAI.hasDotTypeDotSizeDirective())
     // .size foo, 42

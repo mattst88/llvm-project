@@ -542,6 +542,10 @@ public:
   virtual void emitGlobalVariable(const GlobalVariable *GV,
                                   MaybeAlign AlignmentGranule);
 
+  /// Emit the initializer of the specified global variable, after its label.
+  /// Targets can override this to emit initializers in a target-specific form.
+  virtual void emitGlobalVariableInitializer(const GlobalVariable *GV);
+
   /// Check to see if the specified global is a special global used by LLVM. If
   /// so, emit it and return true, otherwise do nothing and return false.
   bool emitSpecialLLVMGlobal(const GlobalVariable *GV);
