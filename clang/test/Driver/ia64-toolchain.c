@@ -62,3 +62,20 @@
 // RUN: %clang --target=ia64-unknown-linux-gnu -mconstant-gp -### -c %s 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=CONSTANT-GP
 // CONSTANT-GP: "-target-feature" "+constant-gp"
+
+// -mtune= names the processor the code is to be fastest on, by the name it
+// is sold under or the name of its design.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtune=itanium2 -### -c %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=TUNE2
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtune=mckinley -### -c %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=TUNE2
+// TUNE2: "-tune-cpu" "itanium2"
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtune=merced -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=TUNE1
+// TUNE1: "-tune-cpu" "itanium"
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtune=mckinley -Werror \
+// RUN:   -fsyntax-only %s
+// RUN: not %clang --target=ia64-unknown-linux-gnu -mtune=pentium \
+// RUN:   -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=TUNE-BAD
+// TUNE-BAD: error: unknown target CPU 'pentium'

@@ -2055,6 +2055,17 @@ void Clang::AddIA64TargetArgs(const ArgList &Args,
   }
   CmdArgs.push_back("-msmall-data-limit");
   CmdArgs.push_back(Limit);
+
+  // The processors have the names that their designs had before they were
+  // sold, and gcc knows them by those.
+  if (const Arg *A = Args.getLastArg(options::OPT_mtune_EQ)) {
+    StringRef Name = llvm::StringSwitch<StringRef>(A->getValue())
+                         .Case("merced", "itanium")
+                         .Case("mckinley", "itanium2")
+                         .Default(A->getValue());
+    CmdArgs.push_back("-tune-cpu");
+    CmdArgs.push_back(Args.MakeArgString(Name));
+  }
 }
 
 void Clang::AddRISCVTargetArgs(const ArgList &Args,
