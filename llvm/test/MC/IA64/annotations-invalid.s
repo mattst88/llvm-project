@@ -16,7 +16,7 @@
 	.pred.rel "bogus", p1, p2
 // CHECK: :[[#@LINE+1]]:12: error: expected a predicate relation
 	.pred.rel mutex, p1, p2
-// CHECK: :[[#@LINE+1]]:19: error: expected comma
+// CHECK: :[[#@LINE+1]]:19: error: expected a predicate register
 	.pred.rel "clear"
 // CHECK: :[[#@LINE+1]]:18: error: expected at least two predicate registers
 	.pred.rel.mutex p1

@@ -1794,8 +1794,8 @@ ParseStatus IA64AsmParser::parseAnnotationDirective(StringRef Name) {
     }
     if (String != "mutex" && String != "imply" && String != "clear")
       return Error(Loc, "unknown predicate relation");
-    if (getParser().parseComma())
-      return ParseStatus::Failure;
+    // A comma may follow the relation.
+    parseOptionalToken(AsmToken::Comma);
     Lower += '.' + String;
   }
   if (Lower == ".pred.rel.mutex" || Lower == ".pred.rel.imply" ||
