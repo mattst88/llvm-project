@@ -49,6 +49,7 @@
 #include "MCTargetDesc/IA64FixupKinds.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
@@ -65,6 +66,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSectionELF.h"
+#include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/Endian.h"
@@ -111,6 +113,11 @@ class IA64ELFStreamer : public MCELFStreamer {
   /// label flushed it, and what follows the label may still end the group.
   MCFragment *OpenFragment = nullptr;
   size_t OpenOffset = 0;
+
+  /// The fragment that ends the last code padding, and the subtarget copies
+  /// that make padding bundles end with a stop.
+  MCFragment *PaddingFragment = nullptr;
+  DenseMap<const MCSubtargetInfo *, const MCSubtargetInfo *> StoppedPadding;
 
   /// The template named by a directive for the next instruction's bundle.
   int NextTemplate = -1;
@@ -189,6 +196,24 @@ public:
   /// Leave the last bundle's instruction group unchanged, whatever follows.
   void leaveGroup() { OpenFragment = nullptr; }
 
+  /// Leave the padding before the next instruction unchanged, whatever the
+  /// instruction.
+  void leavePadding() { PaddingFragment = nullptr; }
+
+  /// Whether nothing has been written to the section since the padding.
+  bool isAfterPadding() {
+    if (!PaddingFragment ||
+        PaddingFragment->getParent() != getCurrentSectionOnly())
+      return false;
+    for (MCFragment *F = PaddingFragment->getNext(); F; F = F->getNext()) {
+      if (F->getKind() != MCFragment::FT_Data)
+        return false;
+      if ((F == getCurrentFragment() ? getCurFragSize() : F->getFixedSize()))
+        return false;
+    }
+    return true;
+  }
+
   /// Create a mark for the next instruction, or for the one \p Ahead of it.
   /// The mark gets a position only once the instruction is bundled.
   unsigned markNextInstruction(unsigned Ahead = 0) {
@@ -236,6 +261,8 @@ public:
   void reset() override {
     Pending.clear();
     OpenFragment = nullptr;
+    PaddingFragment = nullptr;
+    StoppedPadding.clear();
     NextTemplate = -1;
     Marks.clear();
     NextMarks.clear();
@@ -372,6 +399,7 @@ public:
   void emitCodeAlignment(Align Alignment, const MCSubtargetInfo &STI,
                          unsigned MaxBytesToEmit) override {
     flushForAlignment();
+    PaddingFragment = Elsewhere ? nullptr : getCurrentFragment();
     MCELFStreamer::emitCodeAlignment(Alignment, STI, MaxBytesToEmit);
   }
   void emitPrefAlign(Align Alignment, const MCSymbol &End, bool EmitNops,
@@ -471,6 +499,25 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   if (Inst.getOpcode() == IA64::HINT || Inst.getOpcode() == IA64::CHK_S)
     Units |= 1u << IA64II::UnitB;
   assert(Units != 0 && "instruction has no unit");
+  // These must be first in their instruction group, so end the previous
+  // group: at the preceding instruction, else at the last emitted bundle, or
+  // with a stop in each padding bundle leading up to it.
+  if (isFirstInGroup(Inst.getOpcode())) {
+    if (!Pending.empty()) {
+      Pending.back().Stop = true;
+    } else {
+      closeGroup();
+      if (isAfterPadding()) {
+        const MCSubtargetInfo *&Stopped = StoppedPadding[&STI];
+        if (!Stopped) {
+          MCSubtargetInfo &Copy = getContext().getSubtargetCopy(STI);
+          Copy.ToggleFeature(IA64::FeatureStoppedPadding);
+          Stopped = &Copy;
+        }
+        PaddingFragment->setHasInstructions(*Stopped);
+      }
+    }
+  }
   bool LastSlot = (MCII->get(Inst.getOpcode()).TSFlags & IA64II::LastSlot) != 0;
   Pending.push_back({Inst, &STI, Units, LastSlot,
                      (Inst.getFlags() & IA64II::StopAfter) != 0, NextTemplate,
@@ -720,9 +767,10 @@ void IA64TargetELFStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {
 
 void IA64TargetELFStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {
   auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
-  // A procedure starts on a bundle of its own, and in an instruction group
-  // of its own.
+  // A procedure starts a new bundle and a new instruction group, which does
+  // not include the padding before it.
   S.flush();
+  S.leavePadding();
   // Discard unwind information from a procedure that was never ended.
   S.bindMarks(nullptr);
   Records.clear();

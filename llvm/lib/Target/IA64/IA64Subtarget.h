@@ -34,6 +34,7 @@ class IA64Subtarget : public IA64GenSubtargetInfo {
   // Registers reserved by the user.
   std::bitset<IA64::NUM_TARGET_REGS> UserReservedRegister;
   bool HasConstantGP = false;
+  bool HasStoppedPadding = false;
 
   IA64InstrInfo InstrInfo;
   IA64TargetLowering TLInfo;

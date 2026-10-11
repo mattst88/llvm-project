@@ -237,9 +237,11 @@ bool IA64AsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
   // Code can only start at a bundle boundary, so what precedes the first
   // whole bundle of the padding is not executable.
   OS.write_zeros(Count % IA64II::BundleBytes);
-  // An MMI bundle of nop.m, nop.m and nop.i, without a stop.
+  // An MMI bundle of nop.m, nop.m and nop.i. It ends with a stop bit when the
+  // instruction after the padding must start an instruction group.
   const uint64_t Nop = 0x8000000;
-  const uint64_t Low = 0x08 | Nop << 5 | Nop << 46;
+  bool Stop = STI && STI->hasFeature(IA64::FeatureStoppedPadding);
+  const uint64_t Low = 0x08 | Stop | Nop << 5 | Nop << 46;
   const uint64_t High = Nop >> 18 | Nop << 23;
   for (uint64_t I = 0, E = Count / IA64II::BundleBytes; I != E; ++I) {
     support::endian::write<uint64_t>(OS, Low, llvm::endianness::little);

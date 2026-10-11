@@ -30,3 +30,10 @@ foreach I = 2...127 in
   def FeatureReserveF#I
       : SubtargetFeature<"reserve-f"#I, "UserReservedRegister[IA64::F"#I#"]",
                          "true", "Reserve f"#I>;
+
+// Not user-settable. The assembler sets it for the padding before an
+// instruction that must start an instruction group, so that each bundle of
+// the padding ends with a stop bit.
+def FeatureStoppedPadding
+    : SubtargetFeature<"stopped-padding", "HasStoppedPadding", "true",
+                       "End each bundle of padding with a stop">;
