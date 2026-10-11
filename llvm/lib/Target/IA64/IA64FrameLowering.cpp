@@ -51,7 +51,12 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   // A call overwrites ar.pfs and b0, so a function with calls saves both and
   // needs a register stack frame to hold them.
   auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   bool SaveRP = MF.getFrameInfo().hasCalls();
+  // Objects in a realigned frame are addressed from sp, or from a base
+  // pointer copy of it if sp moves.
+  bool Realign = TRI.hasStackRealignment(MF);
+  bool NeedsBP = Realign && MF.getFrameInfo().hasVarSizedObjects();
   if (Locals != Inputs || Outputs != 0 || SaveRP || hasFP(MF)) {
     Register SavedPFS = IA64::R32 + Locals++;
     FI->setSavedPFS(SavedPFS);
@@ -59,6 +64,8 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
       FI->setSavedRP(IA64::R32 + Locals++);
     if (hasFP(MF))
       FI->setFramePointer(IA64::R32 + Locals++);
+    if (NeedsBP)
+      FI->setBasePointer(IA64::R32 + Locals++);
     BuildMI(MBB, MBBI, DL, TII.get(IA64::ALLOC), SavedPFS)
         .addImm(Inputs)
         .addImm(Locals - Inputs)
@@ -88,6 +95,8 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
         Other.addLiveIn(FI->getSavedRP());
       if (FI->getFramePointer())
         Other.addLiveIn(FI->getFramePointer());
+      if (NeedsBP)
+        Other.addLiveIn(FI->getBasePointer());
     }
   }
 
@@ -97,8 +106,39 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   MachineFrameInfo &MFI = MF.getFrameInfo();
   uint64_t Size = MFI.getStackSize();
   Size = Size > ScratchAreaSize ? alignTo(Size - ScratchAreaSize, 16) : 0;
+  // Object offsets are relative to the end of the scratch area, so that is
+  // the point to align when realigning sp. A function asked to realign a
+  // stack its objects do not need still owes its callees the ABI alignment.
+  Align MaxAlign = std::max(MFI.getMaxAlign(), getStackAlign());
+  if (Realign)
+    Size = alignTo(Size + ScratchAreaSize, MaxAlign) - ScratchAreaSize;
   MFI.setStackSize(Size);
   adjustStackPointer(MBB, MBBI, DL, -int64_t(Size), MachineInstr::FrameSetup);
+  if (!Realign)
+    return;
+
+  int64_t Mask = -int64_t(MaxAlign.value());
+  if (isInt<8>(Mask)) {
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::ANDi), IA64::R12)
+        .addImm(Mask)
+        .addReg(IA64::R12)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameSetup);
+  } else {
+    static_cast<const IA64InstrInfo &>(TII).loadImmediate(
+        MBB, MBBI, DL, IA64::R2, Mask, MachineInstr::FrameSetup);
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::AND), IA64::R12)
+        .addReg(IA64::R2, RegState::Kill)
+        .addReg(IA64::R12)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameSetup);
+  }
+  if (NeedsBP)
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::ADDS), FI->getBasePointer())
+        .addImm(0)
+        .addReg(IA64::R12)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameSetup);
 }
 
 void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
@@ -169,7 +209,17 @@ IA64FrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
                                           Register &FrameReg) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   int64_t Offset = MFI.getObjectOffset(FI) + ScratchAreaSize;
-  FrameReg = MF.getInfo<IA64MachineFunctionInfo>()->getFramePointer();
+  const auto *FuncInfo = MF.getInfo<IA64MachineFunctionInfo>();
+  // Only what the caller put on the stack is where the stack pointer was
+  // when it has since been aligned: the rest is where the stack pointer is.
+  bool Realigned = MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF);
+  if (Realigned && !MFI.isFixedObjectIndex(FI)) {
+    FrameReg = FuncInfo->getBasePointer();
+    if (!FrameReg)
+      FrameReg = IA64::R12;
+    return StackOffset::getFixed(Offset + MFI.getStackSize());
+  }
+  FrameReg = FuncInfo->getFramePointer();
   if (FrameReg)
     return StackOffset::getFixed(Offset);
   FrameReg = IA64::R12;
@@ -184,5 +234,6 @@ bool IA64FrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
 
 bool IA64FrameLowering::hasFPImpl(const MachineFunction &MF) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
-  return MFI.hasVarSizedObjects() || MFI.isFrameAddressTaken();
+  return MFI.hasVarSizedObjects() || MFI.isFrameAddressTaken() ||
+         MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF);
 }

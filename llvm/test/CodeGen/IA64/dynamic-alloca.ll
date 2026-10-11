@@ -86,7 +86,7 @@ define void @aligned(i64 %n) {
 ; CHECK-NEXT:  adds r12 = -48, r14 ;;
 ; CHECK-NEXT:  adds r14 = 16, r12 ;;
 ; CHECK-NEXT:  adds r14 = 63, r14 ;;
-; CHECK-NEXT:  and r37 = -64, r14
+; CHECK-NEXT:  and r38 = -64, r14
   %a = alloca i8, i64 %n, align 64
   call void @g(ptr %a, i64 %n)
   ret void

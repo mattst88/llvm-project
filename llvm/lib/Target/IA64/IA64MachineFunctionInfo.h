@@ -23,6 +23,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   // prologue.
   Register FramePointer;
 
+  // The local holding SP as the prologue leaves it, if frame objects are
+  // addressed from it while SP moves.
+  Register BasePointer;
+
   // Where the arguments that have no names start.
   int VarArgsFrameIndex = 0;
 
@@ -42,6 +46,8 @@ public:
   void setSavedRP(Register Reg) { SavedRP = Reg; }
   Register getFramePointer() const { return FramePointer; }
   void setFramePointer(Register Reg) { FramePointer = Reg; }
+  Register getBasePointer() const { return BasePointer; }
+  void setBasePointer(Register Reg) { BasePointer = Reg; }
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int FI) { VarArgsFrameIndex = FI; }
 };
