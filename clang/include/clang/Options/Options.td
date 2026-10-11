@@ -7619,6 +7619,12 @@ def mapx_inline_asm_use_gpr32 : Flag<["-"], "mapx-inline-asm-use-gpr32">, Group<
                                 HelpText<"Enable use of GPR32 in inline assembly for APX">;
 def ffixed_edi : Flag<["-"], "ffixed-edi">, Group<m_Group>,
                  HelpText<"Reserve the edi register (x86 only)">;
+foreach i = {4-5} in
+    def ffixed_r#i : Flag<["-"], "ffixed-r"#i>, Group<m_Group>,
+    HelpText<"Reserve the r"#i#" register (IA-64 only)">;
+def mfixed_range_EQ : Joined<["-"], "mfixed-range=">, Group<m_Group>,
+  HelpText<"Reserve the registers of each range, as in f12-f15,f32-f127 "
+           "(IA-64 only)">;
 foreach i = {8, 10-15} in
     def ffixed_r#i : Flag<["-"], "ffixed-r"#i>, Group<m_Group>,
     HelpText<"Reserve the r"#i#" register (Hexagon/x86_64 only)">;

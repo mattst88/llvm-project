@@ -10,6 +10,7 @@
 #include "Arch/AArch64.h"
 #include "Arch/ARM.h"
 #include "Arch/CSKY.h"
+#include "Arch/IA64.h"
 #include "Arch/LoongArch.h"
 #include "Arch/M68k.h"
 #include "Arch/Mips.h"
@@ -955,6 +956,9 @@ void tools::getTargetFeatures(const Driver &D, const llvm::Triple &Triple,
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
     NVPTX::getNVPTXTargetFeatures(D, Triple, Args, Features);
+    break;
+  case llvm::Triple::ia64:
+    ia64::getIA64TargetFeatures(D, Triple, Args, Features);
     break;
   case llvm::Triple::m68k:
     m68k::getM68kTargetFeatures(D, Triple, Args, Features);
