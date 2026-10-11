@@ -13,6 +13,7 @@
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -22,6 +23,7 @@
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
@@ -954,6 +956,19 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
       getTargetStreamer().emitTemplate(I);
       return ParseStatus::Success;
     }
+
+  // The small data sections have their own directives, like ".data" and
+  // ".bss".
+  bool IsSBSS = Name.equals_insensitive(".sbss");
+  if (IsSBSS || Name.equals_insensitive(".sdata")) {
+    if (parseEOL())
+      return ParseStatus::Failure;
+    getStreamer().switchSection(getContext().getELFSection(
+        IsSBSS ? ".sbss" : ".sdata",
+        IsSBSS ? ELF::SHT_NOBITS : ELF::SHT_PROGBITS,
+        ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_IA_64_SHORT));
+    return ParseStatus::Success;
+  }
 
   ParseStatus Status = parseProcDirective(Name);
   if (!Status.isNoMatch())

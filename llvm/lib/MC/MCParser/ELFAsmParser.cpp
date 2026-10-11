@@ -525,6 +525,11 @@ bool ELFAsmParser::parseSectionArguments(bool IsPush, SMLoc loc) {
     Flags |= ELF::SHF_ALLOC | ELF::SHF_WRITE;
   else if (hasPrefix(SectionName, ".tdata") || hasPrefix(SectionName, ".tbss"))
     Flags |= ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_TLS;
+  // On IA-64, .sdata* and .sbss* sections are gp-relative short data.
+  bool IsIA64 = getContext().getTargetTriple().getArch() == Triple::ia64;
+  if (IsIA64 &&
+      (SectionName.starts_with(".sdata") || SectionName.starts_with(".sbss")))
+    Flags |= ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_IA_64_SHORT;
 
   if (getLexer().is(AsmToken::Comma)) {
     Lex();
@@ -599,6 +604,8 @@ EndStmt:
     else if (hasPrefix(SectionName, ".bss"))
       Type = ELF::SHT_NOBITS;
     else if (hasPrefix(SectionName, ".tbss"))
+      Type = ELF::SHT_NOBITS;
+    else if (IsIA64 && SectionName.starts_with(".sbss"))
       Type = ELF::SHT_NOBITS;
     else if (hasPrefix(SectionName, ".fini_array"))
       Type = ELF::SHT_FINI_ARRAY;
