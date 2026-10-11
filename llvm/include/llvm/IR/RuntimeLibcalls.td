@@ -70,6 +70,7 @@ def IsThumb : LibcallPredicate<[{TT.isThumb()}]>;
 def IsAVR : LibcallPredicate<[{TT.getArch() == Triple::avr}]>;
 def IsDXIL : LibcallPredicate<[{TT.isDXIL()}]>;
 def IsHexagon : LibcallPredicate<[{TT.getArch() == Triple::hexagon}]>;
+def IsIA64 : LibcallPredicate<[{TT.getArch() == Triple::ia64}]>;
 def IsLanai : LibcallPredicate<[{TT.getArch() == Triple::lanai}]>;
 def IsMSP430 : LibcallPredicate<[{TT.getArch() == Triple::msp430}]>;
 def IsNVPTX : LibcallPredicate<[{TT.isNVPTX()}]>;
@@ -2905,6 +2906,22 @@ def HexagonSystemLibrary
     LibmHasSinCosF32, LibmHasSinCosF64, LibmHasSinCosF128,
     exp10f, exp10, exp10l_f128, __stack_chk_fail, __stack_chk_guard,
     DefaultSafeStackGlobals)>;
+
+//===----------------------------------------------------------------------===//
+// IA64 Runtime Libcalls
+//===----------------------------------------------------------------------===//
+
+def isIA64 : RuntimeLibcallAvailability<(all_of IsIA64)>;
+
+def IA64SystemLibrary
+    : SystemRuntimeLibrary<isIA64,
+      (add DefaultLibcallImpls64, DefaultStackProtector,
+           DefaultSafeStackGlobals,
+           // long double is the 80-bit extended format; libgcc provides
+           // helpers for the operations without hardware support.
+           LibcallImpls<(add DefaultRuntimeLibcallImpls_longdouble_f80),
+                        isLongDoubleX87>,
+           DefaultRuntimeLibcallImpls_f80_helpers)>;
 
 //===----------------------------------------------------------------------===//
 // Lanai Runtime Libcalls
