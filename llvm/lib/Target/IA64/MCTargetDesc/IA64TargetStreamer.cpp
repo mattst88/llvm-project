@@ -78,6 +78,12 @@ void IA64TargetStreamer::emitAltRP(unsigned BR) {}
 
 void IA64TargetStreamer::emitUnwABI(unsigned ABI, unsigned Context) {}
 
+void IA64TargetStreamer::emitRestore(unsigned ECount) {}
+
+void IA64TargetStreamer::emitLabelState(uint64_t Label) {}
+
+void IA64TargetStreamer::emitCopyState(uint64_t Label) {}
+
 IA64TargetAsmStreamer::IA64TargetAsmStreamer(MCStreamer &S,
                                              formatted_raw_ostream &OS)
     : IA64TargetStreamer(S), OS(OS) {}
@@ -152,4 +158,19 @@ void IA64TargetAsmStreamer::emitAltRP(unsigned BR) {
 
 void IA64TargetAsmStreamer::emitUnwABI(unsigned ABI, unsigned Context) {
   OS << "\t.unwabi\t" << ABI << ", " << Context << '\n';
+}
+
+void IA64TargetAsmStreamer::emitRestore(unsigned ECount) {
+  OS << "\t.restore\tsp";
+  if (ECount != 0)
+    OS << ", " << ECount;
+  OS << '\n';
+}
+
+void IA64TargetAsmStreamer::emitLabelState(uint64_t Label) {
+  OS << "\t.label_state\t" << Label << '\n';
+}
+
+void IA64TargetAsmStreamer::emitCopyState(uint64_t Label) {
+  OS << "\t.copy_state\t" << Label << '\n';
 }

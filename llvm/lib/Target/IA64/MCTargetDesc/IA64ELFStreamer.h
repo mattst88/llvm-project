@@ -43,6 +43,9 @@ public:
   void emitSavePSP(UnwindReg Reg, uint64_t Offset) override;
   void emitAltRP(unsigned BR) override;
   void emitUnwABI(unsigned ABI, unsigned Context) override;
+  void emitRestore(unsigned ECount) override;
+  void emitLabelState(uint64_t Label) override;
+  void emitCopyState(uint64_t Label) override;
 
 private:
   /// A parsed unwind directive and the instruction it applies to. A region
@@ -62,6 +65,12 @@ private:
       P8,
       P8When,
       P10,
+      /// Format B2 or B3: the number of prologues popped beyond the first.
+      /// The time is in slots back from the end of the body.
+      Epilogue,
+      /// Format B1 or B4, with the label.
+      LabelState,
+      CopyState,
     } Kind;
     unsigned Mark;
     uint64_t Args[2];

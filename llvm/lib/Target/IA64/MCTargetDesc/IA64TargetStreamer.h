@@ -99,6 +99,19 @@ public:
   /// The procedure follows the ABI and context conventions \p ABI and
   /// \p Context. Assembly writes this as ".unwabi".
   virtual void emitUnwABI(unsigned ABI, unsigned Context);
+
+  /// The next instruction of the body restores sp, and with it undoes the
+  /// innermost prologue and \p ECount more around that. Assembly writes this
+  /// as ".restore sp".
+  virtual void emitRestore(unsigned ECount = 0);
+
+  /// Label the unwind state at this point of the body as \p Label. Assembly
+  /// writes this as ".label_state".
+  virtual void emitLabelState(uint64_t Label);
+
+  /// Restore the unwind state labelled \p Label instead of the state left by
+  /// the preceding code. Assembly writes this as ".copy_state".
+  virtual void emitCopyState(uint64_t Label);
 };
 
 class IA64TargetAsmStreamer : public IA64TargetStreamer {
@@ -125,6 +138,9 @@ public:
   void emitSavePSP(UnwindReg Reg, uint64_t Offset) override;
   void emitAltRP(unsigned BR) override;
   void emitUnwABI(unsigned ABI, unsigned Context) override;
+  void emitRestore(unsigned ECount) override;
+  void emitLabelState(uint64_t Label) override;
+  void emitCopyState(uint64_t Label) override;
 };
 
 } // end namespace llvm

@@ -94,6 +94,9 @@ class IA64AsmParser : public MCTargetAsmParser {
   enum { NoRegion, PrologueRegion, BodyRegion } UnwindRegion = NoRegion;
   /// The GR save mask and grsave register given by the open .prologue.
   unsigned PrologueMask = 0, PrologueGRSave = 0;
+  /// The current prologue nesting depth, and the depth at each .label_state.
+  unsigned OpenPrologues = 0;
+  DenseMap<uint64_t, unsigned> LabelledStates;
   /// The last directive that describes the following instruction, while
   /// that instruction has not appeared yet.
   SMLoc AwaitsInstruction;
@@ -914,6 +917,8 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
       return ParseStatus::Failure;
     ProcEntries = std::move(Entries);
     UnwindRegion = NoRegion;
+    OpenPrologues = 0;
+    LabelledStates.clear();
     AwaitsInstruction = SMLoc();
     getTargetStreamer().emitProc(ProcEntries);
     return ParseStatus::Success;
@@ -1167,6 +1172,9 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     SavePSP,
     AltRP,
     UnwABI,
+    Restore,
+    LabelState,
+    CopyState,
   };
   std::string Lower = Name.lower();
   DirectiveTy Directive = StringSwitch<DirectiveTy>(Lower)
@@ -1181,6 +1189,9 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
                               .Case(".savepsp", SavePSP)
                               .Case(".altrp", AltRP)
                               .Case(".unwabi", UnwABI)
+                              .Case(".restore", Restore)
+                              .Case(".label_state", LabelState)
+                              .Case(".copy_state", CopyState)
                               .Default(None);
   if (Directive == None)
     return ParseStatus::NoMatch;
@@ -1219,7 +1230,55 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
     UnwindRegion = PrologueRegion;
     PrologueMask = Mask;
     PrologueGRSave = GRSave;
+    ++OpenPrologues;
     TS.emitPrologue(Mask, GRSave);
+    return ParseStatus::Success;
+  }
+
+  if (Directive == Restore || Directive == LabelState ||
+      Directive == CopyState) {
+    if (UnwindRegion != BodyRegion)
+      return Error(NameLoc, Lower + " outside of a body");
+    int64_t Value = 0;
+    if (Directive == Restore) {
+      // Only sp is restored this way, and with it the frames of that many
+      // more prologues than the innermost.
+      MCRegister Reg;
+      SMLoc E;
+      if (!tryParseRegister(Reg, Loc, E).isSuccess() || Reg != IA64::R12)
+        return Error(Loc, "expected sp");
+      SMLoc CountLoc = getTok().getLoc();
+      if (parseOptionalToken(AsmToken::Comma)) {
+        CountLoc = getTok().getLoc();
+        if (getParser().parseAbsoluteExpression(Value))
+          return ParseStatus::Failure;
+      }
+      if (Value < 0 || Value >= OpenPrologues)
+        return Error(CountLoc, "there are " + Twine(OpenPrologues) +
+                                   " prologues to undo");
+      if (parseEOL())
+        return ParseStatus::Failure;
+      OpenPrologues -= Value + 1;
+      AwaitsInstruction = NameLoc;
+      TS.emitRestore(Value);
+      return ParseStatus::Success;
+    }
+    if (getParser().parseAbsoluteExpression(Value))
+      return ParseStatus::Failure;
+    if (Value < 0)
+      return Error(Loc, "expected a label that is not negative");
+    if (parseEOL())
+      return ParseStatus::Failure;
+    if (Directive == LabelState) {
+      LabelledStates[Value] = OpenPrologues;
+      TS.emitLabelState(Value);
+      return ParseStatus::Success;
+    }
+    auto It = LabelledStates.find(Value);
+    if (It == LabelledStates.end())
+      return Error(Loc, "no .label_state has given a state this label");
+    OpenPrologues = It->second;
+    TS.emitCopyState(Value);
     return ParseStatus::Success;
   }
 

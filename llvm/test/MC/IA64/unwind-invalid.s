@@ -95,3 +95,41 @@ c:
 // CHECK: :[[#@LINE+1]]:2: error: no instruction follows for this to tell of
 	.save ar.lc, r2
 	.endp c
+
+	.proc d
+d:
+	.prologue
+// CHECK: :[[#@LINE+1]]:2: error: .restore outside of a body
+	.restore sp
+// CHECK: :[[#@LINE+1]]:2: error: .label_state outside of a body
+	.label_state 1
+// CHECK: :[[#@LINE+1]]:2: error: .copy_state outside of a body
+	.copy_state 1
+	nop 0
+	.body
+// CHECK: :[[#@LINE+1]]:11: error: expected sp
+	.restore r13
+// CHECK: :[[#@LINE+1]]:11: error: expected sp
+	.restore 12
+// CHECK: :[[#@LINE+1]]:15: error: there are 1 prologues to undo
+	.restore sp, 1
+// CHECK: :[[#@LINE+1]]:15: error: there are 1 prologues to undo
+	.restore sp, -1
+// CHECK: :[[#@LINE+1]]:15: error: expected absolute expression
+	.restore sp, undefined
+// CHECK: :[[#@LINE+1]]:14: error: expected newline
+	.restore sp 1
+// CHECK: :[[#@LINE+1]]:15: error: expected a label that is not negative
+	.label_state -1
+// CHECK: :[[#@LINE+1]]:14: error: no .label_state has given a state this label
+	.copy_state 1
+	.label_state 1
+	.restore sp
+	nop 0
+// CHECK: :[[#@LINE+1]]:13: error: there are 0 prologues to undo
+	.restore sp
+// A state that is had again has its prologues again.
+	.copy_state 1
+// CHECK: :[[#@LINE+1]]:2: error: no instruction follows for this to tell of
+	.restore sp
+	.endp d

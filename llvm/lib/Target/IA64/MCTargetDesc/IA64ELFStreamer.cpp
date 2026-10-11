@@ -677,6 +677,18 @@ void IA64TargetELFStreamer::emitUnwABI(unsigned ABI, unsigned Context) {
   addUnwindRecord(UnwindRecord::P10, ABI, Context);
 }
 
+void IA64TargetELFStreamer::emitRestore(unsigned ECount) {
+  addUnwindRecord(UnwindRecord::Epilogue, ECount);
+}
+
+void IA64TargetELFStreamer::emitLabelState(uint64_t Label) {
+  addUnwindRecord(UnwindRecord::LabelState, Label);
+}
+
+void IA64TargetELFStreamer::emitCopyState(uint64_t Label) {
+  addUnwindRecord(UnwindRecord::CopyState, Label);
+}
+
 /// The sections that hold the unwind table and the unwind information for
 /// the code of \p Text. They have the names that GNU as gives them, which a
 /// linker script may depend on.
@@ -796,7 +808,7 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
 
   SmallString<64> Info;
   raw_svector_ostream OS(Info);
-  uint64_t RegionStart = 0;
+  uint64_t RegionStart = 0, RegionLength = 0;
   for (size_t I = 0; I != Records.size(); ++I) {
     const UnwindRecord &R = Records[I];
     switch (R.Kind) {
@@ -829,6 +841,29 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
     case UnwindRecord::P10:
       OS << char(0xff) << char(R.Args[0]) << char(R.Args[1]);
       continue;
+    case UnwindRecord::Epilogue: {
+      uint64_t Time = RegionLength - 1 - (SlotOfRecord(R) - RegionStart);
+      if (R.Args[0] < 32) {
+        OS << char(0xc0 | R.Args[0]);
+        encodeULEB128(Time, OS);
+      } else {
+        OS << char(0xe0);
+        encodeULEB128(Time, OS);
+        encodeULEB128(R.Args[0], OS);
+      }
+      continue;
+    }
+    case UnwindRecord::LabelState:
+    case UnwindRecord::CopyState: {
+      bool IsCopy = R.Kind == UnwindRecord::CopyState;
+      if (R.Args[0] < 32) {
+        OS << char(0x80 | IsCopy << 5 | R.Args[0]);
+      } else {
+        OS << char(0xf0 | IsCopy << 3);
+        encodeULEB128(R.Args[0], OS);
+      }
+      continue;
+    }
     }
 
     // A region extends to the next region, or the last one to the end.
@@ -838,7 +873,7 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
                  R.Kind == UnwindRecord::Body;
         });
     uint64_t Start = RegionStart = SlotOfRecord(R);
-    uint64_t Length =
+    uint64_t Length = RegionLength =
         (Next == Records.end() ? EndSlot : SlotOfRecord(*Next)) - Start;
     bool IsBody = R.Kind == UnwindRecord::Body;
     if (!IsBody && R.Args[0] != 0) {
