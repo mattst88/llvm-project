@@ -35,6 +35,16 @@ public:
   /// End the procedure (".endp"). Each entry symbol gets the size from it to
   /// here.
   virtual void emitEndp();
+
+  /// Begin a prologue region at the next instruction, for the unwinder.
+  /// \p Mask says which of rp (8), ar.pfs (4), psp (2) and pr (1) the
+  /// prologue saves in successive general registers from \p GRSave on.
+  /// Assembly writes this as ".prologue".
+  virtual void emitPrologue(unsigned Mask = 0, unsigned GRSave = 0);
+
+  /// Begin a body region at the next instruction. Assembly writes this as
+  /// ".body".
+  virtual void emitBody();
 };
 
 class IA64TargetAsmStreamer : public IA64TargetStreamer {
@@ -50,6 +60,8 @@ public:
   void emitTemplate(unsigned Index) override;
   void emitProc(ArrayRef<MCSymbol *> Entries) override;
   void emitEndp() override;
+  void emitPrologue(unsigned Mask, unsigned GRSave) override;
+  void emitBody() override;
 };
 
 } // end namespace llvm

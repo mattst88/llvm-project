@@ -86,6 +86,10 @@ class IA64AsmParser : public MCTargetAsmParser {
   /// The entry points of the open procedure, if any.
   SmallVector<MCSymbol *, 2> ProcEntries;
 
+  ParseStatus parseUnwindDirective(StringRef Name, SMLoc NameLoc);
+  /// The kind of the currently open unwind region.
+  enum { NoRegion, PrologueRegion, BodyRegion } UnwindRegion = NoRegion;
+
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
   /// The operand of a floating-point instruction that names no status field.
@@ -870,6 +874,9 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
   ParseStatus Status = parseProcDirective(Name);
   if (!Status.isNoMatch())
     return Status;
+  Status = parseUnwindDirective(Name, DirectiveID.getLoc());
+  if (!Status.isNoMatch())
+    return Status;
   Status = parseAnnotationDirective(Name);
   if (!Status.isNoMatch())
     return Status;
@@ -897,6 +904,7 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
     if (parseEOL())
       return ParseStatus::Failure;
     ProcEntries = std::move(Entries);
+    UnwindRegion = NoRegion;
     getTargetStreamer().emitProc(ProcEntries);
     return ParseStatus::Success;
   }
@@ -1045,6 +1053,59 @@ ParseStatus IA64AsmParser::parseAnnotationDirective(StringRef Name) {
     return Error(Loc, "the assembler does not place stops by itself");
 
   return ParseStatus::NoMatch;
+}
+
+ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
+  std::string Lower = Name.lower();
+  if (Lower != ".prologue" && Lower != ".body")
+    return ParseStatus::NoMatch;
+
+  SMLoc Loc = getTok().getLoc();
+  if (ProcEntries.empty())
+    return Error(NameLoc, Lower + " outside of a procedure");
+
+  if (Lower == ".body") {
+    if (parseEOL())
+      return ParseStatus::Failure;
+    UnwindRegion = BodyRegion;
+    getTargetStreamer().emitBody();
+    return ParseStatus::Success;
+  }
+
+  // ".prologue" alone, or with what it saves where: a mask of rp (8), ar.pfs
+  // (4), psp (2) and pr (1), and the first of the general registers that
+  // hold them.
+  if (UnwindRegion == PrologueRegion)
+    return Error(NameLoc, "a prologue is already open");
+  int64_t Mask = 0, GRSave = 0;
+  if (!getTok().is(AsmToken::EndOfStatement)) {
+    if (getParser().parseAbsoluteExpression(Mask))
+      return ParseStatus::Failure;
+    if (Mask < 0 || Mask > 15)
+      return Error(Loc, "expected a mask from 0 to 15");
+    if (Mask == 0)
+      Warning(Loc, "a mask of 0 is the same as none");
+    if (getParser().parseComma())
+      return ParseStatus::Failure;
+    // The register may be only its number.
+    SMLoc S = getTok().getLoc(), E;
+    MCRegister Reg;
+    const MCRegisterInfo &MRI = *getContext().getRegisterInfo();
+    if (tryParseRegister(Reg, S, E).isSuccess()) {
+      if (!MRI.getRegClass(IA64::GRRegClassID).contains(Reg))
+        return Error(S, "expected a general register");
+      GRSave = MRI.getEncodingValue(Reg);
+    } else if (getParser().parseAbsoluteExpression(GRSave)) {
+      return ParseStatus::Failure;
+    } else if (GRSave < 0 || GRSave > 127) {
+      return Error(S, "expected a general register");
+    }
+  }
+  if (parseEOL())
+    return ParseStatus::Failure;
+  UnwindRegion = PrologueRegion;
+  getTargetStreamer().emitPrologue(Mask, GRSave);
+  return ParseStatus::Success;
 }
 
 void IA64AsmParser::onEmptyStatement(const AsmToken &Terminator) {

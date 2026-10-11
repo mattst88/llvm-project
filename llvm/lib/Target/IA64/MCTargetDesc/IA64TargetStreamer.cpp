@@ -30,6 +30,10 @@ void IA64TargetStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {}
 
 void IA64TargetStreamer::emitEndp() {}
 
+void IA64TargetStreamer::emitPrologue(unsigned Mask, unsigned GRSave) {}
+
+void IA64TargetStreamer::emitBody() {}
+
 IA64TargetAsmStreamer::IA64TargetAsmStreamer(MCStreamer &S,
                                              formatted_raw_ostream &OS)
     : IA64TargetStreamer(S), OS(OS) {}
@@ -60,3 +64,12 @@ void IA64TargetAsmStreamer::emitEndp() {
   OS << "\t.endp\t";
   printEntries();
 }
+
+void IA64TargetAsmStreamer::emitPrologue(unsigned Mask, unsigned GRSave) {
+  OS << "\t.prologue";
+  if (Mask != 0)
+    OS << '\t' << Mask << ", " << GRSave;
+  OS << '\n';
+}
+
+void IA64TargetAsmStreamer::emitBody() { OS << "\t.body\n"; }
