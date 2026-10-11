@@ -55,12 +55,20 @@ static bool CC_IA64_FP(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
                        CCState &State) {
   // Past the eighth slot, FP arguments go on the stack even if FP registers
   // remain.
-  if (!State.AllocateReg(Slots))
+  MCRegister Slot = State.AllocateReg(Slots);
+  if (!Slot)
     return false;
   // Each takes at least one slot, so the registers outlast the slots.
   MCRegister Reg = State.AllocateReg(FRs);
   assert(Reg && "more floating-point arguments in registers than slots");
   State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+  // In a varargs call this is a named argument, which the callee expects in
+  // the FP register. A call to an unprototyped function is also a varargs
+  // call, and its callee may not name the argument and look in the slot, so
+  // pass it in both.
+  if (State.isVarArg())
+    State.addLoc(CCValAssign::getCustomReg(ValNo, ValVT, Slot, MVT::i64,
+                                           CCValAssign::BCvt));
   return true;
 }
 
@@ -88,6 +96,10 @@ static bool CC_IA64_Extended(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   MCRegister Reg = State.AllocateReg(FRs);
   assert(Reg && "more floating-point arguments in registers than slots");
   State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+  if (State.isVarArg())
+    for (MCRegister Slot : {Lo, Hi})
+      State.addLoc(
+          CCValAssign::getCustomReg(ValNo, ValVT, Slot, MVT::i64, LocInfo));
   return true;
 }
 
@@ -549,6 +561,10 @@ SDValue IA64TargetLowering::LowerFormalArguments(
 
   MachineFrameInfo &MFI = MF.getFrameInfo();
   for (const CCValAssign &VA : ArgLocs) {
+    // A function that takes a variable number of arguments has named this
+    // one, and reads it from the register and not from the slot as well.
+    if (VA.needsCustom())
+      continue;
     if (VA.isMemLoc()) {
       // Offsets count from the end of the scratch area, where the first
       // stack argument is.
@@ -642,15 +658,15 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     reportFatalUsageError("failed to perform tail call elimination on a call "
                           "site marked musttail");
 
-  // An argument the callee has not named goes as its bits, which for a
-  // single-precision value are the low half of the slot. Those of an
-  // extended-precision one are two slots, and are read back from memory.
+  // An unnamed FP argument is passed as raw bits; an f32 occupies the low
+  // half of the slot. An f80 occupies two slots and is reloaded from a stack
+  // temporary. In a varargs call, a possibly-named argument also gets a
+  // raw-bits copy.
   SmallVector<SDValue, 8> OutVals;
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
     SDValue Val = CLI.OutVals[VA.getValNo()];
-    if (VA.needsCustom()) {
-      assert(Val.getValueType() == MVT::f80 && "what else is in two places?");
+    if (VA.needsCustom() && Val.getValueType() == MVT::f80) {
       SDValue Slot =
           DAG.CreateStackTemporary(TypeSize::getFixed(16), Align(16));
       int FI = cast<FrameIndexSDNode>(Slot)->getIndex();

@@ -132,13 +132,16 @@ define i32 @call(double %d, double %e) {
   ret i32 %r
 }
 
-; One that has a name is still in a floating-point register.
+; One that has a name is still in a floating-point register, and in its slot
+; as well: a callee that was declared without its parameters has named all
+; its arguments too, as far as a call can tell.
 declare i32 @pf2(double, ...)
 define i32 @call_named(double %d, float %f) {
 ; CHECK-LABEL: call_named:
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 3, 0
 ; CHECK:       getf.s r36 = f9
-; CHECK-NEXT:  getf.d r37 = f8 ;;
+; CHECK-NEXT:  getf.d r35 = f8 ;;
+; CHECK-NEXT:  mov r37 = r35
 ; CHECK-NEXT:  br.call.sptk.many b0 = pf2 ;;
   %r = call i32 (double, ...) @pf2(double %d, float %f, double %d)
   ret i32 %r
