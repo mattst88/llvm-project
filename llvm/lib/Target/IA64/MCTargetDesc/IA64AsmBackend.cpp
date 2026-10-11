@@ -95,7 +95,16 @@ void IA64AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
                                "tag must be a location in the same section");
       return;
     }
-    Asm->getWriter().recordRelocation(F, Fixup, Target, Value);
+    // A difference from a location in this section becomes IP-relative, and
+    // an instruction's IP is its bundle address, without the slot number.
+    MCValue Reloc = Target;
+    if (Kind >= FirstTargetFixupKind && Target.getSubSym())
+      Reloc = MCValue::get(Target.getAddSym(), Target.getSubSym(),
+                           Target.getConstant() -
+                               (Asm->getFragmentOffset(F) + Fixup.getOffset()) %
+                                   IA64II::BundleBytes,
+                           Target.getSpecifier());
+    Asm->getWriter().recordRelocation(F, Fixup, Reloc, Value);
     return;
   }
 

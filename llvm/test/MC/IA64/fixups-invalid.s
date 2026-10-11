@@ -52,3 +52,10 @@ f:
 .Lb:
 	.space 0x200000
 .Lc:
+
+// A difference from a place in the section is relative to the IP, and only
+// some fields have such a relocation.
+// CHECK: :[[#@LINE+1]]:14: error: relocation is not supported here
+	adds r4 = x - f, r5
+// CHECK: :[[#@LINE+1]]:22: error: a difference cannot take a relocation specifier
+	addl r4 = @gprel(x) - f, r1

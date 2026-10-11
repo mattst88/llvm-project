@@ -86,10 +86,17 @@ unsigned IA64ELFObjectWriter::getRelocType(const MCFixup &Fixup,
                                            const MCValue &Target,
                                            bool IsPCRel) const {
   unsigned Spec = Target.getSpecifier();
-  // A difference from a place in the section of the data is IP-relative
-  // without saying so.
-  if (IsPCRel && Fixup.getKind() < FirstTargetFixupKind && Spec == IA64::S_None)
+  // A difference against a location in the fixup's section is implicitly
+  // IP-relative. A branch fixup is IP-relative by itself.
+  bool IsDifference = IsPCRel && !Fixup.isPCRel();
+  if (IsDifference) {
+    if (Spec != IA64::S_None) {
+      reportError(Fixup.getLoc(),
+                  "a difference cannot take a relocation specifier");
+      return ELF::R_IA64_NONE;
+    }
     Spec = IA64::S_PCREL;
+  }
 
   switch (Spec) {
   case IA64::S_FPTR:
@@ -117,7 +124,7 @@ unsigned IA64ELFObjectWriter::getRelocType(const MCFixup &Fixup,
     if (unsigned Type = Row.Types[Spec])
       return Type;
     reportError(Fixup.getLoc(),
-                Spec == IA64::S_None
+                Spec == IA64::S_None || IsDifference
                     ? "relocation is not supported here"
                     : "relocation specifier is not supported here");
     return ELF::R_IA64_NONE;
