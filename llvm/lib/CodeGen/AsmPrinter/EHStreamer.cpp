@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "EHStreamer.h"
+#include "llvm/CodeGen/EHStreamer.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/Dwarf.h"

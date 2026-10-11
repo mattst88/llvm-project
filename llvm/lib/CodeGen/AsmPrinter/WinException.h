@@ -13,7 +13,7 @@
 #ifndef LLVM_LIB_CODEGEN_ASMPRINTER_WIN64EXCEPTION_H
 #define LLVM_LIB_CODEGEN_ASMPRINTER_WIN64EXCEPTION_H
 
-#include "EHStreamer.h"
+#include "llvm/CodeGen/EHStreamer.h"
 #include <vector>
 
 namespace llvm {

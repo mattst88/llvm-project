@@ -14,7 +14,7 @@
 #ifndef LLVM_LIB_CODEGEN_ASMPRINTER_WASMEXCEPTION_H
 #define LLVM_LIB_CODEGEN_ASMPRINTER_WASMEXCEPTION_H
 
-#include "EHStreamer.h"
+#include "llvm/CodeGen/EHStreamer.h"
 
 namespace llvm {
 class AsmPrinter;

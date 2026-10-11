@@ -13,8 +13,8 @@
 #ifndef LLVM_LIB_CODEGEN_ASMPRINTER_DWARFEXCEPTION_H
 #define LLVM_LIB_CODEGEN_ASMPRINTER_DWARFEXCEPTION_H
 
-#include "EHStreamer.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/EHStreamer.h"
 #include "llvm/MC/MCDwarf.h"
 
 namespace llvm {

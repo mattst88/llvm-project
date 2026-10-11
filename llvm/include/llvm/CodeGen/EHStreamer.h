@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_CODEGEN_ASMPRINTER_EHSTREAMER_H
-#define LLVM_LIB_CODEGEN_ASMPRINTER_EHSTREAMER_H
+#ifndef LLVM_CODEGEN_EHSTREAMER_H
+#define LLVM_CODEGEN_EHSTREAMER_H
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/CodeGen/AsmPrinterHandler.h"
@@ -27,7 +27,7 @@ class MCSymbol;
 template <typename T> class SmallVectorImpl;
 
 /// Emits exception handling directives.
-class LLVM_LIBRARY_VISIBILITY EHStreamer : public AsmPrinterHandler {
+class LLVM_ABI EHStreamer : public AsmPrinterHandler {
 protected:
   /// Target of directive emission.
   AsmPrinter *Asm;
@@ -157,4 +157,4 @@ public:
 
 } // end namespace llvm
 
-#endif // LLVM_LIB_CODEGEN_ASMPRINTER_EHSTREAMER_H
+#endif // LLVM_CODEGEN_EHSTREAMER_H
