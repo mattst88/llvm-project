@@ -2,11 +2,13 @@
 
 ; The first eight arguments are in the input registers, and a result is in r8.
 
-; A function starts at a bundle.
+; A function starts at a bundle, and is a procedure to the assembler.
 ; CHECK:       .p2align 4
+; CHECK:       .proc nothing
 define void @nothing() {
 ; CHECK-LABEL: nothing:
-; CHECK:       br.ret.sptk.many b0
+; CHECK:       br.ret.sptk.many b0 ;;
+; CHECK-NEXT:  .endp nothing
   ret void
 }
 

@@ -15,6 +15,7 @@
 #include "IA64InstrInfo.h"
 #include "IA64TargetMachine.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -38,8 +39,14 @@ public:
   StringRef getPassName() const override { return "IA64 Assembly Printer"; }
 
   void emitInstruction(const MachineInstr *MI) override;
+  void emitFunctionEntryLabel() override;
+  void emitFunctionBodyEnd() override;
 
 private:
+  IA64TargetStreamer &getTargetStreamer() const {
+    return static_cast<IA64TargetStreamer &>(*OutStreamer->getTargetStreamer());
+  }
+
   MCOperand lowerOperand(const MachineOperand &MO) const;
 };
 
@@ -59,6 +66,15 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
     llvm_unreachable("unknown operand type");
   }
 }
+
+// Each function is an assembler procedure, which gives it an unwind table
+// entry and, with GNU as, a size that includes its last bundle.
+void IA64AsmPrinter::emitFunctionEntryLabel() {
+  getTargetStreamer().emitProc(CurrentFnSym);
+  AsmPrinter::emitFunctionEntryLabel();
+}
+
+void IA64AsmPrinter::emitFunctionBodyEnd() { getTargetStreamer().emitEndp(); }
 
 void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   MCInst OutMI;
