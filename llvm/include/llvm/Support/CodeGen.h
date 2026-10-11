@@ -63,11 +63,13 @@ namespace llvm {
     AIX,        ///< AIX Exception Handling
     ZOS, ///< z/OS MVS Exception Handling. Very similar to DwarfCFI, but the
          ///< PPA1 is used instead of an .eh_frame section.
+    IA64, ///< IA-64 unwind tables; a function's LSDA follows its unwind
+          ///< descriptors in the unwind info.
   };
 
   /// Returns the "exception-model" module flag spelling for an
-  /// ExceptionHandling value. Default, AIX, and ZOS have no spelling and return
-  /// "".
+  /// ExceptionHandling value. Default, AIX, ZOS, and IA64 have no spelling and
+  /// return "".
   inline StringRef getExceptionModelName(ExceptionHandling EH) {
     switch (EH) {
     case ExceptionHandling::None:
@@ -87,6 +89,7 @@ namespace llvm {
     case ExceptionHandling::Default:
     case ExceptionHandling::AIX:
     case ExceptionHandling::ZOS:
+    case ExceptionHandling::IA64:
       break;
     }
     return "";

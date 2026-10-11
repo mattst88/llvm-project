@@ -761,6 +761,7 @@ void TargetPassConfig::addPassesToHandleExceptions() {
   case ExceptionHandling::ARM:
   case ExceptionHandling::AIX:
   case ExceptionHandling::ZOS:
+  case ExceptionHandling::IA64:
     addPass(createDwarfEHPass(getOptLevel()));
     break;
   case ExceptionHandling::WinEH:

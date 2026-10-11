@@ -459,6 +459,7 @@ void CodeGenPassBuilder::addPassesToHandleExceptions(PassManagerWrapper &PMW) {
   case ExceptionHandling::ARM:
   case ExceptionHandling::AIX:
   case ExceptionHandling::ZOS:
+  case ExceptionHandling::IA64:
     addFunctionPass(DwarfEHPreparePass(TM), PMW);
     break;
   case ExceptionHandling::WinEH:

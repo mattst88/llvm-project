@@ -691,6 +691,9 @@ bool AsmPrinter::doInitialization(Module &M) {
   case ExceptionHandling::AIX:
     ES = new AIXException(this);
     break;
+  case ExceptionHandling::IA64:
+    // The unwind information is the target's, and so is what writes it.
+    break;
   }
   if (ES)
     EHHandlers.push_back(std::unique_ptr<EHStreamer>(ES));
