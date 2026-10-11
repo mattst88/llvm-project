@@ -70,3 +70,8 @@ def CSR_IA64 : CalleeSavedRegs<(add (sequence "F%u", 31, 16),
 // The caller's inputs and locals are not visible to the callee.
 def CSR_IA64_Call : CalleeSavedRegs<(add CSR_IA64,
                                          (sequence "R%u", 32, 119))>;
+
+// A returns_twice function such as setjmp returns the second time with the
+// caller's inputs and locals as last left, not as they were at the call. No
+// value may be kept in one across such a call.
+def CSR_IA64_ReturnsTwice : CalleeSavedRegs<(add CSR_IA64)>;

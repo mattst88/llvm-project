@@ -34,6 +34,10 @@ IA64RegisterInfo::getCallPreservedMask(const MachineFunction &MF,
   return CSR_IA64_Call_RegMask;
 }
 
+const uint32_t *IA64RegisterInfo::getReturnsTwiceCallPreservedMask() const {
+  return CSR_IA64_ReturnsTwice_RegMask;
+}
+
 BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   // Constant registers.

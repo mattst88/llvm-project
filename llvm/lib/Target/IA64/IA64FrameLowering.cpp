@@ -94,6 +94,28 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
     for (unsigned I = 0; I != 5; ++I)
       if (FI->getChangedBRs() & (1u << I))
         FI->setSavedBR(I, IA64::R32 + Locals++);
+    // A returns_twice call's regmask preserves no locals, since the second
+    // return sees them as last left. The prologue saves are never written
+    // after the prologue, which is what the epilogue needs, so mark them
+    // preserved.
+    const uint32_t *ReturnsTwiceMask =
+        static_cast<const IA64RegisterInfo &>(TRI)
+            .getReturnsTwiceCallPreservedMask();
+    uint32_t *KeepsFrameMask = nullptr;
+    for (MachineBasicBlock &Block : MF)
+      for (MachineInstr &MI : Block)
+        for (MachineOperand &MO : MI.operands()) {
+          if (!MO.isRegMask() || MO.getRegMask() != ReturnsTwiceMask)
+            continue;
+          if (!KeepsFrameMask) {
+            KeepsFrameMask = MF.allocateRegMask();
+            unsigned Words = MachineOperand::getRegMaskSize(TRI.getNumRegs());
+            std::copy_n(ReturnsTwiceMask, Words, KeepsFrameMask);
+            for (unsigned Reg = SavedPFS.id(); Reg != IA64::R32 + Locals; ++Reg)
+              KeepsFrameMask[Reg / 32] |= 1u << (Reg % 32);
+          }
+          MO.setRegMask(KeepsFrameMask);
+        }
     BuildMI(MBB, MBBI, DL, TII.get(IA64::ALLOC), SavedPFS)
         .addImm(Inputs)
         .addImm(Locals - Inputs)

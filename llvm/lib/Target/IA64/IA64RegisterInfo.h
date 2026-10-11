@@ -27,6 +27,8 @@ public:
   const MCPhysReg *getCalleeSavedRegs(const MachineFunction *MF) const override;
   const uint32_t *getCallPreservedMask(const MachineFunction &MF,
                                        CallingConv::ID) const override;
+  /// The registers preserved across a call to a returns_twice function.
+  const uint32_t *getReturnsTwiceCallPreservedMask() const;
   BitVector getReservedRegs(const MachineFunction &MF) const override;
 
   bool eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,

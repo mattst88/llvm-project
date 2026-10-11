@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
@@ -946,9 +947,23 @@ SDValue IA64TargetLowering::LowerFormalArguments(
   return Chain;
 }
 
-// The arguments go in the output registers, which the callee finds as its
-// inputs, and the sixteen bytes at the stack pointer are the callee's to
-// scribble on.
+// Arguments go in the output registers, which the callee sees as its input
+// registers, and the 16-byte scratch area at SP belongs to the callee.
+/// Whether the callee returns twice. A libcall has no CallBase and calls
+/// whatever function of that name the module has.
+static bool returnsTwice(const SelectionDAG &DAG, SDValue Callee,
+                         const CallBase *CB) {
+  if (CB)
+    return CB->hasFnAttr(Attribute::ReturnsTwice);
+  const Function *F = nullptr;
+  if (const auto *G = dyn_cast<GlobalAddressSDNode>(Callee))
+    F = dyn_cast<Function>(G->getGlobal());
+  else if (const auto *E = dyn_cast<ExternalSymbolSDNode>(Callee))
+    F = DAG.getMachineFunction().getFunction().getParent()->getFunction(
+        E->getSymbol());
+  return F && F->hasFnAttribute(Attribute::ReturnsTwice);
+}
+
 SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
                                       SmallVectorImpl<SDValue> &InVals) const {
   SelectionDAG &DAG = CLI.DAG;
@@ -957,7 +972,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   SDValue Callee = CLI.Callee;
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &MRI = MF.getRegInfo();
-  const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
+  const IA64RegisterInfo *TRI = Subtarget.getRegisterInfo();
 
   // A function pointer is the address of its function descriptor: the entry
   // point followed by the function's GP.
@@ -1193,6 +1208,16 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     GP = DAG.getCopyFromReg(DAG.getEntryNode(), DL, GPReg, MVT::i64);
   }
 
+  // The call node takes the GP to restore, which lets it live in a register
+  // the call clobbers. That does not work for a returns-twice callee, so
+  // there GP is restored by a separate copy after the call.
+  bool ReturnsTwice = returnsTwice(DAG, Callee, CLI.CB);
+  SDValue GPAfter;
+  if (ReturnsTwice && !SameModule) {
+    GPAfter = GP;
+    GP = DAG.getRegister(IA64::R0, MVT::i64);
+  }
+
   SmallVector<SDValue, 12> Ops = {Chain};
   if (Indirect)
     Ops.append({Entry, CalleeGP});
@@ -1201,8 +1226,9 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   Ops.push_back(GP);
   for (auto [Reg, VT] : ArgRegs)
     Ops.push_back(DAG.getRegister(Reg, VT));
-  Ops.push_back(
-      DAG.getRegisterMask(TRI->getCallPreservedMask(MF, CLI.CallConv)));
+  Ops.push_back(DAG.getRegisterMask(
+      ReturnsTwice ? TRI->getReturnsTwiceCallPreservedMask()
+                   : TRI->getCallPreservedMask(MF, CLI.CallConv)));
   if (Glue.getNode())
     Ops.push_back(Glue);
 
@@ -1221,6 +1247,8 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     InVals.push_back(Chain.getValue(0));
     Glue = Chain.getValue(2);
   }
+  if (GPAfter)
+    Chain = DAG.getCopyToReg(Chain, DL, IA64::R1, GPAfter);
   return Chain;
 }
 
