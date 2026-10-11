@@ -281,6 +281,7 @@ copy("Headers") {
     "ia32intrin.h",
     "immintrin.h",
     "intrin.h",
+    "ia64intrin.h",
     "intrin0.h",
     "inttypes.h",
     "invpcidintrin.h",

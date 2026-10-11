@@ -106,6 +106,10 @@ set(hlsl_files
   ${hlsl_subdir_files}
   )
 
+set(ia64_files
+  ia64intrin.h
+  )
+
 set(loongarch_files
   larchintrin.h
   lasxintrin.h
@@ -339,6 +343,7 @@ set(files
   ${aarch64_only_files}
   ${cuda_files}
   ${hexagon_files}
+  ${ia64_files}
   ${hip_files}
   ${loongarch_files}
   ${mips_msa_files}
@@ -574,6 +579,7 @@ add_dependencies("clang-resource-headers"
                  "aarch64-resource-headers"
                  "cuda-resource-headers"
                  "hexagon-resource-headers"
+                 "ia64-resource-headers"
                  "hip-resource-headers"
                  "hlsl-resource-headers"
                  "loongarch-resource-headers"
@@ -602,6 +608,7 @@ add_header_target("aarch64-resource-headers" "${aarch64_only_files};${aarch64_on
 add_header_target("cuda-resource-headers" "${cuda_files};${cuda_wrapper_files};${cuda_wrapper_bits_files};${cuda_wrapper_utility_files}")
 add_header_target("hexagon-resource-headers" "${hexagon_files}")
 add_header_target("hip-resource-headers" "${hip_files}")
+add_header_target("ia64-resource-headers" "${ia64_files}")
 add_header_target("loongarch-resource-headers" "${loongarch_files}")
 add_header_target("mips-resource-headers" "${mips_msa_files}")
 add_header_target("ppc-resource-headers" "${ppc_files};${ppc_wrapper_files}")
@@ -742,6 +749,12 @@ install(
   DESTINATION ${header_install_dir}
   EXCLUDE_FROM_ALL
   COMPONENT hip-resource-headers)
+
+install(
+  FILES ${ia64_files}
+  DESTINATION ${header_install_dir}
+  EXCLUDE_FROM_ALL
+  COMPONENT ia64-resource-headers)
 
 install(
   FILES ${loongarch_files}
@@ -902,6 +915,9 @@ if (NOT LLVM_ENABLE_IDE)
   add_llvm_install_targets(install-hexagon-resource-headers
                            DEPENDS hexagon-resource-headers
                            COMPONENT hexagon-resource-headers)
+  add_llvm_install_targets(install-ia64-resource-headers
+                           DEPENDS ia64-resource-headers
+                           COMPONENT ia64-resource-headers)
   add_llvm_install_targets(install-hip-resource-headers
                            DEPENDS hip-resource-headers
                            COMPONENT hip-resource-headers)
