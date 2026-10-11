@@ -72,3 +72,21 @@ def : Pat<(and (not GR:$r3), imm8:$imm), (ANDCMi imm8:$imm, GR:$r3)>;
 // needs movl, which takes two slots.
 def : Pat<(i64 imm22:$imm), (ADDL imm22:$imm, R0)>;
 def : Pat<(i64 imm:$imm), (MOVL imm:$imm)>;
+
+//===----------------------------------------------------------------------===//
+// Loads and stores
+//===----------------------------------------------------------------------===//
+
+// Addresses are a bare register: no displacement and no index. Narrow loads
+// zero-extend, so they serve both zextload and extload.
+def : Pat<(i64 (load GR:$r3)), (LD8 GR:$r3, 0)>;
+foreach S = ["1", "2", "4"] in {
+  defvar Bits = !cond(!eq(S, "1") : "8", !eq(S, "2") : "16", true : "32");
+  def : Pat<(i64 (!cast<PatFrag>("zextloadi"#Bits) GR:$r3)),
+            (!cast<Instruction>("LD"#S) GR:$r3, 0)>;
+  def : Pat<(i64 (!cast<PatFrag>("extloadi"#Bits) GR:$r3)),
+            (!cast<Instruction>("LD"#S) GR:$r3, 0)>;
+  def : Pat<(!cast<PatFrag>("truncstorei"#Bits) GR:$r2, GR:$r3),
+            (!cast<Instruction>("ST"#S) GR:$r3, GR:$r2, 0)>;
+}
+def : Pat<(store GR:$r2, GR:$r3), (ST8 GR:$r3, GR:$r2, 0)>;

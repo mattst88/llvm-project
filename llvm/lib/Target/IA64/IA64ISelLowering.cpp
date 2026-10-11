@@ -36,6 +36,15 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setMinFunctionAlignment(Align(16));
 
   computeRegisterProperties(STI.getRegisterInfo());
+
+  // No load sign-extends, and an i1 is a byte in memory.
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
+    setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::i1, Promote);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::i1, Promote);
+    for (MVT MemVT : {MVT::i8, MVT::i16, MVT::i32})
+      setLoadExtAction(ISD::SEXTLOAD, VT, MemVT, Expand);
+  }
 }
 
 SDValue IA64TargetLowering::LowerFormalArguments(
