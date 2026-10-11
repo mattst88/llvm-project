@@ -45,6 +45,60 @@ public:
   /// Begin a body region at the next instruction. Assembly writes this as
   /// ".body".
   virtual void emitBody();
+
+  /// Registers a prologue may record as saved, other than the callee-saved
+  /// GRs, FRs and BRs.
+  enum UnwindReg {
+    UR_RP,
+    UR_PFS,
+    UR_PR,
+    UR_UNAT,
+    UR_LC,
+    UR_FPSR,
+    UR_RNAT,
+    UR_BSP,
+    UR_BSPSTORE,
+    /// The NaT bits of the callee-saved GRs: ar.unat after they have been
+    /// spilled.
+    UR_PRIUNAT,
+  };
+  static const char *getUnwindRegName(UnwindReg Reg);
+
+  /// The next instruction allocates a memory stack frame of \p Size bytes.
+  /// Assembly writes this as ".fframe".
+  virtual void emitFFrame(uint64_t Size);
+
+  /// The next instruction allocates a variable-size frame, and GR \p GR
+  /// holds the previous sp. Assembly writes this as ".vframe".
+  virtual void emitVFrame(unsigned GR);
+
+  /// The same, with the previous sp at \p Offset bytes from sp. Assembly
+  /// writes this as ".vframesp".
+  virtual void emitVFrameSP(uint64_t Offset);
+
+  /// The callee-saved register spill area begins \p Offset bytes below the
+  /// previous sp. Assembly writes this as ".spill".
+  virtual void emitSpillBase(uint64_t Offset);
+
+  /// The next instruction saves \p Reg in GR \p GR. Assembly writes this as
+  /// ".save".
+  virtual void emitSave(UnwindReg Reg, unsigned GR);
+
+  /// The next instruction saves \p Reg at \p Offset bytes from sp. Assembly
+  /// writes this as ".savesp".
+  virtual void emitSaveSP(UnwindReg Reg, uint64_t Offset);
+
+  /// The next instruction saves \p Reg at \p Offset bytes below the
+  /// previous sp. Assembly writes this as ".savepsp".
+  virtual void emitSavePSP(UnwindReg Reg, uint64_t Offset);
+
+  /// The return address is in branch register \p BR and not in rp. Assembly
+  /// writes this as ".altrp".
+  virtual void emitAltRP(unsigned BR);
+
+  /// The procedure follows the ABI and context conventions \p ABI and
+  /// \p Context. Assembly writes this as ".unwabi".
+  virtual void emitUnwABI(unsigned ABI, unsigned Context);
 };
 
 class IA64TargetAsmStreamer : public IA64TargetStreamer {
@@ -62,6 +116,15 @@ public:
   void emitEndp() override;
   void emitPrologue(unsigned Mask, unsigned GRSave) override;
   void emitBody() override;
+  void emitFFrame(uint64_t Size) override;
+  void emitVFrame(unsigned GR) override;
+  void emitVFrameSP(uint64_t Offset) override;
+  void emitSpillBase(uint64_t Offset) override;
+  void emitSave(UnwindReg Reg, unsigned GR) override;
+  void emitSaveSP(UnwindReg Reg, uint64_t Offset) override;
+  void emitSavePSP(UnwindReg Reg, uint64_t Offset) override;
+  void emitAltRP(unsigned BR) override;
+  void emitUnwABI(unsigned ABI, unsigned Context) override;
 };
 
 } // end namespace llvm

@@ -580,6 +580,103 @@ void IA64TargetELFStreamer::emitPrologue(unsigned Mask, unsigned GRSave) {
 
 void IA64TargetELFStreamer::emitBody() { addUnwindRecord(UnwindRecord::Body); }
 
+bool IA64TargetELFStreamer::isInPrologueMask(unsigned Bit) const {
+  for (const UnwindRecord &R : reverse(Records))
+    if (R.Kind == UnwindRecord::Prologue)
+      return R.Args[0] & Bit;
+  return false;
+}
+
+void IA64TargetELFStreamer::emitFFrame(uint64_t Size) {
+  addUnwindRecord(UnwindRecord::P7WhenSize, 0, Size / 16);
+}
+
+void IA64TargetELFStreamer::emitVFrame(unsigned GR) {
+  addUnwindRecord(UnwindRecord::P7When, 1);
+  if (!isInPrologueMask(2))
+    addUnwindRecord(UnwindRecord::P3, 0, GR);
+}
+
+void IA64TargetELFStreamer::emitVFrameSP(uint64_t Offset) {
+  addUnwindRecord(UnwindRecord::P7When, 1);
+  addUnwindRecord(UnwindRecord::P7, 3, Offset / 4);
+}
+
+void IA64TargetELFStreamer::emitSpillBase(uint64_t Offset) {
+  addUnwindRecord(UnwindRecord::P7, 2, (Offset + 16) / 4);
+}
+
+namespace {
+/// The P3, P7 and P8 descriptor codes for a register's save time (When), save
+/// GR (GR), and psp- or sp-relative save offset (PSPRel, SPRel). Registers of
+/// the original format use P7 and later ones P8, marked by adding 16.
+struct UnwindRegCodes {
+  uint8_t When, GR, PSPRel, SPRel;
+};
+} // end anonymous namespace
+
+static const UnwindRegCodes UnwindRegs[] = {
+    {4, 1, 5, 1},               // UR_RP
+    {6, 2, 7, 2},               // UR_PFS
+    {8, 3, 9, 3},               // UR_PR
+    {12, 4, 13, 5},             // UR_UNAT
+    {10, 5, 11, 4},             // UR_LC
+    {14, 10, 15, 6},            // UR_FPSR
+    {16 + 13, 7, 16 + 14, 15},  // UR_RNAT
+    {16 + 7, 8, 16 + 8, 9},     // UR_BSP
+    {16 + 10, 9, 16 + 11, 12},  // UR_BSPSTORE
+    {16 + 16, 11, 16 + 17, 18}, // UR_PRIUNAT
+};
+
+void IA64TargetELFStreamer::emitSave(UnwindReg Reg, unsigned GR) {
+  const UnwindRegCodes &Codes = UnwindRegs[Reg];
+  if (Codes.When < 16)
+    addUnwindRecord(UnwindRecord::P7When, Codes.When);
+  else
+    addUnwindRecord(UnwindRecord::P8When, Codes.When - 16);
+  // The prologue mask already gives the location of these.
+  if ((Reg == UR_RP && isInPrologueMask(8)) ||
+      (Reg == UR_PFS && isInPrologueMask(4)) ||
+      (Reg == UR_PR && isInPrologueMask(1)))
+    return;
+  addUnwindRecord(UnwindRecord::P3, Codes.GR, GR);
+}
+
+void IA64TargetELFStreamer::emitSaveSP(UnwindReg Reg, uint64_t Offset) {
+  const UnwindRegCodes &Codes = UnwindRegs[Reg];
+  // priunat has different save time codes for a save to a register and a
+  // save to memory.
+  if (Reg == UR_PRIUNAT)
+    addUnwindRecord(UnwindRecord::P8When, 19);
+  else if (Codes.When < 16)
+    addUnwindRecord(UnwindRecord::P7When, Codes.When);
+  else
+    addUnwindRecord(UnwindRecord::P8When, Codes.When - 16);
+  addUnwindRecord(UnwindRecord::P8, Codes.SPRel, Offset / 4);
+}
+
+void IA64TargetELFStreamer::emitSavePSP(UnwindReg Reg, uint64_t Offset) {
+  const UnwindRegCodes &Codes = UnwindRegs[Reg];
+  if (Reg == UR_PRIUNAT)
+    addUnwindRecord(UnwindRecord::P8When, 19);
+  else if (Codes.When < 16)
+    addUnwindRecord(UnwindRecord::P7When, Codes.When);
+  else
+    addUnwindRecord(UnwindRecord::P8When, Codes.When - 16);
+  if (Codes.PSPRel < 16)
+    addUnwindRecord(UnwindRecord::P7, Codes.PSPRel, (Offset + 16) / 4);
+  else
+    addUnwindRecord(UnwindRecord::P8, Codes.PSPRel - 16, (Offset + 16) / 4);
+}
+
+void IA64TargetELFStreamer::emitAltRP(unsigned BR) {
+  addUnwindRecord(UnwindRecord::P3, 6, BR);
+}
+
+void IA64TargetELFStreamer::emitUnwABI(unsigned ABI, unsigned Context) {
+  addUnwindRecord(UnwindRecord::P10, ABI, Context);
+}
+
 /// The sections that hold the unwind table and the unwind information for
 /// the code of \p Text. They have the names that GNU as gives them, which a
 /// linker script may depend on.
@@ -699,15 +796,48 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End) {
 
   SmallString<64> Info;
   raw_svector_ostream OS(Info);
+  uint64_t RegionStart = 0;
   for (size_t I = 0; I != Records.size(); ++I) {
     const UnwindRecord &R = Records[I];
+    switch (R.Kind) {
+    case UnwindRecord::Prologue:
+    case UnwindRecord::Body:
+      break;
+    case UnwindRecord::P3:
+      OS << char(0xb0 | R.Args[0] >> 1)
+         << char((R.Args[0] & 1) << 7 | R.Args[1]);
+      continue;
+    case UnwindRecord::P7:
+      OS << char(0xe0 | R.Args[0]);
+      encodeULEB128(R.Args[1], OS);
+      continue;
+    case UnwindRecord::P7When:
+    case UnwindRecord::P7WhenSize:
+      OS << char(0xe0 | R.Args[0]);
+      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
+      if (R.Kind == UnwindRecord::P7WhenSize)
+        encodeULEB128(R.Args[1], OS);
+      continue;
+    case UnwindRecord::P8:
+      OS << char(0xf0) << char(R.Args[0]);
+      encodeULEB128(R.Args[1], OS);
+      continue;
+    case UnwindRecord::P8When:
+      OS << char(0xf0) << char(R.Args[0]);
+      encodeULEB128(SlotOfRecord(R) - RegionStart, OS);
+      continue;
+    case UnwindRecord::P10:
+      OS << char(0xff) << char(R.Args[0]) << char(R.Args[1]);
+      continue;
+    }
+
     // A region extends to the next region, or the last one to the end.
     const UnwindRecord *Next = std::find_if(
         Records.begin() + I + 1, Records.end(), [](const UnwindRecord &R) {
           return R.Kind == UnwindRecord::Prologue ||
                  R.Kind == UnwindRecord::Body;
         });
-    uint64_t Start = SlotOfRecord(R);
+    uint64_t Start = RegionStart = SlotOfRecord(R);
     uint64_t Length =
         (Next == Records.end() ? EndSlot : SlotOfRecord(*Next)) - Start;
     bool IsBody = R.Kind == UnwindRecord::Body;

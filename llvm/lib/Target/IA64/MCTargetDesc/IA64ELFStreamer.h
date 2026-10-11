@@ -34,11 +34,35 @@ public:
   void emitEndp() override;
   void emitPrologue(unsigned Mask, unsigned GRSave) override;
   void emitBody() override;
+  void emitFFrame(uint64_t Size) override;
+  void emitVFrame(unsigned GR) override;
+  void emitVFrameSP(uint64_t Offset) override;
+  void emitSpillBase(uint64_t Offset) override;
+  void emitSave(UnwindReg Reg, unsigned GR) override;
+  void emitSaveSP(UnwindReg Reg, uint64_t Offset) override;
+  void emitSavePSP(UnwindReg Reg, uint64_t Offset) override;
+  void emitAltRP(unsigned BR) override;
+  void emitUnwABI(unsigned ABI, unsigned Context) override;
 
 private:
-  /// What an unwind directive said, and the instruction it said it before.
+  /// A parsed unwind directive and the instruction it applies to. A region
+  /// header holds its mask and register, or nothing. Descriptors are named
+  /// by format and hold the code that distinguishes them within that format,
+  /// then their value; for the "When" kinds the value is an instruction
+  /// time.
   struct UnwindRecord {
-    enum KindTy { Prologue, Body } Kind;
+    enum KindTy {
+      Prologue,
+      Body,
+      P3,
+      P7,
+      P7When,
+      /// Format P7 with both a time and a size, which is mem_stack_f.
+      P7WhenSize,
+      P8,
+      P8When,
+      P10,
+    } Kind;
     unsigned Mark;
     uint64_t Args[2];
   };
@@ -46,6 +70,8 @@ private:
   void addUnwindRecord(UnwindRecord::KindTy Kind, uint64_t Arg0 = 0,
                        uint64_t Arg1 = 0);
   void emitUnwindInfo(MCSymbol *End);
+  /// Whether the open prologue's save mask covers \p Bit.
+  bool isInPrologueMask(unsigned Bit) const;
 
   /// How far \p Fragment is into its section, if that can be told before
   /// the section is laid out: when everything before it has a size already,

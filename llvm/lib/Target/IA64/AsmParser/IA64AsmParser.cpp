@@ -87,8 +87,16 @@ class IA64AsmParser : public MCTargetAsmParser {
   SmallVector<MCSymbol *, 2> ProcEntries;
 
   ParseStatus parseUnwindDirective(StringRef Name, SMLoc NameLoc);
+  bool parseUnwindReg(IA64TargetStreamer::UnwindReg &Reg);
+  bool parseUnwindGR(int64_t &GR, bool OrNumber);
+  bool parseUnwindOffset(int64_t &Offset, int64_t Min, unsigned Multiple);
   /// The kind of the currently open unwind region.
   enum { NoRegion, PrologueRegion, BodyRegion } UnwindRegion = NoRegion;
+  /// The GR save mask and grsave register given by the open .prologue.
+  unsigned PrologueMask = 0, PrologueGRSave = 0;
+  /// The last directive that describes the following instruction, while
+  /// that instruction has not appeared yet.
+  SMLoc AwaitsInstruction;
 
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
@@ -455,6 +463,7 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     Inst.setLoc(IDLoc);
     Opcode = Inst.getOpcode();
     Out.emitInstruction(Inst, getSTI());
+    AwaitsInstruction = SMLoc();
     return false;
   case Match_MnemonicFail:
     return Error(IDLoc, "unrecognized instruction mnemonic");
@@ -905,6 +914,7 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
       return ParseStatus::Failure;
     ProcEntries = std::move(Entries);
     UnwindRegion = NoRegion;
+    AwaitsInstruction = SMLoc();
     getTargetStreamer().emitProc(ProcEntries);
     return ParseStatus::Success;
   }
@@ -932,6 +942,9 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
       if (!Entry->isInSection() || &Entry->getSection() != Section)
         Undefined |= Error(Loc, "symbol '" + Entry->getName() +
                                     "' is not defined in its procedure");
+    if (AwaitsInstruction.isValid())
+      Undefined |= Error(AwaitsInstruction,
+                         "no instruction follows for this to tell of");
     if (!Undefined)
       getTargetStreamer().emitEndp();
     ProcEntries.clear();
@@ -1055,56 +1068,279 @@ ParseStatus IA64AsmParser::parseAnnotationDirective(StringRef Name) {
   return ParseStatus::NoMatch;
 }
 
+/// Parse a register that a prologue can name as saved.
+bool IA64AsmParser::parseUnwindReg(IA64TargetStreamer::UnwindReg &Reg) {
+  SMLoc S = getTok().getLoc(), E;
+  if (getTok().is(AsmToken::At)) {
+    if (!getLexer().peekTok().is(AsmToken::Identifier) ||
+        !getLexer().peekTok().getString().equals_insensitive("priunat"))
+      return Error(S, "expected a register that a prologue saves");
+    Lex();
+    Lex();
+    Reg = IA64TargetStreamer::UR_PRIUNAT;
+    return false;
+  }
+  if (getTok().is(AsmToken::Identifier) &&
+      getTok().getIdentifier().equals_insensitive("pr")) {
+    Lex();
+    Reg = IA64TargetStreamer::UR_PR;
+    return false;
+  }
+  MCRegister MCReg;
+  if (tryParseRegister(MCReg, S, E).isSuccess()) {
+    switch (MCReg.id()) {
+    case IA64::B0:
+      Reg = IA64TargetStreamer::UR_RP;
+      return false;
+    case IA64::AR64:
+      Reg = IA64TargetStreamer::UR_PFS;
+      return false;
+    case IA64::AR36:
+      Reg = IA64TargetStreamer::UR_UNAT;
+      return false;
+    case IA64::AR65:
+      Reg = IA64TargetStreamer::UR_LC;
+      return false;
+    case IA64::AR40:
+      Reg = IA64TargetStreamer::UR_FPSR;
+      return false;
+    case IA64::AR19:
+      Reg = IA64TargetStreamer::UR_RNAT;
+      return false;
+    case IA64::AR17:
+      Reg = IA64TargetStreamer::UR_BSP;
+      return false;
+    case IA64::AR18:
+      Reg = IA64TargetStreamer::UR_BSPSTORE;
+      return false;
+    default:
+      break;
+    }
+  }
+  return Error(S, "expected a register that a prologue saves");
+}
+
+/// Parse a general register, or with \p OrNumber a bare register number.
+bool IA64AsmParser::parseUnwindGR(int64_t &GR, bool OrNumber) {
+  SMLoc S = getTok().getLoc(), E;
+  MCRegister Reg;
+  const MCRegisterInfo &MRI = *getContext().getRegisterInfo();
+  if (tryParseRegister(Reg, S, E).isSuccess()) {
+    if (!MRI.getRegClass(IA64::GRRegClassID).contains(Reg))
+      return Error(S, "expected a general register");
+    GR = MRI.getEncodingValue(Reg);
+    return false;
+  }
+  if (!OrNumber || getTok().is(AsmToken::EndOfStatement))
+    return Error(S, "expected a general register");
+  if (getParser().parseAbsoluteExpression(GR))
+    return true;
+  if (GR < 0 || GR > 127)
+    return Error(S, "expected a general register");
+  return false;
+}
+
+/// Parse a byte count that the unwind information encodes in units of
+/// \p Multiple.
+bool IA64AsmParser::parseUnwindOffset(int64_t &Offset, int64_t Min,
+                                      unsigned Multiple) {
+  SMLoc S = getTok().getLoc();
+  if (getParser().parseAbsoluteExpression(Offset))
+    return true;
+  if (Offset < Min || Offset % Multiple != 0)
+    return Error(S, "expected a multiple of " + Twine(Multiple) +
+                        " that is at least " + Twine(Min));
+  return false;
+}
+
 ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
+  enum DirectiveTy {
+    None,
+    Prologue,
+    Body,
+    FFrame,
+    VFrame,
+    VFrameSP,
+    Spill,
+    Save,
+    SaveSP,
+    SavePSP,
+    AltRP,
+    UnwABI,
+  };
   std::string Lower = Name.lower();
-  if (Lower != ".prologue" && Lower != ".body")
+  DirectiveTy Directive = StringSwitch<DirectiveTy>(Lower)
+                              .Case(".prologue", Prologue)
+                              .Case(".body", Body)
+                              .Case(".fframe", FFrame)
+                              .Case(".vframe", VFrame)
+                              .Case(".vframesp", VFrameSP)
+                              .Case(".spill", Spill)
+                              .Case(".save", Save)
+                              .Case(".savesp", SaveSP)
+                              .Case(".savepsp", SavePSP)
+                              .Case(".altrp", AltRP)
+                              .Case(".unwabi", UnwABI)
+                              .Default(None);
+  if (Directive == None)
     return ParseStatus::NoMatch;
 
   SMLoc Loc = getTok().getLoc();
   if (ProcEntries.empty())
     return Error(NameLoc, Lower + " outside of a procedure");
+  IA64TargetStreamer &TS = getTargetStreamer();
 
-  if (Lower == ".body") {
+  if (Directive == Body) {
     if (parseEOL())
       return ParseStatus::Failure;
     UnwindRegion = BodyRegion;
-    getTargetStreamer().emitBody();
+    TS.emitBody();
     return ParseStatus::Success;
   }
 
-  // ".prologue" alone, or with what it saves where: a mask of rp (8), ar.pfs
-  // (4), psp (2) and pr (1), and the first of the general registers that
-  // hold them.
-  if (UnwindRegion == PrologueRegion)
-    return Error(NameLoc, "a prologue is already open");
-  int64_t Mask = 0, GRSave = 0;
-  if (!getTok().is(AsmToken::EndOfStatement)) {
-    if (getParser().parseAbsoluteExpression(Mask))
+  if (Directive == Prologue) {
+    // ".prologue" alone, or with a save mask of rp (8), ar.pfs (4), psp (2)
+    // and pr (1), and the first GR they are saved in.
+    if (UnwindRegion == PrologueRegion)
+      return Error(NameLoc, "a prologue is already open");
+    int64_t Mask = 0, GRSave = 0;
+    if (!getTok().is(AsmToken::EndOfStatement)) {
+      if (getParser().parseAbsoluteExpression(Mask))
+        return ParseStatus::Failure;
+      if (Mask < 0 || Mask > 15)
+        return Error(Loc, "expected a mask from 0 to 15");
+      if (Mask == 0)
+        Warning(Loc, "a mask of 0 is the same as none");
+      if (getParser().parseComma() || parseUnwindGR(GRSave, /*OrNumber=*/true))
+        return ParseStatus::Failure;
+    }
+    if (parseEOL())
       return ParseStatus::Failure;
-    if (Mask < 0 || Mask > 15)
-      return Error(Loc, "expected a mask from 0 to 15");
-    if (Mask == 0)
-      Warning(Loc, "a mask of 0 is the same as none");
+    UnwindRegion = PrologueRegion;
+    PrologueMask = Mask;
+    PrologueGRSave = GRSave;
+    TS.emitPrologue(Mask, GRSave);
+    return ParseStatus::Success;
+  }
+
+  // The rest tell what the instructions of a prologue do.
+  if (UnwindRegion != PrologueRegion)
+    return Error(NameLoc, Lower + " outside of a prologue");
+
+  // The GR that the prologue mask assigns to \p Bit, or -1.
+  auto MaskGR = [&](unsigned Bit) -> int64_t {
+    if (!(PrologueMask & Bit))
+      return -1;
+    return PrologueGRSave + popcount(PrologueMask & ~(Bit | (Bit - 1)));
+  };
+  auto CheckMaskGR = [&](unsigned Bit, int64_t &GR, SMLoc GRLoc) {
+    int64_t Expected = MaskGR(Bit);
+    if (Expected == -1 || Expected == GR)
+      return false;
+    // GNU as also uses the mask's register, with only a warning.
+    GR = Expected;
+    return Warning(GRLoc, "the prologue said r" + Twine(Expected));
+  };
+
+  int64_t Value = 0, GR = 0;
+  IA64TargetStreamer::UnwindReg Reg;
+  switch (Directive) {
+  case FFrame:
+    if (parseUnwindOffset(Value, 0, 16) || parseEOL())
+      return ParseStatus::Failure;
+    TS.emitFFrame(Value);
+    break;
+  case VFrame:
+    if (parseUnwindGR(GR, /*OrNumber=*/false) || CheckMaskGR(2, GR, Loc) ||
+        parseEOL())
+      return ParseStatus::Failure;
+    TS.emitVFrame(GR);
+    break;
+  case VFrameSP:
+    if (parseUnwindOffset(Value, 0, 4) || parseEOL())
+      return ParseStatus::Failure;
+    TS.emitVFrameSP(Value);
+    break;
+  case Spill:
+    if (parseUnwindOffset(Value, -16, 4) || parseEOL())
+      return ParseStatus::Failure;
+    TS.emitSpillBase(Value);
+    break;
+  case Save: {
+    if (parseUnwindReg(Reg) || getParser().parseComma())
+      return ParseStatus::Failure;
+    SMLoc GRLoc = getTok().getLoc();
+    if (parseUnwindGR(GR, /*OrNumber=*/false))
+      return ParseStatus::Failure;
+    unsigned Bit = Reg == IA64TargetStreamer::UR_RP    ? 8
+                   : Reg == IA64TargetStreamer::UR_PFS ? 4
+                   : Reg == IA64TargetStreamer::UR_PR  ? 1
+                                                       : 0;
+    if ((Bit && CheckMaskGR(Bit, GR, GRLoc)) || parseEOL())
+      return ParseStatus::Failure;
+    TS.emitSave(Reg, GR);
+    break;
+  }
+  case SaveSP:
+  case SavePSP:
+    if (parseUnwindReg(Reg) || getParser().parseComma() ||
+        parseUnwindOffset(Value, Directive == SaveSP ? 0 : -16, 4) ||
+        parseEOL())
+      return ParseStatus::Failure;
+    if (Directive == SaveSP)
+      TS.emitSaveSP(Reg, Value);
+    else
+      TS.emitSavePSP(Reg, Value);
+    break;
+  case AltRP: {
+    MCRegister BR;
+    SMLoc E;
+    if (!tryParseRegister(BR, Loc, E).isSuccess() ||
+        !getContext()
+             .getRegisterInfo()
+             ->getRegClass(IA64::BRRegClassID)
+             .contains(BR))
+      return Error(Loc, "expected a branch register");
+    if (parseEOL())
+      return ParseStatus::Failure;
+    TS.emitAltRP(getContext().getRegisterInfo()->getEncodingValue(BR));
+    break;
+  }
+  case UnwABI: {
+    // The ABI is a number or one of the named values @svr4, @hpux, @nt.
+    if (getTok().is(AsmToken::At)) {
+      Value = StringSwitch<int64_t>(getLexer().peekTok().getString().lower())
+                  .Case("svr4", 0)
+                  .Case("hpux", 1)
+                  .Case("nt", 2)
+                  .Default(-1);
+      if (Value == -1)
+        return Error(Loc, "expected @svr4, @hpux, @nt or a number");
+      Lex();
+      Lex();
+    } else if (getParser().parseAbsoluteExpression(Value)) {
+      return ParseStatus::Failure;
+    } else if (Value < 0 || Value > 255) {
+      return Error(Loc, "expected a number from 0 to 255");
+    }
+    int64_t Context;
     if (getParser().parseComma())
       return ParseStatus::Failure;
-    // The register may be only its number.
-    SMLoc S = getTok().getLoc(), E;
-    MCRegister Reg;
-    const MCRegisterInfo &MRI = *getContext().getRegisterInfo();
-    if (tryParseRegister(Reg, S, E).isSuccess()) {
-      if (!MRI.getRegClass(IA64::GRRegClassID).contains(Reg))
-        return Error(S, "expected a general register");
-      GRSave = MRI.getEncodingValue(Reg);
-    } else if (getParser().parseAbsoluteExpression(GRSave)) {
+    SMLoc ContextLoc = getTok().getLoc();
+    if (getParser().parseAbsoluteExpression(Context))
       return ParseStatus::Failure;
-    } else if (GRSave < 0 || GRSave > 127) {
-      return Error(S, "expected a general register");
-    }
+    if (Context < 0 || Context > 255)
+      return Error(ContextLoc, "expected a number from 0 to 255");
+    if (parseEOL())
+      return ParseStatus::Failure;
+    TS.emitUnwABI(Value, Context);
+    break;
   }
-  if (parseEOL())
-    return ParseStatus::Failure;
-  UnwindRegion = PrologueRegion;
-  getTargetStreamer().emitPrologue(Mask, GRSave);
+  default:
+    llvm_unreachable("not a directive of a prologue");
+  }
+  if (Directive != Spill && Directive != AltRP && Directive != UnwABI)
+    AwaitsInstruction = NameLoc;
   return ParseStatus::Success;
 }
 
