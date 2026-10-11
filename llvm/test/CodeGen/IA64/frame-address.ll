@@ -1,0 +1,73 @@
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+
+declare ptr @llvm.returnaddress(i32)
+declare ptr @llvm.frameaddress(i32)
+declare void @g(ptr)
+
+; The return link is in b0 as the function is entered.
+define ptr @return_address() {
+; CHECK-LABEL: return_address:
+; CHECK:       mov r8 = b0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = call ptr @llvm.returnaddress(i32 0)
+  ret ptr %r
+}
+
+define ptr @return_address_call() {
+; CHECK-LABEL: return_address_call:
+; CHECK:       mov r32 = b0
+; CHECK:       br.call.sptk.many b0 = g ;;
+; CHECK-NEXT:  mov r1 = r33
+; CHECK-NEXT:  mov r8 = r32
+  call void @g(ptr null)
+  %r = call ptr @llvm.returnaddress(i32 0)
+  ret ptr %r
+}
+
+; The address of the frame is the stack pointer the function was entered
+; with, which a local keeps.
+define ptr @frame_address() {
+; CHECK-LABEL: frame_address:
+; CHECK:       alloc r32 = ar.pfs, 0, 2, 0, 0
+; CHECK-NEXT:  mov r33 = r12 ;;
+; CHECK-NEXT:  mov r8 = r33
+; CHECK-NEXT:  mov r12 = r33
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = call ptr @llvm.frameaddress(i32 0)
+  ret ptr %r
+}
+
+define ptr @frame_address_call() {
+; CHECK-LABEL: frame_address_call:
+; CHECK:       alloc r33 = ar.pfs, 0, 4, 1, 0
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  mov r35 = r12
+; CHECK-NEXT:  adds r12 = -48, r12
+; CHECK-NEXT:  mov r32 = r1 ;;
+; CHECK-NEXT:  adds r36 = -24, r35
+; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
+; CHECK-NEXT:  mov r1 = r32
+; CHECK-NEXT:  mov r8 = r35
+; CHECK-NEXT:  mov r12 = r35
+  %b = alloca [40 x i8]
+  call void @g(ptr %b)
+  %r = call ptr @llvm.frameaddress(i32 0)
+  ret ptr %r
+}
+
+; Only an unwinder can say what those of a caller are.
+define ptr @return_address_caller() {
+; CHECK-LABEL: return_address_caller:
+; CHECK:       mov r8 = r0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = call ptr @llvm.returnaddress(i32 1)
+  ret ptr %r
+}
+
+define ptr @frame_address_caller() {
+; CHECK-LABEL: frame_address_caller:
+; CHECK:       mov r8 = r0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = call ptr @llvm.frameaddress(i32 1)
+  ret ptr %r
+}

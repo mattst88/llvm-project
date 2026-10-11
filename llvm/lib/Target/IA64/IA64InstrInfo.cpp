@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64InstrInfo.h"
+#include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -41,6 +42,12 @@ void IA64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   if (IA64::FRRegClass.contains(DestReg, SrcReg)) {
     BuildMI(MBB, MI, DL, get(IA64::FMERGE_S), DestReg)
         .addReg(SrcReg)
+        .addReg(SrcReg, getKillRegState(KillSrc))
+        .addReg(IA64::P0);
+    return;
+  }
+  if (IA64::GRRegClass.contains(DestReg) && IA64::BRRegClass.contains(SrcReg)) {
+    BuildMI(MBB, MI, DL, get(IA64::MOV_FROM_BR), DestReg)
         .addReg(SrcReg, getKillRegState(KillSrc))
         .addReg(IA64::P0);
     return;
@@ -264,6 +271,15 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   switch (MI.getOpcode()) {
   default:
     return false;
+  case IA64::FRAMEADDR: {
+    const auto *FI = MBB.getParent()->getInfo<IA64MachineFunctionInfo>();
+    BuildMI(MBB, MI, DL, get(IA64::ADDS), MI.getOperand(0).getReg())
+        .addImm(0)
+        .addReg(FI->getFramePointer())
+        .addReg(IA64::P0);
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::ADJDYNALLOC: {
     const MachineFrameInfo &MFI = MBB.getParent()->getFrameInfo();
     uint64_t Offset = alignTo(MFI.getMaxCallFrameSize(), 16);

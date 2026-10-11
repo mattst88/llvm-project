@@ -120,6 +120,8 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
     setOperationAction(Opc, MVT::Other, Expand);
   setMinStackArgumentAlignment(Align(8));
 
+  setOperationAction(ISD::RETURNADDR, MVT::i64, Custom);
+  setOperationAction(ISD::FRAMEADDR, MVT::i64, Custom);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Custom);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
@@ -182,6 +184,10 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
         DAG.getNode(ISD::ANY_EXTEND, SDLoc(Op), MVT::i64, Op.getOperand(0)));
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
+  case ISD::RETURNADDR:
+    return LowerRETURNADDR(Op, DAG);
+  case ISD::FRAMEADDR:
+    return LowerFRAMEADDR(Op, DAG);
   case ISD::DYNAMIC_STACKALLOC:
     return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::SHL_PARTS:
@@ -274,6 +280,29 @@ SDValue IA64TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getStore(Op.getOperand(0), SDLoc(Op),
                       DAG.getFrameIndex(FI->getVarArgsFrameIndex(), MVT::i64),
                       Op.getOperand(1), MachinePointerInfo(SV));
+}
+
+// The return link is in b0 as the function is entered. Only an unwinder can
+// say what that of a caller was.
+SDValue IA64TargetLowering::LowerRETURNADDR(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MF.getFrameInfo().setReturnAddressIsTaken(true);
+  SDLoc DL(Op);
+  if (Op.getConstantOperandVal(0) != 0)
+    return DAG.getConstant(0, DL, MVT::i64);
+  Register Reg = MF.addLiveIn(IA64::B0, &IA64::GRRegClass);
+  return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, MVT::i64);
+}
+
+// The frame address is SP on entry, where the caller's frame ends.
+SDValue IA64TargetLowering::LowerFRAMEADDR(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  if (Op.getConstantOperandVal(0) != 0)
+    return DAG.getConstant(0, DL, MVT::i64);
+  DAG.getMachineFunction().getFrameInfo().setFrameAddressIsTaken(true);
+  return DAG.getNode(IA64ISD::FRAMEADDR, DL, MVT::i64);
 }
 
 // SP moves down by the size, which is already a multiple of 16. The outgoing

@@ -71,7 +71,8 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
           .addReg(IA64::B0)
           .addReg(IA64::P0)
           .setMIFlag(MachineInstr::FrameSetup);
-      MBB.addLiveIn(IA64::B0);
+      if (!MBB.isLiveIn(IA64::B0))
+        MBB.addLiveIn(IA64::B0);
     }
     // If sp moves in the body, the frame is located from the incoming sp.
     if (FI->getFramePointer())
@@ -182,5 +183,6 @@ bool IA64FrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
 }
 
 bool IA64FrameLowering::hasFPImpl(const MachineFunction &MF) const {
-  return MF.getFrameInfo().hasVarSizedObjects();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  return MFI.hasVarSizedObjects() || MFI.isFrameAddressTaken();
 }
