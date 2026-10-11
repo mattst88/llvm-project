@@ -666,6 +666,22 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
     SDValue Val = CLI.OutVals[VA.getValNo()];
+    // The callee may write to an argument that is passed by value, so what it
+    // is given the address of is a copy.
+    ISD::ArgFlagsTy Flags = CLI.Outs[VA.getValNo()].Flags;
+    if (Flags.isByVal()) {
+      Align Alignment = std::max(Flags.getNonZeroByValAlign(), Align(8));
+      int FI = MF.getFrameInfo().CreateStackObject(Flags.getByValSize(),
+                                                   Alignment, false);
+      SDValue Copy = DAG.getFrameIndex(FI, MVT::i64);
+      Chain = DAG.getMemcpy(
+          Chain, DL, Copy, Val,
+          DAG.getConstant(Flags.getByValSize(), DL, MVT::i64), Alignment,
+          Flags.getNonZeroByValAlign(), /*isVol=*/false,
+          /*AlwaysInline=*/false, /*CI=*/nullptr, std::nullopt,
+          MachinePointerInfo::getFixedStack(MF, FI), MachinePointerInfo());
+      Val = Copy;
+    }
     if (VA.needsCustom() && Val.getValueType() == MVT::f80) {
       SDValue Slot =
           DAG.CreateStackTemporary(TypeSize::getFixed(16), Align(16));
