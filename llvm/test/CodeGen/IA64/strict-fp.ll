@@ -92,8 +92,7 @@ define float @narrow(double %a) strictfp {
 
 define double @widen(float %a) strictfp {
 ; CHECK-LABEL: widen:
-; CHECK-NOT: f8
-; CHECK: br.ret
+; CHECK: fma.d f8 = f8, f1, f0
   %r = call double @llvm.experimental.constrained.fpext.f64.f32(float %a, metadata !"fpexcept.strict")
   ret double %r
 }

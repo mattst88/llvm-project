@@ -221,7 +221,11 @@ def : Pat<(f80 (any_uint_to_fp GR:$r)),
 
 // A narrower value is a wider one already, and a wider one is rounded to
 // make a narrower.
-def : Pat<(f64 (any_fpextend (f32 FR:$f))), (COPY_TO_REGCLASS FR:$f, FR)>;
+def : Pat<(f64 (fpextend (f32 FR:$f))), (COPY_TO_REGCLASS FR:$f, FR)>;
+// A signaling NaN is to be a quiet one once it is wider and to have been
+// noticed, which takes an instruction that computes with it.
+def : Pat<(f64 (strict_fpextend (f32 FR:$f))),
+          (FMA_D FR:$f, (f64 F1), (f64 F0), 0)>;
 def : Pat<(f32 (any_fpround (f64 FR:$f))),
           (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
 def : Pat<(f32 (any_fpround (f80 FR:$f))),
