@@ -16,6 +16,7 @@
 namespace llvm {
 class formatted_raw_ostream;
 class MCContext;
+class MCExpr;
 class MCRegister;
 class MCSectionELF;
 class MCSymbol;
@@ -192,6 +193,10 @@ public:
   /// ".handlerdata".
   virtual void emitHandlerData();
 
+  /// Sixteen bytes for the dynamic linker to fill in according to \p Value,
+  /// an @iplt of a function. Assembly writes this as "data16.ua".
+  virtual void emitData16(const MCExpr *Value, SMLoc Loc = SMLoc());
+
 protected:
   /// The unwind table and unwind info sections for the code in \p Text.
   /// They use GNU as's names, which linker scripts may depend on.
@@ -240,6 +245,7 @@ public:
   void emitPersonality(const MCSymbol *Routine) override;
   void emitUnwEntry() override;
   void emitHandlerData() override;
+  void emitData16(const MCExpr *Value, SMLoc Loc) override;
 };
 
 } // end namespace llvm

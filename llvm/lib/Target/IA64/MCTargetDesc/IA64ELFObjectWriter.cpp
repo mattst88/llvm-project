@@ -40,7 +40,7 @@ namespace {
 // order. R_IA64_NONE marks an unsupported pair.
 struct RelocRow {
   unsigned Kind;
-  unsigned Types[IA64::S_LTOFF_DTPREL + 1];
+  unsigned Types[IA64::S_IPLT + 1];
 };
 } // end anonymous namespace
 
@@ -75,6 +75,10 @@ static const RelocRow RelocTable[] = {
     {IA64::fixup_ia64_pcrel21f, {R(PCREL21F)}},
     {IA64::fixup_ia64_pcrel60b, {R(PCREL60B)}},
     {IA64::fixup_ia64_ldxmov, {R(LDXMOV)}},
+    {IA64::fixup_ia64_iplt,
+     {R(NONE), R(NONE), R(NONE), R(NONE), R(NONE), R(NONE), R(NONE), R(NONE),
+      R(NONE), R(NONE), R(NONE), R(NONE), R(NONE), R(NONE), R(NONE), R(NONE),
+      R(NONE), R(IPLTLSB)}},
 };
 #undef R
 

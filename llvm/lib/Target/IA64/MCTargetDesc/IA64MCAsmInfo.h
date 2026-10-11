@@ -41,6 +41,7 @@ enum Specifier : uint8_t {
   S_LTOFF_TPREL,
   S_LTOFF_DTPMOD,
   S_LTOFF_DTPREL,
+  S_IPLT,
 };
 
 /// The specifier that "@Name" stands for, or S_None.

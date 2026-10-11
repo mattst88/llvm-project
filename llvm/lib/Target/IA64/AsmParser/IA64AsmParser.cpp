@@ -75,6 +75,7 @@ class IA64AsmParser : public MCTargetAsmParser {
   ParseStatus parseDataDirective(StringRef Name);
   bool parseDataValues(unsigned Size, bool Aligned);
   bool parseDataStrings(bool ZeroTerminated);
+  bool parseData16(bool Aligned);
 
   /// Annotation directives, which tell a dependency violation checker what
   /// it cannot infer. NoMatch if \p Name is not one.
@@ -909,6 +910,44 @@ bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
   });
 }
 
+bool IA64AsmParser::parseData16(bool Aligned) {
+  MCStreamer &Out = getParser().getStreamer();
+  if (getParser().checkForValidSection())
+    return true;
+  if (Aligned)
+    Out.emitValueToAlignment(Align(16));
+  return getParser().parseMany([&]() -> bool {
+    const AsmToken &Tok = getParser().getTok();
+    SMLoc Loc = Tok.getLoc();
+    // A number may be wider than an expression can hold.
+    if (Tok.is(AsmToken::BigNum) || Tok.is(AsmToken::Integer)) {
+      AsmToken::TokenKind Next = getLexer().peekTok().getKind();
+      if (Next == AsmToken::Comma || Next == AsmToken::EndOfStatement) {
+        APInt Value = Tok.getAPIntVal();
+        if (Value.getActiveBits() > 128)
+          return Error(Loc, "value does not fit in 16 bytes");
+        Out.emitIntValue(Value.zextOrTrunc(128));
+        Lex();
+        return false;
+      }
+    }
+    const MCExpr *Value;
+    if (getParser().parseExpression(Value))
+      return true;
+    int64_t Constant;
+    if (Value->evaluateAsAbsolute(Constant)) {
+      Out.emitIntValue(APInt(128, Constant, /*isSigned=*/true));
+      return false;
+    }
+    // Only @iplt has a 16-byte relocation.
+    const auto *Spec = dyn_cast<MCSpecifierExpr>(Value);
+    if (!Spec || Spec->getSpecifier() != IA64::S_IPLT)
+      return Error(Loc, "expected a number or '@iplt'");
+    getTargetStreamer().emitData16(Value, Loc);
+    return false;
+  });
+}
+
 bool IA64AsmParser::parseDataStrings(bool ZeroTerminated) {
   if (getParser().checkForValidSection())
     return true;
@@ -924,18 +963,21 @@ bool IA64AsmParser::parseDataStrings(bool ZeroTerminated) {
 }
 
 ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
-  // GNU as aligns an item to its size, unless the directive ends in ".ua" or
-  // says the size in bytes. That goes for ".long" and the like too, which
-  // everywhere else leave the location counter alone.
+  // GNU as aligns each item to its size, unless the directive ends in ".ua"
+  // or names the size in bytes. This applies to ".long", ".dc.l" and similar
+  // too, which do not align on other targets.
   bool Aligned = !Name.consume_back(".ua");
   unsigned Size = StringSwitch<unsigned>(Name)
                       .Case("data1", 1)
                       .Cases({"data2", ".short", ".word"}, 2)
-                      .Cases({"data4", ".long", ".int"}, 4)
-                      .Cases({"data8", ".quad"}, 8)
+                      .Cases({".dc", ".dc.w"}, 2)
+                      .Cases({"data4", ".long", ".int", ".dc.l"}, 4)
+                      .Cases({"data8", ".quad", ".dc.a"}, 8)
                       .Default(0);
   if (Size && (Aligned || (Name.starts_with("data") && Size != 1)))
     return parseDataValues(Size, Aligned);
+  if (Name == "data16" || (Aligned && Name == ".octa"))
+    return parseData16(Aligned);
   if (Aligned && (Name == "string" || Name == "stringz"))
     return parseDataStrings(Name == "stringz");
   return ParseStatus::NoMatch;

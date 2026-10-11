@@ -3,6 +3,9 @@
 // RUN: llvm-readelf -S -s %t | FileCheck %s --check-prefix=ELF
 // RUN: llvm-mc -triple ia64 %s | llvm-mc -triple ia64 -filetype=obj \
 // RUN:   | llvm-objdump -s -j .data - | FileCheck %s
+// RUN: llvm-objdump -s -j .dc %t | FileCheck %s --check-prefix=DC
+// RUN: llvm-mc -triple ia64 %s | llvm-mc -triple ia64 -filetype=obj \
+// RUN:   | llvm-objdump -s -j .dc - | FileCheck %s --check-prefix=DC
 
 // The data directives of GNU as have no dot. data2, data4 and data8 align
 // what they write to its size, and so do .short, .long and .quad, which is
@@ -43,6 +46,26 @@ lab2:
 // CHECK-NEXT: 0040 0e000000 00000000 0f000000 00000000
 // CHECK-NEXT: 0050 10110012 00000013 00000000 00000061
 // CHECK-NEXT: 0060 6263640a 00656600
+
+// .dc, .dc.w, .dc.l, .dc.a and .octa align as well, and .dc.b has nothing
+// to align.
+	.section .dc,"aw",@progbits
+	data1 1
+	.dc 2
+	data1 3
+	.dc.w 4, 5
+	data1 6
+	.dc.l 7
+	data1 8
+	.dc.a lab
+	data1 9
+	.dc.b 10
+	.octa 11
+
+// DC:      0000 01000200 03000400 05000600 07000000
+// DC-NEXT: 0010 08000000 00000000 00000000 00000000
+// DC-NEXT: 0020 090a0000 00000000 00000000 00000000
+// DC-NEXT: 0030 0b000000 00000000 00000000 00000000
 
 // The section is as aligned as its most aligned item.
 	.section .two,"a",@progbits

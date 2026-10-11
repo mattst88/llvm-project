@@ -29,6 +29,7 @@ IA64::Specifier IA64::parseSpecifierName(StringRef Name) {
       .Case("tprel", S_TPREL)
       .Case("dtpmod", S_DTPMOD)
       .Case("dtprel", S_DTPREL)
+      .Case("iplt", S_IPLT)
       .Default(S_None);
 }
 
@@ -86,6 +87,9 @@ void IA64MCAsmInfo::printSpecifierExpr(raw_ostream &OS,
     break;
   case IA64::S_DTPREL:
     Open = "@dtprel(";
+    break;
+  case IA64::S_IPLT:
+    Open = "@iplt(";
     break;
   case IA64::S_LTOFF_FPTR:
     Open = "@ltoff(@fptr(";

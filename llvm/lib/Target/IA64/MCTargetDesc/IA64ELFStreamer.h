@@ -58,6 +58,7 @@ public:
   void emitPersonality(const MCSymbol *Routine) override;
   void emitUnwEntry() override;
   void emitHandlerData() override;
+  void emitData16(const MCExpr *Value, SMLoc Loc) override;
 
 private:
   /// A parsed unwind directive and the instruction it applies to. A region

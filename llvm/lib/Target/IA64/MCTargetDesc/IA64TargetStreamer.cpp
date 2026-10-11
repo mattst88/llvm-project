@@ -127,6 +127,8 @@ void IA64TargetStreamer::emitUnwEntry() {}
 
 void IA64TargetStreamer::emitHandlerData() {}
 
+void IA64TargetStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {}
+
 std::pair<MCSectionELF *, MCSectionELF *>
 IA64TargetStreamer::getUnwindSections(MCContext &Ctx,
                                       const MCSectionELF &Text) {
@@ -329,4 +331,10 @@ void IA64TargetAsmStreamer::emitHandlerData() {
       getUnwindSections(S.getContext(), static_cast<const MCSectionELF &>(
                                             *S.getCurrentSectionOnly()))
           .second);
+}
+
+void IA64TargetAsmStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {
+  OS << "\tdata16.ua\t";
+  getStreamer().getContext().getAsmInfo().printExpr(OS, *Value);
+  OS << '\n';
 }

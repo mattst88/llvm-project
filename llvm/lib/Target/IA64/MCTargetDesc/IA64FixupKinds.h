@@ -40,6 +40,9 @@ enum Fixups {
   // The symbol of ld8.mov. It fills no field: the relocation marks the
   // instruction for linker relaxation.
   fixup_ia64_ldxmov,
+  // The two data16 words that the dynamic linker fills with a function's
+  // address and gp, forming a non-official function descriptor.
+  fixup_ia64_iplt,
 
   fixup_ia64_invalid,
   NumTargetFixupKinds = fixup_ia64_invalid - FirstTargetFixupKind

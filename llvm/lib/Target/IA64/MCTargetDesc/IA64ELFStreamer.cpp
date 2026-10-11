@@ -43,6 +43,7 @@
 
 #include "IA64ELFStreamer.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "MCTargetDesc/IA64FixupKinds.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/BinaryFormat/ELF.h"
@@ -326,6 +327,13 @@ public:
                           const MCExpr *Expr, SMLoc Loc) override {
     flush();
     MCELFStreamer::emitRelocDirective(Offset, Name, Expr, Loc);
+  }
+  void emitData16(const MCExpr *Value, SMLoc Loc) {
+    flush();
+    visitUsedExpr(*Value);
+    ensureHeadroom(16);
+    addFixup(Value, static_cast<MCFixupKind>(IA64::fixup_ia64_iplt));
+    appendContents(16, 0);
   }
   using MCELFStreamer::emitFill;
   void emitFill(const MCExpr &NumBytes, uint64_t FillValue,
@@ -662,6 +670,10 @@ void IA64TargetELFStreamer::emitPersonality(const MCSymbol *Routine) {
 }
 
 void IA64TargetELFStreamer::emitUnwEntry() { ForceEntry = true; }
+
+void IA64TargetELFStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {
+  static_cast<IA64ELFStreamer &>(getStreamer()).emitData16(Value, Loc);
+}
 
 void IA64TargetELFStreamer::emitHandlerData() {
   auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
