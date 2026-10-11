@@ -33,6 +33,7 @@ class TargetMachine;
 class IA64Subtarget : public IA64GenSubtargetInfo {
   // Registers reserved by the user.
   std::bitset<IA64::NUM_TARGET_REGS> UserReservedRegister;
+  bool HasConstantGP = false;
 
   IA64InstrInfo InstrInfo;
   IA64TargetLowering TLInfo;
@@ -63,6 +64,8 @@ public:
   const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
+
+  bool hasConstantGP() const { return HasConstantGP; }
 
   bool isRegisterReservedByUser(Register Reg) const override {
     assert(Reg.id() < IA64::NUM_TARGET_REGS && "not a physical register");

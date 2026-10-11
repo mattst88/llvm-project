@@ -10,6 +10,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+// The program is a single module with a single GP, so a direct call returns
+// with GP unchanged. An indirect call still loads GP from the function
+// descriptor, which is where external callers expect it.
+def FeatureConstantGP
+    : SubtargetFeature<"constant-gp", "HasConstantGP", "true",
+                       "The global pointer is the same in every function">;
+
 // The registers that code is told to leave alone. A kernel does not save
 // most of the floating-point registers when it is entered and so must not
 // use them, and a program may keep a value of its own in a register for as

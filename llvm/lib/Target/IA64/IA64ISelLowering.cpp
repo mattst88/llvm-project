@@ -1040,13 +1040,15 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     ArgRegs.push_back({Reg, VA.getLocVT()});
   }
 
-  // A callee that is certain to be in this module has the same global
-  // pointer. Any other may come back with its own.
+  // A DSO-local callee shares this function's GP. Any other may return with
+  // its own GP, unless the program has a constant GP and the call is direct.
   bool SameModule = false;
   if (Direct) {
-    SameModule = getTargetMachine().shouldAssumeDSOLocal(Direct->getGlobal());
+    SameModule = Subtarget.hasConstantGP() ||
+                 getTargetMachine().shouldAssumeDSOLocal(Direct->getGlobal());
     Callee = DAG.getTargetGlobalAddress(Direct->getGlobal(), DL, MVT::i64);
   } else if (const auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
+    SameModule = Subtarget.hasConstantGP();
     Callee = DAG.getTargetExternalSymbol(S->getSymbol(), MVT::i64);
   }
 
