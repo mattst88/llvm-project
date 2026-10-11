@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64MCAsmInfo.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCTargetOptions.h"
@@ -46,6 +48,41 @@ IA64::Specifier IA64::getLtoffSpecifier(Specifier Inner) {
   default:
     return S_None;
   }
+}
+
+// Whether Name is Prefix and then a number below Limit, written without
+// leading zeros.
+static bool isNumbered(StringRef Name, StringRef Prefix, unsigned Limit) {
+  unsigned Number;
+  if (!Name.consume_front(Prefix) || Name.empty() ||
+      (Name.size() > 1 && Name[0] == '0') ||
+      !all_of(Name, [](char C) { return isDigit(C); }))
+    return false;
+  return !Name.getAsInteger(10, Number) && Number < Limit;
+}
+
+// An operand or a data directive reads a register name as the register, so a
+// symbol of the same name has to say that it is one. This takes every "ar."
+// and "cr." name rather than list the ones that exist; a '#' too many does no
+// harm.
+bool IA64MCAsmInfo::needsHashAfterName(StringRef Name) const {
+  std::string Lower = Name.lower();
+  StringRef N = Lower;
+  if (isNumbered(N, "r", 128) || isNumbered(N, "f", 128) ||
+      isNumbered(N, "p", 64) || isNumbered(N, "b", 8) ||
+      isNumbered(N, "ar", 128) || isNumbered(N, "cr", 128) ||
+      isNumbered(N, "in", 96) || isNumbered(N, "loc", 96) ||
+      isNumbered(N, "out", 96) || isNumbered(N, "ret", 4) ||
+      isNumbered(N, "farg", 8) || isNumbered(N, "fret", 8))
+    return true;
+  if (N.starts_with("ar.") || N.starts_with("cr."))
+    return true;
+  return StringSwitch<bool>(N)
+      .Cases({"sp", "gp", "tp", "rp", "ip", "pr", "pr.rot"}, true)
+      .Cases({"psr", "psr.l", "psr.um"}, true)
+      .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
+      .Cases({"cpuid", "dtr", "itr", "msr"}, true)
+      .Default(false);
 }
 
 void IA64MCAsmInfo::printSpecifierExpr(raw_ostream &OS,

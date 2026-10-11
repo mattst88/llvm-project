@@ -56,6 +56,8 @@ public:
 
   void printSpecifierExpr(raw_ostream &OS,
                           const MCSpecifierExpr &Expr) const override;
+
+  bool needsHashAfterName(StringRef Name) const override;
 };
 
 } // namespace llvm

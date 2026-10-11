@@ -33,12 +33,13 @@
 	mov r8 = out3
 	;;
 
-// IN0 and in00 are symbols.
-// CHECK: addl r8 = IN0, r0
+// IN0 and in00 are symbols. The '#' printed after IN0 is for this assembler,
+// which takes a register name in either case.
+// CHECK: addl r8 = IN0#, r0
 	mov r8 = IN0
 // CHECK: addl r9 = in00, r0
 	mov r9 = in00
-// CHECK: addl r10 = in0, r0
+// CHECK: addl r10 = in0#, r0
 	mov r10 = in0#
 	;;
 
