@@ -107,6 +107,7 @@ public:
   void emitGlobalVariableInitializer(const GlobalVariable *GV) override;
   const MCExpr *lowerConstant(const Constant *CV, const Constant *BaseCV,
                               uint64_t Offset) override;
+  void emitGlobalAlias(const Module &M, const GlobalAlias &GA) override;
 
 private:
   IA64TargetStreamer &getTargetStreamer() const {
@@ -128,6 +129,8 @@ private:
   // .copy_state it back because an epilogue undid it.
   unsigned StateLabel = 0;
   bool CopyState = false;
+  // Whether an alias's aliasee is being lowered.
+  bool InAlias = false;
 };
 
 } // end anonymous namespace
@@ -139,12 +142,19 @@ const MCExpr *IA64AsmPrinter::lowerConstant(const Constant *CV,
                                             uint64_t Offset) {
   // A function pointer is the address of its function descriptor, which the
   // linker creates via @fptr.
+  // An alias of a function names the code and has no descriptor of its own.
   if (const auto *GV = dyn_cast<GlobalValue>(CV))
-    if (GV->getValueType()->isFunctionTy())
+    if (GV->getValueType()->isFunctionTy() && !InAlias)
       return MCSpecifierExpr::create(
           MCSymbolRefExpr::create(getSymbol(GV), OutContext), IA64::S_FPTR,
           OutContext);
   return AsmPrinter::lowerConstant(CV, BaseCV, Offset);
+}
+
+void IA64AsmPrinter::emitGlobalAlias(const Module &M, const GlobalAlias &GA) {
+  InAlias = true;
+  AsmPrinter::emitGlobalAlias(M, GA);
+  InAlias = false;
 }
 
 void IA64AsmPrinter::emitGlobalVariableInitializer(const GlobalVariable *GV) {
