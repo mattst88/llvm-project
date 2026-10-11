@@ -110,6 +110,10 @@ public:
 
   bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
 
+  bool functionArgumentNeedsConsecutiveRegisters(
+      Type *Ty, CallingConv::ID CallConv, bool IsVarArg,
+      const DataLayout &DL) const override;
+
 private:
   const IA64Subtarget &Subtarget;
 

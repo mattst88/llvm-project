@@ -58,9 +58,14 @@ static bool CC_IA64_FP(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   MCRegister Slot = State.AllocateReg(Slots);
   if (!Slot)
     return false;
-  // Each takes at least one slot, so the registers outlast the slots.
+  // Float HFA members pack two per slot, so FP registers can run out before
+  // slots do; the value is then passed as raw bits in the slot.
   MCRegister Reg = State.AllocateReg(FRs);
-  assert(Reg && "more floating-point arguments in registers than slots");
+  if (!Reg) {
+    State.addLoc(CCValAssign::getCustomReg(ValNo, ValVT, Slot, MVT::i64,
+                                           CCValAssign::BCvt));
+    return true;
+  }
   State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
   // In a varargs call this is a named argument, which the callee expects in
   // the FP register. A call to an unprototyped function is also a varargs
@@ -87,19 +92,86 @@ static bool CC_IA64_Extended(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   }
   MCRegister Lo = State.AllocateReg(Slots);
   MCRegister Hi = State.AllocateReg(Slots);
-  if (ArgFlags.isVarArg()) {
+  MCRegister Reg;
+  if (!ArgFlags.isVarArg())
+    Reg = State.AllocateReg(FRs);
+  if (!Reg) {
     for (MCRegister Reg : {Lo, Hi})
       State.addLoc(
           CCValAssign::getCustomReg(ValNo, ValVT, Reg, MVT::i64, LocInfo));
     return true;
   }
-  MCRegister Reg = State.AllocateReg(FRs);
-  assert(Reg && "more floating-point arguments in registers than slots");
   State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
   if (State.isVarArg())
     for (MCRegister Slot : {Lo, Hi})
       State.addLoc(
           CCValAssign::getCustomReg(ValNo, ValVT, Slot, MVT::i64, LocInfo));
+  return true;
+}
+
+// An HFA occupies the slots its size requires, and each member that lands in
+// one of the first eight slots goes in the next of f8-f15 while any remain.
+// Two float members share a slot, as they share 8 bytes of memory.
+static bool CC_IA64_HFA(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                        CCValAssign::LocInfo &LocInfo,
+                        ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  SmallVectorImpl<CCValAssign> &Pending = State.getPendingLocs();
+  Pending.push_back(CCValAssign::getPending(ValNo, ValVT, LocVT, LocInfo));
+  if (!ArgFlags.isInConsecutiveRegsLast())
+    return true;
+
+  if (ValVT == MVT::f80) {
+    // Each member is passed as a standalone f80.
+    SmallVector<CCValAssign, 8> Members(Pending.begin(), Pending.end());
+    Pending.clear();
+    for (const CCValAssign &VA : Members) {
+      unsigned No = VA.getValNo();
+      CC_IA64_Extended(No, ValVT, LocVT, LocInfo, ArgFlags, State);
+    }
+    return true;
+  }
+
+  unsigned Size = ValVT.getStoreSize();
+  unsigned NumSlots = alignTo(Pending.size() * Size, 8) / 8;
+  SmallVector<std::pair<MCRegister, int64_t>, 8> Places;
+  for (unsigned I = 0; I != NumSlots; ++I) {
+    MCRegister Reg = State.AllocateReg(Slots);
+    Places.push_back({Reg, Reg ? 0 : State.AllocateStack(8, Align(8))});
+  }
+
+  bool HadReg = false;
+  for (unsigned I = 0, E = Pending.size(); I != E; ++I) {
+    unsigned No = Pending[I].getValNo();
+    unsigned Byte = I * Size;
+    auto [Slot, Offset] = Places[Byte / 8];
+    bool Upper = Byte % 8 != 0;
+    if (!Slot) {
+      State.addLoc(
+          CCValAssign::getMem(No, ValVT, Offset + Byte % 8, LocVT, LocInfo));
+      continue;
+    }
+    // An unnamed member is passed as raw bits in the slot, since the callee
+    // reads it from memory.
+    MCRegister Reg;
+    if (!ArgFlags.isVarArg())
+      Reg = State.AllocateReg(FRs);
+    if (Reg)
+      State.addLoc(CCValAssign::getReg(No, ValVT, Reg, LocVT, LocInfo));
+    // In a varargs call the member may or may not be named, so pass it in
+    // both. A member with no FP register left goes in the slot; if the first
+    // half of its slot got the last FP register, it goes in the low half of
+    // the GR. This matches GCC, and so what its callees expect. That first
+    // half is then passed in its FP register only, since a callee that names
+    // it looks for the second half where the first would be.
+    bool LastReg = Reg == IA64::F15 && Size == 4 && !Upper && I + 1 != E;
+    if (!Reg || (State.isVarArg() && !LastReg))
+      State.addLoc(CCValAssign::getCustomReg(No, ValVT, Slot, MVT::i64,
+                                             Upper && !(HadReg && !Reg)
+                                                 ? CCValAssign::AExtUpper
+                                                 : CCValAssign::BCvt));
+    HadReg = Reg.isValid();
+  }
+  Pending.clear();
   return true;
 }
 
@@ -560,11 +632,43 @@ SDValue IA64TargetLowering::LowerFormalArguments(
   CCInfo.AnalyzeFormalArguments(Ins, CC_IA64);
 
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  for (const CCValAssign &VA : ArgLocs) {
-    // A function that takes a variable number of arguments has named this
-    // one, and reads it from the register and not from the slot as well.
-    if (VA.needsCustom())
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    const CCValAssign &VA = ArgLocs[I];
+    if (VA.needsCustom()) {
+      // A varargs function reads a named argument from the FP register and
+      // ignores the copy in the slot.
+      if (I != 0 && ArgLocs[I - 1].getValNo() == VA.getValNo())
+        continue;
+      // No FP register was left, so the value is raw bits in the slot.
+      auto Slot = [&](const CCValAssign &VA) {
+        Register VReg = MF.addLiveIn(VA.getLocReg(), &IA64::GRRegClass);
+        return DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64);
+      };
+      SDValue Bits = Slot(VA);
+      if (VA.getValVT() == MVT::f80) {
+        SDValue Temp =
+            DAG.CreateStackTemporary(TypeSize::getFixed(16), Align(16));
+        int FI = cast<FrameIndexSDNode>(Temp)->getIndex();
+        SDValue Lo = DAG.getStore(Chain, DL, Bits, Temp,
+                                  MachinePointerInfo::getFixedStack(MF, FI));
+        SDValue Hi = DAG.getStore(
+            Chain, DL, Slot(ArgLocs[I + 1]),
+            DAG.getMemBasePlusOffset(Temp, TypeSize::getFixed(8), DL),
+            MachinePointerInfo::getFixedStack(MF, FI, 8));
+        InVals.push_back(DAG.getLoad(
+            MVT::f80, DL, DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Lo, Hi),
+            Temp, MachinePointerInfo::getFixedStack(MF, FI)));
+      } else if (VA.getValVT() == MVT::f32) {
+        if (VA.getLocInfo() == CCValAssign::AExtUpper)
+          Bits = DAG.getNode(ISD::SRL, DL, MVT::i64, Bits,
+                             DAG.getConstant(32, DL, MVT::i64));
+        InVals.push_back(DAG.getBitcast(
+            MVT::f32, DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Bits)));
+      } else {
+        InVals.push_back(DAG.getBitcast(MVT::f64, Bits));
+      }
       continue;
+    }
     if (VA.isMemLoc()) {
       // Offsets count from the end of the scratch area, where the first
       // stack argument is.
@@ -706,6 +810,11 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
                           DAG.getBitcast(MVT::i32, Val));
       else
         Val = DAG.getBitcast(MVT::i64, Val);
+    } else if (VA.getLocInfo() == CCValAssign::AExtUpper) {
+      Val = DAG.getNode(ISD::SHL, DL, MVT::i64,
+                        DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64,
+                                    DAG.getBitcast(MVT::i32, Val)),
+                        DAG.getConstant(32, DL, MVT::i64));
     }
     OutVals.push_back(Val);
   }
@@ -734,12 +843,26 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   if (!MemOps.empty())
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOps);
 
+  // Two float HFA members may share one slot; combine the halves.
+  SmallDenseMap<Register, unsigned, 16> LowHalf;
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    if (!ArgLocs[I].isRegLoc())
+      continue;
+    auto [It, New] = LowHalf.try_emplace(ArgLocs[I].getLocReg(), I);
+    if (New)
+      continue;
+    OutVals[I] = DAG.getNode(
+        ISD::OR, DL, MVT::i64,
+        DAG.getZeroExtendInReg(OutVals[It->second], DL, MVT::i32), OutVals[I]);
+    OutVals[It->second] = SDValue();
+  }
+
   SDValue Glue;
   unsigned TailInputs = 0;
   SmallVector<std::pair<Register, MVT>, 8> ArgRegs;
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
-    if (!VA.isRegLoc())
+    if (!VA.isRegLoc() || !OutVals[I])
       continue;
     // The calling convention names the callee's input registers (r32-r39);
     // the caller writes the corresponding output registers instead, except
@@ -813,6 +936,14 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Glue = Chain.getValue(2);
   }
   return Chain;
+}
+
+// The front end lowers an HFA to an array of its element type, which is not
+// passed the same way as that many separate FP arguments.
+bool IA64TargetLowering::functionArgumentNeedsConsecutiveRegisters(
+    Type *Ty, CallingConv::ID CallConv, bool IsVarArg,
+    const DataLayout &DL) const {
+  return Ty->isArrayTy() && Ty->getArrayElementType()->isFloatingPointTy();
 }
 
 // A return block that is only a tail call is worth keeping separate from the
