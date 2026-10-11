@@ -6,7 +6,7 @@
 
 define double @add(double %a, double %b) {
 ; CHECK-LABEL: name: add
-; CHECK: nofpexcept FMA_D {{.*}}, implicit $ar40
+; CHECK: nofpexcept FMA_D_SUM {{.*}}, implicit $ar40
   %r = fadd double %a, %b
   ret double %r
 }

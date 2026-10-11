@@ -39,6 +39,13 @@ define x86_fp80 @ext80(half %h) nounwind {
   ret x86_fp80 %f
 }
 
+; CHECK-LABEL: strict:
+; CHECK:       br.call.sptk.many b0 = __truncdfhf2 ;;
+define half @strict(double %d) nounwind strictfp {
+  %h = call half @llvm.experimental.constrained.fptrunc.f16.f64(double %d, metadata !"round.dynamic", metadata !"fpexcept.strict") strictfp
+  ret half %h
+}
+
 ; CHECK-LABEL: toint:
 ; CHECK:       br.call.sptk.many b0 = __extendhfsf2 ;;
 ; CHECK:       fcvt.fx.trunc f6 = f8

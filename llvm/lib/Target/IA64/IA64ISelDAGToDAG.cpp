@@ -248,6 +248,45 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     ReplaceNode(Node, Div);
     return;
   }
+  case ISD::STRICT_FDIV: {
+    // The same, but chained with other operations that may raise exceptions.
+    MVT VT = Node->getSimpleValueType(0);
+    if (VT != MVT::f32 && VT != MVT::f64)
+      break;
+    SDNode *Div = CurDAG->getMachineNode(
+        VT == MVT::f32 ? IA64::FDIV_S : IA64::FDIV_D, DL,
+        {VT, MVT::f80, MVT::f80, MVT::f80, MVT::Other},
+        {Node->getOperand(1), Node->getOperand(2), Node->getOperand(0)});
+    Div->setFlags(Node->getFlags());
+    ReplaceUses(SDValue(Node, 0), SDValue(Div, 0));
+    ReplaceUses(SDValue(Node, 1), SDValue(Div, 4));
+    CurDAG->RemoveDeadNode(Node);
+    return;
+  }
+  case ISD::STRICT_FSETCC:
+  case ISD::STRICT_FSETCCS: {
+    // The relational compares (lt, le, ...) raise invalid on unordered
+    // operands; eq and ord/unord raise it only for signaling NaNs. Use the
+    // quiet or signaling variant when the strict node requires the other
+    // behavior.
+    IA64CC::CondCode CC =
+        getIA64FPCC(cast<CondCodeSDNode>(Node->getOperand(3))->get());
+    bool Signals = CC >= IA64CC::OLT && CC <= IA64CC::ULT;
+    unsigned Opcode = IA64::SETCCf;
+    if (Node->getOpcode() == ISD::STRICT_FSETCC && Signals)
+      Opcode = IA64::SETCCfq;
+    else if (Node->getOpcode() == ISD::STRICT_FSETCCS && !Signals)
+      Opcode = IA64::SETCCfs;
+    SDNode *Compare = CurDAG->getMachineNode(
+        Opcode, DL, {MVT::i64, MVT::Other},
+        {CurDAG->getTargetConstant(CC, DL, MVT::i64), Node->getOperand(1),
+         Node->getOperand(2), Node->getOperand(0)});
+    Compare->setFlags(Node->getFlags());
+    ReplaceUses(SDValue(Node, 0), SDValue(Compare, 0));
+    ReplaceUses(SDValue(Node, 1), SDValue(Compare, 1));
+    CurDAG->RemoveDeadNode(Node);
+    return;
+  }
   case ISD::PREFETCH: {
     // lfetch's hint is how many cache levels the line may skip, which grows
     // as the expected locality drops, and whether the line will be written.

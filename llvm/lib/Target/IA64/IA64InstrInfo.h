@@ -118,11 +118,17 @@ public:
   /// Whether \p MI is a conditional branch on a compare result.
   static bool isConditionalBranch(const MachineInstr &MI);
 
+  /// How an FP compare treats unordered operands: as the instruction for its
+  /// condition does, raising invalid only for a signaling NaN, or always
+  /// raising invalid.
+  enum CompareKind { PlainCompare, QuietCompare, SignalingCompare };
+
   /// Compare \p LHS with \p RHS, a register or a constant, before \p I.
   /// It leaves p6 set if \p CC holds and p7 if it does not.
   void emitCompare(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                    const DebugLoc &DL, IA64CC::CondCode CC, Register LHS,
-                   const MachineOperand &RHS) const;
+                   const MachineOperand &RHS,
+                   CompareKind Kind = PlainCompare) const;
 };
 
 } // end namespace llvm

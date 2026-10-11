@@ -77,9 +77,19 @@ def SETCC  : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, GR:$rhs),
                         "#SETCC", []>;
 def SETCCi : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, i64imm:$rhs),
                         "#SETCCi", []>;
-let Uses = [AR40], mayRaiseFPException = 1 in
+let Uses = [AR40], mayRaiseFPException = 1 in {
 def SETCCf : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
                         "#SETCCf", []>;
+
+// An unordered compare raises the invalid exception for the relational
+// predicates, but for equality and ordered/unordered tests only on a signaling
+// NaN. These are compares that raise it for no predicate (quiet) and for every
+// predicate (signaling).
+def SETCCfq : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
+                         "#SETCCfq", []>;
+def SETCCfs : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
+                         "#SETCCfs", []>;
+}
 
 // Select: $r1 is tied to $false and overwritten with $true under the
 // predicate.

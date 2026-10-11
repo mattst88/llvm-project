@@ -162,7 +162,8 @@ bool IA64CC::isLegalImmediate(CondCode CC, int64_t Imm) {
 void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
                                 MachineBasicBlock::iterator I,
                                 const DebugLoc &DL, IA64CC::CondCode CC,
-                                Register LHS, const MachineOperand &RHS) const {
+                                Register LHS, const MachineOperand &RHS,
+                                CompareKind Kind) const {
   if (IA64CC::isFloatingPoint(CC)) {
     // The encoded conditions are eq, lt, le and unord; all but unord are
     // false for unordered operands. The others swap the operands or the
@@ -197,13 +198,41 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
     default:
       llvm_unreachable("Not the condition of a floating-point compare");
     }
+    // The predicates set when the encoded condition is true and false.
+    Register True = Invert ? IA64::P7 : IA64::P6;
+    Register False = Invert ? IA64::P6 : IA64::P7;
+    Register Qualifier = IA64::P0;
+    bool Signals = Opcode == IA64::FCMP_LT || Opcode == IA64::FCMP_LE;
+    if (Kind == QuietCompare && Signals) {
+      // Test unord first, and do the ordered compare only if the operands
+      // are ordered. Otherwise the predicates are left saying the condition
+      // is false.
+      BuildMI(MBB, I, DL, get(IA64::FCMP_UNORD))
+          .addReg(False, RegState::Define)
+          .addReg(True, RegState::Define)
+          .addReg(LHS)
+          .addReg(RHS.getReg())
+          .addImm(0)
+          .addReg(IA64::P0);
+      Qualifier = True;
+    } else if (Kind == SignalingCompare && !Signals) {
+      // A compare only for its exception; the next compare overwrites its
+      // result.
+      BuildMI(MBB, I, DL, get(IA64::FCMP_LT))
+          .addReg(True, RegState::Define)
+          .addReg(False, RegState::Define)
+          .addReg(LHS)
+          .addReg(RHS.getReg())
+          .addImm(0)
+          .addReg(IA64::P0);
+    }
     BuildMI(MBB, I, DL, get(Opcode))
-        .addReg(Invert ? IA64::P7 : IA64::P6, RegState::Define)
-        .addReg(Invert ? IA64::P6 : IA64::P7, RegState::Define)
+        .addReg(True, RegState::Define)
+        .addReg(False, RegState::Define)
         .addReg(Swap ? RHS.getReg() : LHS)
         .addReg(Swap ? LHS : RHS.getReg())
         .addImm(0)
-        .addReg(IA64::P0);
+        .addReg(Qualifier);
     return;
   }
 
@@ -473,13 +502,18 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   }
   case IA64::SETCC:
   case IA64::SETCCi:
-  case IA64::SETCCf: {
+  case IA64::SETCCf:
+  case IA64::SETCCfq:
+  case IA64::SETCCfs: {
     // Set the result to 0, then to 1 under p6. The result may be an operand
     // register, so the compare goes first; they can still share an
     // instruction group, since a write after a read is not a dependency.
     Register Dst = MI.getOperand(0).getReg();
+    CompareKind Kind = MI.getOpcode() == IA64::SETCCfq   ? QuietCompare
+                       : MI.getOpcode() == IA64::SETCCfs ? SignalingCompare
+                                                         : PlainCompare;
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
-                MI.getOperand(2).getReg(), MI.getOperand(3));
+                MI.getOperand(2).getReg(), MI.getOperand(3), Kind);
     BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
         .addImm(0)
         .addReg(IA64::R0)

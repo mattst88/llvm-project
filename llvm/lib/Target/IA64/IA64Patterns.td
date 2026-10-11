@@ -157,18 +157,21 @@ def : Pat<(and (not GR:$r3), imm8:$imm), (ANDCMi imm8:$imm, GR:$r3)>;
 foreach T = [["f32", "_S"], ["f64", "_D"], ["f80", ""]] in {
   defvar VT = !cast<ValueType>(T[0]);
   defvar FMA = !cast<Instruction>("FMA"#T[1]);
-  defvar FMS = !cast<Instruction>("FMS"#T[1]);
   defvar FNMA = !cast<Instruction>("FNMA"#T[1]);
-  def : Pat<(VT (fadd FR:$a, FR:$b)), (FMA FR:$a, (VT F1), FR:$b, 0)>;
-  def : Pat<(VT (fsub FR:$a, FR:$b)), (FMS FR:$a, (VT F1), FR:$b, 0)>;
-  def : Pat<(VT (fmul FR:$a, FR:$b)), (FMA FR:$a, FR:$b, (VT F0), 0)>;
-  def : Pat<(VT (fneg (fmul FR:$a, FR:$b))),
+  defvar FMASum = !cast<Instruction>("FMA"#T[1]#"_SUM");
+  defvar FMSSum = !cast<Instruction>("FMS"#T[1]#"_SUM");
+  defvar FNMASum = !cast<Instruction>("FNMA"#T[1]#"_SUM");
+  def : Pat<(VT (any_fadd FR:$a, FR:$b)), (FMASum FR:$a, (VT F1), FR:$b, 0)>;
+  def : Pat<(VT (any_fsub FR:$a, FR:$b)), (FMSSum FR:$a, (VT F1), FR:$b, 0)>;
+  def : Pat<(VT (any_fmul FR:$a, FR:$b)), (FMA FR:$a, FR:$b, (VT F0), 0)>;
+  def : Pat<(VT (fneg (any_fmul FR:$a, FR:$b))),
             (FNMA FR:$a, FR:$b, (VT F0), 0)>;
-  def : Pat<(VT (fma FR:$a, FR:$b, FR:$c)), (FMA FR:$a, FR:$b, FR:$c, 0)>;
-  def : Pat<(VT (fma FR:$a, FR:$b, (fneg FR:$c))),
-            (FMS FR:$a, FR:$b, FR:$c, 0)>;
-  def : Pat<(VT (fma (fneg FR:$a), FR:$b, FR:$c)),
-            (FNMA FR:$a, FR:$b, FR:$c, 0)>;
+  def : Pat<(VT (any_fma FR:$a, FR:$b, FR:$c)),
+            (FMASum FR:$a, FR:$b, FR:$c, 0)>;
+  def : Pat<(VT (any_fma FR:$a, FR:$b, (fneg FR:$c))),
+            (FMSSum FR:$a, FR:$b, FR:$c, 0)>;
+  def : Pat<(VT (any_fma (fneg FR:$a), FR:$b, FR:$c)),
+            (FNMASum FR:$a, FR:$b, FR:$c, 0)>;
 
   // fmerge.s takes the sign from the first operand and the exponent and
   // significand from the second; fmerge.ns inverts the sign. f0 has a clear
@@ -191,9 +194,9 @@ foreach T = [["f32", "_S"], ["f64", "_D"], ["f80", ""]] in {
 // Integer conversions happen in an FP register, with the integer as the
 // significand, moved to and from GRs with setf.sig/getf.sig.
 foreach VT = [f32, f64, f80] in {
-  def : Pat<(i64 (fp_to_sint (VT FR:$f))),
+  def : Pat<(i64 (any_fp_to_sint (VT FR:$f))),
             (GETF_SIG (f64 (FCVT_FX_TRUNC FR:$f, 0)))>;
-  def : Pat<(i64 (fp_to_uint (VT FR:$f))),
+  def : Pat<(i64 (any_fp_to_uint (VT FR:$f))),
             (GETF_SIG (f64 (FCVT_FXU_TRUNC FR:$f, 0)))>;
 }
 
@@ -203,30 +206,34 @@ foreach VT = [f32, f64, f80] in {
 foreach T = [["f32", "_S"], ["f64", "_D"]] in {
   defvar VT = !cast<ValueType>(T[0]);
   defvar FMA = !cast<Instruction>("FMA"#T[1]);
-  def : Pat<(VT (sint_to_fp GR:$r)),
+  def : Pat<(VT (any_sint_to_fp GR:$r)),
             (FMA (f64 (FCVT_XF (f64 (SETF_SIG GR:$r)))), (f64 F1), (f64 F0),
              0)>;
-  def : Pat<(VT (uint_to_fp GR:$r)),
+  def : Pat<(VT (any_uint_to_fp GR:$r)),
             (FMA (f64 (SETF_SIG GR:$r)), (f64 F1), (f64 F0), 0)>;
 }
 
 // At extended precision no rounding is needed, and fcvt.xf yields a
 // normalized value for a signed integer.
-def : Pat<(f80 (sint_to_fp GR:$r)), (FCVT_XF (f64 (SETF_SIG GR:$r)))>;
-def : Pat<(f80 (uint_to_fp GR:$r)),
+def : Pat<(f80 (any_sint_to_fp GR:$r)), (FCVT_XF (f64 (SETF_SIG GR:$r)))>;
+def : Pat<(f80 (any_uint_to_fp GR:$r)),
           (FMA (f64 (SETF_SIG GR:$r)), (f64 F1), (f64 F0), 0)>;
 
 // A narrower value is a wider one already, and a wider one is rounded to
 // make a narrower.
-def : Pat<(f64 (fpextend (f32 FR:$f))), (COPY_TO_REGCLASS FR:$f, FR)>;
-def : Pat<(f32 (fpround (f64 FR:$f))), (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
-def : Pat<(f32 (fpround (f80 FR:$f))), (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
-def : Pat<(f64 (fpround (f80 FR:$f))), (FMA_D FR:$f, (f64 F1), (f64 F0), 0)>;
+def : Pat<(f64 (any_fpextend (f32 FR:$f))), (COPY_TO_REGCLASS FR:$f, FR)>;
+def : Pat<(f32 (any_fpround (f64 FR:$f))),
+          (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
+def : Pat<(f32 (any_fpround (f80 FR:$f))),
+          (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
+def : Pat<(f64 (any_fpround (f80 FR:$f))),
+          (FMA_D FR:$f, (f64 F1), (f64 F0), 0)>;
 
 // stfe stores the significand exactly as it is in the register, so extending
 // to f80 normalizes.
 foreach VT = [f32, f64] in
-  def : Pat<(f80 (fpextend (VT FR:$f))), (FMA FR:$f, (f64 F1), (f64 F0), 0)>;
+  def : Pat<(f80 (any_fpextend (VT FR:$f))),
+            (FMA FR:$f, (f64 F1), (f64 F0), 0)>;
 
 // Bitcasts use the memory format.
 def : Pat<(i64 (bitconvert (f64 FR:$f))), (GETF_D FR:$f)>;

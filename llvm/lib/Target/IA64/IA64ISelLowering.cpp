@@ -296,6 +296,26 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
     setOperationAction(Opc, MVT::f80, LibCall);
   setOperationAction(ISD::FCANONICALIZE, MVT::f80, Expand);
 
+  // Every FP instruction honors the dynamic rounding mode and raises
+  // exceptions, so strict FP nodes select the same instructions.
+  IsStrictFPEnabled = true;
+  for (MVT VT : {MVT::f32, MVT::f64, MVT::f80}) {
+    for (unsigned Opc :
+         {ISD::STRICT_FADD, ISD::STRICT_FSUB, ISD::STRICT_FMUL, ISD::STRICT_FMA,
+          ISD::STRICT_FP_ROUND, ISD::STRICT_FP_EXTEND, ISD::STRICT_FSETCC,
+          ISD::STRICT_FSETCCS})
+      setOperationAction(Opc, VT, Legal);
+    setOperationAction(ISD::STRICT_FDIV, VT, VT == MVT::f80 ? LibCall : Legal);
+    for (unsigned Opc : {ISD::STRICT_FREM, ISD::STRICT_FSQRT})
+      setOperationAction(Opc, VT, LibCall);
+  }
+  for (unsigned Opc : {ISD::STRICT_FP_TO_SINT, ISD::STRICT_FP_TO_UINT,
+                       ISD::STRICT_SINT_TO_FP, ISD::STRICT_UINT_TO_FP})
+    setOperationAction(Opc, MVT::i64, Legal);
+  for (unsigned Opc : {ISD::STRICT_LRINT, ISD::STRICT_LLRINT,
+                       ISD::STRICT_LROUND, ISD::STRICT_LLROUND})
+    setOperationAction(Opc, MVT::f80, LibCall);
+
   // The bits of a single-precision value are half a general register.
   setOperationAction(ISD::BITCAST, MVT::i32, Custom);
 
