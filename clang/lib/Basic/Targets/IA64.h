@@ -77,6 +77,11 @@ public:
 
   std::string_view getClobbers() const override { return ""; }
 
+  // A bit-precise integer is passed as the integer of the next size up is,
+  // and the widest integer there is has 128 bits.
+  bool hasBitIntType() const override { return true; }
+  size_t getMaxBitIntWidth() const override { return 128; }
+
   bool isValidCPUName(StringRef Name) const override;
   void fillValidCPUList(SmallVectorImpl<StringRef> &Values) const override;
 };
