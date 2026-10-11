@@ -59,6 +59,8 @@ public:
   void emitUnwEntry() override;
   void emitHandlerData() override;
   void emitData16(const MCExpr *Value, SMLoc Loc) override;
+  void beginDataElsewhere(MCSection *Section) override;
+  void endDataElsewhere() override;
 
 private:
   /// A parsed unwind directive and the instruction it applies to. A region

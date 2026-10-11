@@ -201,6 +201,12 @@ public:
   /// from ".comm" and ".type".
   virtual void emitTLSCommon(MCSymbol *Sym, uint64_t Size, Align Alignment);
 
+  /// Emit the following data into \p Section, which is not the current one,
+  /// until endDataElsewhere(). This is ".xdata4" and similar: unlike a
+  /// section change, it does not end the current bundle.
+  virtual void beginDataElsewhere(MCSection *Section);
+  virtual void endDataElsewhere();
+
 protected:
   /// The unwind table and unwind info sections for the code in \p Text.
   /// They use GNU as's names, which linker scripts may depend on.

@@ -20,6 +20,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCParser/AsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
@@ -79,6 +80,7 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool parseDataStrings(bool ZeroTerminated);
   bool parseData16(bool Aligned);
   bool parseRealValues(unsigned Size, bool Aligned);
+  ParseStatus parseCrossSectionData(StringRef Directive);
   bool parseCommon(bool IsTLS, bool IsLocal);
 
   /// Annotation directives, which tell a dependency violation checker what
@@ -1170,6 +1172,100 @@ bool IA64AsmParser::parseRealValues(unsigned Size, bool Aligned) {
 
 // ".xdata4 section, values" emits "data4 values" into that section without
 // changing the current section. Likewise for the other data directives.
+ParseStatus IA64AsmParser::parseCrossSectionData(StringRef Directive) {
+  std::string Lower = Directive.lower();
+  StringRef Name = Lower;
+  if (!Name.consume_front(".x"))
+    return ParseStatus::NoMatch;
+  StringRef Base = Name;
+  Base.consume_back(".ua");
+  bool HasUnaligned = StringSwitch<bool>(Base)
+                          .Cases({"data2", "data4", "data8", "data16"}, true)
+                          .Cases({"real4", "real8", "real10", "real16"}, true)
+                          .Default(false);
+  if (Base.size() != Name.size() ? !HasUnaligned
+                                 : !HasUnaligned && Base != "data1" &&
+                                       Base != "string" && Base != "stringz")
+    return ParseStatus::NoMatch;
+
+  SMLoc Loc = getTok().getLoc();
+  StringRef SectionName;
+  if (getParser().parseIdentifier(SectionName))
+    return Error(Loc, "expected a section name");
+  if (getParser().parseComma())
+    return ParseStatus::Failure;
+
+  // A section not yet created is created here as ".section" with only a
+  // name would: with the type and flags implied by a special section name,
+  // if any. GNU as does the same, with a warning.
+  const MCObjectFileInfo &OFI = *getContext().getObjectFileInfo();
+  MCSection *Section = StringSwitch<MCSection *>(SectionName)
+                           .Case(".text", OFI.getTextSection())
+                           .Case(".data", OFI.getDataSection())
+                           .Case(".bss", OFI.getBSSSection())
+                           .Default(nullptr);
+  if (!Section) {
+    StringRef FullName = SectionName;
+    auto Is = [FullName](StringRef Prefix) {
+      StringRef Rest = FullName;
+      return Rest.consume_front(Prefix) && (Rest.empty() || Rest[0] == '.');
+    };
+    unsigned Type = ELF::SHT_PROGBITS, Flags = 0;
+    const MCSymbolELF *LinkedTo = nullptr;
+    if (Is(".rodata") || FullName == ".rodata1") {
+      Flags = ELF::SHF_ALLOC;
+    } else if (Is(".text") || FullName == ".init" || FullName == ".fini") {
+      Flags = ELF::SHF_ALLOC | ELF::SHF_EXECINSTR;
+    } else if (Is(".data") || FullName == ".data1") {
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE;
+    } else if (Is(".bss")) {
+      Type = ELF::SHT_NOBITS;
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE;
+    } else if (Is(".init_array")) {
+      Type = ELF::SHT_INIT_ARRAY;
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE;
+    } else if (Is(".fini_array")) {
+      Type = ELF::SHT_FINI_ARRAY;
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE;
+    } else if (Is(".preinit_array")) {
+      Type = ELF::SHT_PREINIT_ARRAY;
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE;
+    } else if (Is(".tdata")) {
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_TLS;
+    } else if (Is(".tbss")) {
+      Type = ELF::SHT_NOBITS;
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_TLS;
+    } else if (FullName.starts_with(".sdata")) {
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_IA_64_SHORT;
+    } else if (FullName.starts_with(".sbss")) {
+      Type = ELF::SHT_NOBITS;
+      Flags = ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_IA_64_SHORT;
+    } else if (FullName.starts_with(".note")) {
+      Type = ELF::SHT_NOTE;
+    } else if ((FullName.starts_with(".IA_64.unwind") &&
+                !FullName.starts_with(".IA_64.unwind_info")) ||
+               FullName.starts_with(".gnu.linkonce.ia64unw.")) {
+      // An explicitly named unwind table is linked to .text.
+      Type = ELF::SHT_IA_64_UNWIND;
+      Flags = ELF::SHF_LINK_ORDER;
+      LinkedTo = static_cast<const MCSymbolELF *>(
+          OFI.getTextSection()->getBeginSymbol());
+    }
+    Section = getContext().getELFSection(FullName, Type, Flags, 0, "", false,
+                                         MCSection::NonUniqueID, LinkedTo);
+  }
+
+  // Targeting the current section is the same as the plain directive.
+  bool IsElsewhere = Section != getStreamer().getCurrentSectionOnly();
+  if (IsElsewhere)
+    getTargetStreamer().beginDataElsewhere(Section);
+  ParseStatus Status = parseDataDirective(Name);
+  assert(!Status.isNoMatch() && "not a data directive after all");
+  if (IsElsewhere)
+    getTargetStreamer().endDataElsewhere();
+  return Status;
+}
+
 bool IA64AsmParser::parseCommon(bool IsTLS, bool IsLocal) {
   SMLoc SymLoc = getTok().getLoc();
   MCSymbol *Sym;
@@ -1308,6 +1404,9 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
   if (!Status.isNoMatch())
     return Status;
   Status = parseAnnotationDirective(Name);
+  if (!Status.isNoMatch())
+    return Status;
+  Status = parseCrossSectionData(Name);
   if (!Status.isNoMatch())
     return Status;
   return parseDataDirective(Name);

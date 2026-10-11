@@ -123,6 +123,10 @@ class IA64ELFStreamer : public MCELFStreamer {
   size_t LastOffset = 0;
   unsigned LastEndSlot = 0;
 
+  /// Whether output goes to a section other than the instructions' section,
+  /// leaving the pending instructions untouched.
+  bool Elsewhere = false;
+
   MCSymbol *createBundleSymbol(MCFragment &F, size_t Offset) {
     MCSymbol *Symbol = getContext().createTempSymbol();
     MCELFStreamer::emitLabelAtPos(Symbol, SMLoc(), F, Offset);
@@ -148,6 +152,8 @@ public:
   /// with only the padding before its first instruction includes the
   /// padding: it starts at the end of the last instruction's bundle.
   void flushForAlignment() {
+    if (Elsewhere)
+      return;
     flush(/*Stop=*/true, /*KeepLast=*/true);
     if (NextStartMark != -1 && LastFragment) {
       Marks[NextStartMark] = {createBundleSymbol(*LastFragment, LastOffset), 3};
@@ -232,6 +238,17 @@ public:
   }
 
   void emitTemplate(unsigned Index) { NextTemplate = Index; }
+
+  void beginDataElsewhere(MCSection *Section) {
+    assert(!Elsewhere && "already elsewhere");
+    pushSection();
+    Elsewhere = true;
+    switchSection(Section);
+  }
+  void endDataElsewhere() {
+    popSection();
+    Elsewhere = false;
+  }
 
   void emitTag(MCSymbol *Symbol, SMLoc Loc) {
     Symbol->redefineIfPossible();
@@ -591,6 +608,8 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
 }
 
 void IA64ELFStreamer::flush(bool Stop, bool KeepLast) {
+  if (Elsewhere)
+    return;
   // Only a label lets a region start in the preceding bundle.
   auto Break = [&] {
     if (Stop && !KeepLast)
@@ -689,6 +708,14 @@ void IA64TargetELFStreamer::emitPersonality(const MCSymbol *Routine) {
 }
 
 void IA64TargetELFStreamer::emitUnwEntry() { ForceEntry = true; }
+
+void IA64TargetELFStreamer::beginDataElsewhere(MCSection *Section) {
+  static_cast<IA64ELFStreamer &>(getStreamer()).beginDataElsewhere(Section);
+}
+
+void IA64TargetELFStreamer::endDataElsewhere() {
+  static_cast<IA64ELFStreamer &>(getStreamer()).endDataElsewhere();
+}
 
 void IA64TargetELFStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {
   static_cast<IA64ELFStreamer &>(getStreamer()).emitData16(Value, Loc);

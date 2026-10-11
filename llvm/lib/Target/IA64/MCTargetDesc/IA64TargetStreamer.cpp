@@ -135,6 +135,13 @@ void IA64TargetStreamer::emitTLSCommon(MCSymbol *Sym, uint64_t Size,
   getStreamer().emitSymbolAttribute(Sym, MCSA_ELF_TypeTLS);
 }
 
+void IA64TargetStreamer::beginDataElsewhere(MCSection *Section) {
+  getStreamer().pushSection();
+  getStreamer().switchSection(Section);
+}
+
+void IA64TargetStreamer::endDataElsewhere() { getStreamer().popSection(); }
+
 std::pair<MCSectionELF *, MCSectionELF *>
 IA64TargetStreamer::getUnwindSections(MCContext &Ctx,
                                       const MCSectionELF &Text) {
