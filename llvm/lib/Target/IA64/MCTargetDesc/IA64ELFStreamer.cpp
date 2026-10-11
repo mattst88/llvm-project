@@ -441,13 +441,16 @@ static bool isFirstInGroup(unsigned Opcode) {
          Opcode == IA64::LOADRS;
 }
 
-/// How many of \p Insts fit one bundle of template \p T, stops aside.
+/// The number of leading \p Insts that fit, by unit, in one bundle of
+/// template \p T. This selects the template, as in GNU as, so it ignores
+/// stops and last-slot constraints: those apply when filling the bundle and
+/// may leave it with fewer instructions than counted.
 template <typename PendingInst>
 static unsigned countPlaced(const IA64II::BundleTemplate &T,
                             ArrayRef<PendingInst> Insts) {
   unsigned Slot = 0, N = 0;
   for (const PendingInst &PI : Insts) {
-    while (Slot != 3 && !slotTakes(T, Slot, PI))
+    while (Slot != 3 && !slotTakes(T.Slots[Slot], PI.Units))
       ++Slot;
     if (Slot == 3)
       break;

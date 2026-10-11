@@ -34,23 +34,46 @@ t2:
 // CHECK-NEXT: nop.i 0{{$}}
 // CHECK-NEXT: br.cexit.sptk.few
 
-// One that follows another branch shares its bundle; one that another
-// branch follows does not.
+// The template is chosen for the units of the instructions to come, as if
+// each could have any slot. Only then is a branch of a loop held back for
+// the last one, so the bundle is of branches and has a no-op in it.
 t3:
 	br.cond.sptk.few t3
 	(p6) br.wtop.sptk.few t3
 	(p6) br.wexit.sptk.few t3
 	br.ret.sptk.many b0
 // CHECK-LABEL: <t3>:
-// CHECK-NEXT: nop.m 0 // [MBB]{{$}}
-// CHECK-NEXT: br.cond.sptk.few
+// CHECK-NEXT: br.cond.sptk.few {{.*}} // [BBB]{{$}}
+// CHECK-NEXT: nop.b 0{{$}}
 // CHECK-NEXT: (p6) br.wtop.sptk.few
-// CHECK-NEXT: nop.m 0 // [MIB]{{$}}
-// CHECK-NEXT: nop.i 0{{$}}
+// CHECK-NEXT: nop.m 0 // [MBB]{{$}}
+// CHECK-NEXT: nop.b 0{{$}}
 // CHECK-NEXT: (p6) br.wexit.sptk.few
 // CHECK-NEXT: nop.m 0 // [MIB]{{$}}
 // CHECK-NEXT: nop.i 0{{$}}
 // CHECK-NEXT: br.ret.sptk.many b0
+t4:
+	add r4 = r5, r6
+	br.cloop.sptk.few t4
+	br.cond.sptk.few t4
+// CHECK-LABEL: <t4>:
+// CHECK-NEXT: add r4 = r5, r6 // [MBB]{{$}}
+// CHECK-NEXT: nop.b 0{{$}}
+// CHECK-NEXT: br.cloop.sptk.few
+// CHECK-NEXT: nop.m 0 // [MIB]{{$}}
+// CHECK-NEXT: nop.i 0{{$}}
+// CHECK-NEXT: br.cond.sptk.few
+t5:
+	br.ctop.sptk.few t5
+	nop.b 0
+	nop.b 0
+// CHECK-LABEL: <t5>:
+// CHECK-NEXT: nop.b 0 // [BBB]{{$}}
+// CHECK-NEXT: nop.b 0{{$}}
+// CHECK-NEXT: br.ctop.sptk.few
+// CHECK-NEXT: nop.m 0 // [MBB]{{$}}
+// CHECK-NEXT: nop.b 0{{$}}
+// CHECK-NEXT: nop.b 0 ;;
 
 // A template whose last slot is not for a branch has no place for one.
 .ifdef ERR
