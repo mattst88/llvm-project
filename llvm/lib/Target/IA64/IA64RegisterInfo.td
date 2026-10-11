@@ -133,6 +133,13 @@ def FRAddend : RegisterClass<"IA64", [f64, f32, f80], 128, (sub FR, F0)> {
   let Size = 128;
 }
 
+// The same registers with f80 as the first type. Inline asm operands are
+// copied using the first type of their class, and copying an f80 as f64
+// would lose precision.
+def FR80 : RegisterClass<"IA64", [f80], 128, (add FR)> {
+  let Size = 128;
+}
+
 def PR : RegisterClass<"IA64", [i1], 8, (add
   (sequence "P%u", 6, 15),     // scratch
   (sequence "P%u", 1, 5),      // preserved

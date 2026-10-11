@@ -1364,6 +1364,8 @@ IA64TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     case 'b':
       return {0U, &IA64::BRRegClass};
     case 'f':
+      if (VT == MVT::f80)
+        return {0U, &IA64::FR80RegClass};
       return {0U, &IA64::FRRegClass};
     default:
       break;
