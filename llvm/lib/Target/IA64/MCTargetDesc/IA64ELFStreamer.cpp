@@ -66,6 +66,7 @@
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSymbolELF.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/TargetParser/Triple.h"
@@ -988,7 +989,7 @@ void IA64TargetELFStreamer::emitRestoreReg(unsigned Reg, unsigned QP) {
 
 std::optional<uint64_t>
 IA64TargetELFStreamer::getFragmentOffset(const MCFragment &Fragment,
-                                         bool Remember) {
+                                         bool Remember, bool FromStart) {
   const MCAssembler &Asm =
       static_cast<MCObjectStreamer &>(getStreamer()).getAssembler();
   const MCSection &Section = *Fragment.getParent();
@@ -996,7 +997,7 @@ IA64TargetELFStreamer::getFragmentOffset(const MCFragment &Fragment,
   // procedures are out of source order.
   const MCFragment *F = KnownFragment;
   uint64_t Offset = KnownOffset;
-  bool FromStart = !F || F->getParent() != &Section;
+  FromStart |= !F || F->getParent() != &Section;
   if (FromStart) {
     F = &*Section.begin();
     Offset = 0;
@@ -1028,6 +1029,38 @@ IA64TargetELFStreamer::getFragmentOffset(const MCFragment &Fragment,
       if (!Fill.getNumValues().evaluateAsAbsolute(Count, Asm) || Count < 0)
         return std::nullopt;
       Offset += Count * Fill.getValueSize();
+      break;
+    }
+    case MCFragment::FT_Org: {
+      // The offset after .org is its target, which is known if it is a
+      // constant or an offset from a symbol whose offset is itself known.
+      auto Known = OrgOffsets.find(F);
+      if (Known != OrgOffsets.end()) {
+        Offset = Known->second;
+        break;
+      }
+      MCValue Value;
+      if (!static_cast<const MCOrgFragment &>(*F)
+               .getOffset()
+               .evaluateAsRelocatable(Value, nullptr) ||
+          Value.getSubSym())
+        return std::nullopt;
+      uint64_t To = Value.getConstant();
+      if (const MCSymbol *Sym = Value.getAddSym()) {
+        if (!Sym->isInSection() || &Sym->getSection() != &Section ||
+            !OrgsInProgress.insert(F).second)
+          return std::nullopt;
+        std::optional<uint64_t> Base = getFragmentOffset(
+            *Sym->getFragment(), /*Remember=*/false, /*FromStart=*/true);
+        OrgsInProgress.erase(F);
+        if (!Base)
+          return std::nullopt;
+        To += *Base + Sym->getOffset();
+      }
+      if (To < Offset)
+        return std::nullopt;
+      Offset = To;
+      OrgOffsets[F] = To;
       break;
     }
     default:

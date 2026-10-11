@@ -10,6 +10,8 @@
 #define LLVM_LIB_TARGET_IA64_MCTARGETDESC_IA64ELFSTREAMER_H
 
 #include "IA64TargetStreamer.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include <memory>
 #include <optional>
 
@@ -126,12 +128,17 @@ private:
   /// Whether the open prologue's save mask covers \p Bit.
   bool isInPrologueMask(unsigned Bit) const;
 
-  /// How far \p Fragment is into its section, if that can be told before
-  /// the section is laid out: when everything before it has a size already,
-  /// alignments included.
-  /// \p Remember makes it the place that the next search starts from.
+  /// The offset of \p Fragment in its section, if it is computable before
+  /// layout, i.e. every preceding fragment, alignment included, already has
+  /// a known size.
+  /// \p Remember caches the result as the starting point of the next query.
+  /// \p FromStart scans from the start of the section instead.
   std::optional<uint64_t> getFragmentOffset(const MCFragment &Fragment,
-                                            bool Remember = false);
+                                            bool Remember = false,
+                                            bool FromStart = false);
+  /// The offset following each .org, and the .orgs being resolved.
+  DenseMap<const MCFragment *, uint64_t> OrgOffsets;
+  SmallPtrSet<const MCFragment *, 4> OrgsInProgress;
   /// A fragment with a computed offset, and that offset.
   const MCFragment *KnownFragment = nullptr;
   uint64_t KnownOffset = 0;
