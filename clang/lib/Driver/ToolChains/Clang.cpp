@@ -1591,6 +1591,10 @@ void Clang::RenderTargetOptions(const llvm::Triple &EffectiveTriple,
     AddPPCTargetArgs(Args, CmdArgs);
     break;
 
+  case llvm::Triple::ia64:
+    AddIA64TargetArgs(Args, CmdArgs);
+    break;
+
   case llvm::Triple::riscv32:
   case llvm::Triple::riscv64:
   case llvm::Triple::riscv32be:
@@ -2035,6 +2039,22 @@ void Clang::AddPPCTargetArgs(const ArgList &Args,
     CmdArgs.push_back("-target-abi");
     CmdArgs.push_back(ABIName);
   }
+}
+
+void Clang::AddIA64TargetArgs(const ArgList &Args,
+                              ArgStringList &CmdArgs) const {
+  // Objects of up to 8 bytes are short data by default. -G changes the limit
+  // and -mno-sdata sets it to 0.
+  const char *Limit = "8";
+  if (Arg *A = Args.getLastArg(options::OPT_G, options::OPT_msdata,
+                               options::OPT_mno_sdata)) {
+    if (A->getOption().matches(options::OPT_G))
+      Limit = A->getValue();
+    else if (A->getOption().matches(options::OPT_mno_sdata))
+      Limit = "0";
+  }
+  CmdArgs.push_back("-msmall-data-limit");
+  CmdArgs.push_back(Limit);
 }
 
 void Clang::AddRISCVTargetArgs(const ArgList &Args,

@@ -775,7 +775,7 @@ def F : JoinedOrSeparate<["-"], "F">, Flags<[RenderJoined]>,
 def G : JoinedOrSeparate<["-"], "G">, Flags<[NoXarchOption, TargetSpecific]>,
   Group<m_Group>,
     MetaVarName<"<size>">, HelpText<"Put objects of at most <size> bytes "
-    "into small data section (MIPS / Hexagon)">;
+    "into small data section (MIPS / Hexagon / IA-64)">;
 def G_EQ : Joined<["-"], "G=">, Flags<[NoXarchOption]>,
   Group<m_Group>, Alias<G>;
 def H : Flag<["-"], "H">, Visibility<[ClangOption, CC1Option]>,
@@ -7625,6 +7625,11 @@ foreach i = {4-5} in
 def mfixed_range_EQ : Joined<["-"], "mfixed-range=">, Group<m_Group>,
   HelpText<"Reserve the registers of each range, as in f12-f15,f32-f127 "
            "(IA-64 only)">;
+def msdata : Flag<["-"], "msdata">, Group<m_Group>,
+  HelpText<"Keep small objects where the global pointer reaches them "
+           "(IA-64 only)">;
+def mno_sdata : Flag<["-"], "mno-sdata">, Group<m_Group>,
+  HelpText<"Keep small objects with the others (IA-64 only)">;
 foreach i = {8, 10-15} in
     def ffixed_r#i : Flag<["-"], "ffixed-r"#i>, Group<m_Group>,
     HelpText<"Reserve the r"#i#" register (Hexagon/x86_64 only)">;

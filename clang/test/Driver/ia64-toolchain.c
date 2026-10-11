@@ -36,3 +36,20 @@
 // RUN: not %clang --target=ia64-unknown-linux-gnu -fsanitize=memory -### %s \
 // RUN:   2>&1 | FileCheck %s --check-prefix=MSAN
 // MSAN: unsupported option '-fsanitize=memory' for target 'ia64-unknown-linux-gnu'
+
+// An object of eight bytes or fewer is short data, and -G and -mno-sdata
+// say otherwise.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=SDATA8
+// RUN: %clang --target=ia64-unknown-linux-gnu -mno-sdata -msdata -### -c %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=SDATA8
+// SDATA8: "-msmall-data-limit" "8"
+// RUN: %clang --target=ia64-unknown-linux-gnu -mno-sdata -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=SDATA0
+// RUN: %clang --target=ia64-unknown-linux-gnu -G0 -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=SDATA0
+// SDATA0: "-msmall-data-limit" "0"
+// RUN: %clang --target=ia64-unknown-linux-gnu -mno-sdata -G 16 -### -c %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=SDATA16
+// SDATA16: "-msmall-data-limit" "16"

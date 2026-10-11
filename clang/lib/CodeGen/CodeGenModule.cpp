@@ -2088,7 +2088,7 @@ void CodeGenModule::EmitOpenCLMetadata() {
 
 void CodeGenModule::EmitBackendOptionsMetadata(
     const CodeGenOptions &CodeGenOpts) {
-  if (getTriple().isRISCV()) {
+  if (getTriple().isRISCV() || getTriple().getArch() == llvm::Triple::ia64) {
     getModule().addModuleFlag(llvm::Module::Min, "SmallDataLimit",
                               CodeGenOpts.SmallDataLimit);
   }
