@@ -13,7 +13,10 @@
 // The first eight argument slots are the caller's output registers, which the
 // callee sees as its first input registers.
 def CC_IA64 : CallingConv<[
-  CCIfType<[i64], CCAssignToReg<[R32, R33, R34, R35, R36, R37, R38, R39]>>
+  CCIfType<[i64], CCAssignToReg<[R32, R33, R34, R35, R36, R37, R38, R39]>>,
+
+  // The rest go on the stack, above the scratch area.
+  CCAssignToStack<8, 8>
 ]>;
 
 // An integer result of up to four words comes back in r8 to r11.

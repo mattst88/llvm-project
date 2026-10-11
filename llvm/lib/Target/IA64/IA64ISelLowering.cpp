@@ -14,6 +14,7 @@
 #include "IA64TargetMachine.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -110,9 +111,17 @@ SDValue IA64TargetLowering::LowerFormalArguments(
   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeFormalArguments(Ins, CC_IA64);
 
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   for (const CCValAssign &VA : ArgLocs) {
-    if (!VA.isRegLoc())
-      report_fatal_error("IA64 arguments in memory are not yet implemented");
+    if (VA.isMemLoc()) {
+      // Offsets count from the end of the scratch area, where the first
+      // stack argument is.
+      int FI = MFI.CreateFixedObject(8, VA.getLocMemOffset(), true);
+      InVals.push_back(DAG.getLoad(VA.getLocVT(), DL, Chain,
+                                   DAG.getFrameIndex(FI, MVT::i64),
+                                   MachinePointerInfo::getFixedStack(MF, FI)));
+      continue;
+    }
     // The ABI leaves the bits above a value narrower than its slot undefined,
     // so emit no AssertZext/AssertSext whatever the zeroext/signext
     // attributes say: a caller built by another compiler may not extend.
@@ -162,12 +171,31 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
       IA64FrameLowering::ScratchAreaSize + CCInfo.getStackSize();
   Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
 
+  // Store stack arguments first, so the copies to the output registers are
+  // adjacent to the call.
+  SmallVector<SDValue, 8> MemOps;
+  SDValue StackPtr;
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    const CCValAssign &VA = ArgLocs[I];
+    if (!VA.isMemLoc())
+      continue;
+    if (!StackPtr)
+      StackPtr = DAG.getCopyFromReg(Chain, DL, IA64::R12, MVT::i64);
+    unsigned Offset = IA64FrameLowering::ScratchAreaSize + VA.getLocMemOffset();
+    MemOps.push_back(DAG.getStore(
+        Chain, DL, CLI.OutVals[I],
+        DAG.getMemBasePlusOffset(StackPtr, TypeSize::getFixed(Offset), DL),
+        MachinePointerInfo::getStack(MF, Offset)));
+  }
+  if (!MemOps.empty())
+    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOps);
+
   SDValue Glue;
   SmallVector<Register, 8> ArgRegs;
   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
     const CCValAssign &VA = ArgLocs[I];
     if (!VA.isRegLoc())
-      report_fatal_error("IA64 arguments in memory are not yet implemented");
+      continue;
     // The convention is written from the callee's side.
     Register Reg = IA64::R120 + (VA.getLocReg() - IA64::R32);
     Chain = DAG.getCopyToReg(Chain, DL, Reg, CLI.OutVals[I], Glue);
