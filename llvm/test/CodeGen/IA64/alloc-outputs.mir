@@ -1,0 +1,31 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=prolog-epilog \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# r120 to r127 stand for the outputs, which are wherever the inputs and locals
+# end. Here there are two inputs and, with the register that receives ar.pfs,
+# two locals, so the outputs start at r36.
+
+# CHECK-LABEL: outputs:
+# CHECK:         alloc r35 = ar.pfs, 2, 2, 2, 0
+# CHECK-NEXT:    add r34 = r32, r33
+# CHECK-NEXT:    mov r36 = r33 ;;
+# CHECK-NEXT:    add r37 = r34, r36 ;;
+# CHECK-NEXT:    add r8 = r37, r34
+# CHECK-NEXT:    br.ret.sptk.many b0 ;;
+
+---
+name: outputs
+tracksRegLiveness: true
+liveins:
+  - { reg: '$r32' }
+  - { reg: '$r33' }
+body: |
+  bb.0:
+    liveins: $r32, $r33
+
+    $r34 = ADD $r32, $r33, $p0
+    $r120 = ADDS 0, $r33, $p0
+    $r121 = ADD $r34, $r120, $p0
+    $r8 = ADD $r121, $r34, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

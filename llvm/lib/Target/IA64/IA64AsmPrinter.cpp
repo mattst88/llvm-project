@@ -38,6 +38,7 @@ public:
 
   StringRef getPassName() const override { return "IA64 Assembly Printer"; }
 
+  bool runOnMachineFunction(MachineFunction &MF) override;
   void emitInstruction(const MachineInstr *MI) override;
   void emitFunctionEntryLabel() override;
   void emitFunctionBodyEnd() override;
@@ -48,6 +49,10 @@ private:
   }
 
   MCOperand lowerOperand(const MachineOperand &MO) const;
+
+  // The physical register that r120, the first output register as codegen
+  // numbers it, maps to in this function.
+  MCRegister FirstOutput;
 };
 
 } // end anonymous namespace
@@ -59,6 +64,8 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
   case MachineOperand::MO_Register:
     if (MO.isImplicit())
       return MCOperand();
+    if (MO.getReg() >= IA64::R120 && MO.getReg() <= IA64::R127)
+      return MCOperand::createReg(FirstOutput + (MO.getReg() - IA64::R120));
     return MCOperand::createReg(MO.getReg());
   case MachineOperand::MO_Immediate:
     return MCOperand::createImm(MO.getImm());
@@ -68,6 +75,19 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
   default:
     llvm_unreachable("unknown operand type");
   }
+}
+
+// A register stack frame's outputs follow its inputs and locals, whose
+// counts come from the prologue alloc.
+bool IA64AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
+  FirstOutput = IA64::R120;
+  for (const MachineInstr &MI : MF.front())
+    if (MI.getOpcode() == IA64::ALLOC) {
+      FirstOutput =
+          IA64::R32 + MI.getOperand(1).getImm() + MI.getOperand(2).getImm();
+      break;
+    }
+  return AsmPrinter::runOnMachineFunction(MF);
 }
 
 // Each function is an assembler procedure, which gives it an unwind table

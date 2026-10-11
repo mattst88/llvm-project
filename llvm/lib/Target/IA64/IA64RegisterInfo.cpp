@@ -48,10 +48,13 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // it in a local, and it is restored only to return.
   Reserved.set(IA64::B0);
 
-  // The stacked registers exist only once a function has allocated a register
-  // stack frame, which nothing does yet.
-  for (unsigned Reg = IA64::R32; Reg <= IA64::R127; ++Reg)
-    Reserved.set(Reg);
+  // ar.pfs, which calls and returns exchange with the current frame marker.
+  Reserved.set(IA64::AR64);
+
+  // The last two locals are kept back so that the prologue always has
+  // somewhere to save ar.pfs and the return link.
+  Reserved.set(IA64::R118);
+  Reserved.set(IA64::R119);
 
   return Reserved;
 }

@@ -474,6 +474,7 @@ def MOV_M_ARi     : M30<"mov.m">;
 def MOV_M_FROM_AR : M31<"mov.m">;
 def MOV_CR        : M32<"mov">;
 def MOV_FROM_CR   : M33<"mov">;
+let Uses = [AR64] in
 def ALLOC         : M34<"alloc">;
 def MOV_PSR_L       : M35<0x2d, "mov", "psr.l">;
 def MOV_PSR_UM      : M35<0x29, "mov", "psr.um">;

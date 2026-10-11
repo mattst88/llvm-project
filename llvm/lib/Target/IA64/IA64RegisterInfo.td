@@ -91,14 +91,22 @@ foreach i = 0-127 in
   def CR#i : IA64Reg<i, CRName<i>.Name,
                      !if(!eq(CRName<i>.Name, "cr"#i), [], ["cr"#i])>;
 
-// Allocation order: the scratch registers first, then the preserved static
-// ones, then the stacked registers, with the fixed-purpose registers last.
+// The stacked registers as codegen sees them. A register stack frame is the
+// inputs and locals followed by the outputs, and where the outputs start is
+// not known until after register allocation. So r32-r119 are the inputs and
+// locals as themselves, and r120-r127 stand for the eight outputs, renamed
+// at emission. That is the maximum frame size: 96 registers.
+//
+// Allocation order: scratch registers first, then the stacked registers,
+// which the RSE preserves for free, then the callee-saved static registers,
+// which must be spilled, with the fixed-purpose registers last.
 def GR : RegisterClass<"IA64", [i64], 64, (add
   (sequence "R%u", 14, 31),    // scratch
   (sequence "R%u", 8, 11),     // return values
   R2, R3,                      // scratch; also addl's only base registers
+  (sequence "R%u", 32, 119),   // inputs and locals
+  (sequence "R%u", 120, 127),  // outputs
   (sequence "R%u", 4, 7),      // preserved
-  (sequence "R%u", 32, 127),   // stacked
   R0, R1, R12, R13)>;          // zero, gp, sp, tp (reserved)
 
 def FR : RegisterClass<"IA64", [f64, f32], 64, (add

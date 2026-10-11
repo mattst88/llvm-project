@@ -38,8 +38,8 @@ define i64 @max(i64 %a, i64 %b) {
 
 define i64 @select_value(i1 %c, i64 %x, i64 %y) {
 ; CHECK-LABEL: select_value:
-; CHECK:       and [[C:r[0-9]+]] = 1, r32
-; CHECK-NEXT:  mov r8 = r34 ;;
+; CHECK:       mov r8 = r34
+; CHECK-NEXT:  and [[C:r[0-9]+]] = 1, r32 ;;
 ; CHECK-NEXT:  cmp.eq p7, p6 = 0, [[C]] ;;
 ; CHECK-NEXT:  (p6) mov r8 = r33
   %r = select i1 %c, i64 %x, i64 %y
@@ -48,8 +48,8 @@ define i64 @select_value(i1 %c, i64 %x, i64 %y) {
 
 define i32 @select_narrow(i32 %a, i32 %x, i32 %y) {
 ; CHECK-LABEL: select_narrow:
-; CHECK:       sxt4 [[A:r[0-9]+]] = r32
-; CHECK-NEXT:  mov r8 = r34 ;;
+; CHECK:       mov r8 = r34
+; CHECK-NEXT:  sxt4 [[A:r[0-9]+]] = r32 ;;
 ; CHECK-NEXT:  cmp.lt p6, p7 = 0, [[A]] ;;
 ; CHECK-NEXT:  (p6) mov r8 = r33
   %c = icmp sgt i32 %a, 0
