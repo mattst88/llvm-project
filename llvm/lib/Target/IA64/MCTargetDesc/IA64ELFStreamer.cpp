@@ -959,7 +959,10 @@ void IA64TargetELFStreamer::emitUnwindInfo(MCSymbol *End, bool Stay) {
       OS << char(0xff) << char(R.Args[0]) << char(R.Args[1]);
       continue;
     case UnwindRecord::Epilogue: {
-      uint64_t Time = RegionLength - 1 - (SlotOfRecord(R) - RegionStart);
+      // The time is counted back from the end of the region. An instruction
+      // that starts the next region is treated as the last of this one.
+      uint64_t When = SlotOfRecord(R) - RegionStart;
+      uint64_t Time = When < RegionLength ? RegionLength - 1 - When : 0;
       if (R.Args[0] < 32) {
         OS << char(0xc0 | R.Args[0]);
         encodeULEB128(Time, OS);

@@ -586,3 +586,46 @@ f7:
 	.restore sp, 32
 	nop 0
 	.endp f7
+
+// An instruction that restores sp and is the first of the next region is
+// the last of this one for the time: it is no slots back.
+// CHECK-NEXT: 0x{{[0-9a-f]+}} 01000000 00000100 01e00001 22c00003
+	.proc f8
+f8:
+	.prologue
+	.fframe 16
+	adds r12 = -16, r12
+	.body
+	nop 0
+	nop 0
+	.restore sp
+	.prologue
+	adds r12 = 16, r12
+	nop 0
+	br.ret.sptk.many b0
+	.endp f8
+// CHECK-NEXT: 0x{{[0-9a-f]+}} 01000000 00000100 01e00001 21c00024
+	.proc f9
+f9:
+	.prologue
+	.fframe 16
+	adds r12 = -16, r12
+	.body
+	nop 0
+	.restore sp
+	.body
+	adds r12 = 16, r12
+	br.ret.sptk.many b0
+	.endp f9
+// CHECK-NEXT: 0x{{[0-9a-f]+}} 01000000 00000100 01e00001 20c00022
+	.proc f10
+f10:
+	.prologue
+	.fframe 16
+	adds r12 = -16, r12
+	.body
+	.restore sp
+	.body
+	adds r12 = 16, r12
+	br.ret.sptk.many b0
+	.endp f10
