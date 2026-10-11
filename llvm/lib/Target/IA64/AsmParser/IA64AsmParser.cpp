@@ -11,6 +11,7 @@
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "MCTargetDesc/IA64TargetStreamer.h"
 #include "TargetInfo/IA64TargetInfo.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -77,6 +78,7 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool parseDataValues(unsigned Size, bool Aligned);
   bool parseDataStrings(bool ZeroTerminated);
   bool parseData16(bool Aligned);
+  bool parseRealValues(unsigned Size, bool Aligned);
   bool parseCommon(bool IsTLS, bool IsLocal);
 
   /// Annotation directives, which tell a dependency violation checker what
@@ -1111,6 +1113,63 @@ bool IA64AsmParser::parseData16(bool Aligned) {
   });
 }
 
+bool IA64AsmParser::parseRealValues(unsigned Size, bool Aligned) {
+  MCStreamer &Out = getParser().getStreamer();
+  if (getParser().checkForValidSection())
+    return true;
+  // real16 holds the 80 bits of real10 and six bytes of padding.
+  const fltSemantics &Semantics = Size == 4   ? APFloat::IEEEsingle()
+                                  : Size == 8 ? APFloat::IEEEdouble()
+                                              : APFloat::x87DoubleExtended();
+  if (Aligned)
+    Out.emitValueToAlignment(Align(Size == 10 ? 16 : Size));
+  return getParser().parseMany([&]() -> bool {
+    bool Negative = parseOptionalToken(AsmToken::Minus);
+    if (!Negative)
+      parseOptionalToken(AsmToken::Plus);
+    const AsmToken &Tok = getParser().getTok();
+    SMLoc Loc = Tok.getLoc();
+    APFloat Value(Semantics);
+    // A whole number is a decimal one. GNU as reads the digits of "0x10" as
+    // ten.
+    if (Tok.is(AsmToken::Integer) && !all_of(Tok.getString(), isDigit))
+      return Error(Loc, "expected a floating-point number");
+    if (Tok.is(AsmToken::Integer) || Tok.is(AsmToken::Real) ||
+        Tok.is(AsmToken::BigNum)) {
+      Expected<APFloat::opStatus> Status = Value.convertFromString(
+          Tok.getString(), APFloat::rmNearestTiesToEven);
+      if (!Status) {
+        consumeError(Status.takeError());
+        return Error(Loc, "invalid floating-point number");
+      }
+      // Underflow to zero is an error, like overflow.
+      if ((*Status & APFloat::opOverflow) ||
+          ((*Status & APFloat::opUnderflow) && Value.isZero()))
+        return Error(Loc, "number does not fit in the format");
+    } else if (Tok.is(AsmToken::Identifier) &&
+               (Tok.getIdentifier().equals_insensitive("inf") ||
+                Tok.getIdentifier().equals_insensitive("infinity"))) {
+      Value = APFloat::getInf(Semantics);
+    } else if (Tok.is(AsmToken::Identifier) &&
+               Tok.getIdentifier().equals_insensitive("nan")) {
+      // GNU as sets all fraction bits.
+      Value = APFloat::getAllOnesValue(Semantics);
+      Value.changeSign();
+    } else {
+      return Error(Loc, "expected a floating-point number");
+    }
+    Lex();
+    if (Negative)
+      Value.changeSign();
+    Out.emitIntValue(Value.bitcastToAPInt());
+    if (Size == 16)
+      Out.emitZeros(6);
+    return false;
+  });
+}
+
+// ".xdata4 section, values" emits "data4 values" into that section without
+// changing the current section. Likewise for the other data directives.
 bool IA64AsmParser::parseCommon(bool IsTLS, bool IsLocal) {
   SMLoc SymLoc = getTok().getLoc();
   MCSymbol *Sym;
@@ -1191,6 +1250,14 @@ ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
     return parseData16(Aligned);
   if (Aligned && (Name == "string" || Name == "stringz"))
     return parseDataStrings(Name == "stringz");
+  unsigned RealSize = StringSwitch<unsigned>(Name)
+                          .Case("real4", 4)
+                          .Case("real8", 8)
+                          .Case("real10", 10)
+                          .Case("real16", 16)
+                          .Default(0);
+  if (RealSize)
+    return parseRealValues(RealSize, Aligned);
   return ParseStatus::NoMatch;
 }
 
