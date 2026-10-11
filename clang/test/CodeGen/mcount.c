@@ -18,6 +18,7 @@
 // RUN: %clang_cc1 -disable-llvm-passes -pg -triple riscv64-elf -emit-llvm -o - %s | FileCheck -check-prefixes=CHECK-PREFIXED,NO-MCOUNT1 %s
 // RUN: %clang_cc1 -disable-llvm-passes -pg -triple riscv32-linux -emit-llvm -o - %s | FileCheck -check-prefixes=CHECK-PREFIXED,NO-MCOUNT1 %s
 // RUN: %clang_cc1 -disable-llvm-passes -pg -triple riscv64-linux -emit-llvm -o - %s | FileCheck -check-prefixes=CHECK-PREFIXED,NO-MCOUNT1 %s
+// RUN: %clang_cc1 -disable-llvm-passes -pg -triple ia64-unknown-linux-gnu -emit-llvm -o - %s | FileCheck -check-prefixes=CHECK-PREFIXED,NO-MCOUNT1 %s
 // RUN: %clang_cc1 -disable-llvm-passes -pg -triple riscv64-freebsd -emit-llvm -o - %s | FileCheck -check-prefixes=CHECK-PREFIXED,NO-MCOUNT1 %s
 // RUN: %clang_cc1 -disable-llvm-passes -pg -triple riscv64-freebsd -emit-llvm -o - %s | FileCheck -check-prefixes=CHECK-PREFIXED,NO-MCOUNT1 %s
 // RUN: %clang_cc1 -disable-llvm-passes -pg -triple riscv64-openbsd -emit-llvm -o - %s | FileCheck -check-prefixes=CHECK-PREFIXED,NO-MCOUNT1 %s

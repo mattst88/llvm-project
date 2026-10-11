@@ -8578,8 +8578,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       (Triple.isOSBinFormatELF() || Triple.isOSBinFormatMachO()) &&
       (EH || UnwindTables || AsyncUnwindTables ||
        DebugInfoKind != llvm::codegenoptions::NoDebugInfo);
+  // No IA-64 assembler supports the .cfi_* directives, and GCC ignores
+  // -fdwarf2-cfi-asm for IA-64.
   if (Args.hasFlag(options::OPT_fdwarf2_cfi_asm,
-                   options::OPT_fno_dwarf2_cfi_asm, HasDefaultDwarf2CFIASM))
+                   options::OPT_fno_dwarf2_cfi_asm, HasDefaultDwarf2CFIASM) &&
+      Triple.getArch() != llvm::Triple::ia64)
     CmdArgs.push_back("-fdwarf2-cfi-asm");
 
   if (Arg *A = Args.getLastArg(options::OPT_fsymbol_partition_EQ)) {

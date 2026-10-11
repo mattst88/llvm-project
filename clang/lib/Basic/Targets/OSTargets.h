@@ -418,6 +418,7 @@ public:
     switch (Triple.getArch()) {
     default:
       break;
+    case llvm::Triple::ia64:
     case llvm::Triple::mips:
     case llvm::Triple::mipsel:
     case llvm::Triple::mips64:
