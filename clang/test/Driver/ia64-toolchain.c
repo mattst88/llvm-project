@@ -11,11 +11,18 @@
 // RUN:   -c %s 2>&1 | FileCheck %s --check-prefix=FP
 // FP: "-mframe-pointer=all"
 
-// The compiler writes the stops and the assembler packs the bundles, and is
-// told that the stops in the file are all there are.
+// The compiler writes the object itself. When it is asked to leave that to
+// the assembler, the assembler is told that the stops in the file are all
+// there are.
 
 // RUN: %clang --target=ia64-unknown-linux-gnu -### -c %s 2>&1 \
-// RUN:   | FileCheck %s --check-prefix=AS
+// RUN:   | FileCheck %s --check-prefix=IAS
+// IAS-NOT: "-no-integrated-as"
+// IAS:     "-emit-obj"
+// IAS-NOT: as{{(.exe)?}}"
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -fno-integrated-as -### -c %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=AS
 // AS: "-no-integrated-as"
 // AS: as{{(.exe)?}}" "-x"
 

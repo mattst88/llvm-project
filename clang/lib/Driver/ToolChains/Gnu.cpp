@@ -3150,10 +3150,6 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   case llvm::Triple::nvptx64:
   case llvm::Triple::xcore:
     return false;
-  case llvm::Triple::ia64:
-    // The compiler says where an instruction group ends and leaves it to the
-    // assembler to pack the instructions into bundles.
-    return false;
   default:
     return true;
   }
