@@ -151,6 +151,18 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         .addReg(Dst, RegState::Implicit);
     break;
   }
+  case IA64::SELECT:
+  case IA64::SELECTi: {
+    Register Dst = MI.getOperand(0).getReg();
+    emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(3).getImm()),
+                MI.getOperand(4).getReg(), MI.getOperand(5));
+    BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
+        .addImm(0)
+        .addReg(MI.getOperand(2).getReg())
+        .addReg(IA64::P6)
+        .addReg(Dst, RegState::Implicit);
+    break;
+  }
   }
   MI.eraseFromParent();
   return true;

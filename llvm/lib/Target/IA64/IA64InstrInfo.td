@@ -46,6 +46,19 @@ def SETCC  : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, GR:$rhs),
                         "#SETCC", []>;
 def SETCCi : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, i64imm:$rhs),
                         "#SETCCi", []>;
+
+// Select: $r1 is tied to $false and overwritten with $true under the
+// predicate.
+let Constraints = "$false = $r1" in {
+def SELECT  : IA64Pseudo<(outs GR:$r1),
+                         (ins GR:$false, GR:$true, i64imm:$cc, GR:$lhs,
+                              GR:$rhs),
+                         "#SELECT", []>;
+def SELECTi : IA64Pseudo<(outs GR:$r1),
+                         (ins GR:$false, GR:$true, i64imm:$cc, GR:$lhs,
+                              i64imm:$rhs),
+                         "#SELECTi", []>;
+}
 }
 
 //===----------------------------------------------------------------------===//
