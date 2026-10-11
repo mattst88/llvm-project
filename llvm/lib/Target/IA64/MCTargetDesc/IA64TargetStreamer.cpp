@@ -129,6 +129,12 @@ void IA64TargetStreamer::emitHandlerData() {}
 
 void IA64TargetStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {}
 
+void IA64TargetStreamer::emitTLSCommon(MCSymbol *Sym, uint64_t Size,
+                                       Align Alignment) {
+  getStreamer().emitCommonSymbol(Sym, Size, Alignment);
+  getStreamer().emitSymbolAttribute(Sym, MCSA_ELF_TypeTLS);
+}
+
 std::pair<MCSectionELF *, MCSectionELF *>
 IA64TargetStreamer::getUnwindSections(MCContext &Ctx,
                                       const MCSectionELF &Text) {
@@ -337,4 +343,11 @@ void IA64TargetAsmStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {
   OS << "\tdata16.ua\t";
   getStreamer().getContext().getAsmInfo().printExpr(OS, *Value);
   OS << '\n';
+}
+
+void IA64TargetAsmStreamer::emitTLSCommon(MCSymbol *Sym, uint64_t Size,
+                                          Align Alignment) {
+  OS << "\t.tls_common\t";
+  Sym->print(OS, &getStreamer().getContext().getAsmInfo());
+  OS << ',' << Size << ',' << Alignment.value() << '\n';
 }

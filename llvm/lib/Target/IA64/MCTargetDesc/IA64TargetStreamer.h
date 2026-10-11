@@ -197,6 +197,10 @@ public:
   /// an @iplt of a function. Assembly writes this as "data16.ua".
   virtual void emitData16(const MCExpr *Value, SMLoc Loc = SMLoc());
 
+  /// A thread-local common symbol (".tls_common"). GNU as cannot make one
+  /// from ".comm" and ".type".
+  virtual void emitTLSCommon(MCSymbol *Sym, uint64_t Size, Align Alignment);
+
 protected:
   /// The unwind table and unwind info sections for the code in \p Text.
   /// They use GNU as's names, which linker scripts may depend on.
@@ -246,6 +250,7 @@ public:
   void emitUnwEntry() override;
   void emitHandlerData() override;
   void emitData16(const MCExpr *Value, SMLoc Loc) override;
+  void emitTLSCommon(MCSymbol *Sym, uint64_t Size, Align Alignment) override;
 };
 
 } // end namespace llvm

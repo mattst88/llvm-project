@@ -76,6 +76,7 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool parseDataValues(unsigned Size, bool Aligned);
   bool parseDataStrings(bool ZeroTerminated);
   bool parseData16(bool Aligned);
+  bool parseCommon(bool IsTLS, bool IsLocal);
 
   /// Annotation directives, which tell a dependency violation checker what
   /// it cannot infer. NoMatch if \p Name is not one.
@@ -948,6 +949,54 @@ bool IA64AsmParser::parseData16(bool Aligned) {
   });
 }
 
+bool IA64AsmParser::parseCommon(bool IsTLS, bool IsLocal) {
+  SMLoc SymLoc = getTok().getLoc();
+  MCSymbol *Sym;
+  if (getParser().parseSymbol(Sym))
+    return Error(SymLoc, "expected a symbol");
+  if (getParser().parseComma())
+    return true;
+  int64_t Size;
+  SMLoc SizeLoc = getTok().getLoc();
+  if (getParser().parseAbsoluteExpression(Size))
+    return true;
+  if (Size < 0)
+    return Error(SizeLoc, "size must be non-negative");
+  // GNU as aligns a common symbol with no explicit alignment to its size,
+  // up to 16 bytes.
+  uint64_t Alignment = std::clamp<uint64_t>(PowerOf2Ceil(Size), 1, 16);
+  if (parseOptionalToken(AsmToken::Comma)) {
+    SMLoc AlignLoc = getTok().getLoc();
+    int64_t Value;
+    if (getParser().parseAbsoluteExpression(Value))
+      return true;
+    if (Value && !isPowerOf2_64(Value))
+      return Error(AlignLoc, "alignment must be a power of 2");
+    // GNU as treats an alignment of 0 as unspecified, which for ".lcomm"
+    // means no alignment.
+    if (Value)
+      Alignment = Value;
+    else if (IsLocal)
+      Alignment = 1;
+  } else if (IsLocal) {
+    // GNU as requires the alignment for ".lcomm".
+    return TokError("expected alignment after size");
+  }
+  if (parseEOL())
+    return true;
+  Sym->redefineIfPossible();
+  if (!Sym->isUndefined())
+    return Error(SymLoc, "invalid symbol redefinition");
+  if (IsTLS) {
+    getTargetStreamer().emitTLSCommon(Sym, Size, Align(Alignment));
+    return false;
+  }
+  if (IsLocal)
+    getStreamer().emitSymbolAttribute(Sym, MCSA_Local);
+  getStreamer().emitCommonSymbol(Sym, Size, Align(Alignment));
+  return false;
+}
+
 bool IA64AsmParser::parseDataStrings(bool ZeroTerminated) {
   if (getParser().checkForValidSection())
     return true;
@@ -1011,6 +1060,14 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
         ELF::SHF_ALLOC | ELF::SHF_WRITE | ELF::SHF_IA_64_SHORT));
     return ParseStatus::Success;
   }
+
+  // Common symbols: ".tls_common" makes a TLS one and ".lcomm" a local one.
+  // ".common" is an alias for ".comm".
+  bool IsTLS = Name.equals_insensitive(".tls_common");
+  bool IsLocal = Name.equals_insensitive(".lcomm");
+  if (IsTLS || IsLocal || Name.equals_insensitive(".comm") ||
+      Name.equals_insensitive(".common"))
+    return parseCommon(IsTLS, IsLocal);
 
   ParseStatus Status = parseProcDirective(Name);
   if (!Status.isNoMatch())
