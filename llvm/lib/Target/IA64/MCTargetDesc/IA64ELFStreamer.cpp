@@ -75,6 +75,8 @@ class IA64ELFStreamer : public MCELFStreamer {
     const MCSubtargetInfo *STI;
     /// The slot units that can hold it, one bit per IA64II::Unit.
     unsigned Units;
+    /// Whether it must be in the last slot of a bundle.
+    bool LastSlot;
     bool Stop;
     /// The template a directive gave the bundle this instruction starts, or
     /// -1.
@@ -320,6 +322,13 @@ static bool slotTakes(IA64II::Unit Slot, unsigned Units) {
   return (Units & 1u << Slot) != 0;
 }
 
+/// Whether slot \p Slot of template \p T can hold \p PI.
+template <typename PendingInst>
+static bool slotTakes(const IA64II::BundleTemplate &T, unsigned Slot,
+                      const PendingInst &PI) {
+  return slotTakes(T.Slots[Slot], PI.Units) && (Slot == 2 || !PI.LastSlot);
+}
+
 static uint64_t readSlot(const char *Bytes) {
   uint64_t Value = 0;
   for (unsigned I = 0; I != IA64::SlotBytes; ++I)
@@ -333,7 +342,7 @@ static unsigned countPlaced(const IA64II::BundleTemplate &T,
                             ArrayRef<PendingInst> Insts) {
   unsigned Slot = 0, N = 0;
   for (const PendingInst &PI : Insts) {
-    while (Slot != 3 && !slotTakes(T.Slots[Slot], PI.Units))
+    while (Slot != 3 && !slotTakes(T, Slot, PI))
       ++Slot;
     if (Slot == 3)
       break;
@@ -352,7 +361,8 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   if (Inst.getOpcode() == IA64::HINT || Inst.getOpcode() == IA64::CHK_S)
     Units |= 1u << IA64II::UnitB;
   assert(Units != 0 && "instruction has no unit");
-  Pending.push_back({Inst, &STI, Units,
+  bool LastSlot = (MCII->get(Inst.getOpcode()).TSFlags & IA64II::LastSlot) != 0;
+  Pending.push_back({Inst, &STI, Units, LastSlot,
                      (Inst.getFlags() & IA64II::StopAfter) != 0, NextTemplate,
                      NextMarks.empty() ? -1 : NextMarks.front(), NextStartMark,
                      std::move(NextTags)});
@@ -373,9 +383,10 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   if (Explicit) {
     const IA64II::BundleTemplate &T =
         IA64II::BundleTemplates[Insts[0].Template];
-    if (none_of(T.Slots, [&](IA64II::Unit Unit) {
-          return slotTakes(Unit, Insts[0].Units) &&
-                 IA64::getOpcodeForUnit(Insts[0].Inst.getOpcode(), Unit) != 0;
+    if (none_of(seq(3u), [&](unsigned Slot) {
+          return slotTakes(T, Slot, Insts[0]) &&
+                 IA64::getOpcodeForUnit(Insts[0].Inst.getOpcode(),
+                                        T.Slots[Slot]) != 0;
         })) {
       getContext().reportError(Insts[0].Inst.getLoc(),
                                Twine("instruction does not fit the ") + T.Name +
@@ -426,7 +437,7 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts) {
   for (unsigned Slot = 0; Slot != 3 && (Taken == 0 || !AtEnd()); ++Slot) {
     PendingInst &PI = Insts[Taken];
     IA64II::Unit Unit = IA64II::BundleTemplates[Index].Slots[Slot];
-    if (!slotTakes(Unit, PI.Units))
+    if (!slotTakes(IA64II::BundleTemplates[Index], Slot, PI))
       continue;
 
     // The slot determines the real instruction for a pseudo-op such as "nop".

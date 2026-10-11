@@ -590,8 +590,12 @@ def HINT_F  : F16<1, "hint.f">;
 //===----------------------------------------------------------------------===//
 
 def BR_COND  : B1<0, "br.cond">;
+// Loop branches, these two and the counted ones, must be in the last slot of
+// a bundle.
+let LastSlot = 1 in {
 def BR_WEXIT : B1<2, "br.wexit">;
 def BR_WTOP  : B1<3, "br.wtop">;
+}
 def BR_CLOOP : B2<5, "br.cloop">;
 def BR_CEXIT : B2<6, "br.cexit">;
 def BR_CTOP  : B2<7, "br.ctop">;

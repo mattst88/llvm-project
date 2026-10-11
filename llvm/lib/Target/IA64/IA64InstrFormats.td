@@ -357,6 +357,10 @@ class IA64Inst<dag outs, dag ins, string mnemonic, string operands,
   IA64Unit Unit = UnitNone;
   let TSFlags{2-0} = Unit.Value;
 
+  // Set if the instruction faults in any bundle slot other than the last.
+  bit LastSlot = 0;
+  let TSFlags{3} = LastSlot;
+
   dag OutOperandList = outs;
   dag InOperandList = ins;
   let AsmString = mnemonic # !if(!empty(operands), "", "\t" # operands);
@@ -1792,6 +1796,7 @@ class B2<bits<3> btype, string mnemonic>
   let AsmString = mnemonic#"${wh}${ph}${dh}\t$target";
   let isBranch = 1;
   let isTerminator = 1;
+  let LastSlot = 1;
 }
 
 // B3: IP-relative call.

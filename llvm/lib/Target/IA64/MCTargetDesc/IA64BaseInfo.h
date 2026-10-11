@@ -35,6 +35,8 @@ enum Unit : unsigned {
 // MCInstrDesc TSFlags.
 enum : uint64_t {
   UnitMask = 0x7,
+  /// Only the last slot of a bundle can hold the instruction.
+  LastSlot = 0x8,
 };
 
 inline Unit getUnit(uint64_t TSFlags) {
