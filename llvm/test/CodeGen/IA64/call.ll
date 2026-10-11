@@ -140,3 +140,37 @@ define i64 @indirect(ptr %f, i64 %a) {
   %r = call i64 %f(i64 %a)
   ret i64 %r
 }
+
+; The address of a variable is not the name of a function to branch to. What
+; the variable holds is the descriptor.
+
+@descriptors = external global [4 x ptr]
+
+define i64 @variable(i64 %a) {
+; CHECK-LABEL: variable:
+; CHECK:       addl r14 = @ltoff(descriptors), r1 ;;
+; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK-NEXT:  ld8 r15 = [r14]
+; CHECK-NEXT:  adds r14 = 8, r14 ;;
+; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  mov b6 = r15 ;;
+; CHECK-NEXT:  mov r1 = r14
+; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
+  %r = call i64 @descriptors(i64 %a)
+  ret i64 %r
+}
+
+define i64 @variable_offset(i64 %a) {
+; CHECK-LABEL: variable_offset:
+; CHECK:       addl r14 = @ltoff(descriptors), r1 ;;
+; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK-NEXT:  adds r15 = 24, r14 ;;
+; CHECK-NEXT:  ld8 r15 = [r15]
+; CHECK-NEXT:  adds r14 = 16, r14 ;;
+; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK-NEXT:  mov b6 = r14
+; CHECK-NEXT:  mov r1 = r15
+; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
+  %r = call i64 getelementptr inbounds ([4 x ptr], ptr @descriptors, i64 0, i64 2)(i64 %a)
+  ret i64 %r
+}

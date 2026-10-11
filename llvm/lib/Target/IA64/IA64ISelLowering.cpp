@@ -840,10 +840,15 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   MachineRegisterInfo &MRI = MF.getRegInfo();
   const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
 
-  // A pointer to a function is the address of its descriptor: the entry
-  // point, and then the global pointer that the function expects.
-  bool Indirect =
-      !isa<GlobalAddressSDNode>(Callee) && !isa<ExternalSymbolSDNode>(Callee);
+  // A function pointer is the address of its function descriptor: the entry
+  // point followed by the function's GP.
+  // Calling the address of a variable treats the variable's contents as the
+  // descriptor.
+  const auto *Direct = dyn_cast<GlobalAddressSDNode>(Callee);
+  if (Direct && (Direct->getOffset() != 0 ||
+                 !Direct->getGlobal()->getValueType()->isFunctionTy()))
+    Direct = nullptr;
+  bool Indirect = !Direct && !isa<ExternalSymbolSDNode>(Callee);
   SDValue Entry, CalleeGP;
   if (Indirect) {
     Entry = DAG.getLoad(MVT::i64, DL, Chain, Callee, MachinePointerInfo());
@@ -863,7 +868,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   // a DSO-local callee, and no stack arguments, so all arguments must be in
   // registers.
   if (CLI.IsTailCall) {
-    const auto *G = dyn_cast<GlobalAddressSDNode>(Callee);
+    const auto *G = Direct;
     const Function &Caller = MF.getFunction();
     CLI.IsTailCall =
         G && getTargetMachine().shouldAssumeDSOLocal(G->getGlobal()) &&
@@ -1040,9 +1045,9 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   // A callee that is certain to be in this module has the same global
   // pointer. Any other may come back with its own.
   bool SameModule = false;
-  if (const auto *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
-    SameModule = getTargetMachine().shouldAssumeDSOLocal(G->getGlobal());
-    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), DL, MVT::i64);
+  if (Direct) {
+    SameModule = getTargetMachine().shouldAssumeDSOLocal(Direct->getGlobal());
+    Callee = DAG.getTargetGlobalAddress(Direct->getGlobal(), DL, MVT::i64);
   } else if (const auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     Callee = DAG.getTargetExternalSymbol(S->getSymbol(), MVT::i64);
   }
