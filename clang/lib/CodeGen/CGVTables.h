@@ -154,6 +154,15 @@ public:
 
   /// Return the type used as components for a vtable.
   llvm::Type *getVTableComponentType() const;
+
+  /// Return the number of components in the vtable at the given index in the
+  /// layout.
+  uint64_t getVTableNumComponents(const VTableLayout &layout,
+                                  unsigned vtableIndex) const;
+
+  /// Mark a global variable as a vtable, for targets that emit vtables in a
+  /// target-specific form.
+  void setVTableAttributes(llvm::GlobalVariable *VTable) const;
 };
 
 } // end namespace CodeGen

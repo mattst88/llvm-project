@@ -1749,6 +1749,11 @@ public:
 
   llvm::Type *getVTableComponentType() const;
 
+  /// The number of vtable components per virtual function entry.
+  unsigned getVTableFunctionComponents() const {
+    return getTarget().vtableUsesFunctionDescriptors() ? 2 : 1;
+  }
+
   /// Generate a cross-DSO type identifier for MD.
   llvm::ConstantInt *CreateCrossDsoCfiTypeId(llvm::Metadata *MD);
 

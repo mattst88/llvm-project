@@ -45,6 +45,9 @@ public:
     HasFloat128 = true;
 
     SuitableAlign = 128;
+
+    // Virtual tables hold function descriptors.
+    VTableUsesFunctionDescriptors = true;
     // 16-byte atomic objects are 16-byte aligned, as in GCC, though operating
     // on one always requires libatomic.
     MaxAtomicPromoteWidth = 128;

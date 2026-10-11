@@ -812,8 +812,9 @@ void CodeGenVTables::addVTableComponent(ConstantArrayBuilder &builder,
       if (!CanEmitMethod) {
         if (IsThunk)
           nextVTableThunkIndex++;
-        return builder.add(
-            llvm::ConstantExpr::getNullValue(CGM.GlobalsInt8PtrTy));
+        for (unsigned I = 0, E = CGM.getVTableFunctionComponents(); I != E; ++I)
+          builder.addNullPointer(CGM.GlobalsInt8PtrTy);
+        return;
       }
       // Method is acceptable, continue processing as usual.
     }
@@ -898,15 +899,21 @@ void CodeGenVTables::addVTableComponent(ConstantArrayBuilder &builder,
       if (const auto &Schema =
           CGM.getCodeGenOpts().PointerAuth.CXXVirtualFunctionPointers)
         return builder.addSignedPointer(fnPtr, Schema, GD, QualType());
-      return builder.add(fnPtr);
+      builder.add(fnPtr);
+      // A function descriptor is two pointers wide and its contents are up
+      // to the target. The function pointer identifies the function.
+      if (CGM.getVTableFunctionComponents() == 2)
+        builder.addNullPointer(CGM.GlobalsInt8PtrTy);
+      return;
     }
   }
 
   case VTableComponent::CK_UnusedFunctionPointer:
     if (RelativeCXXABIVTables)
       return builder.add(llvm::ConstantExpr::getNullValue(CGM.Int32Ty));
-    else
-      return builder.addNullPointer(CGM.GlobalsInt8PtrTy);
+    for (unsigned I = 0, E = CGM.getVTableFunctionComponents(); I != E; ++I)
+      builder.addNullPointer(CGM.GlobalsInt8PtrTy);
+    return;
   }
 
   llvm_unreachable("Unexpected vtable component kind");
@@ -916,9 +923,27 @@ llvm::Type *CodeGenVTables::getVTableType(const VTableLayout &layout) {
   SmallVector<llvm::Type *, 4> tys;
   llvm::Type *componentType = getVTableComponentType();
   for (unsigned i = 0, e = layout.getNumVTables(); i != e; ++i)
-    tys.push_back(llvm::ArrayType::get(componentType, layout.getVTableSize(i)));
+    tys.push_back(
+        llvm::ArrayType::get(componentType, getVTableNumComponents(layout, i)));
 
   return llvm::StructType::get(CGM.getLLVMContext(), tys);
+}
+
+uint64_t CodeGenVTables::getVTableNumComponents(const VTableLayout &layout,
+                                                unsigned vtableIndex) const {
+  size_t size = layout.getVTableSize(vtableIndex);
+  if (CGM.getVTableFunctionComponents() == 1)
+    return size;
+
+  // Every component after the address point is a virtual function entry.
+  size_t addressPoint = layout.getAddressPointIndices()[vtableIndex];
+  return addressPoint +
+         (size - addressPoint) * CGM.getVTableFunctionComponents();
+}
+
+void CodeGenVTables::setVTableAttributes(llvm::GlobalVariable *VTable) const {
+  if (CGM.getTarget().vtableUsesFunctionDescriptors())
+    VTable->addAttribute("function-descriptors");
 }
 
 void CodeGenVTables::createVTableInitializer(ConstantStructBuilder &builder,
@@ -1008,6 +1033,7 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(
   createVTableInitializer(components, *VTLayout, RTTI,
                           VTable->hasLocalLinkage());
   components.finishAndSetAsInitializer(VTable);
+  setVTableAttributes(VTable);
 
   // Set properties only after the initializer has been set to ensure that the
   // GV is treated as definition and not declaration.
@@ -1412,6 +1438,10 @@ void CodeGenModule::EmitVTableTypeMetadata(const CXXRecordDecl *RD,
   // definitions (for type profiling) among all global variables.
   if (!getCodeGenOpts().LTOUnit && !getCodeGenOpts().hasProfileIRInstr() &&
       !getCodeGenOpts().DevirtualizeSpeculatively)
+    return;
+
+  // Type metadata consumers do not handle function descriptors in vtables.
+  if (getTarget().vtableUsesFunctionDescriptors())
     return;
 
   CharUnits ComponentWidth = GetTargetTypeStoreSize(getVTableComponentType());

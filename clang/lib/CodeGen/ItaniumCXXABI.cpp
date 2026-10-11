@@ -785,6 +785,11 @@ CGCallee ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
             CGM.getIntrinsic(llvm::Intrinsic::load_relative,
                              {VTableOffset->getType()}),
             {VTable, VTableOffset});
+      } else if (CGM.getTarget().vtableUsesFunctionDescriptors()) {
+        // The vtable holds function descriptors, so the address of the entry
+        // is the function pointer.
+        VirtualFn = CGF.Builder.CreateGEP(CGF.Int8Ty, VTable, VTableOffset,
+                                          "memptr.virtualfn");
       } else {
         llvm::Value *VFPAddr =
             CGF.Builder.CreateGEP(CGF.Int8Ty, VTable, VTableOffset);
@@ -1180,7 +1185,8 @@ llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
       const ASTContext &Context = getContext();
       CharUnits PointerWidth = Context.toCharUnitsFromBits(
           Context.getTargetInfo().getPointerWidth(LangAS::Default));
-      VTableOffset = Index * PointerWidth.getQuantity();
+      VTableOffset = Index * PointerWidth.getQuantity() *
+                     CGM.getVTableFunctionComponents();
     }
 
     if (UseARMMethodPtrABI) {
@@ -2050,6 +2056,7 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
   CGVT.createVTableInitializer(components, VTLayout, RTTI,
                                llvm::GlobalValue::isLocalLinkage(Linkage));
   components.finishAndSetAsInitializer(VTable);
+  CGVT.setVTableAttributes(VTable);
 
   // Set the correct linkage.
   VTable->setLinkage(Linkage);
@@ -2151,8 +2158,8 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
   // accessed.
   unsigned ComponentSize =
       CGM.getDataLayout().getTypeAllocSize(CGM.getVTableComponentType());
-  unsigned VTableSize =
-      ComponentSize * Layout.getVTableSize(AddressPoint.VTableIndex);
+  unsigned VTableSize = ComponentSize * CGM.getVTables().getVTableNumComponents(
+                                            Layout, AddressPoint.VTableIndex);
   unsigned Offset = ComponentSize * AddressPoint.AddressPointIndex;
   llvm::ConstantRange InRange(
       llvm::APInt(32, (int)-Offset, true),
@@ -2262,7 +2269,13 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   uint64_t ByteOffset =
       VTableIndex * CGM.getDataLayout().getTypeSizeInBits(ComponentTy) / 8;
 
-  if (!Schema && CGF.ShouldEmitVTableTypeCheckedLoad(MethodDecl->getParent())) {
+  if (CGM.getTarget().vtableUsesFunctionDescriptors()) {
+    // The vtable holds function descriptors, so the address of the entry is
+    // the function pointer.
+    VFunc = CGF.Builder.CreateConstInBoundsGEP1_64(
+        PtrTy, VTable, VTableIndex * CGM.getVTableFunctionComponents(), "vfn");
+  } else if (!Schema &&
+             CGF.ShouldEmitVTableTypeCheckedLoad(MethodDecl->getParent())) {
     VFunc = CGF.EmitVTableTypeCheckedLoad(MethodDecl->getParent(), VTable,
                                           PtrTy, ByteOffset);
   } else {

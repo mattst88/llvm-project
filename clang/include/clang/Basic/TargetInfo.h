@@ -256,6 +256,7 @@ protected:
   unsigned char RegParmMax, SSERegParmMax;
   TargetCXXABI TheCXXABI;
   bool UseMicrosoftManglingForC = false;
+  bool VTableUsesFunctionDescriptors = false;
   const LangASMap *AddrSpaceMap;
 
   mutable StringRef PlatformName;
@@ -1922,6 +1923,13 @@ public:
   virtual void setAuxTarget(const TargetInfo *Aux) {}
 
   bool hasMicrosoftRecordLayout() const { return HasMicrosoftRecordLayout; }
+
+  /// Whether vtables hold a two-pointer function descriptor for each virtual
+  /// function instead of a function pointer. The address of a vtable entry is
+  /// then the function pointer.
+  bool vtableUsesFunctionDescriptors() const {
+    return VTableUsesFunctionDescriptors;
+  }
 
   /// Whether target allows debuginfo types for decl only variables/functions.
   virtual bool allowDebugInfoForExternalRef() const { return false; }
