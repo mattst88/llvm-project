@@ -88,13 +88,21 @@ void IA64AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
   MCFixupKind Kind = Fixup.getKind();
   bool IsTag =
       Kind == IA64::fixup_ia64_tag13b || Kind == IA64::fixup_ia64_tag13i;
-  if (!IsResolved) {
-    // There is no relocation for a tag.
-    if (IsTag) {
+  // There is no relocation for a tag, so a preemptible global symbol
+  // resolves to its local definition.
+  if (!IsResolved && IsTag) {
+    const MCSymbol *Sym = Target.getAddSym();
+    if (!Sym || Target.getSubSym() || !Sym->isInSection() ||
+        &Sym->getSection() != F.getParent()) {
       getContext().reportError(Fixup.getLoc(),
                                "tag must be a location in the same section");
       return;
     }
+    Value = Asm->getSymbolOffset(*Sym) + Target.getConstant() -
+            (Asm->getFragmentOffset(F) + Fixup.getOffset());
+    IsResolved = true;
+  }
+  if (!IsResolved) {
     // A difference from a location in this section becomes IP-relative, and
     // an instruction's IP is its bundle address, without the slot number.
     MCValue Reloc = Target;
