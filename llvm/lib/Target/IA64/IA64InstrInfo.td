@@ -839,12 +839,16 @@ foreach H = [PredictHint<"sptk", 0, 0>, PredictHint<"dptk", 2, 0>,
       : B7<0x11, H.Wh, H.Ih, "brp.ret."#H.Name>;
 }
 
+// Each of these must be last in its instruction group, and therefore in its
+// bundle, since a stop can follow a B slot only at the end of a bundle.
+let LastSlot = 1 in {
 def COVER     : B8<0x02, "cover">;
 def CLRRRB    : B8<0x04, "clrrrb">;
 def CLRRRB_PR : B8<0x05, "clrrrb.pr">;
 def RFI       : B8<0x08, "rfi">;
 def BSW_0     : B8<0x0c, "bsw.0">;
 def BSW_1     : B8<0x0d, "bsw.1">;
+}
 def EPC       : B8<0x10, "epc">;
 def VMSW_0    : B8<0x18, "vmsw.0">;
 def VMSW_1    : B8<0x19, "vmsw.1">;

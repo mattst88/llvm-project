@@ -480,6 +480,21 @@ static bool isFirstInGroup(unsigned Opcode) {
          Opcode == IA64::LOADRS;
 }
 
+/// Whether a stop must immediately follow the instruction.
+static bool isLastInGroup(unsigned Opcode) {
+  switch (Opcode) {
+  case IA64::COVER:
+  case IA64::CLRRRB:
+  case IA64::CLRRRB_PR:
+  case IA64::RFI:
+  case IA64::BSW_0:
+  case IA64::BSW_1:
+    return true;
+  default:
+    return false;
+  }
+}
+
 /// The number of leading \p Insts that fit, by unit, in one bundle of
 /// template \p T. This selects the template, as in GNU as, so it ignores
 /// stops and last-slot constraints: those apply when filling the bundle and
@@ -530,7 +545,9 @@ void IA64ELFStreamer::emitInstruction(const MCInst &Inst,
   }
   bool LastSlot = (MCII->get(Inst.getOpcode()).TSFlags & IA64II::LastSlot) != 0;
   Pending.push_back(
-      {Inst, &STI, Units, LastSlot, (Inst.getFlags() & IA64II::StopAfter) != 0,
+      {Inst, &STI, Units, LastSlot,
+       (Inst.getFlags() & IA64II::StopAfter) != 0 ||
+           isLastInGroup(Inst.getOpcode()),
        NextTemplate,
        InBundle && !Pending.empty() && Pending.size() == BraceStart,
        NextMarks.empty() ? -1 : NextMarks.front(), NextStartMark,
