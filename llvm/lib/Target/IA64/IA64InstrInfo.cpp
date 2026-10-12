@@ -463,6 +463,7 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
                  .add(MI.getOperand(0));
     }
     Call.addImm(IA64II::WhetherSPTK).addImm(1).addImm(0).addReg(IA64::P0);
+    Call.setMIFlags(MI.getFlags());
     // The argument registers were explicit operands of the pseudo.
     for (const MachineOperand &MO : drop_begin(MI.operands(), GPIdx + 1)) {
       if (!MO.isReg())
@@ -509,6 +510,7 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
       MO.setImplicit();
       Branch.add(MO);
     }
+    Branch.setMIFlags(MI.getFlags());
     MI.eraseFromParent();
     return true;
   }

@@ -1227,7 +1227,9 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     if (Glue.getNode())
       Ops.push_back(Glue);
     MF.getFrameInfo().setHasTailCall();
-    return DAG.getNode(IA64ISD::TAILCALL, DL, MVT::Other, Ops);
+    SDValue Ret = DAG.getNode(IA64ISD::TAILCALL, DL, MVT::Other, Ops);
+    DAG.addNoMergeSiteInfo(Ret.getNode(), CLI.NoMerge);
+    return Ret;
   }
 
   SDValue GP = DAG.getRegister(IA64::R0, MVT::i64);
@@ -1264,6 +1266,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   Chain = DAG.getNode(Indirect ? IA64ISD::CALL_IND : IA64ISD::CALL, DL,
                       DAG.getVTList(MVT::Other, MVT::Glue), Ops);
+  DAG.addNoMergeSiteInfo(Chain.getNode(), CLI.NoMerge);
   Glue = Chain.getValue(1);
   Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, Glue, DL);
   Glue = Chain.getValue(1);
