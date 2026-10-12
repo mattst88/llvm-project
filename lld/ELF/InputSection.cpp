@@ -1052,6 +1052,10 @@ uint64_t InputSectionBase::getRelocTargetVA(Ctx &ctx, const Relocation &r,
            ctx.sym.ia64Gp->getVA(ctx);
   case RE_IA64_FDESC:
     return ctx.in.ia64Opd->getEntryVA(*r.sym, a);
+  case RE_IA64_FDESC_GPREL:
+    return ctx.in.ia64Opd->getEntryVA(*r.sym, a) - ctx.sym.ia64Gp->getVA(ctx);
+  case RE_IA64_PLTOFF:
+    return r.sym->getGotPltVA(ctx) + a - ctx.sym.ia64Gp->getVA(ctx);
   case RE_IA64_TLSGD_GOT_GPREL:
     return ctx.in.got->getGlobalDynAddr(*r.sym) + a -
            ctx.sym.ia64Gp->getVA(ctx);

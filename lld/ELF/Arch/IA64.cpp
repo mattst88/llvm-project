@@ -555,6 +555,28 @@ void IA64::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
       sec.addReloc({RE_IA64_LTOFF_FDESC, type, offset, addend, &sym});
       continue;
 
+    // The descriptor a call goes through, which need not be the canonical one
+    // that is the function's address. For a preemptible function it is the
+    // descriptor its import stub uses, which the dynamic loader fills in;
+    // otherwise it is one created here.
+    case R_IA64_PLTOFF22:
+    case R_IA64_PLTOFF64I:
+    case R_IA64_PLTOFF64LSB:
+      if (sym.isPreemptible) {
+        if (addend != 0) {
+          auto diag = Err(ctx);
+          diag << "relocation " << type << " has a non-zero addend against "
+               << "symbol '" << &sym << "'";
+          printLocation(diag, sec, sym, offset);
+          continue;
+        }
+        sym.setFlags(NEEDS_PLT);
+        sec.addReloc({RE_IA64_PLTOFF, type, offset, addend, &sym});
+      } else {
+        sec.addReloc({RE_IA64_FDESC_GPREL, type, offset, addend, &sym});
+      }
+      continue;
+
     // Function descriptors:
     case R_IA64_FPTR64I:
     case R_IA64_FPTR32LSB:
@@ -650,7 +672,7 @@ void IA64::finalizeRelocScan() {
           ctx.in.ia64Ltoff->hasDeferredEntries = true;
         else if (r.expr == RE_IA64_LTOFF_FDESC)
           ctx.in.ia64Ltoff->addEntry(*r.sym, r.addend, true);
-        else if (r.expr == RE_IA64_FDESC)
+        else if (r.expr == RE_IA64_FDESC || r.expr == RE_IA64_FDESC_GPREL)
           ctx.in.ia64Opd->addEntry(*r.sym, r.addend);
       }
     }
@@ -855,6 +877,7 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_LTOFF22:
   case R_IA64_LTOFF22X:
   case R_IA64_LTOFF_FPTR22:
+  case R_IA64_PLTOFF22:
   case R_IA64_TPREL22:
   case R_IA64_DTPREL22:
   case R_IA64_LTOFF_TPREL22:
@@ -867,6 +890,7 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_GPREL64I:
   case R_IA64_LTOFF64I:
   case R_IA64_LTOFF_FPTR64I:
+  case R_IA64_PLTOFF64I:
   case R_IA64_FPTR64I:
   case R_IA64_TPREL64I:
   case R_IA64_DTPREL64I:
@@ -932,6 +956,7 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_REL64LSB:
   case R_IA64_LTV64LSB:
   case R_IA64_LTOFF_FPTR64LSB:
+  case R_IA64_PLTOFF64LSB:
   case R_IA64_TPREL64LSB:
   case R_IA64_DTPMOD64LSB:
   case R_IA64_DTPREL64LSB:
