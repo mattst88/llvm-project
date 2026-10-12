@@ -62,20 +62,20 @@ static bool isNumbered(StringRef Name, StringRef Prefix, unsigned Limit) {
   return !Name.getAsInteger(10, Number) && Number < Limit;
 }
 
-// An operand or a data directive reads a register name as the register, so a
-// symbol of the same name has to say that it is one. This takes every "ar."
-// and "cr." name rather than list the ones that exist; a '#' too many does no
-// harm. The names of the bits of psr are read as their masks, and so every
-// "psr." name is taken as well.
-bool IA64MCAsmInfo::needsHashAfterName(StringRef Name) const {
-  std::string Lower = Name.lower();
-  StringRef N = Lower;
+// Operands and data directives parse a register name as the register, so a
+// symbol with that name needs a '#' suffix. Every "ar." and "cr." name is
+// matched rather than only the defined ones; an extra '#' is harmless. psr
+// bit names parse as their masks, so every "psr." name matches too. GNU as
+// treats "cfm" and "psp" as registers everywhere. Names match in lower case
+// only, as in GNU as, except CPUID.
+bool IA64MCAsmInfo::needsHashAfterName(StringRef N) const {
   if (isNumbered(N, "r", 128) || isNumbered(N, "f", 128) ||
       isNumbered(N, "p", 64) || isNumbered(N, "b", 8) ||
       isNumbered(N, "ar", 128) || isNumbered(N, "cr", 128) ||
       isNumbered(N, "in", 96) || isNumbered(N, "loc", 96) ||
       isNumbered(N, "out", 96) || isNumbered(N, "ret", 4) ||
-      isNumbered(N, "farg", 8) || isNumbered(N, "fret", 8))
+      isNumbered(N, "farg", 8) || isNumbered(N, "fret", 8) ||
+      isNumbered(N, "dahr", 8))
     return true;
   if (N.starts_with("ar.") || N.starts_with("cr.") || N.starts_with("psr."))
     return true;
@@ -83,7 +83,8 @@ bool IA64MCAsmInfo::needsHashAfterName(StringRef Name) const {
       .Cases({"sp", "gp", "tp", "rp", "ip", "pr", "pr.rot"}, true)
       .Case("psr", true)
       .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
-      .Cases({"cpuid", "dtr", "itr", "msr"}, true)
+      .Cases({"cpuid", "CPUID", "dtr", "itr", "msr", "dahr"}, true)
+      .Cases({"cfm", "psp"}, true)
       .Default(false);
 }
 

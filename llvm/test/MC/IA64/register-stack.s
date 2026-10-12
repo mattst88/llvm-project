@@ -33,9 +33,8 @@
 	mov r8 = out3
 	;;
 
-// IN0 and in00 are symbols. The '#' printed after IN0 is for this assembler,
-// which takes a register name in either case.
-// CHECK: mov r8 = IN0#
+// IN0 and in00 are symbols: a register name is in lower case only.
+// CHECK: mov r8 = IN0{{$}}
 	mov r8 = IN0
 // CHECK: mov r9 = in00
 	mov r9 = in00

@@ -233,7 +233,7 @@
 	(p63) add r1 = r2, r3
 // The mnemonic is in either case after a predicate as well.
 // CHECK: (p5) cmp4.lt.or.andcm p6, p7 = r0, r9 // encoding: [0x85,0x11,0x90,0x38,0xd6,0x01]
-	(P5) CMP4.LT.OR.ANDCM p6, p7 = r0, r9
+	(p5) CMP4.LT.OR.ANDCM p6, p7 = r0, r9
 // CHECK: shladd r3 = r4, 1, r5 // encoding: [0xc0,0x80,0x50,0x80,0x00,0x01]
 	shladd r3 = r4, 1, r5
 // CHECK: shladd r3 = r4, 2, r5 // encoding: [0xc0,0x80,0x50,0x88,0x00,0x01]

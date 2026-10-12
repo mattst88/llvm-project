@@ -568,10 +568,11 @@ static void splitCompleters(
 }
 
 static MCRegister matchRegister(StringRef Name) {
-  std::string Lower = Name.lower();
-  if (MCRegister Reg = MatchRegisterName(Lower))
+  // The names are in lower case only: GNU as takes "R4" for a symbol, and
+  // code that has a symbol of that name relies on it.
+  if (MCRegister Reg = MatchRegisterName(Name))
     return Reg;
-  if (MCRegister Reg = MatchRegisterAltName(Lower))
+  if (MCRegister Reg = MatchRegisterAltName(Name))
     return Reg;
   // ABI names for the integer return registers (ret0-ret3) and the FP
   // argument and return registers (farg0-farg7, fret0-fret7).
@@ -1041,8 +1042,8 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     }
     // A data access hint register (dahr0-dahr7), named only by the
     // move-immediate form.
-    if (Name.size() == 5 && Name.starts_with_insensitive("dahr") &&
-        Name.back() >= '0' && Name.back() <= '7') {
+    if (Name.size() == 5 && Name.starts_with("dahr") && Name.back() >= '0' &&
+        Name.back() <= '7') {
       Operands.push_back(IA64Operand::createToken("dahr", S));
       Operands.push_back(IA64Operand::createImm(
           MCConstantExpr::create(Name.back() - '0', getContext()), S,

@@ -41,6 +41,7 @@ r4:
 	data8 @fptr(f#)
 	data8.ua in0#, loc95#, out0# + 4, sp#, ar.pfs#, cr.ifa#, psr.l#, farg7#
 	data8.ua r128, in96, r04, b8
+	data8.ua cfm#, psp#, dahr#, dahr0#, dahr7#, dahr8
 	.comm c#, 8, 8
 
 // SYM-DAG: 64 FUNC   GLOBAL HIDDEN  {{.*}} f
@@ -72,3 +73,9 @@ r4:
 // ASM-NEXT: data8.ua in96
 // ASM-NEXT: data8.ua r04
 // ASM-NEXT: data8.ua b8
+// ASM-NEXT: data8.ua cfm#
+// ASM-NEXT: data8.ua psp#
+// ASM-NEXT: data8.ua dahr#
+// ASM-NEXT: data8.ua dahr0#
+// ASM-NEXT: data8.ua dahr7#
+// ASM-NEXT: data8.ua dahr8
