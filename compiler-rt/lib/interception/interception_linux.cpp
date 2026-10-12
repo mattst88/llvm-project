@@ -86,6 +86,18 @@ static int StrCmp(const char *s1, const char *s2) {
 }
 #endif
 
+// Returns whether two function pointers refer to the same function.
+static bool SameFunction(uptr a, uptr b) {
+#  if defined(__ia64__)
+  // A function pointer is the address of a function descriptor. The static
+  // linker creates one per address-taken symbol, so a function and its alias
+  // have distinct descriptors; compare their entry points instead.
+  if (a && b)
+    return *(uptr*)a == *(uptr*)b;
+#  endif
+  return a == b;
+}
+
 static void *GetFuncAddr(const char *name, uptr trampoline) {
 #if SANITIZER_NETBSD
   // FIXME: Find a better way to handle renames
@@ -103,7 +115,7 @@ static void *GetFuncAddr(const char *name, uptr trampoline) {
 
     // In case `name' is not loaded, dlsym ends up finding the actual wrapper.
     // We don't want to intercept the wrapper and have it point to itself.
-    if ((uptr)addr == trampoline)
+    if (SameFunction((uptr)addr, trampoline))
       addr = nullptr;
   }
   return addr;
@@ -113,7 +125,7 @@ bool InterceptFunction(const char *name, uptr *ptr_to_real, uptr func,
                        uptr trampoline) {
   void *addr = GetFuncAddr(name, trampoline);
   *ptr_to_real = (uptr)addr;
-  return addr && (func == trampoline);
+  return addr && SameFunction(func, trampoline);
 }
 
 // dlvsym is a GNU extension supported by some other platforms.
@@ -126,7 +138,7 @@ bool InterceptFunction(const char *name, const char *ver, uptr *ptr_to_real,
                        uptr func, uptr trampoline) {
   void *addr = GetFuncAddr(name, ver);
   *ptr_to_real = (uptr)addr;
-  return addr && (func == trampoline);
+  return addr && SameFunction(func, trampoline);
 }
 #  endif  // SANITIZER_GLIBC || SANITIZER_FREEBSD || SANITIZER_NETBSD
 
