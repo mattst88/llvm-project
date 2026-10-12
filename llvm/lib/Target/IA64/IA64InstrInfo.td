@@ -217,6 +217,7 @@ def RELOAD_FR : IA64Pseudo<(outs FR:$dst), (ins i64imm:$fi), "#RELOAD_FR", []>;
 
 let Uses = [R12] in
 def ADJDYNALLOC : IA64Pseudo<(outs GR:$r1), (ins), "#ADJDYNALLOC", []>;
+def DYNAREAOFFSET : IA64Pseudo<(outs GR:$r1), (ins), "#DYNAREAOFFSET", []>;
 
 //===----------------------------------------------------------------------===//
 // Integer ALU

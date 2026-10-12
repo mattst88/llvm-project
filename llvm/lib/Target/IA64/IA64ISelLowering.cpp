@@ -347,6 +347,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::RETURNADDR, MVT::i64, Custom);
   setOperationAction(ISD::FRAMEADDR, MVT::i64, Custom);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Custom);
+  setOperationAction(ISD::GET_DYNAMIC_AREA_OFFSET, MVT::i64, Custom);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
 
@@ -440,6 +441,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerFRAMEADDR(Op, DAG);
   case ISD::DYNAMIC_STACKALLOC:
     return LowerDYNAMIC_STACKALLOC(Op, DAG);
+  case ISD::GET_DYNAMIC_AREA_OFFSET:
+    return LowerGET_DYNAMIC_AREA_OFFSET(Op, DAG);
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -802,6 +805,14 @@ SDValue IA64TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
                                 DAG.getConstant(Alignment - 1, DL, MVT::i64)),
                     DAG.getSignedConstant(-int64_t(Alignment), DL, MVT::i64));
   return DAG.getMergeValues({Addr, Chain}, DL);
+}
+
+// The offset from SP to the latest dynamic allocation, i.e. the size of the
+// outgoing argument area, which is known once all calls are lowered.
+SDValue
+IA64TargetLowering::LowerGET_DYNAMIC_AREA_OFFSET(SDValue Op,
+                                                 SelectionDAG &DAG) const {
+  return DAG.getNode(IA64ISD::DYNAREAOFFSET, SDLoc(Op), MVT::i64);
 }
 
 // Jump table entries are table-relative offsets, which need no dynamic

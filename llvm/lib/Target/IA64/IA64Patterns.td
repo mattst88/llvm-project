@@ -46,6 +46,10 @@ def IA64frameaddr
 def IA64adjdynalloc
     : SDNode<"IA64ISD::ADJDYNALLOC", SDTypeProfile<1, 0, [SDTCisVT<0, i64>]>,
              [SDNPHasChain]>;
+// Its offset from sp.
+def IA64dynareaoffset
+    : SDNode<"IA64ISD::DYNAREAOFFSET",
+             SDTypeProfile<1, 0, [SDTCisVT<0, i64>]>>;
 
 // Move the bits of an f32 to/from the low half of a GR.
 def IA64getfs
@@ -243,6 +247,7 @@ foreach VT = [f32, f64] in
 def : Pat<(i64 (bitconvert (f64 FR:$f))), (GETF_D FR:$f)>;
 def : Pat<(f64 (bitconvert GR:$r)), (SETF_D GR:$r)>;
 def : Pat<(IA64adjdynalloc), (ADJDYNALLOC)>;
+def : Pat<(IA64dynareaoffset), (DYNAREAOFFSET)>;
 def : Pat<(IA64frameaddr), (FRAMEADDR)>;
 def : Pat<(IA64getfs FR:$f), (GETF_S FR:$f)>;
 def : Pat<(IA64setfs GR:$r), (SETF_S GR:$r)>;

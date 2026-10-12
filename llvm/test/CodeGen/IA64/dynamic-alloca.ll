@@ -127,3 +127,44 @@ l:
 x:
   ret void
 }
+
+declare i64 @llvm.get.dynamic.area.offset.i64()
+declare void @many(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)
+
+; What was allocated last starts above the scratch area, and above the
+; arguments that calls pass in memory when there are any.
+define i64 @area(i64 %n) {
+; CHECK-LABEL: area:
+; CHECK:       br.call.sptk.many b0 = g ;;
+; CHECK:       mov r8 = 16
+  %a = alloca i8, i64 %n
+  call void @g(ptr %a, i64 %n)
+  %o = call i64 @llvm.get.dynamic.area.offset.i64()
+  ret i64 %o
+}
+
+define i64 @area_stack_args(i64 %n) {
+; CHECK-LABEL: area_stack_args:
+; CHECK:       br.call.sptk.many b0 = many ;;
+; CHECK:       mov r8 = 48
+  %a = alloca i8, i64 %n
+  call void @g(ptr %a, i64 %n)
+  call void @many(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7, i64 8, i64 9, i64 10)
+  %o = call i64 @llvm.get.dynamic.area.offset.i64()
+  ret i64 %o
+}
+
+; The arguments of a call can take more room than an instruction that adds
+; to the stack pointer can name.
+%big = type { [20000 x i8] }
+declare void @take(ptr byval(%big) align 8, ptr)
+define void @big_area(ptr %b, i64 %n) {
+; CHECK-LABEL: big_area:
+; CHECK:       sub r12 = r12, r14
+; CHECK:       mov r42 = 19968
+; CHECK:       add r42 = r42, r12
+; CHECK:       br.call.sptk.many b0 = take ;;
+  %a = alloca i8, i64 %n, align 16
+  call void @take(ptr byval(%big) align 8 %b, ptr %a)
+  ret void
+}

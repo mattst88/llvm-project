@@ -426,6 +426,22 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
+  case IA64::DYNAREAOFFSET: {
+    const MachineFrameInfo &MFI = MBB.getParent()->getFrameInfo();
+    uint64_t Offset = alignTo(MFI.getMaxCallFrameSize(), 16);
+    Register Reg = MI.getOperand(0).getReg();
+    if (isInt<22>(Offset))
+      BuildMI(MBB, MI, DL, get(IA64::ADDL), Reg)
+          .addImm(Offset)
+          .addReg(IA64::R0)
+          .addReg(IA64::P0);
+    else
+      BuildMI(MBB, MI, DL, get(IA64::MOVL), Reg)
+          .addImm(Offset)
+          .addReg(IA64::P0);
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::CALL:
   case IA64::CALL_IND: {
     // br.call.sptk.many b0 = target, then restore gp from its saved copy.
