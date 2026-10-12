@@ -32,10 +32,12 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override {
     Subtarget = &MF.getSubtarget<IA64Subtarget>();
     bool Changed = SelectionDAGISel::runOnMachineFunction(MF);
+    restoreGPRightAfterCalls(MF);
     restoreGPAtLandingPads(MF);
     return Changed;
   }
 
+  void restoreGPRightAfterCalls(MachineFunction &MF);
   void restoreGPAtLandingPads(MachineFunction &MF);
 
   void Select(SDNode *Node) override;
@@ -69,6 +71,40 @@ public:
 } // end anonymous namespace
 
 char IA64DAGToDAGISelLegacy::ID = 0;
+
+// The GP restore after a returns_twice call is a separate copy node, and
+// nothing in the DAG orders it before nodes that read GP: an address formed
+// after the call could be scheduled before it and computed from the callee's
+// GP. The copy does not read anything the call writes, so move it up to
+// immediately after the call.
+void IA64DAGToDAGISel::restoreGPRightAfterCalls(MachineFunction &MF) {
+  unsigned FrameDestroy =
+      Subtarget->getInstrInfo()->getCallFrameDestroyOpcode();
+  const uint32_t *TwiceMask =
+      Subtarget->getRegisterInfo()->getReturnsTwiceCallPreservedMask();
+  for (MachineBasicBlock &MBB : MF) {
+    MachineBasicBlock::iterator AfterCall = MBB.end();
+    for (MachineInstr &MI : make_early_inc_range(MBB)) {
+      if (MI.isCall()) {
+        AfterCall = MBB.end();
+        if (none_of(MI.operands(), [&](const MachineOperand &MO) {
+              return MO.isRegMask() && MO.getRegMask() == TwiceMask;
+            }))
+          continue;
+        AfterCall = std::next(MI.getIterator());
+        if (AfterCall != MBB.end() && AfterCall->getOpcode() == FrameDestroy)
+          ++AfterCall;
+        continue;
+      }
+      if (AfterCall == MBB.end() || !MI.isCopy() ||
+          MI.getOperand(0).getReg() != IA64::R1)
+        continue;
+      if (AfterCall != MI.getIterator())
+        MBB.splice(AfterCall, &MBB, MI.getIterator());
+      AfterCall = MBB.end();
+    }
+  }
+}
 
 // A throwing call does not return, and GP holds whatever the throwing
 // function had in it. Like the code after a call, a landing pad must restore
