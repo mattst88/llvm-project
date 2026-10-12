@@ -26,6 +26,11 @@ public:
   explicit IA64TargetStreamer(MCStreamer &S);
   ~IA64TargetStreamer() override;
 
+  /// Use only the explicit stops that follow and do not infer instruction
+  /// group boundaries. Without this GNU as infers them and drops the stops it
+  /// is given. Assembly writes this as ".explicit".
+  virtual void emitExplicitMode();
+
   /// End the current instruction group. Assembly writes this as ";;".
   virtual void emitStop();
 
@@ -241,6 +246,7 @@ class IA64TargetAsmStreamer : public IA64TargetStreamer {
 public:
   IA64TargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS);
 
+  void emitExplicitMode() override;
   void emitStop() override;
   void emitTemplate(unsigned Index) override;
   void emitBundleBegin() override;

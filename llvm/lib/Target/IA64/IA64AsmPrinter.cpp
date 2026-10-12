@@ -92,6 +92,7 @@ public:
   StringRef getPassName() const override { return "IA64 Assembly Printer"; }
 
   bool doInitialization(Module &M) override;
+  void emitStartOfAsmFile(Module &M) override;
   bool runOnMachineFunction(MachineFunction &MF) override;
   void emitInstruction(const MachineInstr *MI) override;
   void emitFunctionEntryLabel() override;
@@ -307,6 +308,13 @@ bool IA64AsmPrinter::doInitialization(Module &M) {
   bool Changed = AsmPrinter::doInitialization(M);
   EHHandlers.push_back(std::make_unique<IA64Exception>(this));
   return Changed;
+}
+
+// The emitted stops are the instruction group boundaries. GNU as must be told
+// so: otherwise it warns about each given stop and inserts stops where it
+// infers they are needed. gcc avoids this by running it with "-x".
+void IA64AsmPrinter::emitStartOfAsmFile(Module &M) {
+  getTargetStreamer().emitExplicitMode();
 }
 
 // The profiler hook is called before the function does anything, and it

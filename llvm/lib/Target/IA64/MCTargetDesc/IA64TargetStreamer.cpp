@@ -26,6 +26,8 @@ IA64TargetStreamer::IA64TargetStreamer(MCStreamer &S) : MCTargetStreamer(S) {}
 
 IA64TargetStreamer::~IA64TargetStreamer() = default;
 
+void IA64TargetStreamer::emitExplicitMode() {}
+
 void IA64TargetStreamer::emitStop() {}
 
 void IA64TargetStreamer::emitTemplate(unsigned Index) {}
@@ -183,6 +185,8 @@ IA64TargetStreamer::getUnwindSections(MCContext &Ctx,
 IA64TargetAsmStreamer::IA64TargetAsmStreamer(MCStreamer &S,
                                              formatted_raw_ostream &OS)
     : IA64TargetStreamer(S), OS(OS) {}
+
+void IA64TargetAsmStreamer::emitExplicitMode() { OS << "\t.explicit\n"; }
 
 void IA64TargetAsmStreamer::emitStop() { OS << "\t;;\n"; }
 
