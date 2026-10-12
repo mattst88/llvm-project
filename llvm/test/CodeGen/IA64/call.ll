@@ -148,8 +148,8 @@ define i64 @indirect(ptr %f, i64 %a) {
 
 define i64 @variable(i64 %a) {
 ; CHECK-LABEL: variable:
-; CHECK:       addl r14 = @ltoff(descriptors), r1 ;;
-; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK:       addl r14 = @ltoffx(descriptors), r1 ;;
+; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
 ; CHECK-NEXT:  ld8 r15 = [r14]
 ; CHECK-NEXT:  adds r14 = 8, r14 ;;
 ; CHECK-NEXT:  ld8 r14 = [r14]
@@ -162,8 +162,8 @@ define i64 @variable(i64 %a) {
 
 define i64 @variable_offset(i64 %a) {
 ; CHECK-LABEL: variable_offset:
-; CHECK:       addl r14 = @ltoff(descriptors), r1 ;;
-; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK:       addl r14 = @ltoffx(descriptors), r1 ;;
+; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
 ; CHECK-NEXT:  adds r15 = 24, r14 ;;
 ; CHECK-NEXT:  ld8 r15 = [r15]
 ; CHECK-NEXT:  adds r14 = 16, r14 ;;

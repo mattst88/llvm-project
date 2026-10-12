@@ -29,8 +29,8 @@ $grouped = comdat any
 
 define ptr @preemptible_address() {
 ; CHECK-LABEL: preemptible_address:
-; CHECK:       addl r14 = @ltoff(preemptible), r1 ;;
-; CHECK-NEXT:  ld8 r8 = [r14]
+; CHECK:       addl r14 = @ltoffx(preemptible), r1 ;;
+; CHECK-NEXT:  ld8.mov r8 = [r14], preemptible
   ret ptr @preemptible
 }
 
@@ -126,8 +126,8 @@ define ptr @hidden_address() {
 
 define ptr @weak_address() {
 ; CHECK-LABEL: weak_address:
-; CHECK:       addl r14 = @ltoff(weak), r1 ;;
-; CHECK-NEXT:  ld8 r8 = [r14]
+; CHECK:       addl r14 = @ltoffx(weak), r1 ;;
+; CHECK-NEXT:  ld8.mov r8 = [r14], weak
   ret ptr @weak
 }
 
@@ -170,7 +170,8 @@ define ptr @weak_address() {
 ; OBJ-NEXT:     SHF_IA_64_SHORT
 ; OBJ-NEXT:     SHF_WRITE
 
-; OBJ:        R_IA64_LTOFF22 preemptible 0x0
+; OBJ:        R_IA64_LTOFF22X preemptible 0x0
+; OBJ-NEXT:   R_IA64_LDXMOV preemptible 0x0
 ; OBJ-NEXT:   R_IA64_GPREL22 word 0x0
 ; OBJ-NEXT:   R_IA64_GPREL22 zero 0x0
 ; OBJ-NEXT:   R_IA64_GPREL22 bytes 0x7
@@ -184,4 +185,5 @@ define ptr @weak_address() {
 ; OBJ-NEXT:   R_IA64_GPREL64I common 0x0
 ; OBJ-NEXT:   R_IA64_GPREL64I elsewhere 0x0
 ; OBJ-NEXT:   R_IA64_GPREL22 hidden 0x0
-; OBJ-NEXT:   R_IA64_LTOFF22 weak 0x0
+; OBJ-NEXT:   R_IA64_LTOFF22X weak 0x0
+; OBJ-NEXT:   R_IA64_LDXMOV weak 0x0

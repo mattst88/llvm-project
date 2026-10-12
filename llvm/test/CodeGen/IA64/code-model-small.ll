@@ -52,7 +52,7 @@ define ptr @past() {
 ; Any other is found as before.
 define ptr @ot() {
 ; CHECK-LABEL: ot:
-; CHECK:       addl {{r[0-9]+}} = @ltoff(other), r1
+; CHECK:       addl {{r[0-9]+}} = @ltoffx(other), r1
   ret ptr @other
 }
 
@@ -60,4 +60,5 @@ define ptr @ot() {
 ; RELOC:      R_IA64_IMM22 sm 0x0
 ; RELOC:      R_IA64_IMM22 .sbss 0x8
 ; RELOC:      R_IA64_IMM22 big 0x64
-; RELOC:      R_IA64_LTOFF22 other 0x0
+; RELOC:      R_IA64_LTOFF22X other 0x0
+; RELOC:      R_IA64_LDXMOV other 0x0

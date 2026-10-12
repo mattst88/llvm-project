@@ -13,6 +13,7 @@
 #include "IA64.h"
 #include "IA64Subtarget.h"
 #include "IA64TargetMachine.h"
+#include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 
@@ -41,6 +42,7 @@ public:
   void restoreGPAtLandingPads(MachineFunction &MF);
 
   void Select(SDNode *Node) override;
+  void PostprocessISelDAG() override;
 
   bool SelectInlineAsmMemoryOperand(const SDValue &Op,
                                     InlineAsm::ConstraintCode ConstraintCode,
@@ -492,12 +494,63 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   SelectCode(Node);
 }
 
-// fmin is "f2 < f3 ? f2 : f3" and fmax is "f3 < f2 ? f2 : f3", so each is
-// its second operand when the two have no order and when they are equal,
-// which of two zeroes may be either. The choices that are one or the other
-// are those of a compare that is false of equal values and of unordered
-// ones, or of one that is true of both, which is such a compare with the
-// choices the other way around.
+// An LTOFF load of an address from the linkage table can be relaxed by the
+// linker when the target is within reach of GP, if it knows the symbol: the
+// add that formed the entry address then forms the symbol address, and the
+// load becomes a move. The linker must be free to rewrite both instructions,
+// so the add must have a single use.
+void IA64DAGToDAGISel::PostprocessISelDAG() {
+  bool Changed = false;
+  for (SDNode &Node : make_early_inc_range(CurDAG->allnodes())) {
+    if (!Node.isMachineOpcode() || Node.getMachineOpcode() != IA64::LD8)
+      continue;
+    SDNode *Add = Node.getOperand(0).getNode();
+    if (!Add->isMachineOpcode() || Add->getMachineOpcode() != IA64::ADDL ||
+        !Add->hasOneUse())
+      continue;
+    SDLoc DL(&Node);
+    SDValue Entry = Add->getOperand(0);
+    std::function<SDValue(unsigned)> Symbol;
+    if (const auto *GA = dyn_cast<GlobalAddressSDNode>(Entry))
+      Symbol = [=](unsigned Flags) {
+        return CurDAG->getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
+                                              GA->getOffset(), Flags);
+      };
+    else if (const auto *JT = dyn_cast<JumpTableSDNode>(Entry))
+      Symbol = [=](unsigned Flags) {
+        return CurDAG->getTargetJumpTable(JT->getIndex(), MVT::i64, Flags);
+      };
+    else if (const auto *BA = dyn_cast<BlockAddressSDNode>(Entry))
+      Symbol = [=](unsigned Flags) {
+        return CurDAG->getTargetBlockAddress(BA->getBlockAddress(), MVT::i64,
+                                             BA->getOffset(), Flags);
+      };
+    else
+      continue;
+    if (Symbol(IA64::S_LTOFF) != Entry)
+      continue;
+    SmallVector<SDValue, 4> AddOps(Add->ops());
+    AddOps[0] = Symbol(IA64::S_LTOFFX);
+    SDNode *NewAdd = CurDAG->getMachineNode(IA64::ADDL, SDLoc(Add),
+                                            Add->getVTList(), AddOps);
+    SmallVector<SDValue, 4> LoadOps(Node.ops());
+    LoadOps[0] = SDValue(NewAdd, 0);
+    LoadOps[1] = Symbol(IA64::S_None);
+    MachineSDNode *NewLoad =
+        CurDAG->getMachineNode(IA64::LD8_MOV, DL, Node.getVTList(), LoadOps);
+    CurDAG->setNodeMemRefs(NewLoad, cast<MachineSDNode>(Node).memoperands());
+    ReplaceUses(&Node, NewLoad);
+    Changed = true;
+  }
+  if (Changed)
+    CurDAG->RemoveDeadNodes();
+}
+
+// fmin is "f2 < f3 ? f2 : f3" and fmax is "f3 < f2 ? f2 : f3", so each
+// returns its second operand for unordered or equal inputs (including
+// zeroes of either sign). They therefore match a select on a compare that is
+// false for equal and unordered inputs, or on its inverse with the select
+// operands swapped.
 bool IA64DAGToDAGISel::selectMinMax(SDNode *Node) {
   SDValue Lesser = Node->getOperand(0), Greater = Node->getOperand(1);
   SDValue True = Node->getOperand(2), False = Node->getOperand(3);

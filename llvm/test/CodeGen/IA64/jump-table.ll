@@ -6,8 +6,8 @@ define i64 @f(i64 %a) {
 ; CHECK-LABEL: f:
 ; CHECK:       cmp.ltu p6, p7 = 4, r32
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB0_7 ;;
-; CHECK:       addl r14 = @ltoff(.LJTI0_0), r1 ;;
-; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK:       addl r14 = @ltoffx(.LJTI0_0), r1 ;;
+; CHECK-NEXT:  ld8.mov r14 = [r14], .LJTI0_0 ;;
 ; CHECK-NEXT:  shladd r15 = r32, 2, r14 ;;
 ; CHECK-NEXT:  ld4 r15 = [r15] ;;
 ; CHECK-NEXT:  sxt4 r15 = r15 ;;
@@ -64,8 +64,8 @@ y:
 ; The address of a block comes out of the linkage table.
 define ptr @h() {
 ; CHECK-LABEL: h:
-; CHECK:       addl r14 = @ltoff(.Ltmp1), r1 ;;
-; CHECK-NEXT:  ld8 r8 = [r14]
+; CHECK:       addl r14 = @ltoffx(.Ltmp1), r1 ;;
+; CHECK-NEXT:  ld8.mov r8 = [r14], .Ltmp1
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   ret ptr blockaddress(@g, %y)
 }

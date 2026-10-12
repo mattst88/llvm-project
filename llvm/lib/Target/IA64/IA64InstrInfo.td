@@ -500,9 +500,12 @@ foreach K = IntLoadKinds in
 // bit is held in ar.unat in between.
 let Uses = [AR36] in
 defm LD8_FILL : IntLoad<0x1b, "ld8.fill">;
+let mayLoad = 1 in
 def LD8_MOV : M1Mov<0x03, "ld8.mov">;
+let mayLoad = 1 in {
 def LD16     : M1_16<0x28, "ld16">;
 def LD16_ACQ : M1_16<0x2c, "ld16.acq">;
+}
 
 let mayStore = 1 in
 multiclass IntStore<bits<6> x6, string mnemonic> {
