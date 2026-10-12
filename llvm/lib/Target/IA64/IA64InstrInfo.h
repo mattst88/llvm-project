@@ -102,6 +102,8 @@ public:
 
   bool expandPostRAPseudo(MachineInstr &MI) const override;
 
+  bool isPredicated(const MachineInstr &MI) const override;
+
   bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,

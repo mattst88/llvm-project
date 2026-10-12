@@ -18,11 +18,10 @@ define void @trap() {
 
 define i64 @trap_if_zero(i64 %a) {
 ; CHECK-LABEL: trap_if_zero:
-; CHECK:       cmp.eq p6, p7 = 0, r32
-; CHECK-NEXT:  (p6) br.cond.dpnt.few [[BAD:.LBB[0-9_]+]] ;;
-; CHECK:       mov r8 = r32
-; CHECK-NEXT:  br.ret.sptk.many b0 ;;
-; CHECK-NEXT:  [[BAD]]:
+; CHECK:       cmp.eq p7, p6 = 0, r32 ;;
+; CHECK-NEXT:  (p6) mov r8 = r32
+; CHECK-NEXT:  (p6) br.ret.dptk.many b0 ;;
+; CHECK-NEXT:  {{.LBB[0-9_]+}}:
 ; CHECK-NEXT:  break.m 0 ;;
 ; CHECK-NEXT:  .endp trap_if_zero
   %z = icmp eq i64 %a, 0

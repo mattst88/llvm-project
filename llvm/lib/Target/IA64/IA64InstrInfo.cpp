@@ -606,11 +606,22 @@ static void getCondition(const MachineInstr &MI,
     Cond.push_back(MI.getOperand(I));
 }
 
+bool IA64InstrInfo::isPredicated(const MachineInstr &MI) const {
+  int Idx = MI.findFirstPredOperandIdx();
+  return Idx >= 0 && MI.getOperand(Idx).getReg() != IA64::P0;
+}
+
 bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
                                   MachineBasicBlock *&TBB,
                                   MachineBasicBlock *&FBB,
                                   SmallVectorImpl<MachineOperand> &Cond,
                                   bool AllowModify) const {
+  // A predicated return cannot be analyzed: its predicate cannot be turned
+  // back into a compare.
+  for (const MachineInstr &MI : MBB.terminators())
+    if (MI.isReturn() && isPredicated(MI))
+      return true;
+
   MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
   if (I == MBB.end() || !isUnpredicatedTerminator(*I))
     return false;

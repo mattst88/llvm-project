@@ -26,6 +26,7 @@
 #include "IA64.h"
 #include "IA64InstrInfo.h"
 #include "IA64Subtarget.h"
+#include "MCTargetDesc/IA64BaseInfo.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
@@ -41,6 +42,7 @@ using namespace llvm;
 
 STATISTIC(NumTriangles, "Number of branches around one block removed");
 STATISTIC(NumDiamonds, "Number of branches between two blocks removed");
+STATISTIC(NumReturns, "Number of branches around a return removed");
 
 static cl::opt<unsigned> Limit(
     "ia64-if-conversion-limit", cl::Hidden, cl::init(4),
@@ -76,7 +78,7 @@ private:
   MachineBasicBlock *getOnlySuccessor(MachineBasicBlock &MBB) const;
   bool canQualify(const MachineBasicBlock &MBB) const;
   void qualify(MachineBasicBlock &From, MachineBasicBlock &To, Register Pred,
-               const LivePhysRegs &Otherwise) const;
+               const LivePhysRegs &Otherwise, bool KeepReturn) const;
   bool convert(MachineBasicBlock &MBB) const;
   bool mergeWithSuccessor(MachineBasicBlock &MBB) const;
 };
@@ -147,16 +149,17 @@ bool IA64IfConversion::canQualify(const MachineBasicBlock &MBB) const {
   return true;
 }
 
-// Move the instructions of From to the end of To with Pred to qualify them.
-// A register that one of them writes keeps what it had when the predicate is
-// clear, which is a use of it if something reads it then: Otherwise has the
-// registers that are read when control does not go through From.
+// Move From's instructions to the end of To, predicated on Pred, along with
+// From's return if KeepReturn.
+// A register they write keeps its old value when Pred is false, so the
+// write is also a use of the register if it is live then: Otherwise holds
+// the registers live on the path that bypasses From.
 void IA64IfConversion::qualify(MachineBasicBlock &From, MachineBasicBlock &To,
-                               Register Pred,
-                               const LivePhysRegs &Otherwise) const {
+                               Register Pred, const LivePhysRegs &Otherwise,
+                               bool KeepReturn) const {
   MachineFunction &MF = *To.getParent();
   for (MachineInstr &MI : make_early_inc_range(From)) {
-    if (MI.isTerminator()) {
+    if (MI.isTerminator() && !(MI.isReturn() && KeepReturn)) {
       MI.eraseFromParent();
       continue;
     }
@@ -208,7 +211,7 @@ bool IA64IfConversion::convert(MachineBasicBlock &MBB) const {
   const MachineInstr *FReturn = CanF ? getReturn(*FBB) : nullptr;
   MachineBasicBlock *Join = nullptr;
   MachineInstr *Return = nullptr;
-  bool QualifyT, QualifyF, Returns = false;
+  bool QualifyT, QualifyF, Returns = false, Early = false;
   if (TNext && TNext == FNext && TNext != TBB && TNext != FBB) {
     Join = TNext;
     QualifyT = QualifyF = true;
@@ -223,12 +226,14 @@ bool IA64IfConversion::convert(MachineBasicBlock &MBB) const {
     auto Worthwhile = [&](MachineBasicBlock *Succ) {
       return MBPI->getEdgeProbability(&MBB, Succ) >= BranchProbability(1, 8);
     };
-    QualifyT = TNext == FBB && Worthwhile(TBB);
-    QualifyF = !QualifyT && FNext == TBB && Worthwhile(FBB);
+    QualifyT = (TNext == FBB || TReturn) && Worthwhile(TBB);
+    QualifyF = !QualifyT && (FNext == TBB || FReturn) && Worthwhile(FBB);
     if (!QualifyT && !QualifyF)
       return false;
     Join = QualifyT ? FBB : TBB;
-    ++NumTriangles;
+    // A side that returns keeps its return, predicated.
+    Early = QualifyT ? TReturn : FReturn;
+    ++(Early ? NumReturns : NumTriangles);
   }
 
   MachineBasicBlock::iterator Branch = MBB.getFirstTerminator();
@@ -261,8 +266,13 @@ bool IA64IfConversion::convert(MachineBasicBlock &MBB) const {
         std::tuple(FBB, IA64::P7, QualifyF, &NotF)}) {
     if (!Wanted)
       continue;
-    qualify(*Succ, MBB, Pred, *Otherwise);
-    if (Join)
+    qualify(*Succ, MBB, Pred, *Otherwise, Early);
+    if (Early)
+      MBB.back().getOperand(1).setImm(MBPI->getEdgeProbability(&MBB, Succ) >=
+                                              BranchProbability(1, 2)
+                                          ? IA64II::WhetherDPTK
+                                          : IA64II::WhetherDPNT);
+    else if (Join)
       Succ->removeSuccessor(Join);
     MBB.removeSuccessor(Succ);
     Succ->eraseFromParent();

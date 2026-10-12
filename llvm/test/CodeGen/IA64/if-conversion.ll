@@ -123,6 +123,46 @@ join:
   ret double %r
 }
 
+; A side that returns does so under the predicate, and the block goes on to
+; the other side if it does not.
+
+define i64 @early(i64 %a, i64 %b, ptr %p) {
+; CHECK-LABEL: early:
+; CHECK:       cmp.eq p7, p6 = 0, r32 ;;
+; CHECK-NEXT:  (p7) mov r8 = r33
+; CHECK-NEXT:  (p7) br.ret.dpnt.many b0 ;;
+; CHECK-NEXT:  {{.LBB[0-9_]+}}:
+; CHECK-NEXT:  mov r14 = 1 ;;
+;
+; OFF-LABEL: early:
+; OFF:       br.cond
+  %c = icmp eq i64 %a, 0
+  br i1 %c, label %then, label %else
+then:
+  ret i64 %b
+else:
+  store volatile i64 1, ptr %p
+  store volatile i64 2, ptr %p
+  store volatile i64 3, ptr %p
+  ret i64 %a
+}
+
+; A return that is seldom reached stays behind its branch.
+
+define i64 @early_cold(i64 %a, i64 %b, ptr %p) {
+; CHECK-LABEL: early_cold:
+; CHECK:       br.cond.dpnt
+  %c = icmp eq i64 %a, 0
+  br i1 %c, label %then, label %else, !prof !0
+then:
+  ret i64 %b
+else:
+  store volatile i64 1, ptr %p
+  store volatile i64 2, ptr %p
+  store volatile i64 3, ptr %p
+  ret i64 %a
+}
+
 ; The instructions of a converted branch have a predicate, so the branch
 ; further up stays.
 
