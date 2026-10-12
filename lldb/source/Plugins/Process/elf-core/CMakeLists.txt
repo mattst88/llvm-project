@@ -6,6 +6,7 @@ add_lldb_library(lldbPluginProcessElfCore PLUGIN
   RegisterContextPOSIXCore_arm64.cpp
   RegisterContextPOSIXCore_powerpc.cpp
   RegisterContextPOSIXCore_ppc64le.cpp
+  RegisterContextPOSIXCore_ia64.cpp
   RegisterContextPOSIXCore_s390x.cpp
   RegisterContextPOSIXCore_x86.cpp
   RegisterContextPOSIXCore_riscv32.cpp

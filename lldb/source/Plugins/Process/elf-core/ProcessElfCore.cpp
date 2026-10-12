@@ -1169,15 +1169,20 @@ llvm::Error ProcessElfCore::ParseThreadContextsFromNoteSegment(
     return parseNetBSDNotes(*notes_or_error);
   case llvm::Triple::OpenBSD:
     return parseOpenBSDNotes(*notes_or_error);
-  default:
-    // Treat bare-metal 32-bit RISC-V like Linux.
-    if (GetTarget().GetArchitecture().GetMachine() == llvm::Triple::riscv32 &&
+  default: {
+    // Treat bare-metal 32-bit RISC-V like Linux. Likewise IA-64: all its notes
+    // are owned by "CORE", so nothing in the core file identifies the OS, and
+    // Linux is the only OS LLVM's IA-64 support targets.
+    const llvm::Triple::ArchType machine =
+        GetTarget().GetArchitecture().GetMachine();
+    if ((machine == llvm::Triple::riscv32 || machine == llvm::Triple::ia64) &&
         GetTarget().GetArchitecture().GetTriple().getOS() ==
             llvm::Triple::UnknownOS)
       return parseLinuxNotes(*notes_or_error);
     else
       return llvm::createStringError(
           "don't know how to parse core file: unsupported OS");
+  }
   }
 }
 

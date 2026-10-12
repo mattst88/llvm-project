@@ -20,6 +20,7 @@
 #include "Plugins/Process/Utility/RegisterContextFreeBSD_powerpc.h"
 #include "Plugins/Process/Utility/RegisterContextFreeBSD_x86_64.h"
 #include "Plugins/Process/Utility/RegisterContextLinux_i386.h"
+#include "Plugins/Process/Utility/RegisterContextLinux_ia64.h"
 #include "Plugins/Process/Utility/RegisterContextLinux_s390x.h"
 #include "Plugins/Process/Utility/RegisterContextLinux_x86_64.h"
 #include "Plugins/Process/Utility/RegisterContextNetBSD_i386.h"
@@ -33,6 +34,7 @@
 #include "RegisterContextLinuxCore_x86.h"
 #include "RegisterContextPOSIXCore_arm.h"
 #include "RegisterContextPOSIXCore_arm64.h"
+#include "RegisterContextPOSIXCore_ia64.h"
 #include "RegisterContextPOSIXCore_loongarch64.h"
 #include "RegisterContextPOSIXCore_powerpc.h"
 #include "RegisterContextPOSIXCore_ppc64le.h"
@@ -133,6 +135,9 @@ ThreadElfCore::CreateRegisterContextForFrame(StackFrame *frame) {
       case llvm::Triple::ppc64le:
         reg_interface = new RegisterInfoPOSIX_ppc64le(arch);
         break;
+      case llvm::Triple::ia64:
+        reg_interface = new RegisterContextLinux_ia64(arch);
+        break;
       case llvm::Triple::systemz:
         reg_interface = new RegisterContextLinux_s390x(arch);
         break;
@@ -165,6 +170,11 @@ ThreadElfCore::CreateRegisterContextForFrame(StackFrame *frame) {
     }
 
     default:
+      // An IA-64 core file does not identify its OS: EI_OSABI is
+      // ELFOSABI_NONE and every note is owned by "CORE". ProcessElfCore parses
+      // the notes as Linux notes, so use the Linux register layout to match.
+      if (arch.GetMachine() == llvm::Triple::ia64)
+        reg_interface = new RegisterContextLinux_ia64(arch);
       break;
     }
 
@@ -208,6 +218,10 @@ ThreadElfCore::CreateRegisterContextForFrame(StackFrame *frame) {
     case llvm::Triple::ppc64le:
       m_thread_reg_ctx_sp = std::make_shared<RegisterContextCorePOSIX_ppc64le>(
           *this, reg_interface, m_gpregset_data, m_notes);
+      break;
+    case llvm::Triple::ia64:
+      m_thread_reg_ctx_sp = std::make_shared<RegisterContextCorePOSIX_ia64>(
+          *this, reg_interface, m_gpregset_data);
       break;
     case llvm::Triple::systemz:
       m_thread_reg_ctx_sp = std::make_shared<RegisterContextCorePOSIX_s390x>(
