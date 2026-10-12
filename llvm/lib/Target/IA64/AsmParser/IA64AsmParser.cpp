@@ -1034,7 +1034,7 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     if (StringSwitch<bool>(Name)
             .Cases({"ip", "pr", "pr.rot", "psr", "psr.l", "psr.um"}, true)
             .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
-            .Cases({"cpuid", "dtr", "itr", "dahr"}, true)
+            .Cases({"cpuid", "dtr", "itr", "dahr", "msr"}, true)
             .Default(false)) {
       Operands.push_back(IA64Operand::createToken(Name, S));
       Parser.Lex();

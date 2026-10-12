@@ -713,14 +713,16 @@ def ITC_D : M41<0x2e, "itc.d">;
 def ITC_I : M41<0x2f, "itc.i">;
 
 // The indirect register files: region, data and instruction breakpoint,
-// protection key, and performance monitor configuration and data registers,
-// and the processor identification registers, which can only be read.
+// protection key, performance monitor configuration and data, and the
+// read-only CPUID registers. The model-specific registers are also an
+// indirect file, with implementation-defined contents.
 def MOV_RR  : M42<0x00, "mov", "rr">;
 def MOV_DBR : M42<0x01, "mov", "dbr">;
 def MOV_IBR : M42<0x02, "mov", "ibr">;
 def MOV_PKR : M42<0x03, "mov", "pkr">;
 def MOV_PMC : M42<0x04, "mov", "pmc">;
 def MOV_PMD : M42<0x05, "mov", "pmd">;
+def MOV_MSR : M42<0x06, "mov", "msr">;
 def ITR_D   : M42<0x0e, "itr.d", "dtr">;
 def ITR_I   : M42<0x0f, "itr.i", "itr">;
 def MOV_FROM_RR    : M43<0x10, "mov", "rr">;
@@ -729,6 +731,7 @@ def MOV_FROM_IBR   : M43<0x12, "mov", "ibr">;
 def MOV_FROM_PKR   : M43<0x13, "mov", "pkr">;
 def MOV_FROM_PMC   : M43<0x14, "mov", "pmc">;
 def MOV_FROM_PMD   : M43<0x15, "mov", "pmd">;
+def MOV_FROM_MSR   : M43<0x16, "mov", "msr">;
 def MOV_FROM_CPUID : M43<0x17, "mov", "cpuid">;
 
 // The data access hint registers, written from an immediate, and the
