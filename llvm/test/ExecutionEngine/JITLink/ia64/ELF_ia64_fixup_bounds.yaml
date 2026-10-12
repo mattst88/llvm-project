@@ -1,0 +1,76 @@
+# RUN: yaml2obj -DTYPE=R_IA64_DIR64LSB -DOFFSET=8 %s -o %t.dir64.o
+# RUN: not llvm-jitlink -noexec %t.dir64.o 2>&1 \
+# RUN:   | FileCheck -DKIND=Pointer64 %s
+# RUN: yaml2obj -DTYPE=R_IA64_DIR32LSB -DOFFSET=10 %s -o %t.dir32.o
+# RUN: not llvm-jitlink -noexec %t.dir32.o 2>&1 \
+# RUN:   | FileCheck -DKIND=Pointer32 %s
+# RUN: yaml2obj -DTYPE=R_IA64_PCREL64LSB -DOFFSET=0x100000 %s -o %t.pcrel64.o
+# RUN: not llvm-jitlink -noexec %t.pcrel64.o 2>&1 \
+# RUN:   | FileCheck -DKIND=Delta64 %s
+# RUN: yaml2obj -DTYPE=R_IA64_PCREL32LSB -DOFFSET=9 %s -o %t.pcrel32.o
+# RUN: not llvm-jitlink -noexec %t.pcrel32.o 2>&1 \
+# RUN:   | FileCheck -DKIND=Delta32 %s
+# RUN: yaml2obj -DTYPE=R_IA64_GPREL64LSB -DOFFSET=5 %s -o %t.gprel64.o
+# RUN: not llvm-jitlink -noexec %t.gprel64.o 2>&1 \
+# RUN:   | FileCheck -DKIND=GPRel64 %s
+# RUN: yaml2obj -DTYPE=R_IA64_SEGREL64LSB -DOFFSET=12 %s -o %t.segrel64.o
+# RUN: not llvm-jitlink -noexec %t.segrel64.o 2>&1 \
+# RUN:   | FileCheck -DKIND=SegRel64 %s
+
+# The words that fit are fixed.
+# RUN: yaml2obj -DTYPE=R_IA64_DIR64LSB -DOFFSET=4 %s -o %t.ok64.o
+# RUN: llvm-jitlink -noexec %t.ok64.o
+# RUN: yaml2obj -DTYPE=R_IA64_PCREL32LSB -DOFFSET=8 %s -o %t.ok32.o
+# RUN: llvm-jitlink -noexec %t.ok32.o
+
+# A relocation of a data word that does not lie within its section is
+# refused, and nothing is written past the end of the block. main refers to
+# the data so that it is kept.
+
+# CHECK: section .data: [[KIND]] at {{.*}} does not fit in its block
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS64
+  Data:    ELFDATA2LSB
+  Type:    ET_REL
+  Machine: EM_IA_64
+  Flags:   [ EF_IA_64_ABI64 ]
+Sections:
+  - Name:         .text
+    Type:         SHT_PROGBITS
+    Flags:        [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign: 0x10
+    Content:      '11700002002480000000428008008400'
+  - Name:         .rela.text
+    Type:         SHT_RELA
+    Flags:        [ SHF_INFO_LINK ]
+    Link:         .symtab
+    AddressAlign: 0x8
+    Info:         .text
+    Relocations:
+      - Symbol: x
+        Type:   R_IA64_LTOFF22
+  - Name:         .data
+    Type:         SHT_PROGBITS
+    Flags:        [ SHF_WRITE, SHF_ALLOC ]
+    AddressAlign: 0x8
+    Content:      '000000000000000000000000'
+  - Name:         .rela.data
+    Type:         SHT_RELA
+    Flags:        [ SHF_INFO_LINK ]
+    Link:         .symtab
+    AddressAlign: 0x8
+    Info:         .data
+    Relocations:
+      - Symbol: x
+        Offset: [[OFFSET]]
+        Type:   [[TYPE]]
+Symbols:
+  - Name:    x
+    Section: .data
+  - Name:    main
+    Type:    STT_FUNC
+    Section: .text
+    Binding: STB_GLOBAL
+    Size:    0x10

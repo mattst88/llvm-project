@@ -1,0 +1,24 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: not llvm-jitlink -noexec %t.o 2>&1 | FileCheck %s
+
+# An object for another operating system, as an assembler makes with -mbe, is
+# refused and not taken for the little-endian one it is not.
+
+# CHECK: only little-endian 64-bit ia64 objects are supported
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS64
+  Data:    ELFDATA2MSB
+  Type:    ET_REL
+  Machine: EM_IA_64
+Sections:
+  - Name:  .text
+    Type:  SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_EXECINSTR ]
+    Size:  16
+Symbols:
+  - Name:    main
+    Type:    STT_FUNC
+    Section: .text
+    Binding: STB_GLOBAL

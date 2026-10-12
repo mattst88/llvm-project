@@ -16,6 +16,7 @@
 #include "llvm/ExecutionEngine/JITLink/ELF_aarch32.h"
 #include "llvm/ExecutionEngine/JITLink/ELF_aarch64.h"
 #include "llvm/ExecutionEngine/JITLink/ELF_hexagon.h"
+#include "llvm/ExecutionEngine/JITLink/ELF_ia64.h"
 #include "llvm/ExecutionEngine/JITLink/ELF_loongarch.h"
 #include "llvm/ExecutionEngine/JITLink/ELF_mips.h"
 #include "llvm/ExecutionEngine/JITLink/ELF_ppc64.h"
@@ -104,6 +105,8 @@ createLinkGraphFromELFObject(MemoryBufferRef ObjectBuffer,
     else
       return createLinkGraphFromELFObject_ppc64(ObjectBuffer, std::move(SSP));
   }
+  case ELF::EM_IA_64:
+    return createLinkGraphFromELFObject_ia64(ObjectBuffer, std::move(SSP));
   case ELF::EM_LOONGARCH:
     return createLinkGraphFromELFObject_loongarch(ObjectBuffer, std::move(SSP));
   case ELF::EM_MIPS:
@@ -140,6 +143,9 @@ void link_ELF(std::unique_ptr<LinkGraph> G,
     return;
   case Triple::hexagon:
     link_ELF_hexagon(std::move(G), std::move(Ctx));
+    return;
+  case Triple::ia64:
+    link_ELF_ia64(std::move(G), std::move(Ctx));
     return;
   case Triple::loongarch32:
   case Triple::loongarch64:
