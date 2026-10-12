@@ -2163,8 +2163,12 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
     }
     if (ctx.arg.emachine == EM_RISCV)
       addPhdrForSection(SHT_RISCV_ATTRIBUTES, PT_RISCV_ATTRIBUTES, PF_R);
-    // The unwinder finds a module's unwind table through its own segment.
-    if (ctx.arg.emachine == EM_IA_64)
+    // The unwinder locates the unwind table through the first
+    // PT_IA_64_UNWIND segment. A PHDRS command may already have created one.
+    if (ctx.arg.emachine == EM_IA_64 &&
+        llvm::none_of(ctx.phdrs, [](const std::unique_ptr<PhdrEntry> &p) {
+          return p->p_type == PT_IA_64_UNWIND;
+        }))
       addPhdrForSection(SHT_IA_64_UNWIND, PT_IA_64_UNWIND, PF_R);
     ctx.out.programHeaders->size = sizeof(Elf_Phdr) * ctx.phdrs.size();
 
