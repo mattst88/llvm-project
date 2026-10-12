@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
@@ -368,6 +369,16 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::RETURNADDR, MVT::i64, Custom);
   setOperationAction(ISD::FRAMEADDR, MVT::i64, Custom);
   setOperationAction(ISD::SPONENTRY, MVT::i64, Custom);
+
+  // Unsupported operations are reported as errors. The i32 result of
+  // EH_SJLJ_SETJMP and the operand of FPTRUNC_ROUND may have illegal types,
+  // so these are custom-lowered before type legalization.
+  setOperationAction(ISD::ADDROFRETURNADDR, MVT::i64, Custom);
+  setOperationAction(ISD::EH_SJLJ_SETJMP, MVT::i32, Custom);
+  setOperationAction(ISD::EH_SJLJ_LONGJMP, MVT::Other, Custom);
+  setOperationAction(ISD::EH_RETURN, MVT::Other, Custom);
+  for (MVT VT : MVT::fp_valuetypes())
+    setOperationAction(ISD::FPTRUNC_ROUND, VT, Custom);
   // Its operand is an i32, so it must be lowered before type legalization.
   setOperationAction(ISD::EH_DWARF_CFA, MVT::i32, Custom);
   setOperationAction(ISD::INIT_TRAMPOLINE, MVT::Other, Custom);
@@ -430,6 +441,15 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
     for (MVT MemVT : {MVT::i8, MVT::i16, MVT::i32})
       setLoadExtAction(ISD::SEXTLOAD, VT, MemVT, Expand);
   }
+}
+
+// Report an unsupported intrinsic as an error in the calling function
+// instead of crashing.
+static void reportUnsupported(SelectionDAG &DAG, const SDLoc &DL,
+                              const Twine &What) {
+  DAG.getContext()->diagnose(DiagnosticInfoUnsupported(
+      DAG.getMachineFunction().getFunction(),
+      What + " is not supported on IA-64", DL.getDebugLoc()));
 }
 
 SDValue IA64TargetLowering::LowerOperation(SDValue Op,
@@ -533,6 +553,22 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerFRAMEADDR(Op, DAG);
   case ISD::SPONENTRY:
     return LowerSPONENTRY(Op, DAG);
+  case ISD::ADDROFRETURNADDR:
+    // The return link is in a branch register, not in memory.
+    reportUnsupported(DAG, SDLoc(Op), "llvm.addressofreturnaddress");
+    return DAG.getConstant(0, SDLoc(Op), MVT::i64);
+  case ISD::EH_SJLJ_LONGJMP:
+    reportUnsupported(DAG, SDLoc(Op), "llvm.eh.sjlj.longjmp");
+    return Op.getOperand(0);
+  case ISD::EH_RETURN:
+    // Returning to a handler requires restoring its frame's register stack
+    // as well as SP. GCC also rejects __builtin_eh_return on IA-64; libgcc's
+    // unwinder restores both itself.
+    reportUnsupported(DAG, SDLoc(Op), "llvm.eh.return");
+    return Op.getOperand(0);
+  case ISD::FPTRUNC_ROUND:
+    reportUnsupported(DAG, SDLoc(Op), "llvm.fptrunc.round");
+    return DAG.getPOISON(Op.getValueType());
   case ISD::EH_DWARF_CFA:
     return LowerEH_DWARF_CFA(Op, DAG);
   case ISD::INIT_TRAMPOLINE:
@@ -573,6 +609,15 @@ void IA64TargetLowering::ReplaceNodeResults(SDNode *N,
     Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Bits));
     return;
   }
+  case ISD::EH_SJLJ_SETJMP:
+    reportUnsupported(DAG, DL, "llvm.eh.sjlj.setjmp");
+    Results.push_back(DAG.getConstant(0, DL, MVT::i32));
+    Results.push_back(N->getOperand(0));
+    return;
+  case ISD::FPTRUNC_ROUND:
+    reportUnsupported(DAG, DL, "llvm.fptrunc.round");
+    Results.push_back(DAG.getPOISON(N->getValueType(0)));
+    return;
   default:
     llvm_unreachable("a result with no custom lowering");
   }
