@@ -162,3 +162,51 @@ IA64TTIImpl::getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx,
   }
   return getIntImmCost(Imm, Ty, CostKind);
 }
+
+InstructionCost IA64TTIImpl::getArithmeticInstrCost(
+    unsigned Opcode, Type *Ty, TTI::TargetCostKind CostKind,
+    TTI::OperandValueInfo Op1Info, TTI::OperandValueInfo Op2Info,
+    ArrayRef<const Value *> Args, const Instruction *CtxI) const {
+  bool Latency = CostKind == TTI::TCK_Latency;
+  bool Size = CostKind == TTI::TCK_CodeSize;
+
+  if (Ty->isIntegerTy() && Ty->getIntegerBitWidth() <= 64) {
+    bool Signed = Opcode == Instruction::SDiv || Opcode == Instruction::SRem;
+    bool Remainder = Opcode == Instruction::URem || Opcode == Instruction::SRem;
+    switch (Opcode) {
+    default:
+      break;
+    case Instruction::Mul:
+      if (Op2Info.isConstant() && Op2Info.isPowerOf2())
+        return TTI::TCC_Basic;
+      // Each operand is moved to an FP register, multiplied with xma, and
+      // the product moved back. The moves take five cycles and xma four.
+      return Latency ? 14 : 4;
+    case Instruction::UDiv:
+    case Instruction::URem:
+    case Instruction::SDiv:
+    case Instruction::SRem:
+      if (Op2Info.isConstant()) {
+        // By a power of two it is a shift or a mask, plus a sign fixup. By
+        // another constant it is a multiply-high and one or two shifts, and
+        // the remainder takes one more multiply.
+        if (Op2Info.isPowerOf2())
+          return Signed ? 4 : 1;
+        InstructionCost Cost = Signed ? 8 : 6;
+        if (Remainder)
+          Cost += 5;
+        return Latency ? Cost + 10 : Cost;
+      }
+      // The libcall is two instructions at the call site and a few dozen in
+      // the callee.
+      return Size ? 2 : Latency ? 40 : 20;
+    }
+  }
+
+  // Thirteen instructions, mostly fma, with a dependence chain seven deep.
+  if (Opcode == Instruction::FDiv && (Ty->isFloatTy() || Ty->isDoubleTy()))
+    return Latency ? 30 : 13;
+
+  return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info, Op2Info,
+                                       Args, CtxI);
+}
