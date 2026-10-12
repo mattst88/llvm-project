@@ -771,6 +771,7 @@ bool IA64InstructionSelector::selectInstruction(
     I.eraseFromParent();
     return true;
 
+  case TargetOpcode::G_JUMP_TABLE:
   case TargetOpcode::G_BLOCK_ADDR:
     loadLinkageTableEntry(I, I.getOperand(0).getReg(), I.getOperand(1),
                           IA64::S_LTOFF);

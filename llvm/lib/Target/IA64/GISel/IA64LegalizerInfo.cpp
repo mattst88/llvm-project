@@ -20,6 +20,7 @@
 #include "IA64Subtarget.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerHelper.h"
+#include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/IR/Intrinsics.h"
 
@@ -167,6 +168,10 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
   getActionDefinitionsBuilder(G_BRCOND).legalFor({s64}).minScalar(0, s64);
   getActionDefinitionsBuilder(G_BR).alwaysLegal();
   getActionDefinitionsBuilder(G_BRINDIRECT).legalFor({p0});
+
+  // Jump table entries are 32-bit offsets of the block from the table.
+  getActionDefinitionsBuilder(G_JUMP_TABLE).legalFor({p0});
+  getActionDefinitionsBuilder(G_BRJT).customFor({{p0, s64}});
 
   getActionDefinitionsBuilder(G_PHI)
       .legalFor({s32, s64, s80, p0})
@@ -374,6 +379,27 @@ bool IA64LegalizerInfo::legalizeCustom(
   switch (MI.getOpcode()) {
   default:
     return false;
+  case G_BRJT: {
+    // Load the entry, add it to the table address and branch there.
+    const MachineJumpTableInfo *MJTI = MF.getJumpTableInfo();
+    if (MJTI->getEntryKind() != MachineJumpTableInfo::EK_LabelDifference32)
+      return false;
+    LLT P0 = LLT::pointer(0, 64);
+    LLT S32 = LLT::scalar(32);
+    LLT S64 = LLT::scalar(64);
+    Register Table = MI.getOperand(0).getReg();
+    auto Offset = MIRBuilder.buildShl(S64, MI.getOperand(2).getReg(),
+                                      MIRBuilder.buildConstant(S64, 2));
+    auto Entry = MIRBuilder.buildLoad(
+        S32, MIRBuilder.buildPtrAdd(P0, Table, Offset),
+        *MF.getMachineMemOperand(MachinePointerInfo::getJumpTable(MF),
+                                 MachineMemOperand::MOLoad, S32, Align(4)));
+    MIRBuilder.buildBrIndirect(
+        MIRBuilder.buildPtrAdd(P0, Table, MIRBuilder.buildSExt(S64, Entry))
+            .getReg(0));
+    MI.eraseFromParent();
+    return true;
+  }
   case G_VASTART: {
     // The va_list starts at the first variadic argument, just past the named
     // ones.
