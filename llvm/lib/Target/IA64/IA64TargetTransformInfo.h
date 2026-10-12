@@ -22,6 +22,7 @@ namespace llvm {
 
 class IA64TTIImpl final : public BasicTTIImplBase<IA64TTIImpl> {
   using BaseT = BasicTTIImplBase<IA64TTIImpl>;
+  using TTI = TargetTransformInfo;
   friend BaseT;
 
   const IA64Subtarget *ST;
@@ -34,6 +35,14 @@ public:
   explicit IA64TTIImpl(const IA64TargetMachine *TM, const Function &F)
       : BaseT(TM, F.getDataLayout()), ST(TM->getSubtargetImpl(F)),
         TLI(ST->getTargetLowering()) {}
+
+  // Post-increment of the address register is the only addressing mode
+  // loads and stores have, so loops should step a pointer.
+  TTI::AddressingModeKind
+  getPreferredAddressingMode(const Loop *L,
+                             ScalarEvolution *SE) const override {
+    return TTI::AMK_PostIndexed;
+  }
 
   bool supportsTailCallFor(const CallBase *CB) const override {
     return TLI->supportsTailCallFor(CB);
