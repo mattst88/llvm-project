@@ -101,3 +101,29 @@ define i200 @wide(x86_fp80 %x) {
   %c = sext i80 %b to i200
   ret i200 %c
 }
+
+; The low bits of one are the first doubleword of the ten bytes.
+
+; CHECK-LABEL: low:
+; CHECK:      ldfe f6 = [r32]
+; CHECK-NEXT: mov r14 = r12 ;;
+; CHECK-NEXT: stfe [r14] = f6
+; CHECK-NEXT: ld8 r8 = [r14]
+; CHECK-NEXT: br.ret.sptk.many b0 ;;
+define i64 @low(ptr %p) {
+  %v = load i80, ptr %p
+  %t = trunc i80 %v to i64
+  ret i64 %t
+}
+
+; CHECK-LABEL: lower:
+; CHECK:      ldfe f6 = [r32]
+; CHECK-NEXT: mov r14 = r12 ;;
+; CHECK-NEXT: stfe [r14] = f6
+; CHECK-NEXT: ld8 r8 = [r14]
+; CHECK-NEXT: br.ret.sptk.many b0 ;;
+define i32 @lower(ptr %p) {
+  %v = load i80, ptr %p
+  %t = trunc i80 %v to i32
+  ret i32 %t
+}

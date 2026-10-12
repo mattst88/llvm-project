@@ -169,6 +169,10 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
         return Query.Types[0] == s80 && Query.Types[1].isScalar() &&
                Query.Types[1].getSizeInBits() % 64 == 0;
       })
+      .customIf([=](const LegalityQuery &Query) {
+        return Query.Types[1] == s80 && Query.Types[0].isScalar() &&
+               Query.Types[0].getSizeInBits() <= 64;
+      })
       .legalIf(
           [=](const LegalityQuery &Query) { return Query.Types[0].isScalar(); })
       .scalarize(0);
@@ -642,7 +646,15 @@ bool IA64LegalizerInfo::legalizeCustom(
         MI.getOpcode() == G_TRUNC ? MachineMemOperand::MOStore
                                   : MachineMemOperand::MOLoad,
         S16, Align(8));
-    if (MI.getOpcode() == G_TRUNC) {
+    if (MI.getOpcode() == G_TRUNC && MRI.getType(Src) == LLT::scalar(80)) {
+      // stfe stores the low bits in the first doubleword.
+      MIRBuilder.buildStore(Src, Slot, SlotInfo, Align(16));
+      auto Low = MIRBuilder.buildLoad(S64, Slot, SlotInfo, Align(16));
+      if (MRI.getType(Dst) == S64)
+        MIRBuilder.buildCopy(Dst, Low);
+      else
+        MIRBuilder.buildTrunc(Dst, Low);
+    } else if (MI.getOpcode() == G_TRUNC) {
       auto Parts = MIRBuilder.buildUnmerge(S64, Src);
       MIRBuilder.buildStore(Parts.getReg(0), Slot, SlotInfo, Align(16));
       MIRBuilder.buildStore(Parts.getReg(1), SlotHigh, *High);
