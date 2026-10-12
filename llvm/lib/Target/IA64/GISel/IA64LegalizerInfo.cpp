@@ -200,7 +200,12 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
         .widenScalarToNextPow2(BigTy, 32)
         .clampScalar(LitTy, s8, s64)
         .clampScalar(BigTy, s16, s128)
-        .lower();
+        // Values wider than a register stay as their halves and are only
+        // combined where an unmerge reads the halves again. Lowering them to
+        // shifts and ors would just produce another wide merge.
+        .lowerIf([=](const LegalityQuery &Query) {
+          return Query.Types[BigTy].getSizeInBits() <= 64;
+        });
   }
   getActionDefinitionsBuilder({G_EXTRACT, G_INSERT}).lower();
 

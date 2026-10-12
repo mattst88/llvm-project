@@ -171,6 +171,19 @@ const RegisterBankInfo::InstructionMapping &
 IA64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   unsigned Opc = MI.getOpcode();
 
+  // A vreg in neither bank is a BR or predicate requested by inline asm, and
+  // moving values into those is not supported here.
+  const MachineRegisterInfo &MRI = MI.getMF()->getRegInfo();
+  for (const MachineOperand &MO : MI.operands()) {
+    if (!MO.isReg() || !MO.getReg().isVirtual())
+      continue;
+    const TargetRegisterClass *RC = MRI.getRegClassOrNull(MO.getReg());
+    if (RC && !IA64::GRRegClass.hasSubClassEq(RC) &&
+        !IA64::GRSaveRegClass.hasSubClassEq(RC) &&
+        !IA64::FRRegClass.hasSubClassEq(RC))
+      return getInvalidInstructionMapping();
+  }
+
   if (!isPreISelGenericOpcode(Opc)) {
     const InstructionMapping &Mapping = getInstrMappingImpl(MI);
     if (Mapping.isValid())
@@ -179,7 +192,6 @@ IA64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
 
   using namespace TargetOpcode;
 
-  const MachineRegisterInfo &MRI = MI.getMF()->getRegInfo();
   unsigned NumOperands = MI.getNumOperands();
 
   // The bank of each register operand, GPR unless overridden below.

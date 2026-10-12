@@ -21,6 +21,7 @@
 #include "IA64InstrInfo.h"
 #include "IA64SelectionDAGInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
+#include "llvm/CodeGen/GlobalISel/InlineAsmLowering.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include <bitset>
@@ -45,6 +46,7 @@ class IA64Subtarget : public IA64GenSubtargetInfo {
   IA64FrameLowering FrameLowering;
   IA64SelectionDAGInfo TSInfo;
   IA64CallLowering CallLoweringInfo;
+  InlineAsmLowering InlineAsmLoweringInfo;
   IA64LegalizerInfo Legalizer;
   IA64RegisterBankInfo RegBankInfo;
   std::unique_ptr<InstructionSelector> InstSelector;
@@ -76,6 +78,9 @@ public:
 
   const CallLowering *getCallLowering() const override {
     return &CallLoweringInfo;
+  }
+  const InlineAsmLowering *getInlineAsmLowering() const override {
+    return &InlineAsmLoweringInfo;
   }
   const LegalizerInfo *getLegalizerInfo() const override { return &Legalizer; }
   const RegisterBankInfo *getRegBankInfo() const override {

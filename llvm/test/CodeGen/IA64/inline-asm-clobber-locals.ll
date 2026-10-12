@@ -2,6 +2,8 @@
 ; RUN:   | FileCheck %s
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -O0 -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -global-isel -global-isel-abort=1 \
+; RUN:   -O0 -verify-machineinstrs < %s | FileCheck %s
 
 ; The prologue saves ar.pfs and the return link in the locals after the ones
 ; the body uses, and the register allocator leaves the last locals alone so
