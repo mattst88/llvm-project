@@ -107,6 +107,22 @@ static _Unwind_Personality_Fn get_handler_function(unw_proc_info_t *frameInfo) {
   return handler;
 }
 
+// Returns a value that uniquely identifies the cursor's frame on the stack.
+static unw_word_t get_frame_id(unw_cursor_t *cursor) {
+  unw_word_t sp;
+  __unw_get_reg(cursor, UNW_REG_SP, &sp);
+#if defined(_LIBUNWIND_TARGET_IA64)
+  // A frame that keeps everything in stacked registers does not move SP. From
+  // caller to callee BSP never decreases, SP never increases, and at least one
+  // of them changes, so BSP - SP is unique per frame.
+  unw_word_t bsp;
+  __unw_get_reg(cursor, UNW_IA64_AR_BSP, &bsp);
+  return bsp - sp;
+#else
+  return sp;
+#endif
+}
+
 static _Unwind_Reason_Code
 unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *exception_object) {
   __unw_init_local(cursor, uc);
@@ -132,7 +148,6 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
 
     // See if frame has code to run (has personality routine).
     unw_proc_info_t frameInfo;
-    unw_word_t sp;
     if (__unw_get_proc_info(cursor, &frameInfo) != UNW_ESUCCESS) {
       _LIBUNWIND_TRACE_UNWINDING(
           "unwind_phase1(ex_obj=%p): __unw_get_proc_info "
@@ -175,8 +190,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
       case _URC_HANDLER_FOUND:
         // found a catch clause or locals that need destructing in this frame
         // stop search and remember stack pointer at the frame
-        __unw_get_reg(cursor, UNW_REG_SP, &sp);
-        exception_object->private_2 = (uintptr_t)sp;
+        exception_object->private_2 = (uintptr_t)get_frame_id(cursor);
         _LIBUNWIND_TRACE_UNWINDING(
             "unwind_phase1(ex_obj=%p): _URC_HANDLER_FOUND",
             (void *)exception_object);
@@ -249,6 +263,7 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor,
     unw_word_t sp;
     unw_proc_info_t frameInfo;
     __unw_get_reg(cursor, UNW_REG_SP, &sp);
+    unw_word_t frameId = get_frame_id(cursor);
     if (__unw_get_proc_info(cursor, &frameInfo) != UNW_ESUCCESS) {
       _LIBUNWIND_TRACE_UNWINDING(
           "unwind_phase2(ex_obj=%p): __unw_get_proc_info "
@@ -295,7 +310,7 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor,
     if (frameInfo.handler != 0) {
       _Unwind_Personality_Fn p = get_handler_function(&frameInfo);
       _Unwind_Action action = _UA_CLEANUP_PHASE;
-      if (sp == exception_object->private_2) {
+      if (frameId == exception_object->private_2) {
         // Tell personality this was the frame it marked in phase 1.
         action = (_Unwind_Action)(_UA_CLEANUP_PHASE | _UA_HANDLER_FRAME);
       }
@@ -308,7 +323,7 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor,
         _LIBUNWIND_TRACE_UNWINDING(
             "unwind_phase2(ex_obj=%p): _URC_CONTINUE_UNWIND",
             (void *)exception_object);
-        if (sp == exception_object->private_2) {
+        if (frameId == exception_object->private_2) {
           // Phase 1 said we would stop at this frame, but we did not...
           _LIBUNWIND_ABORT("during phase1 personality function said it would "
                            "stop here, but now in phase2 it did not stop here");
