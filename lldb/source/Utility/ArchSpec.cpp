@@ -351,6 +351,12 @@ static constexpr const CoreDefinition g_core_definitions[] = {
     AMD_GPU_CORE_DEF_GCN(GFX13_GENERIC),
     {eByteOrderLittle, 8, 4, 16, llvm::Triple::amdgpu,
      ArchSpec::eCore_amd_gpu_unknown, "amdgpu"},
+
+    // An instruction is a slot of a 16-byte bundle, and its address is the
+    // bundle's plus the number of the slot. So slots 0 and 1 are one byte
+    // and the last one, which may be slots 1 and 2 together, is the rest.
+    {eByteOrderLittle, 8, 1, 15, llvm::Triple::ia64, ArchSpec::eCore_ia64,
+     "ia64"},
 };
 
 // Ensure that we have an entry in the g_core_definitions for each core. If you
@@ -604,6 +610,7 @@ static const ArchDefinitionEntry g_elf_arch_entries[] = {
     AMD_GPU_ARCH_DEF_GCN(GFX13_GENERIC),
     // Any AMDGPU object with no recognized model resolves here.
     {ArchSpec::eCore_amd_gpu_unknown, llvm::ELF::EM_AMDGPU},
+    {ArchSpec::eCore_ia64,            llvm::ELF::EM_IA_64}, // ia64
 };
 // clang-format on
 

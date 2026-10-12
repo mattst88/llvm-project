@@ -548,6 +548,23 @@ TEST(ArchSpecTest, WasmCompatibility) {
   }
 }
 
+TEST(ArchSpecTest, IA64) {
+  ArchSpec AS("ia64-unknown-linux-gnu");
+  ASSERT_TRUE(AS.IsValid());
+  EXPECT_EQ(llvm::Triple::ia64, AS.GetMachine());
+  EXPECT_EQ(ArchSpec::eCore_ia64, AS.GetCore());
+  EXPECT_EQ(8u, AS.GetAddressByteSize());
+  EXPECT_EQ(eByteOrderLittle, AS.GetByteOrder());
+  EXPECT_STREQ("ia64", AS.GetArchitectureName());
+
+  // The machine number of an ELF file is enough to find it.
+  ArchSpec ELF;
+  ASSERT_TRUE(ELF.SetArchitecture(eArchTypeELF, llvm::ELF::EM_IA_64,
+                                  LLDB_INVALID_CPUTYPE));
+  EXPECT_EQ(ArchSpec::eCore_ia64, ELF.GetCore());
+  EXPECT_TRUE(AS.IsCompatibleMatch(ELF));
+}
+
 TEST(ArchSpecTest, OperatorBool) {
   EXPECT_FALSE(ArchSpec());
   EXPECT_TRUE(ArchSpec("x86_64-pc-linux"));
