@@ -20,6 +20,9 @@ class IA64TargetObjectFile : public TargetLoweringObjectFileELF {
   /// The size of the largest object placed in short data.
   uint64_t ShortDataLimit = 8;
 
+  /// Globals in llvm.used, which the linker must keep.
+  SmallPtrSet<const GlobalValue *, 2> Retained;
+
 public:
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
 
@@ -34,6 +37,9 @@ public:
 
   MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
                                     const TargetMachine &TM) const override;
+
+  MCSection *getExplicitSectionGlobal(const GlobalObject *GO, SectionKind Kind,
+                                      const TargetMachine &TM) const override;
 
   /// A function's LSDA is part of its unwind info and has no section of its
   /// own.

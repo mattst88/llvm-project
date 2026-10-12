@@ -55,6 +55,10 @@ void IA64TargetObjectFile::getModuleMetadata(Module &M) {
   if (const auto *Limit = mdconst::extract_or_null<ConstantInt>(
           M.getModuleFlag("SmallDataLimit")))
     ShortDataLimit = Limit->getZExtValue();
+  SmallVector<GlobalValue *, 4> Vec;
+  collectUsedGlobalVariables(M, Vec, /*CompilerUsed=*/false);
+  Retained.clear();
+  Retained.insert(Vec.begin(), Vec.end());
 }
 
 const MCExpr *IA64TargetObjectFile::getTTypeGlobalReference(
@@ -94,16 +98,35 @@ static bool holdsAddress(const GlobalObject *GO) {
          Var->getInitializer()->needsDynamicRelocation();
 }
 
+// Whether a section name denotes short data, which is how the linker knows
+// where to place it.
+static bool isShortSectionName(StringRef Name) {
+  return Name == ".sdata" || Name == ".sbss" || Name.starts_with(".sdata.") ||
+         Name.starts_with(".sbss.") || Name.starts_with(".gnu.linkonce.s.") ||
+         Name.starts_with(".gnu.linkonce.sb.");
+}
+
+static bool isShortBSSName(StringRef Name) {
+  return Name == ".sbss" || Name.starts_with(".sbss.") ||
+         Name.starts_with(".gnu.linkonce.sb.");
+}
+
 bool IA64TargetObjectFile::isShortData(const GlobalValue *GV,
                                        const TargetMachine &TM) const {
   const auto *Var = dyn_cast<GlobalVariable>(GV);
   if (!Var || Var->isThreadLocal())
     return false;
 
-  // A section that the source names is the one the object is in, and a
-  // common symbol is put with the others when the link editor makes room
-  // for it.
-  if (Var->hasSection() || Var->hasCommonLinkage())
+  // An object with an explicit section stays in it, and is short data if
+  // that section is a short data section, regardless of size. A module
+  // with short data disabled gets none this way either.
+  if (Var->hasSection())
+    return ShortDataLimit != 0 && isShortSectionName(Var->getSection()) &&
+           (!Var->isDeclaration() || !Var->hasDefaultVisibility());
+
+  // The linker allocates common symbols itself, and a pragma section may
+  // name any section.
+  if (Var->hasCommonLinkage() || Var->hasImplicitSection())
     return false;
 
   Type *Ty = Var->getValueType();
@@ -127,6 +150,28 @@ bool IA64TargetObjectFile::isShortData(const GlobalValue *GV,
       return false;
   }
   return true;
+}
+
+// An explicitly named short data section is the module's short data section
+// and gets its flags, whatever kind of object goes in it.
+MCSection *IA64TargetObjectFile::getExplicitSectionGlobal(
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+  StringRef Name = GO->getSection();
+  // What is kept for being used, or with what it is associated with, has a
+  // section of its own that the common code makes.
+  const auto *Var = dyn_cast<GlobalVariable>(GO);
+  if (!Var || Var->isThreadLocal() || !isShortSectionName(Name) ||
+      Retained.count(GO) || GO->getMetadata(LLVMContext::MD_associated))
+    return TargetLoweringObjectFileELF::getExplicitSectionGlobal(GO, Kind, TM);
+
+  unsigned Flags = ELF::SHF_WRITE | ELF::SHF_ALLOC | ELF::SHF_IA_64_SHORT;
+  unsigned Type = isShortBSSName(Name) ? ELF::SHT_NOBITS : ELF::SHT_PROGBITS;
+  const Comdat *Group = GO->getComdat();
+  if (!Group)
+    return getContext().getELFSection(Name, Type, Flags);
+  return getContext().getELFSection(
+      Name, Type, Flags | ELF::SHF_GROUP, 0, Group->getName(),
+      Group->getSelectionKind() != Comdat::NoDeduplicate);
 }
 
 // Read-only short data still goes in .sdata, since the module's read-only
