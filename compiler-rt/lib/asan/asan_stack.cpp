@@ -28,23 +28,37 @@ u32 GetMallocContextSize() {
 
 namespace {
 
+// Unwinding flag for a thread with no AsanThread (during thread start or
+// exit).
+static THREADLOCAL bool unwinding_without_thread;
+
 // ScopedUnwinding is a scope for stacktracing member of a context
 class ScopedUnwinding {
  public:
   explicit ScopedUnwinding(AsanThread *t) : thread(t) {
-    if (thread) {
-      can_unwind = !thread->isUnwinding();
-      thread->setUnwinding(true);
-    }
+    can_unwind = !IsUnwinding();
+    SetUnwinding(true);
   }
   ~ScopedUnwinding() {
-    if (thread)
-      thread->setUnwinding(false);
+    // Only the scope that set the flag clears it; otherwise the next
+    // allocation made by the unwinder would unwind recursively.
+    if (can_unwind)
+      SetUnwinding(false);
   }
 
   bool CanUnwind() const { return can_unwind; }
 
  private:
+  bool IsUnwinding() const {
+    return thread ? thread->isUnwinding() : unwinding_without_thread;
+  }
+  void SetUnwinding(bool b) {
+    if (thread)
+      thread->setUnwinding(b);
+    else
+      unwinding_without_thread = b;
+  }
+
   AsanThread *thread = nullptr;
   bool can_unwind = true;
 };
