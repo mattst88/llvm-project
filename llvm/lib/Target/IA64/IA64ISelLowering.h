@@ -112,6 +112,10 @@ public:
 
   bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
 
+  /// Whether \p CB can be a tail call, as a musttail call must be. Returns
+  /// false when unsure.
+  bool supportsTailCallFor(const CallBase *CB) const;
+
   Value *getIRStackGuard(IRBuilderBase &IRB,
                          const LibcallLoweringInfo &Libcalls) const override;
 

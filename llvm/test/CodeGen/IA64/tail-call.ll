@@ -189,3 +189,13 @@ define i64 @undefined() {
 }
 
 !0 = !{!"branch_weights", i32 1000, i32 1}
+
+; A call that has to be a tail call can be one under the same conditions.
+
+define i64 @must(i64 %a, i64 %b) {
+; CHECK-LABEL: must:
+; CHECK:         alloc r2 = ar.pfs, 0, 0, 2, 0
+; CHECK-NEXT:    br.cond.sptk.many local ;;
+  %r = musttail call i64 @local(i64 %a, i64 %b)
+  ret i64 %r
+}

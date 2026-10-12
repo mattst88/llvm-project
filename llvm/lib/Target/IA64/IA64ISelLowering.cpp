@@ -1310,6 +1310,33 @@ bool IA64TargetLowering::mayBeEmittedAsTailCall(const CallInst *CI) const {
   return CI->isTailCall();
 }
 
+// The tail call conditions of LowerCall, checked at the IR level. The callee
+// must share GP, which only a DSO-local function does, so indirect calls do
+// not qualify.
+bool IA64TargetLowering::supportsTailCallFor(const CallBase *CB) const {
+  const Function *Caller = CB->getCaller();
+  const Function *Callee = CB->getCalledFunction();
+  if (!Callee || !getTargetMachine().shouldAssumeDSOLocal(Callee) ||
+      Caller->isVarArg() || Caller->hasFnAttribute("syscall-linkage") ||
+      Caller->getCallingConv() != CB->getCallingConv() ||
+      CB->getFunctionType()->isVarArg())
+    return false;
+  // No argument may go on the stack. Each argument of the types accepted
+  // here takes one slot, so at most eight fit in registers.
+  if (CB->arg_size() > 8)
+    return false;
+  for (unsigned I = 0, E = CB->arg_size(); I != E; ++I) {
+    Type *Ty = CB->getArgOperand(I)->getType();
+    if (CB->isByValArgument(I) || CB->isInAllocaArgument(I) ||
+        CB->paramHasAttr(I, Attribute::Preallocated))
+      return false;
+    if (!Ty->isPointerTy() && !Ty->isFloatTy() && !Ty->isDoubleTy() &&
+        !(Ty->isIntegerTy() && Ty->getIntegerBitWidth() <= 64))
+      return false;
+  }
+  return true;
+}
+
 bool IA64TargetLowering::CanLowerReturn(
     CallingConv::ID CallConv, MachineFunction &MF, bool IsVarArg,
     const SmallVectorImpl<ISD::OutputArg> &Outs, LLVMContext &Context,

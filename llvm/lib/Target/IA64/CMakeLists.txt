@@ -32,6 +32,7 @@ add_llvm_target(IA64CodeGen
   LINK_COMPONENTS
   IA64Desc
   IA64Info
+  Analysis
   AsmPrinter
   CodeGen
   CodeGenTypes

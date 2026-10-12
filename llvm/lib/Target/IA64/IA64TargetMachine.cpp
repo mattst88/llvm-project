@@ -10,6 +10,7 @@
 #include "IA64.h"
 #include "IA64MachineFunctionInfo.h"
 #include "IA64TargetObjectFile.h"
+#include "IA64TargetTransformInfo.h"
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -103,6 +104,11 @@ void IA64PassConfig::addPreEmitPass2() {
   addPass(createIA64ExpandBranchesPass());
   // Nothing may add, remove or reorder an instruction after this.
   addPass(createIA64InsertStopsPass());
+}
+
+TargetTransformInfo
+IA64TargetMachine::getTargetTransformInfo(const Function &F) const {
+  return TargetTransformInfo(std::make_unique<IA64TTIImpl>(this, F));
 }
 
 TargetPassConfig *IA64TargetMachine::createPassConfig(PassManagerBase &PM) {
