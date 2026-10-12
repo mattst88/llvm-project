@@ -18,6 +18,7 @@ tablegen(LLVM IA64GenSubtargetInfo.inc -gen-subtarget)
 add_public_tablegen_target(IA64CommonTableGen)
 
 add_llvm_target(IA64CodeGen
+  GISel/IA64CallLowering.cpp
   GISel/IA64InstructionSelector.cpp
   GISel/IA64LegalizerInfo.cpp
   GISel/IA64RegisterBankInfo.cpp

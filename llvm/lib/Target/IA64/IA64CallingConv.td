@@ -12,6 +12,7 @@
 
 // The first eight argument slots are the caller's output registers, which the
 // callee sees as its first input registers.
+let Entry = 1 in
 def CC_IA64 : CallingConv<[
   // Homogeneous floating-point aggregates (HFAs).
   CCIfByVal<CCCustom<"CC_IA64_ByVal">>,
@@ -43,6 +44,7 @@ def CC_IA64 : CallingConv<[
 
 // Integer results of up to four words are returned in r8-r11, and FP
 // results, or HFAs of up to eight elements, in f8-f15.
+let Entry = 1 in
 def RetCC_IA64 : CallingConv<[
   CCIfType<[i64], CCAssignToReg<[R8, R9, R10, R11]>>,
   CCIfType<[f32, f64, f80],

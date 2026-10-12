@@ -13,6 +13,7 @@
 #ifndef LLVM_LIB_TARGET_IA64_IA64SUBTARGET_H
 #define LLVM_LIB_TARGET_IA64_IA64SUBTARGET_H
 
+#include "GISel/IA64CallLowering.h"
 #include "GISel/IA64LegalizerInfo.h"
 #include "GISel/IA64RegisterBankInfo.h"
 #include "IA64FrameLowering.h"
@@ -43,6 +44,7 @@ class IA64Subtarget : public IA64GenSubtargetInfo {
   IA64TargetLowering TLInfo;
   IA64FrameLowering FrameLowering;
   IA64SelectionDAGInfo TSInfo;
+  IA64CallLowering CallLoweringInfo;
   IA64LegalizerInfo Legalizer;
   IA64RegisterBankInfo RegBankInfo;
   std::unique_ptr<InstructionSelector> InstSelector;
@@ -72,6 +74,9 @@ public:
     return &TSInfo;
   }
 
+  const CallLowering *getCallLowering() const override {
+    return &CallLoweringInfo;
+  }
   const LegalizerInfo *getLegalizerInfo() const override { return &Legalizer; }
   const RegisterBankInfo *getRegBankInfo() const override {
     return &RegBankInfo;

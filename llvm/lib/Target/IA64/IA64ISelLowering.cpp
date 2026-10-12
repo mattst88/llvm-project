@@ -8,6 +8,7 @@
 
 #include "IA64ISelLowering.h"
 #include "IA64.h"
+#include "IA64CallingConv.h"
 #include "IA64FrameLowering.h"
 #include "IA64MachineFunctionInfo.h"
 #include "IA64SelectionDAGInfo.h"

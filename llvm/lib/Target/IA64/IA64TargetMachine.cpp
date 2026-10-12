@@ -12,6 +12,10 @@
 #include "IA64TargetObjectFile.h"
 #include "IA64TargetTransformInfo.h"
 #include "TargetInfo/IA64TargetInfo.h"
+#include "llvm/CodeGen/GlobalISel/IRTranslator.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
+#include "llvm/CodeGen/GlobalISel/Legalizer.h"
+#include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/InitializePasses.h"
@@ -48,6 +52,10 @@ IA64TargetMachine::IA64TargetMachine(const Target &T, const Triple &TT,
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
       TLOF(std::make_unique<IA64TargetObjectFile>()) {
   initAsmInfo();
+
+  // GlobalISel is opt-in, and falls back to SelectionDAG with a diagnostic
+  // for each function it cannot select.
+  setGlobalISelAbort(GlobalISelAbortMode::DisableWithDiag);
 }
 
 MachineFunctionInfo *IA64TargetMachine::createMachineFunctionInfo(
@@ -92,6 +100,10 @@ public:
 
   void addIRPasses() override;
   bool addInstSelector() override;
+  bool addIRTranslator() override;
+  bool addLegalizeMachineIR() override;
+  bool addRegBankSelect() override;
+  bool addGlobalInstructionSelect() override;
   bool addILPOpts() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
@@ -106,6 +118,26 @@ void IA64PassConfig::addIRPasses() {
 
 bool IA64PassConfig::addInstSelector() {
   addPass(createIA64ISelDag(getIA64TargetMachine(), getOptLevel()));
+  return false;
+}
+
+bool IA64PassConfig::addIRTranslator() {
+  addPass(new IRTranslatorLegacy(getOptLevel()));
+  return false;
+}
+
+bool IA64PassConfig::addLegalizeMachineIR() {
+  addPass(new LegalizerLegacy());
+  return false;
+}
+
+bool IA64PassConfig::addRegBankSelect() {
+  addPass(new RegBankSelectLegacy());
+  return false;
+}
+
+bool IA64PassConfig::addGlobalInstructionSelect() {
+  addPass(new InstructionSelectLegacy(getOptLevel()));
   return false;
 }
 
