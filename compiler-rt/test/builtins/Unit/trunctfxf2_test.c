@@ -4,7 +4,7 @@
 #include "int_lib.h"
 #include <stdio.h>
 
-#if __LDBL_MANT_DIG__ == 64 && defined(__x86_64__) &&                          \
+#if __LDBL_MANT_DIG__ == 64 && (defined(__x86_64__) || defined(__ia64__)) &&   \
     (defined(__FLOAT128__) || defined(__SIZEOF_FLOAT128__))
 
 #include "fp_test.h"
@@ -28,7 +28,7 @@ char assumption_1[sizeof(long double) * CHAR_BIT == 128] = {0};
 #endif
 
 int main() {
-#if __LDBL_MANT_DIG__ == 64 && defined(__x86_64__) &&                          \
+#if __LDBL_MANT_DIG__ == 64 && (defined(__x86_64__) || defined(__ia64__)) &&   \
     (defined(__FLOAT128__) || defined(__SIZEOF_FLOAT128__))
   // qNaN
   if (test__trunctfxf2(makeQNaN128(), UINT64_C(0x7FFF),

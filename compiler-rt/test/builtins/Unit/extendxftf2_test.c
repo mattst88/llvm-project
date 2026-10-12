@@ -4,7 +4,7 @@
 #include "int_lib.h"
 #include <stdio.h>
 
-#if __LDBL_MANT_DIG__ == 64 && defined(__x86_64__) &&                          \
+#if __LDBL_MANT_DIG__ == 64 && (defined(__x86_64__) || defined(__ia64__)) &&   \
     (defined(__FLOAT128__) || defined(__SIZEOF_FLOAT128__))
 
 #include "fp_test.h"
@@ -28,7 +28,7 @@ char assumption_1[sizeof(long double) * CHAR_BIT == 128] = {0};
 #endif
 
 int main() {
-#if __LDBL_MANT_DIG__ == 64 && defined(__x86_64__) &&                          \
+#if __LDBL_MANT_DIG__ == 64 && (defined(__x86_64__) || defined(__ia64__)) &&   \
     (defined(__FLOAT128__) || defined(__SIZEOF_FLOAT128__))
   // qNaN
   if (test__extendxftf2(makeQNaN80(), UINT64_C(0x7fff800000000000),
@@ -66,6 +66,13 @@ int main() {
   if (test__extendxftf2(2e-4932L, UINT64_C(0x000098491f23ca4d),
                         UINT64_C(0x5fc0000000000000)))
     return 1;
+#  if defined(__ia64__)
+  // A denormal number in the form the processor stores it in: an exponent
+  // field of 1, and no integer bit.
+  if (test__extendxftf2(F80FromRep80(0x0001u, UINT64_C(0x0400000000000000)),
+                        UINT64_C(0x0000080000000000), UINT64_C(0x0)))
+    return 1;
+#  endif
 #else
   printf("skipped\n");
 

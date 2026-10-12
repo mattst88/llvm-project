@@ -944,6 +944,13 @@ set(hexagon_SOURCES
   ${GENERIC_TF_SOURCES}
 )
 
+# long double is the 80-bit extended format, and __float128 the quadruple one.
+set(ia64_SOURCES
+  ${GENERIC_SOURCES}
+  ${GENERIC_TF_SOURCES}
+  ${x86_80_BIT_SOURCES}
+)
+
 set(loongarch_SOURCES
   loongarch/fp_mode.c
   ${GENERIC_SOURCES}
