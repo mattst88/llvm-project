@@ -112,6 +112,9 @@ public:
 
   bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
 
+  Value *getIRStackGuard(IRBuilderBase &IRB,
+                         const LibcallLoweringInfo &Libcalls) const override;
+
   bool functionArgumentNeedsConsecutiveRegisters(
       Type *Ty, CallingConv::ID CallConv, bool IsVarArg,
       const DataLayout &DL) const override;

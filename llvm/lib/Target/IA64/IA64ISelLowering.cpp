@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -749,6 +750,20 @@ SDValue IA64TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
     return DAG.getCopyFromReg(DAG.getEntryNode(), SDLoc(Op), IA64::R13,
                               MVT::i64);
   }
+}
+
+// glibc keeps the stack guard in the doubleword below the thread pointer and
+// exports no __stack_chk_guard.
+Value *
+IA64TargetLowering::getIRStackGuard(IRBuilderBase &IRB,
+                                    const LibcallLoweringInfo &Libcalls) const {
+  if (!getTargetMachine().getTargetTriple().isOSLinux())
+    return TargetLowering::getIRStackGuard(IRB, Libcalls);
+  Module *M = IRB.GetInsertBlock()->getModule();
+  Function *ThreadPointer = Intrinsic::getOrInsertDeclaration(
+      M, Intrinsic::thread_pointer, IRB.getPtrTy());
+  return IRB.CreateConstGEP1_32(IRB.getInt8Ty(), IRB.CreateCall(ThreadPointer),
+                                -8);
 }
 
 // The frame address is SP on entry, where the caller's frame ends.
