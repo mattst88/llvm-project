@@ -56,6 +56,8 @@ elseif(LIBOMP_NATIVE_ARCH MATCHES "ve")
   set(LIBOMP_ARCH ve)
 elseif(LIBOMP_NATIVE_ARCH MATCHES "s390x")
   set(LIBOMP_ARCH s390x)
+elseif(LIBOMP_NATIVE_ARCH MATCHES "ia64")
+  set(LIBOMP_ARCH ia64)
 elseif(LIBOMP_NATIVE_ARCH MATCHES "sparcv9")
   set(LIBOMP_ARCH sparcv9)
 elseif(LIBOMP_NATIVE_ARCH MATCHES "sparc")
@@ -88,7 +90,7 @@ if(LIBOMP_ENABLE_ARM64X)
   include(arm64x)
 endif()
 
-libomp_check_variable(LIBOMP_ARCH 32e x86_64 32 i386 arm ppc ppc64 ppc64le aarch64 aarch64_32 aarch64_a64fx arm64ec mic mips mips64 riscv64 loongarch64 ve s390x sparc sparcv9 wasm32 wasm64)
+libomp_check_variable(LIBOMP_ARCH 32e x86_64 32 i386 arm ppc ppc64 ppc64le aarch64 aarch64_32 aarch64_a64fx arm64ec mic mips mips64 riscv64 loongarch64 ve s390x ia64 sparc sparcv9 wasm32 wasm64)
 
 set(LIBOMP_LIB_TYPE normal CACHE STRING
   "Performance,Profiling,Stubs library (normal/profile/stubs)")
@@ -183,6 +185,7 @@ set(RISCV64 FALSE)
 set(LOONGARCH64 FALSE)
 set(VE FALSE)
 set(S390X FALSE)
+set(IA64 FALSE)
 set(WASM32 FALSE)
 set(WASM64 FALSE)
 set(PPC FALSE)
@@ -224,6 +227,8 @@ elseif("${LIBOMP_ARCH}" STREQUAL "ve") # VE architecture
     set(VE TRUE)
 elseif("${LIBOMP_ARCH}" STREQUAL "s390x") # S390x (Z) architecture
     set(S390X TRUE)
+elseif("${LIBOMP_ARCH}" STREQUAL "ia64") # IA-64 (Itanium) architecture
+    set(IA64 TRUE)
 elseif("${LIBOMP_ARCH}" STREQUAL "wasm32") # WebAssembly 32 bit architecture
     set(WASM32 TRUE)
 elseif("${LIBOMP_ARCH}" STREQUAL "wasm64") # WebAssembly 64 bit architecture
