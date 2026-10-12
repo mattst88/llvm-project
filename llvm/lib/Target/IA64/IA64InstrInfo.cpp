@@ -13,6 +13,7 @@
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/MC/MCInstBuilder.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -354,6 +355,12 @@ IA64InstrInfo::getCalleeOperand(const MachineInstr &MI) const {
   default:
     return TargetInstrInfo::getCalleeOperand(MI);
   }
+}
+
+// A nop that fits any slot type, so it does not constrain the bundle's
+// template.
+MCInst IA64InstrInfo::getNop() const {
+  return MCInstBuilder(IA64::NOP).addImm(0).addReg(IA64::P0);
 }
 
 bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {

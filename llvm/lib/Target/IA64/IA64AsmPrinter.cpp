@@ -611,6 +611,20 @@ void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     }
   } End{*this, MI->getFlag(MachineInstr::FrameSetup) && --PrologueLeft == 0};
   MCInst OutMI;
+  if (MI->getOpcode() == TargetOpcode::PATCHABLE_FUNCTION_ENTER) {
+    // The count is in instructions, as for gcc, so three make a bundle. The
+    // stop is for the alloc that may follow, which must start an instruction
+    // group. XRay, which uses the same opcode, is rejected earlier.
+    unsigned Num = MF->getFunction().getFnAttributeAsParsedInteger(
+        "patchable-function-entry");
+    for (unsigned I = 0; I != Num; ++I) {
+      MCInst Nop = MF->getSubtarget().getInstrInfo()->getNop();
+      if (I + 1 == Num)
+        Nop.setFlags(IA64II::StopAfter);
+      EmitToStreamer(*OutStreamer, Nop);
+    }
+    return;
+  }
   if (MI->getOpcode() == IA64::BRUNCOND || MI->getOpcode() == IA64::BRLONG) {
     // An unconditional branch: "br.cond.sptk.few" under p0, or "brl" if that
     // is out of range.

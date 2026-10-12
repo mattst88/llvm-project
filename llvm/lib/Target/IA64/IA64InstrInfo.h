@@ -104,6 +104,8 @@ public:
 
   const MachineOperand &getCalleeOperand(const MachineInstr &MI) const override;
 
+  MCInst getNop() const override;
+
   // An operand's target flags are a single relocation specifier, never a
   // bitmask.
   std::pair<unsigned, unsigned>
