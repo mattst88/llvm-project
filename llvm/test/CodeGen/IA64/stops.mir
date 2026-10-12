@@ -153,3 +153,39 @@ body: |
     $r8 = ADDS 0, $r33, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
 ...
+---
+# Parallel compares that write a predicate the same way share a group, with
+# one another and not with an ordinary compare.
+# CHECK-LABEL: parallel:
+# CHECK:       cmp.eq p6, p7 = r32, r33 ;;
+# CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = r32, r34{{$}}
+# CHECK-NEXT:  cmp.ne.or.andcm p6, p7 = 3, r35 ;;
+# CHECK-NEXT:  (p6) mov r8 = r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: parallel
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35
+    $p6, $p7 = CMP_EQ $r32, $r33, $p0
+    $p6, $p7 = CMP_EQ_OR_ANDCM $r32, $r34, $p0
+    $p6, $p7 = CMP_NE_OR_ANDCMi 3, $r35, $p0
+    $r8 = ADDS 0, $r33, $p6
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# One that would set a predicate is not in a group with one that would clear
+# it, and an ordinary compare after them is not in theirs.
+# CHECK-LABEL: parallel_opposed:
+# CHECK:       cmp.eq.or.andcm p6, p7 = r32, r33 ;;
+# CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = r32, r34 ;;
+# CHECK-NEXT:  cmp.eq p6, p7 = r32, r35
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: parallel_opposed
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35, $p6, $p7
+    $p6, $p7 = CMP_EQ_OR_ANDCM $r32, $r33, $p0
+    $p7, $p6 = CMP_EQ_OR_ANDCM $r32, $r34, $p0
+    $p6, $p7 = CMP_EQ $r32, $r35, $p0
+    BR_RET $b0, 0, 1, 0, $p0
+...

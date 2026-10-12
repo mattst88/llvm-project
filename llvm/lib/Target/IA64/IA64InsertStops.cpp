@@ -16,6 +16,9 @@
 // never spans blocks, and two writes under mutually exclusive predicates,
 // which could legally share a group, do not.
 //
+// The one exception is parallel compares: compares that all set a predicate,
+// or all clear it, give the same result in any order and may share a group.
+//
 // A stop belongs to the instruction it follows, which is how the MC layer
 // represents it, so it is recorded as an asm printer flag on the
 // MachineInstr.
@@ -63,6 +66,24 @@ static bool isConstantReg(MCRegister Reg) {
          Reg == IA64::P0;
 }
 
+// Parallel compares (or.andcm), which set the first predicate and clear the
+// second when the condition holds, and write neither otherwise.
+static bool isParallelCompare(unsigned Opcode) {
+  switch (Opcode) {
+  default:
+    return false;
+  case IA64::CMP_EQ_OR_ANDCM:
+  case IA64::CMP_EQ_OR_ANDCMi:
+  case IA64::CMP_NE_OR_ANDCM:
+  case IA64::CMP_NE_OR_ANDCMi:
+  case IA64::CMP_GT_OR_ANDCMz:
+  case IA64::CMP_GE_OR_ANDCMz:
+  case IA64::CMP_LT_OR_ANDCMz:
+  case IA64::CMP_LE_OR_ANDCMz:
+    return true;
+  }
+}
+
 bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
 
@@ -70,10 +91,16 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   // instruction.
   BitVector Written(TRI.getNumRegs());
   BitVector WrittenByF(TRI.getNumRegs());
+  // Predicates written in the current group only by parallel compares, split
+  // by whether those compares would set or clear them.
+  BitVector OnlySet(TRI.getNumRegs());
+  BitVector OnlyCleared(TRI.getNumRegs());
 
   for (MachineBasicBlock &MBB : MF) {
     Written.reset();
     WrittenByF.reset();
+    OnlySet.reset();
+    OnlyCleared.reset();
     MachineInstr *Last = nullptr;
     // Whether the current group contains an alloc. No register models the
     // current frame marker, which calls and returns replace.
@@ -84,6 +111,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         Last->setAsmPrinterFlag(IA64::StopAfter);
       Written.reset();
       WrittenByF.reset();
+      OnlySet.reset();
+      OnlyCleared.reset();
       NewFrame = false;
     };
 
@@ -122,6 +151,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
 
       // alloc, calls and returns change RSE state without declaring it, and a
       // read of the RSE registers sees the change only from a later group.
+      bool Parallel = isParallelCompare(MI.getOpcode());
+
       auto ReadsRSE = [](const MachineInstr &MI) {
         if (MI.getOpcode() != IA64::MOV_FROM_AR)
           return false;
@@ -138,7 +169,14 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
           (NewFrame && (MI.isCall() || MI.isReturn()) &&
            MI.getOpcode() != IA64::BR_TAIL) ||
           any_of(MI.operands(), [&](const MachineOperand &MO) {
-            return Touches(MO) && Written.test(MO.getReg().id());
+            if (!Touches(MO) || !Written.test(MO.getReg().id()))
+              return false;
+            // Another parallel compare writing the predicate the same way
+            // as the others in the group.
+            if (Parallel && MO.isDef())
+              return !(MO.getOperandNo() == 0 ? OnlySet : OnlyCleared)
+                          .test(MO.getReg().id());
+            return true;
           }))
         EndGroup();
       NewFrame |= MI.getOpcode() == IA64::ALLOC;
@@ -146,6 +184,15 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       for (const MachineOperand &MO : MI.operands()) {
         if (!MO.isReg() || !MO.isDef() || !Touches(MO))
           continue;
+        // A predicate first written in the group by a parallel compare stays
+        // open to more parallel compares of the same kind.
+        if (Parallel && !Written.test(MO.getReg().id()))
+          (MO.getOperandNo() == 0 ? OnlySet : OnlyCleared)
+              .set(MO.getReg().id());
+        else if (!Parallel) {
+          OnlySet.reset(MO.getReg().id());
+          OnlyCleared.reset(MO.getReg().id());
+        }
         Written.set(MO.getReg().id());
         if (Unit == IA64II::UnitF)
           WrittenByF.set(MO.getReg().id());

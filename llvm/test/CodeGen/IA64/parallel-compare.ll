@@ -91,11 +91,12 @@ return:
   ret i32 %r
 }
 
-; Each further condition is one more parallel compare.
+; Each further condition is one more parallel compare, in the group of the
+; one before.
 define i32 @three(i64 %a, i64 %b, i64 %c) {
 ; CHECK-LABEL: three:
 ; CHECK:       cmp.eq p6, p7 = 1, r32 ;;
-; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 2, r33 ;;
+; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 2, r33
 ; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 3, r34
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB3_4 ;;
 ; CHECK:       br.call.sptk.many b0 = h ;;
