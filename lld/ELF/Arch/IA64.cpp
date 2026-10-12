@@ -921,6 +921,20 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_PCREL60B:
     val += slot;
     checkAlignment(ctx, loc, val, 16, rel);
+    // Relax a long branch within short-branch range to a short branch, which
+    // first-generation Itanium does not have to emulate. The bundle keeps its
+    // first instruction and stop bit, and gets a nop where the upper
+    // displacement bits were.
+    if (ctx.arg.relax && isInt<25>(val)) {
+      uint64_t lo = read64le(bundle);
+      write64le(bundle, (lo & ~uint64_t(0x1f)) | 0x12 | (lo & 1)); // MBB
+      writeSlot(bundle, 1, uint64_t(2) << 37);                     // nop.b 0
+      // brl and br differ in the top opcode bit.
+
+      writeSlot(bundle, 2, readSlot(bundle, 2) & ~(uint64_t(1) << 40));
+      setFields(bundle, 2, pcrel21bMask, pcrel21b(val));
+      break;
+    }
     setPcrel60(bundle, val);
     break;
   case R_IA64_PCREL22:

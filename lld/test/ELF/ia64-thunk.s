@@ -70,8 +70,11 @@ SECTIONS {
 # DIS-NEXT: 4000000000010036:      	nop.i	0
 # DIS-NEXT: 400000000001003c:      	br.cond.sptk.many	0x4000000001010000 ;;
 # DIS: 4000000000010040 <__ia64_thunk_high>:
-# DIS-NEXT: 4000000000010040:      	nop.m	0               // [MLX]
-# DIS-NEXT: 4000000000010046:      	brl.cond.sptk.many	0x4000000001010000 ;;
+## The thunk is 64 bytes closer than the call that could not reach, so the
+## long branch it was made with is relaxed to a short one.
+# DIS-NEXT: 4000000000010040:      	nop.m	0               // [MBB]
+# DIS-NEXT: 4000000000010046:      	nop.b	0
+# DIS-NEXT: 400000000001004c:      	br.cond.sptk.many	0x4000000001010000 ;;
 # DIS: Disassembly of section .text.high:
 # DIS: 4000000001010000 <high>:
 # DIS-NEXT: 4000000001010000:      	nop.m	0               // [MIB]
