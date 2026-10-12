@@ -69,6 +69,22 @@ define internal void @internal() {
 ; CHECK-NEXT:    data8.ua 0
 @plain = global [2 x ptr] [ptr @extern, ptr null], align 8
 
+; A sanitizer wraps the table in a structure with a red zone after it, and
+; the table still holds descriptors. What the layout leaves between the
+; members is still there.
+
+; CHECK-LABEL: wrapped:
+; CHECK-NEXT:    data4.ua 7
+; CHECK-NEXT:    .zero 4
+; CHECK-NEXT:    data8.ua 0
+; CHECK-NEXT:    data16.ua @iplt(extern)
+; CHECK-NEXT:    .zero 8
+; CHECK-NEXT:    .size wrapped, 40
+@wrapped = global { i32, { [3 x ptr] }, [8 x i8] }
+                  { i32 7,
+                    { [3 x ptr] } { [3 x ptr] [ptr null, ptr @extern, ptr null] },
+                    [8 x i8] zeroinitializer }, align 8 #0
+
 ; RELOC:      .rela.data {
 ; RELOC-NEXT:   0x8 R_IA64_DIR64LSB object 0x0
 ; RELOC-NEXT:   0x10 R_IA64_IPLTLSB extern 0x0
@@ -84,6 +100,7 @@ define internal void @internal() {
 ; RELOC-NEXT:   0xA8 R_IA64_IPLTLSB extern 0x0
 ; RELOC-NEXT:   0xB8 R_IA64_FPTR64LSB local 0x0
 ; RELOC-NEXT:   0xC0 R_IA64_FPTR64LSB extern 0x0
+; RELOC-NEXT:   0xE0 R_IA64_IPLTLSB extern 0x0
 ; RELOC-NEXT: }
 
 attributes #0 = { "function-descriptors" }

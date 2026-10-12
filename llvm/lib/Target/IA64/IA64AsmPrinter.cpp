@@ -107,6 +107,7 @@ public:
                         const MCSubtargetInfo *EndInfo,
                         const MachineInstr *MI) override;
   void emitGlobalVariableInitializer(const GlobalVariable *GV) override;
+  void emitFunctionDescriptors(const Constant *C);
   const MCExpr *lowerConstant(const Constant *CV, const Constant *BaseCV,
                               uint64_t Offset) override;
   void emitGlobalAlias(const Module &M, const GlobalAlias &GA) override;
@@ -163,44 +164,47 @@ void IA64AsmPrinter::emitGlobalAlias(const Module &M, const GlobalAlias &GA) {
 void IA64AsmPrinter::emitGlobalVariableInitializer(const GlobalVariable *GV) {
   if (!GV->hasAttribute("function-descriptors"))
     return AsmPrinter::emitGlobalVariableInitializer(GV);
+  emitFunctionDescriptors(GV->getInitializer());
+}
 
-  // A virtual table holds the descriptor of each function and not a pointer
-  // to it, and only the linker knows what a descriptor holds. The table says
-  // which function a pair of its words is to describe by pointing the first
-  // of them at the function.
-  const DataLayout &DL = GV->getDataLayout();
-  auto &TS =
-      static_cast<IA64TargetStreamer &>(*OutStreamer->getTargetStreamer());
-  auto EmitArray = [&](const Constant *Array) {
-    const auto *CA = dyn_cast<ConstantArray>(Array);
-    if (!CA || !CA->getType()->getElementType()->isPointerTy())
-      return emitGlobalConstant(DL, Array);
-    for (unsigned I = 0, E = CA->getNumOperands(); I != E; ++I) {
-      const auto *F = dyn_cast<GlobalValue>(CA->getOperand(I));
-      if (!F || !F->getValueType()->isFunctionTy() || I + 1 == E ||
-          !CA->getOperand(I + 1)->isNullValue()) {
-        emitGlobalConstant(DL, CA->getOperand(I));
-        continue;
-      }
-      TS.emitData16(MCSpecifierExpr::create(
-          MCSymbolRefExpr::create(getSymbol(F), OutContext), IA64::S_IPLT,
-          OutContext));
-      ++I;
+// A vtable holds each function's descriptor inline rather than a pointer to
+// it, and only the linker knows the descriptor contents. The IR marks a
+// two-word descriptor slot by pointing its first word at the function. The
+// vtable may have been wrapped in a struct, as a sanitizer appends a red
+// zone.
+void IA64AsmPrinter::emitFunctionDescriptors(const Constant *C) {
+  const DataLayout &DL = getDataLayout();
+  if (const auto *CS = dyn_cast<ConstantStruct>(C)) {
+    const StructLayout *SL = DL.getStructLayout(CS->getType());
+    for (unsigned I = 0, E = CS->getNumOperands(); I != E; ++I) {
+      const Constant *Member = CS->getOperand(I);
+      emitFunctionDescriptors(Member);
+      uint64_t End =
+          SL->getElementOffset(I) + DL.getTypeAllocSize(Member->getType());
+      uint64_t Next =
+          I + 1 == E ? SL->getSizeInBytes() : SL->getElementOffset(I + 1);
+      OutStreamer->emitZeros(Next - End);
     }
-  };
-
-  const Constant *Init = GV->getInitializer();
-  if (const auto *CS = dyn_cast<ConstantStruct>(Init);
-      CS && !CS->getType()->isPacked() &&
-      all_of(CS->operands(), [](const Use &U) {
-        const auto *AT = dyn_cast<ArrayType>(U->getType());
-        return AT && AT->getElementType()->isPointerTy();
-      })) {
-    for (const Use &U : CS->operands())
-      EmitArray(cast<Constant>(U));
     return;
   }
-  EmitArray(Init);
+
+  const auto *CA = dyn_cast<ConstantArray>(C);
+  if (!CA || !CA->getType()->getElementType()->isPointerTy())
+    return emitGlobalConstant(DL, C);
+  auto &TS =
+      static_cast<IA64TargetStreamer &>(*OutStreamer->getTargetStreamer());
+  for (unsigned I = 0, E = CA->getNumOperands(); I != E; ++I) {
+    const auto *F = dyn_cast<GlobalValue>(CA->getOperand(I));
+    if (!F || !F->getValueType()->isFunctionTy() || I + 1 == E ||
+        !CA->getOperand(I + 1)->isNullValue()) {
+      emitGlobalConstant(DL, CA->getOperand(I));
+      continue;
+    }
+    TS.emitData16(MCSpecifierExpr::create(
+        MCSymbolRefExpr::create(getSymbol(F), OutContext), IA64::S_IPLT,
+        OutContext));
+    ++I;
+  }
 }
 
 MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
