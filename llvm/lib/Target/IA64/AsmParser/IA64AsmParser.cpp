@@ -1067,10 +1067,26 @@ bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
     Res = MCConstantExpr::create(FloatClass, getContext());
     return false;
   }
-  // The hint that a loop is waiting for another processor is a name too.
-  if (Name == "pause") {
+  // So do the spin-loop hints of "hint", the features "tf" tests for, and
+  // the OS ABIs of ".unwabi".
+  if (std::optional<int64_t> Constant =
+          StringSwitch<std::optional<int64_t>>(Name)
+              .Case("natval", 0x100)
+              .Case("pause", 0)
+              .Case("priority", 1)
+              .Case("clz", 32)
+              .Case("mpy", 33)
+              .Case("datahints", 34)
+              .Case("svr4", ELF::ELFOSABI_NONE)
+              .Case("hpux", ELF::ELFOSABI_HPUX)
+              .Case("nt", 2)
+              .Case("linux", ELF::ELFOSABI_GNU)
+              .Case("freebsd", ELF::ELFOSABI_FREEBSD)
+              .Case("openvms", ELF::ELFOSABI_OPENVMS)
+              .Case("nsk", ELF::ELFOSABI_NSK)
+              .Default(std::nullopt)) {
     EndLoc = SMLoc::getFromPointer(Name.end());
-    Res = MCConstantExpr::create(0, getContext());
+    Res = MCConstantExpr::create(*Constant, getContext());
     return false;
   }
   IA64::Specifier Spec = IA64::parseSpecifierName(Name);
