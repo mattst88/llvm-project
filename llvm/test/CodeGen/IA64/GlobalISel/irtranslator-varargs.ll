@@ -117,7 +117,7 @@ define void @caller_memory(double %d) {
   ; CHECK-NEXT:   [[COPY2:%[0-9]+]]:_(p0) = COPY $r12
   ; CHECK-NEXT:   [[C:%[0-9]+]]:_(s64) = G_CONSTANT i64 16
   ; CHECK-NEXT:   [[PTR_ADD:%[0-9]+]]:_(p0) = G_PTR_ADD [[COPY2]], [[C]](s64)
-  ; CHECK-NEXT:   G_STORE [[COPY1]](s64), [[PTR_ADD]](p0) :: (store (s64) into stack + 16)
+  ; CHECK-NEXT:   G_STORE [[COPY1]](s64), [[PTR_ADD]](p0) :: (store (s64) into stack + 16, align 16)
   ; CHECK-NEXT:   $f8 = COPY [[COPY1]](s64)
   ; CHECK-NEXT:   $f9 = COPY [[COPY1]](s64)
   ; CHECK-NEXT:   $f10 = COPY [[COPY1]](s64)

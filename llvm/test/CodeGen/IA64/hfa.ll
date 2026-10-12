@@ -320,3 +320,33 @@ define void @pass_unaligned_memory([1 x x86_fp80] %a) {
                                    [1 x x86_fp80] alignstack(8) %a)
   ret void
 }
+
+; A callee that takes a variable number of arguments, or was declared
+; without its parameters, may have named a member and has it in the slot as
+; well as in its register. Not the member that had the last register when
+; the other half of its slot has none: a callee that has named them looks
+; for the second in the low half of the slot, which is then all there is in
+; it.
+declare float @take_odd_variadic(double, double, double, double, double, double, double, [3 x float], ...)
+
+define float @pass_odd_variadic([3 x float] %h) {
+; CHECK-LABEL: pass_odd_variadic:
+; CHECK-NOT:   getf.s {{r[0-9]+}} = f8
+; CHECK:       getf.s r42 = f9
+; CHECK-NOT:   getf.s {{r[0-9]+}} = f8
+; CHECK:       mov f15 = f8
+; CHECK-NOT:   r42
+; CHECK:       br.call.sptk.many b0 = take_odd_variadic ;;
+  %r = call float (double, double, double, double, double, double, double, [3 x float], ...) @take_odd_variadic(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [3 x float] %h)
+  ret float %r
+}
+
+; The one that has the last register and a slot to itself is in both.
+define float @pass_one_variadic([1 x float] %h) {
+; CHECK-LABEL: pass_one_variadic:
+; CHECK:       mov f15 = f8
+; CHECK:       getf.s r42 = f15
+; CHECK:       br.call.sptk.many b0 = take_odd_variadic ;;
+  %r = call float (double, double, double, double, double, double, double, [1 x float], ...) @take_odd_variadic(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [1 x float] %h)
+  ret float %r
+}

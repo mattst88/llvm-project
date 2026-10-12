@@ -51,3 +51,58 @@ define i64 @indirect(ptr %fp, i64 %a) {
   %r = call i64 %fp(i64 %a)
   ret i64 %r
 }
+
+; Extended precision that arrives in two slots is stored and loaded to be a
+; floating-point value again.
+define x86_fp80 @extended_slots([8 x float] %a, x86_fp80 %b) {
+; CHECK-LABEL: extended_slots:
+; CHECK:       st8 [r14] = r36 ;;
+; CHECK-NEXT:  st8 [r15] = r37
+; CHECK-NEXT:  ldfe f8 = [r14]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  ret x86_fp80 %b
+}
+
+; Two single-precision members that have no register are the halves of one
+; slot.
+define float @members_slot([10 x float] %a) {
+; CHECK-LABEL: members_slot:
+; CHECK:       mov r14 = r36
+; CHECK-NEXT:  shr.u r15 = r36, 32 ;;
+; CHECK-NEXT:  setf.s f6 = r14
+; CHECK-NEXT:  setf.s f7 = r15 ;;
+; CHECK-NEXT:  fma.s f8 = f6, f1, f7
+  %a8 = extractvalue [10 x float] %a, 8
+  %a9 = extractvalue [10 x float] %a, 9
+  %r = fadd float %a8, %a9
+  ret float %r
+}
+
+declare void @take_members([10 x float])
+declare void @take_any(i64, ...)
+
+define void @call_members(float %a, float %b) {
+; CHECK-LABEL: call_members:
+; CHECK:       getf.s r14 = f9
+; CHECK:       getf.s r15 = f8
+; CHECK:       shl r14 = r14, 32
+; CHECK-NEXT:  zxt4 r15 = r15 ;;
+; CHECK-NEXT:  or r39 = r15, r14
+; CHECK-NEXT:  br.call.sptk.many b0 = take_members ;;
+  %v0 = insertvalue [10 x float] zeroinitializer, float %a, 8
+  %v1 = insertvalue [10 x float] %v0, float %b, 9
+  call void @take_members([10 x float] %v1)
+  ret void
+}
+
+; Extended precision the callee has not named is aligned to an even slot.
+define void @call_any(x86_fp80 %a) {
+; CHECK-LABEL: call_any:
+; CHECK:       stfe [r14] = f8
+; CHECK-NEXT:  ld8 r37 = [r14]
+; CHECK-NEXT:  adds r14 = 8, r14 ;;
+; CHECK-NEXT:  ld8 r38 = [r14]
+; CHECK-NEXT:  br.call.sptk.many b0 = take_any ;;
+  call void (i64, ...) @take_any(i64 0, x86_fp80 %a)
+  ret void
+}

@@ -107,13 +107,13 @@ define void @memory_out(i64 %a, float %f) {
   ; CHECK-NEXT:   [[COPY3:%[0-9]+]]:_(p0) = COPY $r12
   ; CHECK-NEXT:   [[C9:%[0-9]+]]:_(s64) = G_CONSTANT i64 16
   ; CHECK-NEXT:   [[PTR_ADD:%[0-9]+]]:_(p0) = G_PTR_ADD [[COPY3]], [[C9]](s64)
-  ; CHECK-NEXT:   G_STORE [[ANYEXT]](s64), [[PTR_ADD]](p0) :: (store (s64) into stack + 16)
+  ; CHECK-NEXT:   G_STORE [[ANYEXT]](s64), [[PTR_ADD]](p0) :: (store (s64) into stack + 16, align 16)
   ; CHECK-NEXT:   [[C10:%[0-9]+]]:_(s64) = G_CONSTANT i64 24
   ; CHECK-NEXT:   [[PTR_ADD1:%[0-9]+]]:_(p0) = G_PTR_ADD [[COPY3]], [[C10]](s64)
   ; CHECK-NEXT:   G_STORE [[COPY2]](s32), [[PTR_ADD1]](p0) :: (store (s32) into stack + 24, align 8)
   ; CHECK-NEXT:   [[C11:%[0-9]+]]:_(s64) = G_CONSTANT i64 32
   ; CHECK-NEXT:   [[PTR_ADD2:%[0-9]+]]:_(p0) = G_PTR_ADD [[COPY3]], [[C11]](s64)
-  ; CHECK-NEXT:   G_STORE [[COPY1]](s64), [[PTR_ADD2]](p0) :: (store (s64) into stack + 32)
+  ; CHECK-NEXT:   G_STORE [[COPY1]](s64), [[PTR_ADD2]](p0) :: (store (s64) into stack + 32, align 16)
   ; CHECK-NEXT:   $r120 = COPY [[C]](s64)
   ; CHECK-NEXT:   $r121 = COPY [[C1]](s64)
   ; CHECK-NEXT:   $r122 = COPY [[C2]](s64)
