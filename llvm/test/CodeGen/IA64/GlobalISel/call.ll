@@ -106,3 +106,36 @@ define void @call_any(x86_fp80 %a) {
   call void (i64, ...) @take_any(i64 0, x86_fp80 %a)
   ret void
 }
+
+; An argument passed by value that arrived in registers is put in memory.
+define i64 @by_value(ptr byval([16 x i8]) align 8 %p) {
+; CHECK-LABEL: by_value:
+; CHECK:       st8 [r15] = r32
+; CHECK-NEXT:  st8 [r14] = r33
+; CHECK-NEXT:  ld8 r8 = [r14]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %q = getelementptr i8, ptr %p, i64 8
+  %v = load i64, ptr %q
+  ret i64 %v
+}
+
+declare void @take_big(ptr byval([96 x i8]) align 8)
+
+; The slots are read before the part in memory is copied, and are in
+; registers that the copy leaves alone.
+define void @call_big(ptr %p) {
+; CHECK-LABEL: call_big:
+; CHECK:       adds r12 = -32, r12
+; CHECK:       mov r46 = 32
+; CHECK-NEXT:  adds r45 = 64, r32 ;;
+; CHECK-NEXT:  adds r44 = 16, r12
+; CHECK:       ld8 r33 = [r14]
+; CHECK:       ld8 r40 = [r14]
+; CHECK-NEXT:  br.call.sptk.many b0 = memcpy ;;
+; CHECK-NEXT:  mov r44 = r33
+; CHECK:       mov r51 = r40
+; CHECK-NEXT:  mov r1 = r41
+; CHECK-NEXT:  br.call.sptk.many b0 = take_big ;;
+  call void @take_big(ptr byval([96 x i8]) align 8 %p)
+  ret void
+}
