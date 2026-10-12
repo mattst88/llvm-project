@@ -19,10 +19,10 @@ define i64 @f(i64 %a) {
 ; CHECK-NEXT:  .p2align 2
 ; CHECK:       .LJTI0_0:
 ; CHECK-NEXT:  data4.ua .LBB0_2-.LJTI0_0
-; CHECK-NEXT:  data4.ua .LBB0_3-.LJTI0_0
+; CHECK-NEXT:  data4.ua .LBB0_6-.LJTI0_0
 ; CHECK-NEXT:  data4.ua .LBB0_4-.LJTI0_0
 ; CHECK-NEXT:  data4.ua .LBB0_5-.LJTI0_0
-; CHECK-NEXT:  data4.ua .LBB0_6-.LJTI0_0
+; CHECK-NEXT:  data4.ua .LBB0_3-.LJTI0_0
   switch i64 %a, label %d [ i64 0, label %b0
                             i64 1, label %b1
                             i64 2, label %b2

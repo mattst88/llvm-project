@@ -91,6 +91,7 @@ public:
   void addIRPasses() override;
   bool addInstSelector() override;
   void addPreSched2() override;
+  void addPreEmitPass() override;
   void addPreEmitPass2() override;
 };
 } // end anonymous namespace
@@ -109,6 +110,8 @@ void IA64PassConfig::addPreSched2() {
   if (getOptLevel() != CodeGenOptLevel::None)
     addPass(createIA64IfConversionPass());
 }
+
+void IA64PassConfig::addPreEmitPass() { addPass(&BranchRelaxationPassID); }
 
 void IA64PassConfig::addPreEmitPass2() {
   // Block placement is final, so branches can be split from their compares.

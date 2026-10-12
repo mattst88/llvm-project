@@ -175,6 +175,9 @@ IA64MCAsmInfo::IA64MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
   CalleeSaveStackSlotSize = 8;
   IsLittleEndian = true;
   CommentString = "//";
+  // An instruction may fill a bundle by itself, which is the length assumed
+  // for each inline asm instruction.
+  MaxInstLength = 16;
 
   // GNU as aligns data2, data4 and data8 to their own width; the .ua
   // spellings do not, which is what sections packing items of mixed width

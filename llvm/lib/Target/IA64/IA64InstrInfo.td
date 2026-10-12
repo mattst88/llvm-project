@@ -166,6 +166,14 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1 in
 let SchedRW = [WriteBr] in
 def BRUNCOND : IA64Pseudo<(outs), (ins brtarget:$target), "#BRUNCOND", []>;
 
+// An unconditional branch beyond the 16 MiB reach of "br":
+// "brl.cond.sptk.few", whose displacement occupies a second slot of the
+// bundle. Only branch relaxation creates it, and no later pass needs to know
+// its target.
+let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+let SchedRW = [WriteBr] in
+def BRLONG : IA64Pseudo<(outs), (ins brtarget:$target), "#BRLONG", []>;
+
 // An indirect branch through a GR, via b6: "mov b6 = r" and
 // "br.cond.sptk.few b6". It is a single pseudo because the mov is not a
 // terminator.

@@ -121,6 +121,22 @@ public:
   bool
   reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
 
+  unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
+  // Bundles are emitted whole, when full or ended, not as each instruction
+  // is encoded, so the bytes emitted for an instruction do not reflect its
+  // size.
+  InstSizeVerifyMode
+  getInstSizeVerifyMode(const MachineInstr &MI) const override {
+    return InstSizeVerifyMode::NoVerify;
+  }
+  bool isBranchOffsetInRange(unsigned BranchOpc,
+                             int64_t BrOffset) const override;
+  MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
+  void insertIndirectBranch(MachineBasicBlock &MBB,
+                            MachineBasicBlock &NewDestBB,
+                            MachineBasicBlock &RestoreBB, const DebugLoc &DL,
+                            int64_t BrOffset, RegScavenger *RS) const override;
+
   /// Whether \p MI is a conditional branch on a compare result.
   static bool isConditionalBranch(const MachineInstr &MI);
 

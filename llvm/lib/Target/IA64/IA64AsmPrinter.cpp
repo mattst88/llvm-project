@@ -575,9 +575,11 @@ void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     }
   } End{*this, MI->getFlag(MachineInstr::FrameSetup) && --PrologueLeft == 0};
   MCInst OutMI;
-  if (MI->getOpcode() == IA64::BRUNCOND) {
-    // The branch nothing qualifies: "br.cond.sptk.few" under p0.
-    OutMI.setOpcode(IA64::BR_COND);
+  if (MI->getOpcode() == IA64::BRUNCOND || MI->getOpcode() == IA64::BRLONG) {
+    // An unconditional branch: "br.cond.sptk.few" under p0, or "brl" if that
+    // is out of range.
+    OutMI.setOpcode(MI->getOpcode() == IA64::BRLONG ? IA64::BRL_COND
+                                                    : IA64::BR_COND);
     OutMI.addOperand(lowerOperand(MI->getOperand(0)));
     OutMI.addOperand(MCOperand::createImm(IA64II::WhetherSPTK));
     OutMI.addOperand(MCOperand::createImm(0));

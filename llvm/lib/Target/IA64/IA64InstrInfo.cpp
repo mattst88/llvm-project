@@ -13,6 +13,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetMachine.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "IA64GenInstrInfo.inc"
@@ -677,11 +678,14 @@ bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
 
 unsigned IA64InstrInfo::removeBranch(MachineBasicBlock &MBB,
                                      int *BytesRemoved) const {
-  assert(!BytesRemoved && "Nothing asks for the size of a branch");
+  if (BytesRemoved)
+    *BytesRemoved = 0;
   unsigned Count = 0;
   MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
   while (I != MBB.end() &&
          (I->getOpcode() == IA64::BRUNCOND || isConditionalBranch(*I))) {
+    if (BytesRemoved)
+      *BytesRemoved += getInstSizeInBytes(*I);
     I->eraseFromParent();
     ++Count;
     I = MBB.getLastNonDebugInstr();
@@ -692,13 +696,14 @@ unsigned IA64InstrInfo::removeBranch(MachineBasicBlock &MBB,
 unsigned IA64InstrInfo::insertBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
     ArrayRef<MachineOperand> Cond, const DebugLoc &DL, int *BytesAdded) const {
-  assert(!BytesAdded && "Nothing asks for the size of a branch");
   assert(TBB && "A branch needs somewhere to go");
   assert((Cond.empty() || Cond.size() == 3) && "Not a condition");
 
   if (Cond.empty()) {
     assert(!FBB && "Two destinations and no condition");
-    BuildMI(&MBB, DL, get(IA64::BRUNCOND)).addMBB(TBB);
+    MachineInstr *MI = BuildMI(&MBB, DL, get(IA64::BRUNCOND)).addMBB(TBB);
+    if (BytesAdded)
+      *BytesAdded = getInstSizeInBytes(*MI);
     return 1;
   }
 
@@ -707,10 +712,14 @@ unsigned IA64InstrInfo::insertBranch(
     Opcode = IA64::BRCCi;
   else if (IA64CC::isFloatingPoint(IA64CC::CondCode(Cond[0].getImm())))
     Opcode = IA64::BRCCf;
-  BuildMI(&MBB, DL, get(Opcode)).addMBB(TBB).add(Cond);
+  MachineInstr *MI = BuildMI(&MBB, DL, get(Opcode)).addMBB(TBB).add(Cond);
+  if (BytesAdded)
+    *BytesAdded = getInstSizeInBytes(*MI);
   if (!FBB)
     return 1;
-  BuildMI(&MBB, DL, get(IA64::BRUNCOND)).addMBB(FBB);
+  MI = BuildMI(&MBB, DL, get(IA64::BRUNCOND)).addMBB(FBB);
+  if (BytesAdded)
+    *BytesAdded += getInstSizeInBytes(*MI);
   return 2;
 }
 
@@ -720,4 +729,54 @@ bool IA64InstrInfo::reverseBranchCondition(
   assert(Cond.size() == 3 && "Not a condition");
   Cond[0].setImm(IA64CC::getOpposite(IA64CC::CondCode(Cond[0].getImm())));
   return false;
+}
+
+// An instruction's size is unknown until the assembler bundles it, three to
+// a 16-byte bundle if the templates and stops allow. This returns the upper
+// bound, a whole bundle, for branch relaxation, where overestimating a
+// distance is cheap and underestimating it is an error.
+unsigned IA64InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+  if (MI.isMetaInstruction())
+    return 0;
+  switch (MI.getOpcode()) {
+  case TargetOpcode::INLINEASM:
+  case TargetOpcode::INLINEASM_BR: {
+    const MachineFunction &MF = *MI.getParent()->getParent();
+    return getInlineAsmLength(MI.getOperand(0).getSymbolName(),
+                              MF.getTarget().getMCAsmInfo());
+  }
+  // A compare plus a branch, or a move to b6 plus a branch.
+  case IA64::BRCC:
+  case IA64::BRCCi:
+  case IA64::BRIND:
+    return 32;
+  // An FP condition may need a second compare to get the required
+  // signaling behavior.
+  case IA64::BRCCf:
+    return 48;
+  default:
+    return 16;
+  }
+}
+
+// Branch displacements are in bundles: 21 bits, or 60 bits for brl, which
+// reaches everything.
+bool IA64InstrInfo::isBranchOffsetInRange(unsigned BranchOpc,
+                                          int64_t BrOffset) const {
+  return BranchOpc == IA64::BRLONG || isInt<25>(BrOffset);
+}
+
+MachineBasicBlock *
+IA64InstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
+  return MI.getOperand(0).getMBB();
+}
+
+// brl reaches anywhere without a register, so nothing needs to be saved and
+// restored around it.
+void IA64InstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
+                                         MachineBasicBlock &NewDestBB,
+                                         MachineBasicBlock &RestoreBB,
+                                         const DebugLoc &DL, int64_t BrOffset,
+                                         RegScavenger *RS) const {
+  BuildMI(&MBB, DL, get(IA64::BRLONG)).addMBB(&NewDestBB);
 }
