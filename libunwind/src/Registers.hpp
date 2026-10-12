@@ -49,6 +49,7 @@ enum {
   REGISTERS_VE,
   REGISTERS_S390X,
   REGISTERS_LOONGARCH,
+  REGISTERS_IA64,
 };
 
 #if defined(_LIBUNWIND_TARGET_I386)
@@ -5566,6 +5567,369 @@ inline void Registers_loongarch::setVectorRegister(int, v128) {
   _LIBUNWIND_ABORT("loongarch vector support not implemented");
 }
 #endif //_LIBUNWIND_TARGET_LOONGARCH
+
+#if defined(_LIBUNWIND_TARGET_IA64)
+extern "C" void __libunwind_Registers_ia64_jumpto(const void *)
+    __attribute__((noreturn));
+
+/// Registers_ia64 holds the register state of an IA-64 thread: the
+/// callee-saved registers and the registers that locate its frames.
+///
+/// The stacked registers (r32 and up) are not stored here. unw_getcontext()
+/// flushes them to the register backing store, where each function's register
+/// frame starts at its BSP.
+class _LIBUNWIND_HIDDEN Registers_ia64 {
+public:
+  Registers_ia64();
+  Registers_ia64(const void *registers);
+
+  typedef uint64_t reg_t;
+  typedef uint64_t link_reg_t;
+  typedef const link_reg_t &link_hardened_reg_arg_t;
+
+  bool validRegister(int num) const;
+  uint64_t getRegister(int num) const;
+  void setRegister(int num, uint64_t value);
+  bool validFloatRegister(int) const { return false; }
+  double getFloatRegister(int num) const;
+  void setFloatRegister(int num, double value);
+  bool validVectorRegister(int) const { return false; }
+  v128 getVectorRegister(int num) const;
+  void setVectorRegister(int num, v128 value);
+  static const char *getRegisterName(int num);
+  void jumpto();
+  static constexpr int lastDwarfRegNum() {
+    return _LIBUNWIND_HIGHEST_DWARF_REGISTER_IA64;
+  }
+  static int getArch() { return REGISTERS_IA64; }
+
+  uint64_t getSP() const { return _registers.__sp; }
+  void setSP(uint64_t value) { _registers.__sp = value; }
+  uint64_t getIP() const { return _registers.__ip; }
+  void setIP(uint64_t value) { _registers.__ip = value; }
+
+  /// The number of callee-saved floating-point registers: f2-f5 and f16-f31.
+  static constexpr int NumFR = 20;
+  /// Returns the index of register \p num among them, or -1.
+  static int frIndex(int num) {
+    if (num >= UNW_IA64_F2 && num <= UNW_IA64_F5)
+      return num - UNW_IA64_F2;
+    if (num >= UNW_IA64_F16 && num <= UNW_IA64_F31)
+      return num - UNW_IA64_F16 + 4;
+    return -1;
+  }
+  /// Floating-point registers are kept in the 16-byte stf.spill format.
+  void getFRImage(int index, void *image) const {
+    memcpy(image, _fr[index], 16);
+  }
+  void setFRImage(int index, const void *image) {
+    memcpy(_fr[index], image, 16);
+  }
+
+  /// Returns the backing store address \p count registers after \p addr (or
+  /// before it, if negative). Every 64th doubleword, at an address ending in
+  /// 0x1f8, is a NaT collection rather than a register.
+  static uint64_t rseSkip(uint64_t addr, int64_t count) {
+    int64_t slot = static_cast<int64_t>(addr >> 3);
+    int64_t reg = slot - ((slot + 1) >> 6) + count;
+    return static_cast<uint64_t>(reg + reg / 63) << 3;
+  }
+  /// The size of locals (sol, inputs included) in a frame marker.
+  static unsigned sizeOfLocals(uint64_t cfm) { return (cfm >> 7) & 0x7f; }
+  static unsigned sizeOfFrame(uint64_t cfm) { return cfm & 0x7f; }
+
+private:
+  // Layout written by unw_getcontext() and read by
+  // __libunwind_Registers_ia64_jumpto().
+  struct ia64_thread_state_t {
+    uint64_t __gp;
+    uint64_t __r4[4];
+    uint64_t __sp;
+    uint64_t __r15[4];
+    uint64_t __b[6];
+    uint64_t __ip;
+    uint64_t __pr;
+    uint64_t __pfs; // ar.pfs on entry to the callee: this function's frame
+                    // marker and ar.ec.
+    uint64_t __bsp; // Backing store address of this function's r32.
+    uint64_t __unat;
+    uint64_t __lc;
+    uint64_t __fpsr;
+    uint64_t __nat;
+  };
+
+  ia64_thread_state_t _registers;
+  uint8_t _fr[NumFR][16];
+  // Room for the padding unw_getcontext() may insert to align the
+  // floating-point registers.
+  uint64_t _padding;
+};
+
+inline Registers_ia64::Registers_ia64(const void *registers) {
+  static_assert((check_fit<Registers_ia64, unw_context_t>::does_fit),
+                "ia64 registers do not fit into unw_context_t");
+  static_assert(sizeof(_registers) == 192,
+                "expected the floating-point registers to be at offset 192");
+  memcpy(&_registers, registers, sizeof(_registers));
+  // stf.spill needs a 16-byte aligned address and the context may not be, so
+  // unw_getcontext() rounds it up.
+  uintptr_t fr =
+      (reinterpret_cast<uintptr_t>(registers) + sizeof(_registers) + 15) &
+      ~static_cast<uintptr_t>(15);
+  memcpy(_fr, reinterpret_cast<const void *>(fr), sizeof(_fr));
+  _padding = 0;
+  // unw_getcontext() allocates no register frame, so its BSP points at its
+  // caller's output registers, past the caller's locals.
+  _registers.__bsp = rseSkip(
+      _registers.__bsp, -static_cast<int64_t>(sizeOfLocals(_registers.__pfs)));
+}
+
+inline Registers_ia64::Registers_ia64() {
+  memset(&_registers, 0, sizeof(_registers));
+  memset(&_fr, 0, sizeof(_fr));
+  _padding = 0;
+}
+
+inline bool Registers_ia64::validRegister(int regNum) const {
+  switch (regNum) {
+  case UNW_REG_IP:
+  case UNW_REG_SP:
+  case UNW_IA64_R0:
+  case UNW_IA64_GP:
+  case UNW_IA64_R4:
+  case UNW_IA64_R5:
+  case UNW_IA64_R6:
+  case UNW_IA64_R7:
+  case UNW_IA64_SP:
+  case UNW_IA64_R15:
+  case UNW_IA64_R16:
+  case UNW_IA64_R17:
+  case UNW_IA64_R18:
+  case UNW_IA64_B0:
+  case UNW_IA64_B1:
+  case UNW_IA64_B2:
+  case UNW_IA64_B3:
+  case UNW_IA64_B4:
+  case UNW_IA64_B5:
+  case UNW_IA64_PR:
+  case UNW_IA64_IP:
+  case UNW_IA64_CFM:
+  case UNW_IA64_AR_BSP:
+  case UNW_IA64_AR_UNAT:
+  case UNW_IA64_AR_FPSR:
+  case UNW_IA64_AR_PFS:
+  case UNW_IA64_AR_LC:
+    return true;
+  }
+  // A stacked register is valid if it is within the current frame.
+  return regNum >= UNW_IA64_R32 && regNum <= UNW_IA64_R127 &&
+         static_cast<unsigned>(regNum - UNW_IA64_R32) <
+             sizeOfFrame(_registers.__pfs);
+}
+
+inline uint64_t Registers_ia64::getRegister(int regNum) const {
+  switch (regNum) {
+  case UNW_IA64_R0:
+    return 0;
+  case UNW_IA64_GP:
+    return _registers.__gp;
+  case UNW_IA64_R4:
+  case UNW_IA64_R5:
+  case UNW_IA64_R6:
+  case UNW_IA64_R7:
+    return _registers.__r4[regNum - UNW_IA64_R4];
+  case UNW_REG_SP:
+  case UNW_IA64_SP:
+    return _registers.__sp;
+  case UNW_IA64_R15:
+  case UNW_IA64_R16:
+  case UNW_IA64_R17:
+  case UNW_IA64_R18:
+    return _registers.__r15[regNum - UNW_IA64_R15];
+  case UNW_IA64_B0:
+  case UNW_IA64_B1:
+  case UNW_IA64_B2:
+  case UNW_IA64_B3:
+  case UNW_IA64_B4:
+  case UNW_IA64_B5:
+    return _registers.__b[regNum - UNW_IA64_B0];
+  case UNW_REG_IP:
+  case UNW_IA64_IP:
+    return _registers.__ip;
+  case UNW_IA64_PR:
+    return _registers.__pr;
+  case UNW_IA64_CFM:
+    return _registers.__pfs & ((1ULL << 38) - 1);
+  case UNW_IA64_AR_PFS:
+    return _registers.__pfs;
+  case UNW_IA64_AR_BSP:
+    return _registers.__bsp;
+  case UNW_IA64_AR_UNAT:
+    return _registers.__unat;
+  case UNW_IA64_AR_FPSR:
+    return _registers.__fpsr;
+  case UNW_IA64_AR_LC:
+    return _registers.__lc;
+  }
+  if (validRegister(regNum))
+    return *reinterpret_cast<const uint64_t *>(
+        rseSkip(_registers.__bsp, regNum - UNW_IA64_R32));
+  _LIBUNWIND_ABORT("unsupported ia64 register");
+}
+
+inline void Registers_ia64::setRegister(int regNum, uint64_t value) {
+  switch (regNum) {
+  case UNW_IA64_GP:
+    _registers.__gp = value;
+    return;
+  case UNW_IA64_R4:
+  case UNW_IA64_R5:
+  case UNW_IA64_R6:
+  case UNW_IA64_R7:
+    _registers.__r4[regNum - UNW_IA64_R4] = value;
+    return;
+  case UNW_REG_SP:
+  case UNW_IA64_SP:
+    _registers.__sp = value;
+    return;
+  case UNW_IA64_R15:
+  case UNW_IA64_R16:
+  case UNW_IA64_R17:
+  case UNW_IA64_R18:
+    _registers.__r15[regNum - UNW_IA64_R15] = value;
+    return;
+  case UNW_IA64_B0:
+  case UNW_IA64_B1:
+  case UNW_IA64_B2:
+  case UNW_IA64_B3:
+  case UNW_IA64_B4:
+  case UNW_IA64_B5:
+    _registers.__b[regNum - UNW_IA64_B0] = value;
+    return;
+  case UNW_REG_IP:
+  case UNW_IA64_IP:
+    _registers.__ip = value;
+    return;
+  case UNW_IA64_PR:
+    _registers.__pr = value;
+    return;
+  case UNW_IA64_AR_PFS:
+    _registers.__pfs = value;
+    return;
+  case UNW_IA64_AR_BSP:
+    _registers.__bsp = value;
+    return;
+  case UNW_IA64_AR_UNAT:
+    _registers.__unat = value;
+    return;
+  case UNW_IA64_AR_FPSR:
+    _registers.__fpsr = value;
+    return;
+  case UNW_IA64_AR_LC:
+    _registers.__lc = value;
+    return;
+  }
+  if (validRegister(regNum) && regNum >= UNW_IA64_R32) {
+    *reinterpret_cast<uint64_t *>(
+        rseSkip(_registers.__bsp, regNum - UNW_IA64_R32)) = value;
+    return;
+  }
+  _LIBUNWIND_ABORT("unsupported ia64 register");
+}
+
+inline double Registers_ia64::getFloatRegister(int) const {
+  _LIBUNWIND_ABORT("no ia64 float registers");
+}
+
+inline void Registers_ia64::setFloatRegister(int, double) {
+  _LIBUNWIND_ABORT("no ia64 float registers");
+}
+
+inline v128 Registers_ia64::getVectorRegister(int) const {
+  _LIBUNWIND_ABORT("no ia64 vector registers");
+}
+
+inline void Registers_ia64::setVectorRegister(int, v128) {
+  _LIBUNWIND_ABORT("no ia64 vector registers");
+}
+
+inline void Registers_ia64::jumpto() {
+  // The input to __libunwind_Registers_ia64_jumpto(): the registers, the
+  // ar.bspstore that leaves the frame's BSP where it was after br.ret, the
+  // address of the NaT collection for it, and the floating-point registers,
+  // aligned for ldf.fill.
+  struct {
+    ia64_thread_state_t registers;
+    uint64_t bspstore;
+    uint64_t rnatAddr;
+    alignas(16) uint8_t fr[NumFR][16];
+  } target;
+  static_assert(offsetof(decltype(target), fr) == 208,
+                "expected the floating-point registers to be at offset 208");
+  target.registers = _registers;
+  target.bspstore = rseSkip(_registers.__bsp, sizeOfLocals(_registers.__pfs));
+  target.rnatAddr = target.bspstore | 0x1f8;
+  memcpy(target.fr, _fr, sizeof(_fr));
+  __libunwind_Registers_ia64_jumpto(&target);
+}
+
+inline const char *Registers_ia64::getRegisterName(int regNum) {
+  switch (regNum) {
+  case UNW_REG_IP:
+  case UNW_IA64_IP:
+    return "ip";
+  case UNW_REG_SP:
+  case UNW_IA64_SP:
+    return "sp";
+  case UNW_IA64_GP:
+    return "gp";
+  case UNW_IA64_R4:
+    return "r4";
+  case UNW_IA64_R5:
+    return "r5";
+  case UNW_IA64_R6:
+    return "r6";
+  case UNW_IA64_R7:
+    return "r7";
+  case UNW_IA64_R15:
+    return "r15";
+  case UNW_IA64_R16:
+    return "r16";
+  case UNW_IA64_R17:
+    return "r17";
+  case UNW_IA64_R18:
+    return "r18";
+  case UNW_IA64_B0:
+    return "b0";
+  case UNW_IA64_B1:
+    return "b1";
+  case UNW_IA64_B2:
+    return "b2";
+  case UNW_IA64_B3:
+    return "b3";
+  case UNW_IA64_B4:
+    return "b4";
+  case UNW_IA64_B5:
+    return "b5";
+  case UNW_IA64_PR:
+    return "pr";
+  case UNW_IA64_CFM:
+    return "cfm";
+  case UNW_IA64_AR_BSP:
+    return "ar.bsp";
+  case UNW_IA64_AR_UNAT:
+    return "ar.unat";
+  case UNW_IA64_AR_FPSR:
+    return "ar.fpsr";
+  case UNW_IA64_AR_PFS:
+    return "ar.pfs";
+  case UNW_IA64_AR_LC:
+    return "ar.lc";
+  default:
+    return "unknown register";
+  }
+}
+#endif // _LIBUNWIND_TARGET_IA64
 
 } // namespace libunwind
 

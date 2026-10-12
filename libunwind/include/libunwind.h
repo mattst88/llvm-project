@@ -1406,4 +1406,41 @@ enum {
   UNW_LOONGARCH_F31 = 63,
 };
 
+// IA-64 register numbers, which are the ones GCC gives the registers in DWARF.
+// r0 to r127 are 0 to 127 and f0 to f127 are 128 to 255.
+enum {
+  UNW_IA64_R0 = 0,
+  UNW_IA64_GP = 1,
+  UNW_IA64_R4 = 4,
+  UNW_IA64_R5 = 5,
+  UNW_IA64_R6 = 6,
+  UNW_IA64_R7 = 7,
+  UNW_IA64_SP = 12,
+  UNW_IA64_R15 = 15,
+  UNW_IA64_R16 = 16,
+  UNW_IA64_R17 = 17,
+  UNW_IA64_R18 = 18,
+  UNW_IA64_R32 = 32,
+  UNW_IA64_R127 = 127,
+  UNW_IA64_F0 = 128,
+  UNW_IA64_F2 = 130,
+  UNW_IA64_F5 = 133,
+  UNW_IA64_F16 = 144,
+  UNW_IA64_F31 = 159,
+  UNW_IA64_B0 = 320,
+  UNW_IA64_B1 = 321,
+  UNW_IA64_B2 = 322,
+  UNW_IA64_B3 = 323,
+  UNW_IA64_B4 = 324,
+  UNW_IA64_B5 = 325,
+  UNW_IA64_PR = 330,
+  UNW_IA64_IP = 331,
+  UNW_IA64_CFM = 333,
+  UNW_IA64_AR_BSP = 351,
+  UNW_IA64_AR_UNAT = 370,
+  UNW_IA64_AR_FPSR = 374,
+  UNW_IA64_AR_PFS = 398,
+  UNW_IA64_AR_LC = 399,
+};
+
 #endif

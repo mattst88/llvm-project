@@ -1308,6 +1308,154 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind19Registers_loongarch6jumptoEv)
 
   jr      $ra
 
+#elif defined(__ia64__)
+
+//
+// extern "C" void __libunwind_Registers_ia64_jumpto(const void *target);
+//
+// On entry:
+//  r32 points to the buffer built by Registers_ia64::jumpto(): the saved
+//  registers, the new ar.bspstore, the address of its NaT collection, then
+//  the floating-point registers
+//
+DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_ia64_jumpto)
+  // The current stacked registers are discarded when the backing store moves.
+  mov r2 = r32
+  add r3 = 208, r32
+  ;;
+  ldf.fill f2 = [r3], 16
+  ;;
+  ldf.fill f3 = [r3], 16
+  ;;
+  ldf.fill f4 = [r3], 16
+  ;;
+  ldf.fill f5 = [r3], 16
+  ;;
+  ldf.fill f16 = [r3], 16
+  ;;
+  ldf.fill f17 = [r3], 16
+  ;;
+  ldf.fill f18 = [r3], 16
+  ;;
+  ldf.fill f19 = [r3], 16
+  ;;
+  ldf.fill f20 = [r3], 16
+  ;;
+  ldf.fill f21 = [r3], 16
+  ;;
+  ldf.fill f22 = [r3], 16
+  ;;
+  ldf.fill f23 = [r3], 16
+  ;;
+  ldf.fill f24 = [r3], 16
+  ;;
+  ldf.fill f25 = [r3], 16
+  ;;
+  ldf.fill f26 = [r3], 16
+  ;;
+  ldf.fill f27 = [r3], 16
+  ;;
+  ldf.fill f28 = [r3], 16
+  ;;
+  ldf.fill f29 = [r3], 16
+  ;;
+  ldf.fill f30 = [r3], 16
+  ;;
+  ldf.fill f31 = [r3], 16
+  ;;
+  ld8 r1 = [r2], 8
+  ;;
+  ld8 r4 = [r2], 8
+  ;;
+  ld8 r5 = [r2], 8
+  ;;
+  ld8 r6 = [r2], 8
+  ;;
+  ld8 r7 = [r2], 8
+  ;;
+  ld8 r20 = [r2], 8             // sp
+  ;;
+  ld8 r8 = [r2], 8              // r15
+  ;;
+  ld8 r9 = [r2], 8              // r16
+  ;;
+  ld8 r10 = [r2], 8             // r17
+  ;;
+  ld8 r11 = [r2], 16            // r18; skip b0
+  ;;
+  ld8 r21 = [r2], 8
+  ;;
+  ld8 r22 = [r2], 8
+  mov b1 = r21
+  ;;
+  ld8 r21 = [r2], 8
+  mov b2 = r22
+  ;;
+  ld8 r22 = [r2], 8
+  mov b3 = r21
+  ;;
+  ld8 r21 = [r2], 8
+  mov b4 = r22
+  ;;
+  ld8 r19 = [r2], 8             // ip
+  mov b5 = r21
+  ;;
+  ld8 r21 = [r2], 8             // pr
+  ;;
+  ld8 r18 = [r2], 16            // ar.pfs; skip ar.bsp
+  ;;
+  ld8 r22 = [r2], 8             // ar.unat
+  ;;
+  ld8 r23 = [r2], 8
+  mov ar.unat = r22
+  ;;
+  ld8 r22 = [r2], 16            // ar.fpsr
+  mov ar.lc = r23
+  ;;
+  ld8 r16 = [r2], 8             // new ar.bspstore
+  mov ar.fpsr = r22
+  ;;
+  ld8 r17 = [r2]                // address of its NaT collection
+  ;;
+  // Flush the register stack and put the RSE in enforced lazy mode while
+  // ar.bspstore and ar.rnat are changed.
+  flushrs
+  mov r24 = ar.rsc
+  ;;
+  and r25 = -4, r24
+  ;;
+  mov ar.rsc = r25
+  ;;
+  mov r25 = ar.bspstore
+  mov r26 = ar.rnat
+  ;;
+  // The NaT bits of the current, incomplete collection are in ar.rnat. If the
+  // collection for the new top is below ar.bspstore, it is already in memory.
+  cmp.ltu p6, p7 = r17, r25
+  ;;
+(p6) ld8 r26 = [r17]
+  ;;
+  mov ar.bspstore = r16
+  ;;
+  mov ar.rnat = r26
+  ;;
+  mov ar.rsc = r24
+  ;;
+  // br.ret restores the target frame's marker from ar.pfs and moves BSP back
+  // over its local registers.
+  invala
+  mov ar.pfs = r18
+  mov b0 = r19
+  mov r12 = r20
+  mov r15 = r8
+  mov r16 = r9
+  mov r17 = r10
+  mov r18 = r11
+  mov pr = r21, -1
+  ;;
+  br.ret.sptk.many b0
+  ;;
+
 #endif
 
 #endif /* !defined(__USING_SJLJ_EXCEPTIONS__) */

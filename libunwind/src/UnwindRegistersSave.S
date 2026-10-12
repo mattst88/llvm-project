@@ -1336,6 +1336,123 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   move     $a0, $zero  // UNW_ESUCCESS
   jr       $ra
 
+#elif defined(__ia64__)
+
+//
+// extern int __unw_getcontext(unw_context_t* thread_state)
+//
+// On entry:
+//  thread_state pointer is in r32
+//
+// No register frame is allocated, so ar.pfs holds the caller's frame marker
+// and ar.bsp points at the caller's output registers.
+//
+DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+  // Flush the stacked registers of all callers to the backing store.
+  flushrs
+  mov r16 = ar.unat
+  mov r2 = r32
+  ;;
+  st8 [r2] = r1, 8
+  ;;
+  // Use st8.spill: only it can store a register holding a NaT.
+  st8.spill [r2] = r4, 8
+  ;;
+  st8.spill [r2] = r5, 8
+  ;;
+  st8.spill [r2] = r6, 8
+  ;;
+  st8.spill [r2] = r7, 8
+  mov r17 = b0
+  ;;
+  st8 [r2] = r12, 40
+  mov r18 = ar.unat
+  mov r19 = b1
+  ;;
+  st8 [r2] = r17, 8
+  mov ar.unat = r16
+  mov r20 = b2
+  ;;
+  st8 [r2] = r19, 8
+  mov r19 = b3
+  ;;
+  st8 [r2] = r20, 8
+  mov r20 = b4
+  ;;
+  st8 [r2] = r19, 8
+  mov r19 = b5
+  ;;
+  st8 [r2] = r20, 8
+  mov r20 = pr
+  ;;
+  st8 [r2] = r19, 8
+  mov r19 = ar.pfs
+  ;;
+  st8 [r2] = r17, 8
+  ;;
+  st8 [r2] = r20, 8
+  mov r20 = ar.bsp
+  ;;
+  st8 [r2] = r19, 8
+  mov r19 = ar.lc
+  ;;
+  st8 [r2] = r20, 8
+  mov r20 = ar.fpsr
+  ;;
+  st8 [r2] = r16, 8
+  ;;
+  st8 [r2] = r19, 8
+  ;;
+  st8 [r2] = r20, 8
+  ;;
+  st8 [r2] = r18, 8 + 15
+  ;;
+  // stf.spill stores 16 bytes and needs 16-byte alignment.
+  and r2 = -16, r2
+  ;;
+  stf.spill [r2] = f2, 16
+  ;;
+  stf.spill [r2] = f3, 16
+  ;;
+  stf.spill [r2] = f4, 16
+  ;;
+  stf.spill [r2] = f5, 16
+  ;;
+  stf.spill [r2] = f16, 16
+  ;;
+  stf.spill [r2] = f17, 16
+  ;;
+  stf.spill [r2] = f18, 16
+  ;;
+  stf.spill [r2] = f19, 16
+  ;;
+  stf.spill [r2] = f20, 16
+  ;;
+  stf.spill [r2] = f21, 16
+  ;;
+  stf.spill [r2] = f22, 16
+  ;;
+  stf.spill [r2] = f23, 16
+  ;;
+  stf.spill [r2] = f24, 16
+  ;;
+  stf.spill [r2] = f25, 16
+  ;;
+  stf.spill [r2] = f26, 16
+  ;;
+  stf.spill [r2] = f27, 16
+  ;;
+  stf.spill [r2] = f28, 16
+  ;;
+  stf.spill [r2] = f29, 16
+  ;;
+  stf.spill [r2] = f30, 16
+  ;;
+  stf.spill [r2] = f31, 16
+  mov r8 = r0
+  br.ret.sptk.many b0
+  ;;
+
 #endif
 
 #ifdef __arm64ec__
