@@ -134,6 +134,9 @@ private:
   // .copy_state it back because an epilogue undid it.
   unsigned StateLabel = 0;
   bool CopyState = false;
+  // Whether the last instruction emitted was a call followed by a stop, so
+  // that a new bundle starts here.
+  bool AfterCall = false;
   // Whether an alias's aliasee is being lowered.
   bool InAlias = false;
 };
@@ -380,6 +383,7 @@ void IA64AsmPrinter::emitFunctionBodyStart() {
   HasVFrame = false;
   StateLabel = 0;
   CopyState = false;
+  AfterCall = false;
   for (const MachineInstr &MI : MF->front())
     if (MI.getFlag(MachineInstr::FrameSetup) && !MI.isMetaInstruction())
       ++PrologueLeft;
@@ -389,11 +393,13 @@ void IA64AsmPrinter::emitFunctionBodyStart() {
     getTargetStreamer().emitBody();
 }
 
-// A label ends the bundle, and whether there is debug info is not to say
-// where a bundle ends. A tag is the slot of the instruction after it, which
-// is what the line table has for an address too.
+// A label ends the bundle, and debug info must not change bundling, so use
+// a tag instead. A tag is the slot address of the next instruction, which is
+// also what the line table uses. A call returns to the start of the next
+// bundle, not to a slot, and the instruction after the call may be placed in
+// a later slot, so after a call the tag is for the bundle.
 void IA64AsmPrinter::emitDebugInstrLabel(MCSymbol *Sym) {
-  getTargetStreamer().emitTag(Sym);
+  getTargetStreamer().emitTag(Sym, SMLoc(), AfterCall);
 }
 
 // An epilogue undoes the frame only for the rest of its region, so the code
@@ -567,12 +573,14 @@ bool IA64AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 void IA64AsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
                                       const MCSubtargetInfo *EndInfo,
                                       const MachineInstr *MI) {
+  AfterCall = false;
   if (MI)
     getTargetStreamer().emitStop();
 }
 
 void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   emitUnwindDirectives(*MI);
+  AfterCall = MI->isCall() && MI->getAsmPrinterFlag(IA64::StopAfter);
   // The prologue ends where its last instruction does.
   struct EndPrologue {
     IA64AsmPrinter &AP;

@@ -45,10 +45,13 @@ public:
   virtual void emitBundleBegin();
   virtual void emitBundleEnd();
 
-  /// Let \p Symbol be the slot of the next instruction: the address of its
-  /// bundle and in the low bits which of the three it is. Assembly writes
-  /// this as "[symbol:]".
-  virtual void emitTag(MCSymbol *Symbol, SMLoc Loc = SMLoc());
+  /// Define \p Symbol as the slot address of the next instruction: its
+  /// bundle address with the slot number in the low bits. Assembly writes
+  /// this as "[symbol:]". With \p OfBundle it is the bundle address alone,
+  /// which is the return address of a call just before the instruction;
+  /// assembly has no syntax for that and writes the same.
+  virtual void emitTag(MCSymbol *Symbol, SMLoc Loc = SMLoc(),
+                       bool OfBundle = false);
 
   /// Begin a procedure with entry points \p Entries. Assembly writes this as
   /// ".proc".
@@ -251,7 +254,7 @@ public:
   void emitTemplate(unsigned Index) override;
   void emitBundleBegin() override;
   void emitBundleEnd() override;
-  void emitTag(MCSymbol *Symbol, SMLoc Loc) override;
+  void emitTag(MCSymbol *Symbol, SMLoc Loc, bool OfBundle) override;
   void emitProc(ArrayRef<MCSymbol *> Entries) override;
   void emitEndp() override;
   void emitPrologue(unsigned Mask, unsigned GRSave) override;

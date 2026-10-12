@@ -34,7 +34,7 @@ public:
   void emitTemplate(unsigned Index) override;
   void emitBundleBegin() override;
   void emitBundleEnd() override;
-  void emitTag(MCSymbol *Symbol, SMLoc Loc) override;
+  void emitTag(MCSymbol *Symbol, SMLoc Loc, bool OfBundle) override;
   void emitProc(ArrayRef<MCSymbol *> Entries) override;
   void emitEndp() override;
   void emitPrologue(unsigned Mask, unsigned GRSave) override;

@@ -78,6 +78,13 @@ using namespace llvm;
 namespace {
 
 class IA64ELFStreamer : public MCELFStreamer {
+  /// A tag: a symbol for the slot of the next instruction, or for its bundle.
+  struct TagSymbol {
+    MCSymbol *Symbol;
+    SMLoc Loc;
+    bool OfBundle;
+  };
+
   struct PendingInst {
     MCInst Inst;
     const MCSubtargetInfo *STI;
@@ -98,9 +105,8 @@ class IA64ELFStreamer : public MCELFStreamer {
     /// region whose first instruction it is, or -1.
     int Mark;
     int StartMark;
-    /// The tags, which are symbols for the slot that this one comes to be
-    /// in and not for a bundle.
-    SmallVector<std::pair<MCSymbol *, SMLoc>, 1> Tags;
+    /// The tags: symbols for this instruction's slot.
+    SmallVector<TagSymbol, 1> Tags;
   };
 
   /// A position in the instruction stream that the unwind information refers
@@ -132,7 +138,7 @@ class IA64ELFStreamer : public MCELFStreamer {
   SmallVector<int, 4> NextMarks;
   int NextStartMark = -1;
   /// The tags that the next instruction is to have.
-  SmallVector<std::pair<MCSymbol *, SMLoc>, 1> NextTags;
+  SmallVector<TagSymbol, 1> NextTags;
 
   /// Where the last instruction ended, if only labels followed it.
   MCFragment *LastFragment = nullptr;
@@ -334,7 +340,7 @@ public:
     Elsewhere = false;
   }
 
-  void emitTag(MCSymbol *Symbol, SMLoc Loc) {
+  void emitTag(MCSymbol *Symbol, SMLoc Loc, bool OfBundle) {
     Symbol->redefineIfPossible();
     if (!Symbol->isUndefined()) {
       getContext().reportError(Loc, "symbol '" + Twine(Symbol->getName()) +
@@ -350,7 +356,7 @@ public:
             MCFragment();
     Placeholder->setParent(getCurrentSectionOnly());
     Symbol->setFragment(Placeholder);
-    NextTags.emplace_back(Symbol, Loc);
+    NextTags.push_back({Symbol, Loc, OfBundle});
   }
 
   void emitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) override;
@@ -362,7 +368,7 @@ public:
     if (!Ctx.getDwarfLocSeen())
       return;
     MCSymbol *LineSym = Ctx.createTempSymbol();
-    NextTags.emplace_back(LineSym, SMLoc());
+    NextTags.push_back({LineSym, SMLoc(), false});
     MCDwarfLineEntry LineEntry(LineSym, Ctx.getCurrentDwarfLoc());
     Ctx.clearDwarfLocSeen();
     Ctx.getMCDwarfLineTable(Ctx.getDwarfCompileUnitID())
@@ -719,10 +725,10 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts,
     }
     if (PI.Mark != -1)
       Marks[PI.Mark] = {GetBundleSym(), Slot};
-    for (auto [Tag, Loc] : PI.Tags) {
+    for (auto [Tag, Loc, OfBundle] : PI.Tags) {
       Tag->setFragment(nullptr);
       MCELFStreamer::emitLabelAtPos(Tag, Loc, *getCurrentFragment(),
-                                    BundleOffset + Slot);
+                                    BundleOffset + (OfBundle ? 0 : Slot));
     }
     for (unsigned I = 0; I != Code.size(); I += IA64::SlotBytes) {
       if (I != 0)
@@ -823,7 +829,7 @@ void IA64ELFStreamer::flush(bool Stop, bool KeepLast) {
       LastFragment = nullptr;
     // A tag with no following instruction becomes a label at the current
     // position.
-    for (auto [Tag, Loc] : NextTags) {
+    for (auto [Tag, Loc, OfBundle] : NextTags) {
       Tag->setFragment(nullptr);
       MCELFStreamer::emitLabel(Tag, Loc);
     }
@@ -883,8 +889,9 @@ void IA64TargetELFStreamer::emitBundleEnd() {
   static_cast<IA64ELFStreamer &>(getStreamer()).emitBundleEnd();
 }
 
-void IA64TargetELFStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {
-  static_cast<IA64ELFStreamer &>(getStreamer()).emitTag(Symbol, Loc);
+void IA64TargetELFStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc,
+                                    bool OfBundle) {
+  static_cast<IA64ELFStreamer &>(getStreamer()).emitTag(Symbol, Loc, OfBundle);
 }
 
 void IA64TargetELFStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {

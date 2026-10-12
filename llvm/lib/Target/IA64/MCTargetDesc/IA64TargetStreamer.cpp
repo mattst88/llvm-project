@@ -34,7 +34,7 @@ void IA64TargetStreamer::emitTemplate(unsigned Index) {}
 void IA64TargetStreamer::emitBundleBegin() {}
 void IA64TargetStreamer::emitBundleEnd() {}
 
-void IA64TargetStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {}
+void IA64TargetStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc, bool OfBundle) {}
 
 void IA64TargetStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {}
 
@@ -198,7 +198,8 @@ void IA64TargetAsmStreamer::emitBundleBegin() { OS << "{\n"; }
 
 void IA64TargetAsmStreamer::emitBundleEnd() { OS << "}\n"; }
 
-void IA64TargetAsmStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc) {
+void IA64TargetAsmStreamer::emitTag(MCSymbol *Symbol, SMLoc Loc,
+                                    bool OfBundle) {
   // The symbol is now defined, as one printed by emitLabel() is.
   if (MCSection *Section = getStreamer().getCurrentSectionOnly())
     Symbol->setFragment(&Section->getDummyFragment());
