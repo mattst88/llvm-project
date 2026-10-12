@@ -9619,8 +9619,10 @@ LegalizerHelper::lowerExtractInsertVectorElt(MachineInstr &MI) {
     PtrInfo = PtrInfo.getWithOffset(Offset);
     EltAlign = commonAlignment(VecAlign, Offset);
   } else {
-    // We lose information with a variable offset.
-    EltAlign = getStackTemporaryAlignment(EltTy);
+    // We lose information with a variable offset. The elements are EltBytes
+    // apart, which may be less than the alignment of the element type.
+    EltAlign = std::min(getStackTemporaryAlignment(EltTy),
+                        commonAlignment(VecAlign, EltBytes));
     PtrInfo = MachinePointerInfo(MRI.getType(EltPtr).getAddressSpace());
   }
 
