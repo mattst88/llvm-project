@@ -277,6 +277,13 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   for (MVT VT : {MVT::f32, MVT::f64})
     setLoadExtAction(ISD::EXTLOAD, MVT::f80, VT, Expand);
 
+  // Loads and stores can post-increment the address register.
+  for (MVT VT :
+       {MVT::i8, MVT::i16, MVT::i32, MVT::i64, MVT::f32, MVT::f64, MVT::f80}) {
+    setIndexedLoadAction(ISD::POST_INC, VT, Legal);
+    setIndexedStoreAction(ISD::POST_INC, VT, Legal);
+  }
+
   // f32 and f64 constants are materialized in a GR and moved to an FR.
   setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
   setOperationAction(ISD::ConstantFP, MVT::f64, Legal);
@@ -821,6 +828,31 @@ IA64TargetLowering::LowerGET_DYNAMIC_AREA_OFFSET(SDValue Op,
 // and added in code where the address is loaded from the GOT.
 bool IA64TargetLowering::isOffsetFoldingLegal(
     const GlobalAddressSDNode *GA) const {
+  return true;
+}
+
+// The post-increment is a 9-bit immediate, or for loads a register.
+bool IA64TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
+                                                    SDValue &Base,
+                                                    SDValue &Offset,
+                                                    ISD::MemIndexedMode &AM,
+                                                    SelectionDAG &DAG) const {
+  if (Op->getOpcode() != ISD::ADD)
+    return false;
+  SDValue Ptr = cast<MemSDNode>(N)->getBasePtr();
+  Base = Op->getOperand(0);
+  Offset = Op->getOperand(1);
+  if (Offset == Ptr)
+    std::swap(Base, Offset);
+  if (Base != Ptr)
+    return false;
+  if (const auto *C = dyn_cast<ConstantSDNode>(Offset)) {
+    if (!isInt<9>(C->getSExtValue()))
+      return false;
+  } else if (!isa<LoadSDNode>(N)) {
+    return false;
+  }
+  AM = ISD::POST_INC;
   return true;
 }
 

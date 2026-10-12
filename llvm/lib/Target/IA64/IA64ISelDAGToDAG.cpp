@@ -359,6 +359,58 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
                          SDValue(GR, 0), P0);
     return;
   }
+  case ISD::LOAD:
+  case ISD::STORE: {
+    // Post-increment forms. Narrow loads zero-extend, and narrow stores write
+    // the low bits.
+    const auto *Mem = cast<LSBaseSDNode>(Node);
+    if (Mem->getAddressingMode() != ISD::POST_INC)
+      break;
+    bool IsLoad = Node->getOpcode() == ISD::LOAD;
+    MVT MemVT = Mem->getMemoryVT().getSimpleVT();
+    SDValue Offset = Mem->getOffset();
+    bool IsImm = isa<ConstantSDNode>(Offset);
+    if (IsImm)
+      Offset = CurDAG->getSignedTargetConstant(
+          cast<ConstantSDNode>(Offset)->getSExtValue(), DL, MVT::i64);
+    unsigned Opcode;
+    switch (MemVT.SimpleTy) {
+    default:
+      llvm_unreachable("an access that cannot add to its address");
+#define ACCESS(VT, LOAD, STORE)                                                \
+  case MVT::VT:                                                                \
+    Opcode = !IsLoad ? IA64::STORE##_i                                         \
+             : IsImm ? IA64::LOAD##_i                                          \
+                     : IA64::LOAD##_r;                                         \
+    break;
+      ACCESS(i8, LD1, ST1)
+      ACCESS(i16, LD2, ST2)
+      ACCESS(i32, LD4, ST4)
+      ACCESS(i64, LD8, ST8)
+      ACCESS(f32, LDFS, STFS)
+      ACCESS(f64, LDFD, STFD)
+      ACCESS(f80, LDFE, STFE)
+#undef ACCESS
+    }
+    SDValue Hint = CurDAG->getTargetConstant(0, DL, MVT::i64);
+    SDValue P0 = CurDAG->getRegister(IA64::P0, MVT::i1);
+    MachineSDNode *Access;
+    if (IsLoad) {
+      assert(cast<LoadSDNode>(Node)->getExtensionType() != ISD::SEXTLOAD &&
+             "no load extends the sign");
+      Access = CurDAG->getMachineNode(
+          Opcode, DL, Node->getValueType(0), MVT::i64, MVT::Other,
+          {Mem->getBasePtr(), Offset, Hint, P0, Mem->getChain()});
+    } else {
+      Access = CurDAG->getMachineNode(Opcode, DL, MVT::i64, MVT::Other,
+                                      {Mem->getBasePtr(),
+                                       cast<StoreSDNode>(Node)->getValue(),
+                                       Offset, Hint, P0, Mem->getChain()});
+    }
+    CurDAG->setNodeMemRefs(Access, {Mem->getMemOperand()});
+    ReplaceNode(Node, Access);
+    return;
+  }
   case ISD::ATOMIC_FENCE: {
     // Atomic loads and stores already carry the ordering they need, so only a
     // seq_cst fence emits anything.
