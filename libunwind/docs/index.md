@@ -44,6 +44,7 @@ libunwind is known to work on the following platforms:
 | iOS        | ARM                      | Clang      | SjLj        |
 | Linux      | ARM                      | Clang, GCC | EHABI       |
 | Linux      | i386, x86_64, ARM64      | Clang, GCC | DWARF CFI   |
+| Linux      | IA-64                    | Clang, GCC | IA-64 unwind table |
 | macOS      | i386, x86_64             | Clang, GCC | DWARF CFI   |
 | NetBSD     | x86_64                   | Clang, GCC | DWARF CFI   |
 | Windows    | i386, x86_64, ARM, ARM64 | Clang      | DWARF CFI   |

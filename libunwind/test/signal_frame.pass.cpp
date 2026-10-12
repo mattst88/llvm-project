@@ -26,6 +26,9 @@
 // mingw targets do use DWARF (where CFI directives are supported).
 // UNSUPPORTED: target={{x86_64|arm.*|aarch64}}-{{.*}}-windows-{{.*}}
 
+// IA-64 unwind tables are not DWARF, and there are no CFI directives.
+// UNSUPPORTED: target=ia64-{{.*}}
+
 #undef NDEBUG
 #include <assert.h>
 #include <stdlib.h>
