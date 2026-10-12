@@ -44,6 +44,13 @@ public:
     return TTI::AMK_PostIndexed;
   }
 
+  // popcnt counts the bits of a 64-bit register, and of narrower values once
+  // the upper bits are cleared.
+  TTI::PopcntSupportKind getPopcntSupport(unsigned TyWidth) const override {
+    assert(isPowerOf2_32(TyWidth) && "a width that is not a power of two");
+    return TyWidth <= 64 ? TTI::PSK_FastHardware : TTI::PSK_Software;
+  }
+
   bool supportsTailCallFor(const CallBase *CB) const override {
     return TLI->supportsTailCallFor(CB);
   }
