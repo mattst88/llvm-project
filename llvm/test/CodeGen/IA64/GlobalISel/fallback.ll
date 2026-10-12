@@ -8,6 +8,7 @@
 
 ; CHECK: warning: Instruction selection used fallback path for must
 ; CHECK: warning: Instruction selection used fallback path for elements
+; CHECK: warning: Instruction selection used fallback path for bundle
 ; CHECK-NOT: warning:
 ; DAG-NOT: warning:
 
@@ -36,5 +37,18 @@ define void @elements(<2 x float> %a) {
 ; CHECK:       br.call.sptk.many b0 = any ;;
 ; DAG-LABEL:   elements:
   call void (<2 x float>, ...) @any(<2 x float> %a)
+  ret void
+}
+
+declare ptr @retained()
+declare void @objc_retainAutoreleasedReturnValue(ptr)
+
+; An operand bundle is something to do at the call, and none of them is
+; done here.
+define void @bundle() {
+; CHECK-LABEL: bundle:
+; CHECK:       br.call.sptk.many b0 = retained ;;
+; DAG-LABEL:   bundle:
+  %r = call ptr @retained() [ "clang.arc.attachedcall"(ptr @objc_retainAutoreleasedReturnValue) ]
   ret void
 }

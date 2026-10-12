@@ -622,6 +622,10 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   // puts the global pointer back where it lands.
   if (Info.IsMustTailCall || (Info.CB && isa<CallBrInst>(Info.CB)))
     return false;
+  // Operand bundles are not handled here; leave them to SelectionDAG, which
+  // handles or rejects them.
+  if (Info.CB && Info.CB->hasOperandBundles())
+    return false;
   if (!Info.Callee.isReg() && !Info.Callee.isGlobal() &&
       !Info.Callee.isSymbol())
     return false;
