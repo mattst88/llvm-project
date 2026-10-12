@@ -19,12 +19,14 @@
 #include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
+#include "llvm/ADT/FloatingPointMode.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerHelper.h"
 #include "llvm/CodeGen/GlobalISel/Utils.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -365,7 +367,12 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
   getActionDefinitionsBuilder(
       {G_LROUND, G_LLROUND, G_INTRINSIC_LRINT, G_INTRINSIC_LLRINT})
       .libcallFor({{s64, s32}, {s64, s64}, {s64, s80}, {s64, s128}});
-  getActionDefinitionsBuilder(G_IS_FPCLASS).lower();
+  // The bits of a float or a double say what class it is of. Those of an
+  // extended value say it differently, and a compare is asked instead.
+  getActionDefinitionsBuilder(G_IS_FPCLASS)
+      .customIf(
+          [=](const LegalityQuery &Query) { return Query.Types[1] == s80; })
+      .lower();
 
   getActionDefinitionsBuilder({G_MEMCPY, G_MEMMOVE, G_MEMSET}).libcall();
   getActionDefinitionsBuilder({G_MEMCPY_INLINE, G_MEMSET_INLINE}).lower();
@@ -543,6 +550,72 @@ bool IA64LegalizerInfo::legalizeCustom(
             .addReg(IA64::P0);
       }
     }
+    MI.eraseFromParent();
+    return true;
+  }
+  case G_IS_FPCLASS: {
+    // A class that one compare tells from the rest is told by it: with
+    // itself for a NaN, and with infinity or zero for those, in magnitude
+    // where the sign is not asked about. Any other is not told here.
+    LLT S80 = LLT::scalar(80);
+    Register Dst = MI.getOperand(0).getReg();
+    Register Src = MI.getOperand(1).getReg();
+    unsigned Mask = MI.getOperand(2).getImm() & fcAllFlags;
+    LLVMContext &Ctx = MF.getFunction().getContext();
+    const fltSemantics &Semantics = APFloat::x87DoubleExtended();
+    auto Constant = [&](const APFloat &Value) {
+      return MIRBuilder.buildFConstant(S80, *ConstantFP::get(Ctx, Value))
+          .getReg(0);
+    };
+    auto Infinity = [&](bool Negative) {
+      return Constant(APFloat::getInf(Semantics, Negative));
+    };
+    auto Magnitude = [&] { return MIRBuilder.buildFAbs(S80, Src).getReg(0); };
+    auto Compare = [&](unsigned Class) -> bool {
+      bool Inverted = false;
+      for (unsigned Test : {Class, ~Class & unsigned(fcAllFlags)}) {
+        CmpInst::Predicate Pred;
+        Register LHS = Src, RHS;
+        switch (Test) {
+        default:
+          Inverted = true;
+          continue;
+        case fcNan:
+          Pred = CmpInst::FCMP_UNO;
+          RHS = Src;
+          break;
+        case fcInf:
+          Pred = CmpInst::FCMP_OEQ;
+          LHS = Magnitude();
+          RHS = Infinity(false);
+          break;
+        case fcInf | fcNan:
+          Pred = CmpInst::FCMP_UEQ;
+          LHS = Magnitude();
+          RHS = Infinity(false);
+          break;
+        case fcPosInf:
+        case fcNegInf:
+          Pred = CmpInst::FCMP_OEQ;
+          RHS = Infinity(Test == fcNegInf);
+          break;
+        case fcZero:
+        case fcZero | fcNan:
+          Pred = Test == fcZero ? CmpInst::FCMP_OEQ : CmpInst::FCMP_UEQ;
+          RHS = Constant(APFloat::getZero(Semantics));
+          break;
+        }
+        MIRBuilder.buildFCmp(Inverted ? CmpInst::getInversePredicate(Pred)
+                                      : Pred,
+                             Dst, LHS, RHS);
+        return true;
+      }
+      return false;
+    };
+    if (Mask == 0 || Mask == fcAllFlags)
+      MIRBuilder.buildConstant(Dst, Mask != 0);
+    else if (!Compare(Mask))
+      return false;
     MI.eraseFromParent();
     return true;
   }
