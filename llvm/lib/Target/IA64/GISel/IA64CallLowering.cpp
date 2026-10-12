@@ -399,9 +399,14 @@ static bool areSupported(ArrayRef<CallLowering::ArgInfo> Args) {
     if (Flags.isByRef() || Flags.isInAlloca() || Flags.isPreallocated() ||
         Flags.isSwiftSelf() || Flags.isSwiftAsync() || Flags.isSwiftError())
       return false;
-    return Arg.Ty->isIntegerTy() || Arg.Ty->isPointerTy() ||
-           Arg.Ty->isFloatTy() || Arg.Ty->isDoubleTy() ||
-           Arg.Ty->isX86_FP80Ty();
+    if (Arg.Ty->isX86_FP80Ty())
+      return true;
+    // A vector is its elements, each passed as one of them would be.
+    const Type *Ty = Arg.Ty;
+    if (const auto *VTy = dyn_cast<FixedVectorType>(Ty))
+      Ty = VTy->getElementType();
+    return Ty->isIntegerTy() || Ty->isPointerTy() || Ty->isFloatTy() ||
+           Ty->isDoubleTy();
   });
 }
 
@@ -421,6 +426,16 @@ static void takeSlotCopies(SmallVectorImpl<CCValAssign> &ArgLocs,
     }
     ++I;
   }
+}
+
+/// Whether any vector element has a custom location. Custom locations are
+/// handled per value, and an element is not a separate value until the
+/// vector has been unmerged.
+static bool hasVectorInCustomPlace(ArrayRef<CallLowering::ArgInfo> Args,
+                                   ArrayRef<CCValAssign> ArgLocs) {
+  return any_of(ArgLocs, [&](const CCValAssign &VA) {
+    return VA.needsCustom() && Args[VA.getValNo()].Ty->isVectorTy();
+  });
 }
 
 bool IA64CallLowering::canLowerReturn(MachineFunction &MF,
@@ -518,6 +533,8 @@ bool IA64CallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
   // register and not also from the GR slot.
   SmallVector<CCValAssign, 8> SlotCopies;
   if (!determineAssignments(Assigner, SplitArgs, CCInfo))
+    return false;
+  if (hasVectorInCustomPlace(SplitArgs, ArgLocs))
     return false;
   takeSlotCopies(ArgLocs, SlotCopies);
   IA64IncomingValueHandler Handler(MIRBuilder, MRI);
@@ -624,6 +641,8 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   OutgoingValueAssigner ArgAssigner(CC_IA64);
   SmallVector<CCValAssign, 8> SlotCopies;
   if (!determineAssignments(ArgAssigner, OutArgs, CCInfo))
+    return false;
+  if (hasVectorInCustomPlace(OutArgs, ArgLocs))
     return false;
   takeSlotCopies(ArgLocs, SlotCopies);
   unsigned NumBytes =
