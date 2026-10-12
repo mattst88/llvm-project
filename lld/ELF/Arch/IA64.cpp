@@ -516,14 +516,25 @@ void IA64::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
     case R_IA64_GPREL64LSB:
       expr = RE_IA64_GPREL;
       break;
+    // A module-relative offset, so it always refers to this module's
+    // definition, even of a preemptible symbol, and never needs a dynamic
+    // relocation. A symbol this module does not define has no such offset.
     case R_IA64_SEGREL32LSB:
     case R_IA64_SEGREL64LSB:
-      expr = RE_IA64_SEGREL;
-      break;
     case R_IA64_SECREL32LSB:
     case R_IA64_SECREL64LSB:
-      expr = RE_IA64_SECREL;
-      break;
+      if (sym.isPreemptible && !sym.isDefined()) {
+        auto diag = Err(ctx);
+        diag << "relocation " << type << " against symbol '" << &sym
+             << "', which this module does not define";
+        printLocation(diag, sec, sym, offset);
+        continue;
+      }
+      sec.addReloc({type == R_IA64_SEGREL32LSB || type == R_IA64_SEGREL64LSB
+                        ? RE_IA64_SEGREL
+                        : RE_IA64_SECREL,
+                    type, offset, addend, &sym});
+      continue;
 
     // Linkage table entries. They are collected and created after the scan:
     // see finalizeRelocScan.
