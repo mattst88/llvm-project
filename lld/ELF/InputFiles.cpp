@@ -1226,6 +1226,12 @@ void ObjFile<ELFT>::initializeSymbols(const object::ELFFile<ELFT> &obj) {
     uint8_t type = eSym.getType();
     uint64_t value = eSym.st_value;
     uint64_t size = eSym.st_size;
+    // In a relocatable file st_value is a section offset. With --just-symbols
+    // the section is not included, so add its sh_addr, which a linker script
+    // may have set.
+    if (LLVM_UNLIKELY(justSymbols) && obj.getHeader().e_type == ET_REL &&
+        secIdx < SHN_LORESERVE)
+      value += CHECK2(obj.getSection(secIdx), this)->sh_addr;
 
     Symbol *sym = symbols[i];
     sym->isUsedInRegularObj = true;

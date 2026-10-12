@@ -1,0 +1,47 @@
+# REQUIRES: x86
+## A symbol of a relocatable file is an offset in its section. With
+## --just-symbols the section is left out, so the symbol is placed by the
+## address the section has, which is not zero where a linker script gave it one.
+
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld --just-symbols=%t.o -o %t
+# RUN: llvm-readelf -s %t | FileCheck %s
+# RUN: ld.lld -r --just-symbols=%t.o -o %t.ro
+# RUN: llvm-readelf -s %t.ro | FileCheck %s
+
+# CHECK: 0000000000010004     0 NOTYPE  GLOBAL DEFAULT   ABS foo
+# CHECK: 0000000000020008     8 OBJECT  GLOBAL DEFAULT   ABS bar
+# CHECK: 0000000000000030     0 NOTYPE  GLOBAL DEFAULT   ABS abs
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS64
+  Data:    ELFDATA2LSB
+  Type:    ET_REL
+  Machine: EM_X86_64
+Sections:
+  - Name:    .text
+    Type:    SHT_PROGBITS
+    Flags:   [ SHF_ALLOC, SHF_EXECINSTR ]
+    Address: 0x10000
+    Size:    8
+  - Name:    .data
+    Type:    SHT_PROGBITS
+    Flags:   [ SHF_ALLOC, SHF_WRITE ]
+    Address: 0x20000
+    Size:    16
+Symbols:
+  - Name:    foo
+    Section: .text
+    Value:   4
+    Binding: STB_GLOBAL
+  - Name:    bar
+    Type:    STT_OBJECT
+    Section: .data
+    Value:   8
+    Size:    8
+    Binding: STB_GLOBAL
+  - Name:    abs
+    Index:   SHN_ABS
+    Value:   0x30
+    Binding: STB_GLOBAL
