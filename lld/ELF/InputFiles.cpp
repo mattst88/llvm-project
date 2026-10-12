@@ -897,6 +897,16 @@ void ObjFile<ELFT>::initializeSections(bool ignoreComdats,
   //    such cases, the relocation section would attempt to reference a target
   //    section that has not yet been created. For simplicity, delay creation of
   //    relocation sections until now.
+  //
+  // A SHF_LINK_ORDER section whose linked-to section is in a discarded section
+  // group is discarded too, even if it is not in a group itself. Do this first
+  // so that its relocation section is dropped as well.
+  for (size_t i = 0; i != size; ++i) {
+    const Elf_Shdr &sec = objSections[i];
+    if ((sec.sh_flags & SHF_LINK_ORDER) && sec.sh_link && sec.sh_link < size &&
+        this->sections[sec.sh_link] == &InputSection::discarded)
+      this->sections[i] = &InputSection::discarded;
+  }
   for (size_t i = 0; i != size; ++i) {
     if (this->sections[i] == &InputSection::discarded)
       continue;
