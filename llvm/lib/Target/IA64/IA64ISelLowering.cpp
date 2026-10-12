@@ -997,26 +997,42 @@ SDValue IA64TargetLowering::LowerFormalArguments(
   if (!IsVarArg)
     return Chain;
 
-  // The arguments with no names are read from memory, one slot after
-  // another, so those that came in registers are written below the ones
-  // that did not. The last two of them fit in the scratch area and the
-  // frame has the rest at its top.
+  // va_arg reads unnamed arguments from memory slot by slot, so the
+  // register-passed ones are stored just below the stack-passed ones. The
+  // last two fit in the scratch area and the rest go at the top of the
+  // frame. An argument register the caller left unset can have its NaT bit
+  // set, which a plain store faults on, so use st8.spill.
   unsigned First = CCInfo.getFirstUnallocated(Slots);
   auto SlotOffset = [](unsigned Slot) { return -8 * int64_t(8 - Slot); };
   SmallVector<SDValue, 8> Stores;
+  // The slots are a single mutable object: va_arg walks from slot to slot,
+  // and a load folded to an offset from the first slot must alias the spill
+  // of the slot it reads.
+  int VarArgsFI =
+      First != 8
+          ? MFI.CreateFixedObject(8 * (8 - First), SlotOffset(First), false)
+          : MFI.CreateFixedObject(8, CCInfo.getStackSize(), true);
   for (unsigned Slot = First; Slot != 8; ++Slot) {
-    int FI = MFI.CreateFixedObject(8, SlotOffset(Slot), true);
+    int64_t Offset = 8 * int64_t(Slot - First);
     Register VReg = MF.addLiveIn(Slots[Slot], &IA64::GRRegClass);
-    Stores.push_back(
-        DAG.getStore(Chain, DL, DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64),
-                     DAG.getFrameIndex(FI, MVT::i64),
-                     MachinePointerInfo::getFixedStack(MF, FI)));
+    MachineSDNode *Spill = DAG.getMachineNode(
+        IA64::ST8_SPILL, DL, MVT::Other,
+        {DAG.getMemBasePlusOffset(DAG.getFrameIndex(VarArgsFI, MVT::i64),
+                                  TypeSize::getFixed(Offset), DL),
+         DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64),
+         DAG.getTargetConstant(0, DL, MVT::i64),
+         DAG.getRegister(IA64::P0, MVT::i1), Chain});
+    DAG.setNodeMemRefs(
+        Spill, {MF.getMachineMemOperand(
+                   MachinePointerInfo::getFixedStack(MF, VarArgsFI, Offset),
+                   MachineMemOperand::MOStore, LLT::scalar(64), Align(8))});
+    Stores.push_back(SDValue(Spill, 0));
   }
-  if (!Stores.empty())
+  if (!Stores.empty()) {
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
-  MF.getInfo<IA64MachineFunctionInfo>()->setVarArgsFrameIndex(
-      MFI.CreateFixedObject(
-          8, First != 8 ? SlotOffset(First) : CCInfo.getStackSize(), true));
+    MF.getInfo<IA64MachineFunctionInfo>()->setSpillsVarArgs(true);
+  }
+  MF.getInfo<IA64MachineFunctionInfo>()->setVarArgsFrameIndex(VarArgsFI);
   return Chain;
 }
 

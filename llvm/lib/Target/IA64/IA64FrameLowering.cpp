@@ -72,7 +72,8 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   bool SaveRP = MF.getFrameInfo().hasCalls() || !MRI.def_empty(IA64::B0);
   bool RestorePFS = SaveRP || !MRI.def_empty(IA64::AR64);
   // Spilling a GR puts its NaT bit in ar.unat, which is callee-saved.
-  bool SaveUNAT = any_of(MF.getFrameInfo().getCalleeSavedInfo(),
+  bool SaveUNAT = FI->spillsVarArgs() ||
+                  any_of(MF.getFrameInfo().getCalleeSavedInfo(),
                          [](const CalleeSavedInfo &CS) {
                            return IA64::GRRegClass.contains(CS.getReg());
                          });

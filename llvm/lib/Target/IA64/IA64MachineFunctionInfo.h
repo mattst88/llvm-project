@@ -45,8 +45,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   // addressed from it while SP moves.
   Register BasePointer;
 
-  // Where the arguments that have no names start.
+  // Frame index of the first variadic argument, and whether any variadic
+  // arguments were passed in registers and spilled there.
   int VarArgsFrameIndex = 0;
+  bool SpillsVarArgs = false;
 
   // The sret pointer passed by the caller, which the function returns.
   Register SRetReg;
@@ -67,6 +69,8 @@ public:
   void setRestoresPFS(bool Restores) { RestoresPFS = Restores; }
   Register getSavedRP() const { return SavedRP; }
   void setSavedRP(Register Reg) { SavedRP = Reg; }
+  bool spillsVarArgs() const { return SpillsVarArgs; }
+  void setSpillsVarArgs(bool Spills) { SpillsVarArgs = Spills; }
   Register getSavedUNAT() const { return SavedUNAT; }
   void setSavedUNAT(Register Reg) { SavedUNAT = Reg; }
   bool changesPR() const { return ChangesPR; }

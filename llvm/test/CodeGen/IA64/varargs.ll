@@ -6,30 +6,41 @@ declare void @llvm.va_copy(ptr, ptr)
 
 ; The arguments with no names are read from memory, so those that came in
 ; registers are written below the ones that did not: the last two in the
-; scratch area and the rest at the top of the frame.
+; scratch area and the rest at the top of the frame. The caller put nothing
+; in a register it had no argument for, and what is there can have its NaT
+; bit set, so the registers are spilled, which takes a frame of all eight
+; and a copy of ar.unat.
 define i64 @first(i32 %n, ...) {
 ; CHECK-LABEL: first:
-; CHECK:       adds r12 = -48, r12 ;;
+; CHECK:       alloc r40 = ar.pfs, 8, 2, 0, 0
+; CHECK-NEXT:  .save ar.unat, r41
+; CHECK-NEXT:  mov r41 = ar.unat
+; CHECK-NEXT:  .fframe 48
+; CHECK-NEXT:  adds r12 = -48, r12 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  adds r14 = 56, r12
-; CHECK-NEXT:  adds r15 = 16, r12
-; CHECK-NEXT:  mov r16 = r12
-; CHECK-NEXT:  add r8 = r33, r34 ;;
-; CHECK-NEXT:  st8 [r14] = r39
-; CHECK-NEXT:  adds r14 = 48, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r38
-; CHECK-NEXT:  adds r14 = 40, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r37
-; CHECK-NEXT:  adds r14 = 32, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r36
-; CHECK-NEXT:  adds r14 = 24, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r35
-; CHECK-NEXT:  adds r14 = 8, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r33
-; CHECK-NEXT:  adds r14 = 8, r12 ;;
-; CHECK-NEXT:  adds r14 = 16, r14
-; CHECK-NEXT:  st8 [r15] = r34 ;;
-; CHECK-NEXT:  st8 [r16] = r14
+; CHECK-NEXT:  adds r14 = 8, r12
+; CHECK-NEXT:  mov r17 = r12 ;;
+; CHECK-NEXT:  adds r15 = 48, r14
+; CHECK-NEXT:  adds r16 = 8, r14
+; CHECK-NEXT:  st8.spill [r14] = r33 ;;
+; CHECK-NEXT:  st8.spill [r15] = r39
+; CHECK-NEXT:  adds r15 = 40, r14 ;;
+; CHECK-NEXT:  st8.spill [r15] = r38
+; CHECK-NEXT:  adds r15 = 32, r14 ;;
+; CHECK-NEXT:  st8.spill [r15] = r37
+; CHECK-NEXT:  adds r15 = 24, r14 ;;
+; CHECK-NEXT:  st8.spill [r15] = r36
+; CHECK-NEXT:  adds r15 = 16, r14
+; CHECK-NEXT:  st8 [r17] = r16 ;;
+; CHECK-NEXT:  st8.spill [r15] = r35
+; CHECK-NEXT:  ld8 r15 = [r17] ;;
+; CHECK-NEXT:  st8.spill [r16] = r34
+; CHECK-NEXT:  adds r16 = 8, r15
+; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK-NEXT:  st8 [r17] = r16
+; CHECK-NEXT:  ld8 r15 = [r15] ;;
+; CHECK-NEXT:  add r8 = r14, r15
+; CHECK-NEXT:  mov ar.unat = r41
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 48, r12
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
@@ -47,14 +58,15 @@ define i64 @first(i32 %n, ...) {
 define double @fp(i64 %a, double %b, ...) {
 ; CHECK-LABEL: fp:
 ; CHECK:       adds r12 = -48, r12 ;;
-; CHECK:       setf.d f6 = r34
-; CHECK-NEXT:  adds r15 = 16, r12
-; CHECK-NEXT:  adds r16 = 8, r12 ;;
-; CHECK:       st8 [r15] = r34 ;;
-; CHECK:       adds r14 = 16, r12
+; CHECK-NEXT:  .body
+; CHECK-NEXT:  adds r14 = 16, r12 ;;
+; CHECK-NEXT:  st8.spill [r14] = r34
+; CHECK-NEXT:  adds r15 = 40, r14
+; CHECK-NEXT:  ldfd f6 = [r14] ;;
+; CHECK:       or r14 = 8, r14 ;;
+; CHECK:       st8.spill [r14] = r35
+; CHECK-NEXT:  st8 [r15] = r14
 ; CHECK-NEXT:  fma.d f8 = f6, f1, f8 ;;
-; CHECK-NEXT:  or r14 = 8, r14 ;;
-; CHECK-NEXT:  st8 [r16] = r14
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
   %v = va_arg ptr %ap, double
@@ -79,12 +91,14 @@ define i64 @many(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g, i64 %h,
 ; An argument aligned to sixteen bytes starts at such an address.
 define i128 @wide(i64 %a, ...) {
 ; CHECK-LABEL: wide:
-; CHECK:       adds r15 = 8, r12
-; CHECK:       adds r15 = 15, r15 ;;
-; CHECK:       and r15 = -16, r15 ;;
-; CHECK:       adds r14 = 8, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r33
-; CHECK:       ld8 r8 = [r15]
+; CHECK:       adds r14 = 8, r12
+; CHECK:       adds r16 = 15, r14
+; CHECK-NEXT:  st8.spill [r14] = r33 ;;
+; CHECK:       and r16 = -16, r16 ;;
+; CHECK:       or r15 = 8, r16 ;;
+; CHECK-NEXT:  st8.spill [r14] = r34
+; CHECK:       ld8 r8 = [r16] ;;
+; CHECK:       ld8 r9 = [r15]
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
   %v = va_arg ptr %ap, i128
@@ -95,11 +109,12 @@ define i128 @wide(i64 %a, ...) {
 declare i32 @vf(ptr, ptr)
 define i32 @forward(ptr %f, ...) {
 ; CHECK-LABEL: forward:
-; CHECK:       alloc r40 = ar.pfs, 8, 2, 2, 0
-; CHECK:       adds r43 = 40, r12
-; CHECK:       adds r14 = 40, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r33
-; CHECK:       br.call.sptk.many b0 = vf ;;
+; CHECK:       alloc r40 = ar.pfs, 8, 3, 2, 0
+; CHECK:       adds r14 = 40, r12
+; CHECK:       st8.spill [r14] = r33
+; CHECK:       st8 [r15] = r14
+; CHECK-NEXT:  ld8 r44 = [r15]
+; CHECK-NEXT:  br.call.sptk.many b0 = vf ;;
   %ap = alloca ptr
   %aq = alloca ptr
   call void @llvm.va_start(ptr %ap)
@@ -147,4 +162,17 @@ define i32 @call_named(double %d, float %f) {
 ; CHECK-NEXT:  br.call.sptk.many b0 = pf2 ;;
   %r = call i32 (double, ...) @pf2(double %d, float %f, double %d)
   ret i32 %r
+}
+
+; A read of a slot comes after the spill that wrote it.
+define i64 @third(i64 %a, ...) {
+; CHECK-LABEL: third:
+; CHECK:       st8.spill [[[A:r[0-9]+]]] = r35
+; CHECK:       ld8 r8 = [[[A]]]
+  %ap = alloca ptr
+  call void @llvm.va_start(ptr %ap)
+  %p = load ptr, ptr %ap
+  %q = getelementptr i8, ptr %p, i64 16
+  %v = load i64, ptr %q
+  ret i64 %v
 }
