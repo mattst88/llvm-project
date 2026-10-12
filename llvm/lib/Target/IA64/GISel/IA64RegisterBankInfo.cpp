@@ -184,6 +184,15 @@ IA64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
       return getInvalidInstructionMapping();
   }
 
+  // A copy to or from a BR moves an integer, and the BR itself has no bank.
+  if (MI.isCopy()) {
+    for (const MachineOperand &MO : MI.operands())
+      if (MO.getReg().isPhysical() && IA64::BRRegClass.contains(MO.getReg()))
+        return getInstructionMapping(DefaultMappingID, /*Cost=*/1,
+                                     getOperandsMapping({&GPRMapping}),
+                                     /*NumOperands=*/1);
+  }
+
   if (!isPreISelGenericOpcode(Opc)) {
     const InstructionMapping &Mapping = getInstrMappingImpl(MI);
     if (Mapping.isValid())
@@ -281,6 +290,9 @@ IA64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_STACKSAVE:
   case G_STACKRESTORE:
   case G_VASTART:
+  case G_PREFETCH:
+  case G_TRAP:
+  case G_DEBUGTRAP:
   case G_INVOKE_REGION_START:
   case G_FENCE:
   // Extending loads read a field narrower than the register, which no FP

@@ -20,6 +20,8 @@
 #include "IA64Subtarget.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerHelper.h"
+#include "llvm/CodeGen/GlobalISel/Utils.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/IR/Intrinsics.h"
@@ -473,6 +475,41 @@ bool IA64LegalizerInfo::legalizeIntrinsic(LegalizerHelper &Helper,
   MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
   switch (cast<GIntrinsic>(MI).getIntrinsicID()) {
   default:
+    return true;
+  case Intrinsic::returnaddress: {
+    // The return address is the incoming b0. Nonzero depths return 0.
+    MachineFunction &MF = MIRBuilder.getMF();
+    MF.getFrameInfo().setReturnAddressIsTaken(true);
+    Register Dst = MI.getOperand(0).getReg();
+    LLT P0 = LLT::pointer(0, 64);
+    if (MI.getOperand(2).getImm() != 0) {
+      MIRBuilder.buildConstant(Dst, 0);
+    } else {
+      Register B0 = getFunctionLiveInPhysReg(
+          MF, *MF.getSubtarget().getInstrInfo(), IA64::B0, IA64::GRRegClass,
+          MI.getDebugLoc(), P0);
+      MIRBuilder.buildCopy(Dst, B0);
+    }
+    MI.eraseFromParent();
+    return true;
+  }
+  case Intrinsic::frameaddress: {
+    // The frame address is the stack pointer on entry.
+    MachineFunction &MF = MIRBuilder.getMF();
+    Register Dst = MI.getOperand(0).getReg();
+    if (MI.getOperand(2).getImm() != 0) {
+      MIRBuilder.buildConstant(Dst, 0);
+    } else {
+      MF.getFrameInfo().setFrameAddressIsTaken(true);
+      MF.getRegInfo().setRegClass(Dst, &IA64::GRRegClass);
+      MIRBuilder.buildInstr(IA64::FRAMEADDR, {Dst}, {});
+    }
+    MI.eraseFromParent();
+    return true;
+  }
+  case Intrinsic::thread_pointer:
+    MIRBuilder.buildCopy(MI.getOperand(0).getReg(), Register(IA64::R13));
+    MI.eraseFromParent();
     return true;
   case Intrinsic::vacopy: {
     // va_list is a single pointer.

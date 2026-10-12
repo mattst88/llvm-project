@@ -800,6 +800,16 @@ bool IA64InstructionSelector::selectInstruction(
     I.eraseFromParent();
     return true;
   }
+  // The lfetch hint is the number of cache levels the line need not be
+  // kept in (3 - locality), and .excl is for a prefetch for write.
+  case TargetOpcode::G_PREFETCH:
+    emit(I, I.getOperand(1).getImm() ? IA64::LFETCH_EXCL : IA64::LFETCH)
+        .addReg(I.getOperand(0).getReg())
+        .addImm(3 - I.getOperand(2).getImm())
+        .addReg(IA64::P0);
+    I.eraseFromParent();
+    return true;
+
   case TargetOpcode::G_BRINDIRECT:
     emit(I, IA64::BRIND).addReg(I.getOperand(0).getReg());
     I.eraseFromParent();
