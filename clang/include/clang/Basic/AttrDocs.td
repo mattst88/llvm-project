@@ -7216,8 +7216,10 @@ if omitted. `Section` defaults to the `-fpatchable-function-entry` section name 
 set, or to `__patchable_function_entries` otherwise.
 
 This attribute is only supported on
-aarch64/aarch64-be/loongarch32/loongarch64/riscv32/riscv64/i386/x86-64/ppc/ppc64/ppc64le/s390x targets.
-For ppc/ppc64 targets, AIX is still not supported.
+aarch64/aarch64-be/loongarch32/loongarch64/riscv32/riscv64/i386/x86-64/ppc/ppc64/ppc64le/s390x/ia64 targets.
+For ppc/ppc64 targets, AIX is still not supported. For ia64, a NOP is an
+instruction and three of them are a bundle; the function entry begins a bundle,
+so the NOPs before it are made up to whole bundles.
 }];
 }
 
