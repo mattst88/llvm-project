@@ -102,6 +102,15 @@ public:
 
   bool expandPostRAPseudo(MachineInstr &MI) const override;
 
+  // An operand's target flags are a single relocation specifier, never a
+  // bitmask.
+  std::pair<unsigned, unsigned>
+  decomposeMachineOperandsTargetFlags(unsigned TF) const override {
+    return {TF, 0};
+  }
+  ArrayRef<std::pair<unsigned, const char *>>
+  getSerializableDirectMachineOperandTargetFlags() const override;
+
   bool isPredicated(const MachineInstr &MI) const override;
 
   bool isSchedulingBoundary(const MachineInstr &MI,

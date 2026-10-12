@@ -1,0 +1,37 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=none %s -o - | FileCheck %s
+
+# What an operand asks the link editor for has a name that is written and
+# read back.
+
+--- |
+  @g = external global i64
+  @t = external thread_local global i64
+  declare void @f()
+  define void @flags() { ret void }
+...
+---
+name:            flags
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: flags
+    ; CHECK: ADDL target-flags(ia64-ltoff) @g, $r1, $p0
+    ; CHECK: ADDL target-flags(ia64-ltoff-fptr) @f, $r1, $p0
+    ; CHECK: ADDL target-flags(ia64-ltoffx) @g, $r1, $p0
+    ; CHECK: MOVL target-flags(ia64-gprel) @g, $p0
+    ; CHECK: ADDL target-flags(ia64-ltoff-tprel) @t, $r1, $p0
+    ; CHECK: ADDL target-flags(ia64-ltoff-dtpmod) @t, $r1, $p0
+    ; CHECK: ADDL target-flags(ia64-ltoff-dtprel) @t, $r1, $p0
+    ; CHECK: MOVL target-flags(ia64-tprel) @t, $p0
+    ; CHECK: MOVL target-flags(ia64-dtprel) @t, $p0
+    %0:gr = ADDL target-flags(ia64-ltoff) @g, $r1, $p0
+    %1:gr = ADDL target-flags(ia64-ltoff-fptr) @f, $r1, $p0
+    %2:gr = ADDL target-flags(ia64-ltoffx) @g, $r1, $p0
+    %3:gr = MOVL target-flags(ia64-gprel) @g, $p0
+    %4:gr = ADDL target-flags(ia64-ltoff-tprel) @t, $r1, $p0
+    %5:gr = ADDL target-flags(ia64-ltoff-dtpmod) @t, $r1, $p0
+    %6:gr = ADDL target-flags(ia64-ltoff-dtprel) @t, $r1, $p0
+    %7:gr = MOVL target-flags(ia64-tprel) @t, $p0
+    %8:gr = MOVL target-flags(ia64-dtprel) @t, $p0
+    BR_RET $b0, 0, 1, 0, $p0
+...

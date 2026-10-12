@@ -9,6 +9,7 @@
 #include "IA64InstrInfo.h"
 #include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
+#include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -315,6 +316,30 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
     MIB.add(L).add(Read(RHS));
   }
   MIB.addReg(IA64::P0);
+}
+
+ArrayRef<std::pair<unsigned, const char *>>
+IA64InstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
+  static const std::pair<unsigned, const char *> Flags[] = {
+      {IA64::S_GPREL, "ia64-gprel"},
+      {IA64::S_LTOFF, "ia64-ltoff"},
+      {IA64::S_LTOFFX, "ia64-ltoffx"},
+      {IA64::S_PLTOFF, "ia64-pltoff"},
+      {IA64::S_PCREL, "ia64-pcrel"},
+      {IA64::S_FPTR, "ia64-fptr"},
+      {IA64::S_SECREL, "ia64-secrel"},
+      {IA64::S_SEGREL, "ia64-segrel"},
+      {IA64::S_LTV, "ia64-ltv"},
+      {IA64::S_TPREL, "ia64-tprel"},
+      {IA64::S_DTPMOD, "ia64-dtpmod"},
+      {IA64::S_DTPREL, "ia64-dtprel"},
+      {IA64::S_LTOFF_FPTR, "ia64-ltoff-fptr"},
+      {IA64::S_LTOFF_TPREL, "ia64-ltoff-tprel"},
+      {IA64::S_LTOFF_DTPMOD, "ia64-ltoff-dtpmod"},
+      {IA64::S_LTOFF_DTPREL, "ia64-ltoff-dtprel"},
+      {IA64::S_IPLT, "ia64-iplt"},
+  };
+  return ArrayRef(Flags);
 }
 
 bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
