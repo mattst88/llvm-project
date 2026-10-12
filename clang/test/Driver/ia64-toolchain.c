@@ -44,6 +44,18 @@
 // RUN:   2>&1 | FileCheck %s --check-prefix=MSAN
 // MSAN: unsupported option '-fsanitize=memory' for target 'ia64-unknown-linux-gnu'
 
+// A pointer to a function is to its descriptor, so the check of the type of
+// the function called has nowhere to find it, and -fsanitize=undefined does
+// without.
+
+// RUN: not %clang --target=ia64-unknown-linux-gnu -fsanitize=function -### %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=FSAN
+// FSAN: unsupported option '-fsanitize=function' for target 'ia64-unknown-linux-gnu'
+// RUN: %clang --target=ia64-unknown-linux-gnu -fsanitize=undefined -### %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=UBSAN
+// UBSAN: "-fsanitize=alignment,
+// UBSAN-NOT: {{[=,]}}function
+
 // An object of eight bytes or fewer is short data, and -G and -mno-sdata
 // say otherwise.
 

@@ -1043,6 +1043,10 @@ Linux::getSupportedSanitizers(BoundArch BA,
   // Work around "Cannot represent a difference across sections".
   if (getTriple().getArch() == llvm::Triple::ppc64)
     Res &= ~SanitizerKind::Function;
+  // A pointer to an IA-64 function is to its descriptor, which has no
+  // signature before it.
+  if (IsIA64)
+    Res &= ~SanitizerKind::Function;
   return Res;
 }
 
