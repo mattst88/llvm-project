@@ -20,7 +20,8 @@ define void @callee(ptr sret(%big) %res, i64 %a) {
 define i64 @caller(i64 %a) {
 ; CHECK-LABEL: caller:
 ; CHECK:         mov r36 = r32 ;;
-; CHECK-NEXT:    adds r32 = 16, r12 ;;
+; CHECK-NEXT:    adds r32 = 16, r12
+; CHECK-NEXT:    mov r33 = r1 ;;
 ; CHECK-NEXT:    mov r8 = r32
 ; CHECK-NEXT:    br.call.sptk.many b0 = make ;;
   %res = alloca %big
@@ -57,8 +58,9 @@ define void @keeps(ptr sret(%big) %res, i64 %a) {
 ; CHECK-LABEL: keeps:
 ; CHECK:         mov r[[SAVED:[0-9]+]] = r8
 ; CHECK:         br.call.sptk.many b0 = ext ;;
-; CHECK:         st8 [r[[SAVED]]] = r8
+; CHECK:         mov r[[V:[0-9]+]] = r8
 ; CHECK:         mov r8 = r[[SAVED]]
+; CHECK:         st8 [r[[SAVED]]] = r[[V]]
 ; CHECK:         br.ret.sptk.many b0 ;;
   %v = call i64 @ext(i64 %a)
   store i64 %v, ptr %res
@@ -84,7 +86,7 @@ define void @constructed(ptr sret(%big) inreg %res, i64 %a) {
 
 define i64 @constructs(i64 %a) {
 ; CHECK-LABEL: constructs:
-; CHECK:         adds r[[RES:[0-9]+]] = 16, r12 ;;
+; CHECK:         adds r[[RES:[0-9]+]] = 16, r12
 ; CHECK:         mov r36 = r[[RES]]
 ; CHECK:         br.call.sptk.many b0 = construct ;;
   %res = alloca %big

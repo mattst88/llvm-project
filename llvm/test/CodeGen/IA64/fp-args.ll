@@ -44,12 +44,13 @@ declare double @y(i64, i64, i64, i64, i64, i64, i64, i64, float, double)
 define double @call() {
 ; CHECK-LABEL: call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 3, 0
-; CHECK:       movl r14 = 1073741824 ;;
-; CHECK-NEXT:  setf.s f8 = r14
-; CHECK-NEXT:  movl r14 = 4616189618054758400 ;;
-; CHECK-NEXT:  setf.d f9 = r14
+; CHECK:       movl r14 = 1073741824
+; CHECK-NEXT:  movl r15 = 4616189618054758400
 ; CHECK-NEXT:  mov r35 = 1
-; CHECK-NEXT:  mov r37 = 3
+; CHECK-NEXT:  mov r37 = 3 ;;
+; CHECK-NEXT:  setf.s f8 = r14
+; CHECK-NEXT:  setf.d f9 = r15
+; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = x ;;
   %r = call double @x(i64 1, float 2.0, i64 3, double 4.0)
   ret double %r
@@ -58,11 +59,11 @@ define double @call() {
 define double @call_memory(float %f, double %d) {
 ; CHECK-LABEL: call_memory:
 ; CHECK:       adds r12 = -16, r12
-; CHECK:       adds r14 = 24, r12 ;;
-; CHECK-NEXT:  stfd [r14] = f9
-; CHECK-NEXT:  adds r14 = 16, r12 ;;
-; CHECK-NEXT:  stfs [r14] = f8
-; CHECK:       br.call.sptk.many b0 = y ;;
+; CHECK:       adds r14 = 24, r12
+; CHECK-NEXT:  adds r15 = 16, r12
+; CHECK:       stfd [r14] = f9
+; CHECK-NEXT:  stfs [r15] = f8
+; CHECK-NEXT:  br.call.sptk.many b0 = y ;;
   %r = call double @y(i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7, i64 8, float %f, double %d)
   ret double %r
 }

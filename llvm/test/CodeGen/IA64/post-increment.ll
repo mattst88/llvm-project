@@ -109,8 +109,8 @@ define ptr @store_narrow(ptr %p, i64 %v) {
 ; A store has no form that adds a register.
 define ptr @store_register(ptr %p, i64 %v, i64 %i) {
 ; CHECK-LABEL: store_register:
-; CHECK:       st8 [r32] = r33
-; CHECK-NEXT:  add r8 = r32, r34
+; CHECK:       add r8 = r32, r34
+; CHECK-NEXT:  st8 [r32] = r33
   store i64 %v, ptr %p
   %n = getelementptr i8, ptr %p, i64 %i
   ret ptr %n
@@ -146,7 +146,8 @@ define ptr @store_extended(ptr %p, x86_fp80 %v) {
 ; The copy of a string a byte at a time is a load, a store and the count.
 define void @copy(ptr %d, ptr %s, i64 %n) {
 ; CHECK-LABEL: copy:
-; CHECK:       ld1 r14 = [r33], 1 ;;
+; CHECK:       ld1 r14 = [r33], 1
+; CHECK-NEXT:  adds r34 = -1, r34 ;;
 ; CHECK-NEXT:  st1 [r32] = r14, 1
 entry:
   %e = icmp eq i64 %n, 0

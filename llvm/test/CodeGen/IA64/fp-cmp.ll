@@ -145,8 +145,8 @@ define i64 @zero(double %a) {
 ; What is chosen and what chooses are in either kind of register.
 define i64 @select_int(double %a, double %b, i64 %x, i64 %y) {
 ; CHECK-LABEL: select_int:
-; CHECK:       mov r8 = r35
-; CHECK-NEXT:  fcmp.lt p6, p7 = f8, f9 ;;
+; CHECK:       fcmp.lt p6, p7 = f8, f9
+; CHECK-NEXT:  mov r8 = r35 ;;
 ; CHECK-NEXT:  (p6) mov r8 = r34
   %c = fcmp olt double %a, %b
   %r = select i1 %c, i64 %x, i64 %y

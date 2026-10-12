@@ -11,7 +11,8 @@ define fp128 @add(i32 %x, fp128 %a, fp128 %b) {
 ; CHECK:         mov r43 = r37
 ; CHECK-NEXT:    mov r42 = r36
 ; CHECK-NEXT:    mov r41 = r35
-; CHECK-NEXT:    mov r40 = r34 ;;
+; CHECK-NEXT:    mov r40 = r34
+; CHECK-NEXT:    mov r32 = r1 ;;
 ; CHECK-NEXT:    br.call.sptk.many b0 = __addtf3 ;;
 ; CHECK-NOT:     r8
 ; CHECK:         br.ret.sptk.many b0 ;;
@@ -22,7 +23,9 @@ define fp128 @add(i32 %x, fp128 %a, fp128 %b) {
 define i32 @less(fp128 %a, fp128 %b) {
 ; CHECK-LABEL: less:
 ; CHECK:         br.call.sptk.many b0 = __lttf2 ;;
-; CHECK:         sxt4 r14 = r8 ;;
+; CHECK:         sxt4 r14 = r8
+; CHECK-NEXT:    mov r8 = r0
+; CHECK-NEXT:    mov r1 = r36 ;;
 ; CHECK-NEXT:    cmp.lt p7, p6 = -1, r14
   %c = fcmp olt fp128 %a, %b
   %r = zext i1 %c to i32
@@ -53,7 +56,8 @@ define x86_fp80 @to_extended(fp128 %a) {
 define i64 @to_integer(fp128 %a) {
 ; CHECK-LABEL: to_integer:
 ; CHECK:         mov r38 = r33
-; CHECK-NEXT:    mov r37 = r32 ;;
+; CHECK-NEXT:    mov r37 = r32
+; CHECK-NEXT:    mov r34 = r1 ;;
 ; CHECK-NEXT:    br.call.sptk.many b0 = __fixtfdi ;;
   %r = fptosi fp128 %a to i64
   ret i64 %r

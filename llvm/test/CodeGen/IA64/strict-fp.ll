@@ -155,7 +155,8 @@ define i1 @less_signaling(double %a, double %b) strictfp {
 
 define i1 @less_quiet(double %a, double %b) strictfp {
 ; CHECK-LABEL: less_quiet:
-; CHECK: fcmp.unord p7, p6 = f8, f9 ;;
+; CHECK: fcmp.unord p7, p6 = f8, f9
+; CHECK-NEXT: mov r8 = r0 ;;
 ; CHECK-NEXT: (p6) fcmp.lt p6, p7 = f8, f9
 ; CHECK: (p6) mov r8 = 1
   %r = call i1 @llvm.experimental.constrained.fcmp.f64(double %a, double %b, metadata !"olt", metadata !"fpexcept.strict")
@@ -166,7 +167,8 @@ define i1 @less_quiet(double %a, double %b) strictfp {
 
 define i1 @greater_or_equal_quiet(float %a, float %b) strictfp {
 ; CHECK-LABEL: greater_or_equal_quiet:
-; CHECK: fcmp.unord p7, p6 = f8, f9 ;;
+; CHECK: fcmp.unord p7, p6 = f8, f9
+; CHECK-NEXT: mov r8 = r0 ;;
 ; CHECK-NEXT: (p6) fcmp.le p6, p7 = f9, f8
 ; CHECK: (p6) mov r8 = 1
   %r = call i1 @llvm.experimental.constrained.fcmp.f32(float %a, float %b, metadata !"oge", metadata !"fpexcept.strict")
@@ -178,7 +180,8 @@ define i1 @greater_or_equal_quiet(float %a, float %b) strictfp {
 
 define i1 @not_less_quiet(double %a, double %b) strictfp {
 ; CHECK-LABEL: not_less_quiet:
-; CHECK: fcmp.unord p6, p7 = f8, f9 ;;
+; CHECK: fcmp.unord p6, p7 = f8, f9
+; CHECK-NEXT: mov r8 = r0 ;;
 ; CHECK-NEXT: (p7) fcmp.lt p7, p6 = f8, f9
 ; CHECK: (p6) mov r8 = 1
   %r = call i1 @llvm.experimental.constrained.fcmp.f64(double %a, double %b, metadata !"uge", metadata !"fpexcept.strict")

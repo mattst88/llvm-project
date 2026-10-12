@@ -21,9 +21,9 @@ define i64 @args(i64 %a, i64 %b) {
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  mov r37 = r33
-; CHECK-NEXT:  mov r38 = r32 ;;
+; CHECK-NEXT:  mov r38 = r32
+; CHECK-NEXT:  mov r34 = r1 ;;
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext ;;
 ; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  add r8 = r8, r32
@@ -63,10 +63,12 @@ define i64 @frame(i64 %a) {
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  br.call.sptk.many b0 = vext ;;
-; CHECK-NEXT:  mov r1 = r33
-; CHECK-NEXT:  adds r14 = 24, r12 ;;
+; CHECK-NEXT:  adds r14 = 24, r12
+; CHECK-NEXT:  mov r36 = r32
+; CHECK-NEXT:  mov r37 = r0
+; CHECK-NEXT:  mov r1 = r33 ;;
 ; CHECK-NEXT:  st8 [r14] = r32
-; CHECK:       br.call.sptk.many b0 = ext ;;
+; CHECK-NEXT:  br.call.sptk.many b0 = ext ;;
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
@@ -121,21 +123,21 @@ define void @tail() {
 ; entry point and the global pointer the function expects.
 define i64 @indirect(ptr %f, i64 %a) {
 ; CHECK-LABEL: indirect:
-; CHECK:       alloc r35 = ar.pfs, 2, 3, 1, 0
-; CHECK-NEXT:  .save rp, r36
-; CHECK-NEXT:  mov r36 = b0
+; CHECK:       alloc r34 = ar.pfs, 2, 2, 1, 0
+; CHECK-NEXT:  .save rp, r35
+; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov r34 = r1
-; CHECK-NEXT:  mov r37 = r33
 ; CHECK-NEXT:  ld8 r14 = [r32]
-; CHECK-NEXT:  adds r15 = 8, r32 ;;
+; CHECK-NEXT:  adds r15 = 8, r32
+; CHECK-NEXT:  mov r36 = r33
+; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  ld8 r15 = [r15]
 ; CHECK-NEXT:  mov b6 = r14 ;;
 ; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
-; CHECK-NEXT:  mov r1 = r34
-; CHECK-NEXT:  mov b0 = r36
-; CHECK-NEXT:  mov ar.pfs = r35
+; CHECK-NEXT:  mov r1 = r32
+; CHECK-NEXT:  mov b0 = r35
+; CHECK-NEXT:  mov ar.pfs = r34
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = call i64 %f(i64 %a)
   ret i64 %r
@@ -148,7 +150,9 @@ define i64 @indirect(ptr %f, i64 %a) {
 
 define i64 @variable(i64 %a) {
 ; CHECK-LABEL: variable:
-; CHECK:       addl r14 = @ltoffx(descriptors), r1 ;;
+; CHECK:       addl r14 = @ltoffx(descriptors), r1
+; CHECK-NEXT:  mov r36 = r32
+; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
 ; CHECK-NEXT:  ld8 r15 = [r14]
 ; CHECK-NEXT:  adds r14 = 8, r14 ;;
@@ -162,12 +166,14 @@ define i64 @variable(i64 %a) {
 
 define i64 @variable_offset(i64 %a) {
 ; CHECK-LABEL: variable_offset:
-; CHECK:       addl r14 = @ltoffx(descriptors), r1 ;;
+; CHECK:       addl r14 = @ltoffx(descriptors), r1
+; CHECK-NEXT:  mov r36 = r32
+; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
-; CHECK-NEXT:  adds r15 = 24, r14 ;;
-; CHECK-NEXT:  ld8 r15 = [r15]
+; CHECK-NEXT:  adds r15 = 24, r14
 ; CHECK-NEXT:  adds r14 = 16, r14 ;;
-; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  ld8 r15 = [r15] ;;
 ; CHECK-NEXT:  mov b6 = r14
 ; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;

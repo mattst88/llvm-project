@@ -45,7 +45,8 @@ join:
 
 define void @diamond(i64 %a, ptr %p, ptr %q) {
 ; CHECK-LABEL: diamond:
-; CHECK:       cmp.lt p6, p7 = -1, r32 ;;
+; CHECK:       cmp.lt p6, p7 = -1, r32
+; CHECK-NEXT:  mov r35 = r1 ;;
 ; CHECK-NEXT:  (p6) mov r14 = 2 ;;
 ; CHECK-NEXT:  (p6) st8 [r34] = r14
 ; CHECK-NEXT:  (p7) mov r14 = 1 ;;
@@ -132,7 +133,7 @@ define i64 @early(i64 %a, i64 %b, ptr %p) {
 ; CHECK-NEXT:  (p7) mov r8 = r33
 ; CHECK-NEXT:  (p7) br.ret.dpnt.many b0 ;;
 ; CHECK-NEXT:  {{.LBB[0-9_]+}}:
-; CHECK-NEXT:  mov r14 = 1 ;;
+; CHECK-NEXT:  mov r14 = 1
 ;
 ; OFF-LABEL: early:
 ; OFF:       br.cond

@@ -8,8 +8,11 @@
 ; global pointer included, is kept in the preserved ones.
 ; The global pointer is put back by a copy after the call, and not from an
 ; operand of the call, which could be in a register that the call changes.
-; The copy comes right after the call, ahead of an address that is formed
-; from the global pointer.
+; The copy comes after the call, ahead of an address that is formed from the
+; global pointer.
+; The registers that the prologue saves ar.pfs and the return link in are
+; written once, so they are as they were left, and the epilogue reads them:
+; the verifier is run to see that the call is not taken to change them.
 
 ; MIR-LABEL: name: twice
 ; MIR:         CALL @setjmp, $r0, {{.*}}csr_ia64_returnstwice
@@ -30,9 +33,9 @@ define void @twice(ptr %buf, i64 %a, i64 %b) {
 ; CHECK-DAG:     mov r[[B:[4-7]]] = r34
 ; CHECK-DAG:     mov r[[A:[4-7]]] = r33
 ; CHECK:         br.call.sptk.many b0 = setjmp
-; CHECK-NEXT:    mov r1 = r[[GP]]
 ; CHECK-NEXT:    mov r38 = r[[A]]
 ; CHECK-NEXT:    mov r39 = r[[B]]
+; CHECK-NEXT:    mov r1 = r[[GP]]
 ; CHECK-NEXT:    br.call.sptk.many b0 = use
   %r = call i32 @setjmp(ptr %buf)
   call void @use(i64 %a, i64 %b)
@@ -43,10 +46,10 @@ define void @once(ptr %buf, i64 %a, i64 %b) {
 ; CHECK-LABEL: once:
 ; CHECK:         mov r[[GP:3[2-9]]] = r1
 ; CHECK:         br.call.sptk.many b0 = ordinary
-; CHECK-NEXT:    mov r1 = r[[GP]]
 ; CHECK-NEXT:    mov r38 = r33
 ; CHECK-NEXT:    mov r39 = r34
-; CHECK:         br.call.sptk.many b0 = use
+; CHECK-NEXT:    mov r1 = r[[GP]]
+; CHECK-NEXT:    br.call.sptk.many b0 = use
   %r = call i32 @ordinary(ptr %buf)
   call void @use(i64 %a, i64 %b)
   ret void
@@ -59,8 +62,9 @@ define void @address() {
 ; CHECK-LABEL: address:
 ; CHECK:         mov r[[GP:[4-7]]] = r1
 ; CHECK:         br.call.sptk.many b0 = setjmp
-; CHECK-NEXT:    mov r1 = r[[GP]]
 ; CHECK-NEXT:    movl r[[T:[0-9]+]] = @gprel(buf1)
+; CHECK-NEXT:    mov r1 = r[[GP]]
+; CHECK-NEXT:    mov r36 = 1 ;;
 ; CHECK-NEXT:    add r35 = r[[T]], r1
 ; CHECK:         br.call.sptk.many b0 = longjmp
   %r = call i32 @setjmp(ptr @buf2)

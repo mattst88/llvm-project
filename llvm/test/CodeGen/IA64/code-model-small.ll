@@ -56,8 +56,8 @@ define ptr @ot() {
   ret ptr @other
 }
 
-; RELOC:      R_IA64_IMM22 esm 0x0
 ; RELOC:      R_IA64_IMM22 sm 0x0
+; RELOC:      R_IA64_IMM22 esm 0x0
 ; RELOC:      R_IA64_IMM22 .sbss 0x8
 ; RELOC:      R_IA64_IMM22 big 0x64
 ; RELOC:      R_IA64_LTOFF22X other 0x0

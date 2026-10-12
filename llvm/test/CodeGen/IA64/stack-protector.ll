@@ -13,7 +13,7 @@ define void @f() sspreq {
 ; CHECK-LABEL: f:
 ; LINUX-NOT:   __stack_chk_guard
 ; LINUX:       adds [[G:r[0-9]+]] = -8, r13 ;;
-; LINUX-NEXT:  ld8 r{{[0-9]+}} = [[[G]]]
+; LINUX:       ld8 r{{[0-9]+}} = [[[G]]]
 ; ELF:         __stack_chk_guard
 ; CHECK:       br.call.sptk.many b0 = g
 ; LINUX:       ld8 r{{[0-9]+}} = [[[G]]]

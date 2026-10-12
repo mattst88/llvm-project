@@ -80,8 +80,8 @@ define i32 @add32(i32 %a, i32 %b) {
 ; One group holds what does not depend on what it computes.
 define i64 @groups(i64 %a, i64 %b, i64 %c, i64 %d) {
 ; CHECK-LABEL: groups:
-; CHECK:       add [[Y:r[0-9]+]] = r34, r35
-; CHECK-NEXT:  add [[X:r[0-9]+]] = r32, r33 ;;
+; CHECK:       add [[X:r[0-9]+]] = r32, r33
+; CHECK-NEXT:  add [[Y:r[0-9]+]] = r34, r35 ;;
 ; CHECK-NEXT:  xor r8 = [[X]], [[Y]]
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %x = add i64 %a, %b

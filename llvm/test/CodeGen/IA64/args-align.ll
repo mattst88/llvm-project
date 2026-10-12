@@ -46,7 +46,8 @@ define i64 @call() {
 ; CHECK:       mov r35 = 1
 ; CHECK-NEXT:  mov r37 = 2
 ; CHECK-NEXT:  mov r39 = 3
-; CHECK-NEXT:  mov r38 = r0 ;;
+; CHECK-NEXT:  mov r38 = r0
+; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
   %r = call i64 @g(i64 1, i128 2, i64 3)
   ret i64 %r
@@ -57,13 +58,13 @@ declare i64 @h(i64, ...)
 define i64 @call_variable(i128 %x) {
 ; CHECK-LABEL: call_variable:
 ; CHECK:       adds r12 = -32, r12
-; CHECK:       adds r14 = 40, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r33
-; CHECK-NEXT:  adds r14 = 32, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r32
-; CHECK-NEXT:  adds r14 = 16, r12
-; CHECK-NEXT:  mov r15 = 9 ;;
-; CHECK-NEXT:  st8 [r14] = r15
+; CHECK:       adds r14 = 40, r12
+; CHECK-NEXT:  adds r15 = 16, r12
+; CHECK-NEXT:  mov r16 = 9
+; CHECK:       st8 [r14] = r33
+; CHECK-NEXT:  adds r14 = 32, r12
+; CHECK:       st8 [r14] = r32
+; CHECK-NEXT:  st8 [r15] = r16
   %r = call i64 (i64, ...) @h(i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7, i64 8, i64 9, i128 %x)
   ret i64 %r
 }

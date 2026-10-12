@@ -34,10 +34,10 @@ define double @doubles(i32 %i, [2 x double] %h, double %d) {
 ; A member whose slot is in memory is in memory, whatever registers are left.
 define float @in_memory(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g, [3 x float] %h) {
 ; CHECK-LABEL: in_memory:
-; CHECK:       fma.s f6 = f8, f1, f9
-; CHECK-NEXT:  adds r14 = 16, r12 ;;
-; CHECK-NEXT:  ldfs f7 = [r14] ;;
-; CHECK-NEXT:  fma.s f8 = f6, f1, f7
+; CHECK:       adds r14 = 16, r12
+; CHECK-NEXT:  fma.s f7 = f8, f1, f9 ;;
+; CHECK-NEXT:  ldfs f6 = [r14] ;;
+; CHECK-NEXT:  fma.s f8 = f7, f1, f6
   %x = extractvalue [3 x float] %h, 0
   %y = extractvalue [3 x float] %h, 1
   %z = extractvalue [3 x float] %h, 2
@@ -50,8 +50,8 @@ define float @in_memory(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g, 
 ; the slots: two halves of one general register.
 define float @no_register(double %a, double %b, double %c, double %d, double %e, double %f, [4 x float] %h) {
 ; CHECK-LABEL: no_register:
-; CHECK:       setf.s f6 = r39
-; CHECK-NEXT:  shr.u r14 = r39, 32 ;;
+; CHECK:       shr.u r14 = r39, 32
+; CHECK-NEXT:  setf.s f6 = r39 ;;
 ; CHECK-NEXT:  setf.s f7 = r14 ;;
 ; CHECK-NEXT:  fms.s f8 = f6, f1, f7
   %x = extractvalue [4 x float] %h, 2
@@ -64,10 +64,10 @@ define float @no_register(double %a, double %b, double %c, double %d, double %e,
 ; low half of the general register, where GCC puts it and looks for it.
 define float @odd_half(double %a, double %b, double %c, double %d, double %e, double %f, double %g, [3 x float] %h) {
 ; CHECK-LABEL: odd_half:
-; CHECK:       setf.s f6 = r39 ;;
-; CHECK-NEXT:  fma.s f6 = f15, f1, f6
+; CHECK:       setf.s f6 = r39
 ; CHECK-NEXT:  adds r14 = 16, r12 ;;
-; CHECK-NEXT:  ldfs f7 = [r14] ;;
+; CHECK-NEXT:  ldfs f7 = [r14]
+; CHECK-NEXT:  fma.s f6 = f15, f1, f6 ;;
   %x = extractvalue [3 x float] %h, 0
   %y = extractvalue [3 x float] %h, 1
   %z = extractvalue [3 x float] %h, 2
@@ -80,10 +80,10 @@ define float @odd_half(double %a, double %b, double %c, double %d, double %e, do
 ; an extended-precision one is two slots.
 define double @none_left([8 x float] %h, double %d, x86_fp80 %l) {
 ; CHECK-LABEL: none_left:
-; CHECK:       st8 [r15] = r39
-; CHECK-NEXT:  st8 [r14] = r38
-; CHECK-NEXT:  setf.d f6 = r36
-; CHECK-NEXT:  ldfe f7 = [r14] ;;
+; CHECK:       setf.d f7 = r36 ;;
+; CHECK:       st8 [r14] = r38 ;;
+; CHECK-NEXT:  st8 [r15] = r39
+; CHECK-NEXT:  ldfe f6 = [r14] ;;
   %x = fptrunc x86_fp80 %l to double
   %r = fsub double %d, %x
   ret double %r
@@ -96,22 +96,25 @@ declare double @take_none_left([8 x float], double, x86_fp80)
 
 define float @pass_odd([3 x float] %h) {
 ; CHECK-LABEL: pass_odd:
-; CHECK:       mov f15 = f8 ;;
-; CHECK-NEXT:  adds r14 = 16, r12 ;;
-; CHECK-NEXT:  stfs [r14] = f10
 ; CHECK:       getf.s r42 = f9
-; CHECK:       br.call.sptk.many b0 = take_odd ;;
+; CHECK-NEXT:  mov f6 = f10
+; CHECK:       mov f15 = f8
+; CHECK:       adds r14 = 16, r12 ;;
+; CHECK-NEXT:  stfs [r14] = f6
+; CHECK-NEXT:  br.call.sptk.many b0 = take_odd ;;
   %r = call float @take_odd(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [3 x float] %h)
   ret float %r
 }
 
 define float @pass_four([4 x float] %h) {
 ; CHECK-LABEL: pass_four:
-; CHECK:       mov f15 = f9
+; CHECK:       getf.s r14 = f11
+; CHECK-NEXT:  mov f15 = f9
 ; CHECK-NEXT:  mov f14 = f8
-; CHECK-NEXT:  getf.s r14 = f11 ;;
+; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  getf.s r15 = f10
+; CHECK-NEXT:  mov f8 = f1 ;;
 ; CHECK-NEXT:  shl r14 = r14, 32
-; CHECK-NEXT:  getf.s r15 = f10 ;;
 ; CHECK-NEXT:  zxt4 r15 = r15 ;;
 ; CHECK-NEXT:  or r42 = r15, r14
 ; CHECK:       br.call.sptk.many b0 = take_four ;;
@@ -122,15 +125,16 @@ define float @pass_four([4 x float] %h) {
 ; One the callee has not named is its bits in the slots and nowhere else.
 define void @unnamed([3 x float] %h, [2 x double] %d) {
 ; CHECK-LABEL: unnamed:
-; CHECK:       getf.s r14 = f9 ;;
-; CHECK-NEXT:  shl r14 = r14, 32
-; CHECK-NEXT:  getf.s r15 = f8 ;;
-; CHECK-NEXT:  zxt4 r15 = r15 ;;
-; CHECK-NEXT:  or r36 = r15, r14
+; CHECK:       getf.s r14 = f9
+; CHECK-NEXT:  mov r35 = 1
+; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  getf.s r15 = f8
 ; CHECK-NEXT:  getf.s r37 = f10
 ; CHECK-NEXT:  getf.d r38 = f11
-; CHECK-NEXT:  getf.d r39 = f12
-; CHECK-NEXT:  mov r35 = 1
+; CHECK-NEXT:  getf.d r39 = f12 ;;
+; CHECK-NEXT:  shl r14 = r14, 32
+; CHECK-NEXT:  zxt4 r15 = r15 ;;
+; CHECK-NEXT:  or r36 = r15, r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = variadic ;;
   call void (i32, ...) @variadic(i32 1, [3 x float] %h, [2 x double] %d)
   ret void
@@ -140,17 +144,17 @@ define void @unnamed([3 x float] %h, [2 x double] %d) {
 ; was declared without its parameters, is in both.
 define void @maybe_named([2 x double] %d, [3 x float] %h) {
 ; CHECK-LABEL: maybe_named:
-; CHECK:       mov f6 = f9
-; CHECK-NEXT:  mov f7 = f8
-; CHECK:       or r35 = r15, r14
-; CHECK-NEXT:  getf.s r36 = f12
-; CHECK-NEXT:  getf.d r37 = f7
-; CHECK-NEXT:  getf.d r38 = f6
-; CHECK-NEXT:  mov f8 = f10
+; CHECK:       mov f6 = f8
+; CHECK-NEXT:  mov f7 = f9
+; CHECK:       mov f8 = f10
 ; CHECK-NEXT:  mov f9 = f11
-; CHECK-NEXT:  mov f10 = f12
-; CHECK-NEXT:  mov f11 = f7
-; CHECK-NEXT:  mov f12 = f6
+; CHECK-NEXT:  getf.s r36 = f12
+; CHECK-NEXT:  mov f10 = f12 ;;
+; CHECK-NEXT:  getf.d r37 = f6
+; CHECK-NEXT:  mov f11 = f6
+; CHECK-NEXT:  mov f12 = f7
+; CHECK-NEXT:  getf.d r38 = f7
+; CHECK:       or r35 = r15, r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = variadic ;;
   call void ([3 x float], [2 x double], ...) @variadic([3 x float] %h, [2 x double] %d)
   ret void
@@ -158,7 +162,7 @@ define void @maybe_named([2 x double] %d, [3 x float] %h) {
 
 define double @pass_none_left([8 x float] %h, double %d, x86_fp80 %l) {
 ; CHECK-LABEL: pass_none_left:
-; CHECK:       mov r46 = r36 ;;
+; CHECK:       mov r46 = r36
 ; CHECK:       ld8 r49 = [r15]
 ; CHECK-NEXT:  ld8 r48 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_none_left ;;
@@ -243,10 +247,10 @@ define i64 @unaligned_last(i64, i64, i64, i64, i64, i64, i64,
 define x86_fp80 @unaligned_bits([8 x float] %h, i64, i64, i64,
                                 [1 x x86_fp80] alignstack(8) %a) {
 ; CHECK-LABEL: unaligned_bits:
-; CHECK:       adds r14 = 16, r12 ;;
-; CHECK-NEXT:  ld8 r14 = [r14]
-; CHECK:       st8 [r{{[0-9]+}}] = r14
+; CHECK:       adds r15 = 16, r12 ;;
+; CHECK-NEXT:  ld8 r15 = [r15]
 ; CHECK:       st8 [r{{[0-9]+}}] = r39
+; CHECK:       st8 [r{{[0-9]+}}] = r15
 ; CHECK:       ldfe f8 = [r{{[0-9]+}}]
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %v = extractvalue [1 x x86_fp80] %a, 0
@@ -258,10 +262,11 @@ define x86_fp80 @unaligned_bits([8 x float] %h, i64, i64, i64,
 define x86_fp80 @unaligned_memory(i64, i64, i64, i64, i64, i64, i64, i64, i64,
                                   [1 x x86_fp80] alignstack(8) %a) {
 ; CHECK-LABEL: unaligned_memory:
-; CHECK:       adds r14 = 24, r12 ;;
+; CHECK:       adds r14 = 24, r12
 ; CHECK-NOT:   ldfe {{.*}}[r14]
-; CHECK:       ld8 r14 = [r14] ;;
-; CHECK-NEXT:  st8 [r16] = r14
+; CHECK:       ld8 r15 = [r14]
+; CHECK:       st8 [r16] = r15 ;;
+; CHECK-NEXT:  st2 [r17] = r14
 ; CHECK-NEXT:  ldfe f8 = [r16]
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %v = extractvalue [1 x x86_fp80] %a, 0
@@ -277,8 +282,8 @@ declare void @take_unaligned_memory(i64, i64, i64, i64, i64, i64, i64, i64, i64,
 define void @pass_unaligned([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned:
 ; CHECK:       adds r14 = 24, r12
-; CHECK-NEXT:  mov r15 = 9 ;;
-; CHECK-NEXT:  st8 [r14] = r15
+; CHECK-NEXT:  mov r15 = 9
+; CHECK:       st8 [r14] = r15
 ; CHECK-NOT:   f8
 ; CHECK:       br.call.sptk.many b0 = take_unaligned ;;
   call void @take_unaligned(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6,
@@ -288,14 +293,14 @@ define void @pass_unaligned([1 x x86_fp80] %a) {
 
 define void @pass_unaligned_variable([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned_variable:
-; CHECK:       adds r14 = 32, r12 ;;
-; CHECK-NEXT:  stfe [r14] = f8
-; CHECK-NEXT:  ld8 r42 = [r14]
-; CHECK-NEXT:  or r14 = 8, r14 ;;
-; CHECK-NEXT:  ld8 r14 = [r14]
-; CHECK-NEXT:  adds r15 = 16, r12 ;;
+; CHECK:       adds r14 = 32, r12
+; CHECK-NEXT:  adds r15 = 16, r12
+; CHECK:       stfe [r14] = f8
+; CHECK:       ld8 r42 = [r14]
+; CHECK-NEXT:  or r14 = 8, r14
+; CHECK:       ld8 r14 = [r14] ;;
 ; CHECK-NEXT:  st8 [r15] = r14
-; CHECK:       br.call.sptk.many b0 = take_unaligned_variable ;;
+; CHECK-NEXT:  br.call.sptk.many b0 = take_unaligned_variable ;;
   call void (i64, ...) @take_unaligned_variable(
       i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6,
       [1 x x86_fp80] alignstack(8) %a)
@@ -304,12 +309,12 @@ define void @pass_unaligned_variable([1 x x86_fp80] %a) {
 
 define void @pass_unaligned_memory([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned_memory:
-; CHECK:       adds r14 = 48, r12 ;;
-; CHECK-NEXT:  stfe [r14] = f8
+; CHECK:       adds r14 = 48, r12
+; CHECK:       stfe [r14] = f8
 ; CHECK-NOT:   stfe
-; CHECK:       adds r15 = 24, r12 ;;
-; CHECK-NEXT:  st8 [r15] = r14
-; CHECK:       br.call.sptk.many b0 = take_unaligned_memory ;;
+; CHECK:       adds r15 = 24, r12
+; CHECK:       st8 [r15] = r14
+; CHECK-NEXT:  br.call.sptk.many b0 = take_unaligned_memory ;;
   call void @take_unaligned_memory(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5,
                                    i64 6, i64 7, i64 8,
                                    [1 x x86_fp80] alignstack(8) %a)

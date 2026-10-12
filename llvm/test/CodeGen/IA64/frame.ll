@@ -24,10 +24,10 @@ define i64 @frame(i64 %a) {
 ; CHECK:         adds r12 = -16, r12 ;;
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    adds r14 = 8, r12 ;;
-; CHECK-NEXT:    st8 [r14] = r32
-; CHECK-NEXT:    adds r14 = 16, r14 ;;
-; CHECK-NEXT:    st8 [r14] = r32
-; CHECK-NEXT:    ld8 r8 = [r14]
+; CHECK-NEXT:    adds r15 = 16, r14
+; CHECK-NEXT:    st8 [r14] = r32 ;;
+; CHECK-NEXT:    st8 [r15] = r32
+; CHECK-NEXT:    ld8 r8 = [r15]
 ; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    adds r12 = 16, r12
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
@@ -48,9 +48,10 @@ define i64 @large(i64 %a) {
 ; CHECK-NEXT:    .fframe 15984
 ; CHECK-NEXT:    add r12 = r2, r12 ;;
 ; CHECK-NEXT:    .body
-; CHECK-NEXT:    mov r14 = r12 ;;
+; CHECK-NEXT:    mov r14 = r12
+; CHECK-NEXT:    mov r8 = r0 ;;
 ; CHECK-NEXT:    st8 [r14] = r32
-; CHECK:         mov r2 = 15984 ;;
+; CHECK-NEXT:    mov r2 = 15984 ;;
 ; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    add r12 = r2, r12
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
@@ -80,12 +81,12 @@ define ptr @far(ptr %q) {
 ; CHECK-LABEL: far:
 ; CHECK:         mov r2 = -16384 ;;
 ; CHECK-NEXT:    .fframe 16384
-; CHECK-NEXT:    add r12 = r2, r12 ;;
+; CHECK-NEXT:    add r12 = r2, r12
 ; CHECK-NEXT:    .body
-; CHECK-NEXT:    mov r14 = r12 ;;
-; CHECK-NEXT:    st8 [r32] = r14
 ; CHECK-NEXT:    mov r8 = 16384 ;;
-; CHECK-NEXT:    add r8 = r8, r12
+; CHECK-NEXT:    mov r14 = r12
+; CHECK-NEXT:    add r8 = r8, r12 ;;
+; CHECK-NEXT:    st8 [r32] = r14
   %a = alloca [16 x i8]
   %b = alloca [16384 x i8]
   store volatile ptr %b, ptr %q

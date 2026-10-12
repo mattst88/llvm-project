@@ -78,7 +78,11 @@ namespace {
 class IA64PassConfig : public TargetPassConfig {
 public:
   IA64PassConfig(IA64TargetMachine &TM, PassManagerBase &PM)
-      : TargetPassConfig(TM, PM) {}
+      : TargetPassConfig(TM, PM) {
+    // Also schedule after register allocation, with the same scheduler.
+    if (TM.getOptLevel() != CodeGenOptLevel::None)
+      substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
+  }
 
   IA64TargetMachine &getIA64TargetMachine() const {
     return getTM<IA64TargetMachine>();

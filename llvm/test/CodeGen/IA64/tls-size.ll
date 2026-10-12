@@ -41,15 +41,15 @@ define i64 @local_exec() {
 
 define ptr @local_dynamic() {
 ; SIZE14-LABEL: local_dynamic:
-; SIZE14:       addl r14 = @ltoff(@dtpmod(ld)), r1 ;;
+; SIZE14:       addl r14 = @ltoff(@dtpmod(ld)), r1
 ; SIZE14:       br.call.sptk.many b0 = __tls_get_addr ;;
 ; SIZE14-NEXT:  mov r1 = r32
 ; SIZE14-NEXT:  adds r8 = @dtprel(ld), r8
 ;
 ; SIZE22-LABEL: local_dynamic:
 ; SIZE22:       br.call.sptk.many b0 = __tls_get_addr ;;
-; SIZE22-NEXT:  mov r1 = r32
-; SIZE22-NEXT:  mov r3 = r8 ;;
+; SIZE22-NEXT:  mov r3 = r8
+; SIZE22-NEXT:  mov r1 = r32 ;;
 ; SIZE22-NEXT:  addl r8 = @dtprel(ld), r3
 ;
 ; SIZE64-LABEL: local_dynamic:

@@ -68,6 +68,11 @@ public:
 
   bool hasConstantGP() const { return HasConstantGP; }
 
+  // The processors execute in order and stall at an instruction that needs
+  // an earlier result, so instruction order decides how many issue together.
+  bool enableMachineScheduler() const override { return true; }
+  bool enablePostRAScheduler() const override { return true; }
+
   bool isRegisterReservedByUser(Register Reg) const override {
     assert(Reg.id() < IA64::NUM_TARGET_REGS && "not a physical register");
     return UserReservedRegister[Reg.id()];

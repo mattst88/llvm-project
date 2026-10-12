@@ -12,10 +12,11 @@ declare i32 @printf(ptr, ...)
 
 define void @both(i32 %a, double %d, float %f) {
 ; CHECK-LABEL: both:
-; CHECK:         mov r36 = r32
-; CHECK-NEXT:    getf.d r37 = f8
-; CHECK-NEXT:    getf.s r38 = f9
+; CHECK:         getf.d r37 = f8
+; CHECK-NEXT:    mov r36 = r32
 ; CHECK-NEXT:    mov r39 = 7
+; CHECK-NEXT:    mov r33 = r1
+; CHECK-NEXT:    getf.s r38 = f9 ;;
 ; CHECK-NEXT:    br.call.sptk.many b0 = kr ;;
   call i32 (i32, double, float, i32, ...) @kr(i32 %a, double %d, float %f, i32 7)
   ret void
@@ -40,11 +41,11 @@ define void @both_extended(i32 %a, x86_fp80 %l) {
 
 define void @both_memory(double %d) {
 ; CHECK-LABEL: both_memory:
-; CHECK:         adds r14 = 16, r12 ;;
-; CHECK-NEXT:    stfd [r14] = f8
-; CHECK-NEXT:    getf.d r42 = f8
+; CHECK:         getf.d r42 = f8 ;;
+; CHECK-NEXT:    adds r14 = 16, r12
 ; CHECK-NOT:     f9
-; CHECK:         br.call.sptk.many b0 = kr ;;
+; CHECK:         stfd [r14] = f8
+; CHECK-NEXT:    br.call.sptk.many b0 = kr ;;
   call i32 (i64, i64, i64, i64, i64, i64, i64, double, double, ...) @kr(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, double %d, double %d)
   ret void
 }
@@ -53,8 +54,9 @@ define void @both_memory(double %d) {
 
 define void @unnamed(ptr %s, double %d) {
 ; CHECK-LABEL: unnamed:
-; CHECK:         mov r36 = r32
-; CHECK-NEXT:    getf.d r37 = f8 ;;
+; CHECK:         getf.d r37 = f8
+; CHECK-NEXT:    mov r36 = r32
+; CHECK-NEXT:    mov r33 = r1 ;;
 ; CHECK-NEXT:    br.call.sptk.many b0 = printf ;;
   call i32 (ptr, ...) @printf(ptr %s, double %d)
   ret void
@@ -66,12 +68,12 @@ define void @unnamed(ptr %s, double %d) {
 
 define double @named(double %a, float %b, x86_fp80 %c, ...) {
 ; CHECK-LABEL: named:
+; CHECK:         fma.d f6 = f10, f1, f0
+; CHECK-NEXT:    fma.d f7 = f8, f1, f9 ;;
 ; CHECK:         st8 [r14] = r39
 ; CHECK:         st8 [r14] = r36
 ; CHECK-NOT:     r35
-; CHECK:         fma.d f6 = f8, f1, f9
-; CHECK-NEXT:    fma.d f7 = f10, f1, f0 ;;
-; CHECK-NEXT:    fma.d f8 = f6, f1, f7
+; CHECK:         fma.d f8 = f7, f1, f6
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
   %x = fpext float %b to double

@@ -199,3 +199,20 @@ define i64 @must(i64 %a, i64 %b) {
   %r = musttail call i64 @local(i64 %a, i64 %b)
   ret i64 %r
 }
+
+; The frame "alloc" leaves has only the arguments in it, so whatever reads a
+; register beyond them comes before it.
+
+define i64 @shrinks(i64 %a, i64 %b, i64 %c, i64 %d, ptr %p) {
+; CHECK-LABEL: shrinks:
+; CHECK:         ld8 r14 = [r36]
+; CHECK-NEXT:    mov r32 = r33 ;;
+; CHECK-NEXT:    add r33 = r14, r35 ;;
+; CHECK-NEXT:    .prologue
+; CHECK-NEXT:    alloc r2 = ar.pfs, 0, 0, 2, 0
+; CHECK-NEXT:    br.cond.sptk.many local ;;
+  %x = load i64, ptr %p
+  %y = add i64 %x, %d
+  %r = tail call i64 @local(i64 %b, i64 %y)
+  ret i64 %r
+}

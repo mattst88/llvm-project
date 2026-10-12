@@ -6,9 +6,9 @@
 define i64 @incoming(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
                      i64 %h, i64 %i, i64 %j) {
 ; CHECK-LABEL: incoming:
-; CHECK:       adds r14 = 24, r12 ;;
-; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK:       adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12 ;;
+; CHECK-NEXT:  ld8 r14 = [r14]
 ; CHECK-NEXT:  ld8 r15 = [r15] ;;
 ; CHECK-NEXT:  add r8 = r15, r14
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
@@ -24,16 +24,16 @@ define i64 @outgoing(i64 %a) {
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .fframe 16
-; CHECK-NEXT:  adds r12 = -16, r12
+; CHECK-NEXT:  adds r12 = -16, r12 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  adds r14 = 24, r12
-; CHECK-NEXT:  mov r15 = 10 ;;
-; CHECK-NEXT:  st8 [r14] = r15
-; CHECK-NEXT:  adds r14 = 16, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r32
+; CHECK-NEXT:  mov r15 = 10
+; CHECK-NEXT:  adds r16 = 16, r12
 ; CHECK-NEXT:  mov r36 = 1
 ; CHECK:       mov r43 = 8
+; CHECK-NEXT:  mov r33 = r1 ;;
+; CHECK-NEXT:  st8 [r14] = r15
+; CHECK-NEXT:  st8 [r16] = r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = incoming ;;
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  .restore sp
@@ -51,17 +51,18 @@ define i64 @both(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
                  i64 %h, i64 %i, i64 %j) {
 ; CHECK-LABEL: both:
 ; CHECK:       adds r12 = -48, r12
-; CHECK:       adds r35 = 40, r12
-; CHECK-NEXT:  br.call.sptk.many b0 = sink ;;
-; CHECK:       adds r14 = 64, r12 ;;
-; CHECK-NEXT:  ld8 r14 = [r14]
-; CHECK-NEXT:  adds r15 = 16, r12 ;;
-; CHECK-NEXT:  st8 [r15] = r14
+; CHECK:       adds r14 = 64, r12
+; CHECK-NEXT:  adds r37 = 40, r12
+; CHECK-NEXT:  mov r34 = r1 ;;
+; CHECK-NEXT:  ld8 r33 = [r14]
 ; CHECK-NEXT:  adds r14 = 72, r12 ;;
-; CHECK-NEXT:  ld8 r35 = [r14]
-; CHECK-NEXT:  adds r14 = 24, r12 ;;
-; CHECK-NEXT:  st8 [r14] = r35
-; CHECK:       br.call.sptk.many b0 = incoming ;;
+; CHECK-NEXT:  ld8 r32 = [r14]
+; CHECK-NEXT:  br.call.sptk.many b0 = sink ;;
+; CHECK-NEXT:  adds r14 = 24, r12
+; CHECK-NEXT:  adds r15 = 16, r12
+; CHECK:       st8 [r14] = r32
+; CHECK-NEXT:  st8 [r15] = r33
+; CHECK-NEXT:  br.call.sptk.many b0 = incoming ;;
 ; CHECK:       adds r12 = 48, r12
   %p = alloca [3 x i64]
   call void @sink(ptr %p)

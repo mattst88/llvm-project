@@ -11,8 +11,8 @@ define i64 @branch_eq(i64 %a, i64 %b, ptr %p) {
 ; CHECK:       cmp.eq p7, p6 = r32, r33
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2 ;;
 ; CHECK-NEXT:  // %bb.1:
-; CHECK-NEXT:  st8 [r34] = r32
 ; CHECK-NEXT:  mov r8 = 1
+; CHECK-NEXT:  st8 [r34] = r32
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ; CHECK-NEXT:  .LBB0_2:
 ; CHECK-NEXT:  mov r8 = r0

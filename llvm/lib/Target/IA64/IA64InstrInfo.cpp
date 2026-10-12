@@ -611,6 +611,19 @@ bool IA64InstrInfo::isPredicated(const MachineInstr &MI) const {
   return Idx >= 0 && MI.getOperand(Idx).getReg() != IA64::P0;
 }
 
+// alloc must not move: it has to precede the first write of a register it
+// adds to the frame and follow the last read of one it removes, which its
+// operands do not express. Frame setup and destroy instructions also stay
+// put, since the unwind directives describe them by position.
+bool IA64InstrInfo::isSchedulingBoundary(const MachineInstr &MI,
+                                         const MachineBasicBlock *MBB,
+                                         const MachineFunction &MF) const {
+  if (MI.getOpcode() == IA64::ALLOC || MI.getFlag(MachineInstr::FrameSetup) ||
+      MI.getFlag(MachineInstr::FrameDestroy))
+    return true;
+  return TargetInstrInfo::isSchedulingBoundary(MI, MBB, MF);
+}
+
 bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
                                   MachineBasicBlock *&TBB,
                                   MachineBasicBlock *&FBB,

@@ -72,7 +72,8 @@ define i64 @compare_exchange(ptr %p, i64 %c, i64 %n) {
 
 define i1 @compare_exchange_narrow(ptr %p, i8 %c, i8 %n) {
 ; CHECK-LABEL: compare_exchange_narrow:
-; CHECK:       zxt1 r14 = r33 ;;
+; CHECK:       zxt1 r14 = r33
+; CHECK-NEXT:  mov r8 = r0 ;;
 ; CHECK-NEXT:  mov ar.ccv = r14 ;;
 ; CHECK-NEXT:  cmpxchg1.acq r15 = [r32], r34, ar.ccv ;;
 ; CHECK-NEXT:  cmp.eq p6, p7 = r15, r14
@@ -113,8 +114,8 @@ define i32 @add_relaxed(ptr %p) {
 define i64 @add_other(ptr %p) {
 ; CHECK-LABEL: add_other:
 ; CHECK:       ld8.acq r8 = [r32] ;;
-; CHECK:       adds r15 = 3, r14
-; CHECK-NEXT:  mov ar.ccv = r14 ;;
+; CHECK:       mov ar.ccv = r14
+; CHECK-NEXT:  adds r15 = 3, r14 ;;
 ; CHECK-NEXT:  cmpxchg8.acq r8 = [r32], r15, ar.ccv ;;
 ; CHECK-NEXT:  cmp.eq p7, p6 = r8, r14
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB

@@ -73,11 +73,11 @@ define i64 @dynamic(i64 %n) {
 ; A frame of a size that is not known is found from the copy of the stack
 ; pointer that the prologue makes.
 ; CHECK-LABEL: dynamic:
-; CHECK:       .vframe r36
-; CHECK-NEXT:  mov r36 = r12
+; CHECK:       .vframe r35
+; CHECK-NEXT:  mov r35 = r12
 ; CHECK-NEXT:  .body
 ; CHECK:       .restore sp
-; CHECK-NEXT:  mov r12 = r36
+; CHECK-NEXT:  mov r12 = r35
   %p = alloca i64, i64 %n
   %r = call i64 @ext(ptr %p)
   ret i64 %r

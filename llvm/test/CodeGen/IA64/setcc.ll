@@ -152,7 +152,8 @@ define i64 @ugt_top(i64 %a) {
 
 define i64 @sgt_too_large(i64 %a) {
 ; CHECK-LABEL: sgt_too_large:
-; CHECK:       mov [[T:r[0-9]+]] = 128 ;;
+; CHECK:       mov [[T:r[0-9]+]] = 128
+; CHECK-NEXT:  mov r8 = r0 ;;
 ; CHECK-NEXT:  cmp.lt p6, p7 = [[T]], r32
   %c = icmp sgt i64 %a, 128
   %r = zext i1 %c to i64

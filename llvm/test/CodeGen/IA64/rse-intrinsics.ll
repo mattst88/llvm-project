@@ -31,6 +31,7 @@ define ptr @frame() {
 ; CHECK-LABEL: frame:
 ; CHECK:       alloc
 ; CHECK:       ;;
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov {{r[0-9]+}} = ar.bsp
 ; CHECK:       br.call.sptk.many b0 = g
   %p = call ptr @llvm.ia64.bsp()
@@ -43,6 +44,7 @@ define i1 @twice() {
 ; CHECK-LABEL: twice:
 ; CHECK:       mov {{r[0-9]+}} = ar.bsp ;;
 ; CHECK-NEXT:  flushrs ;;
+; CHECK-NEXT:  mov r8 = r0 ;;
 ; CHECK-NEXT:  mov {{r[0-9]+}} = ar.bsp
   %p = call ptr @llvm.ia64.bsp()
   call void @llvm.ia64.flushrs()

@@ -11,25 +11,26 @@ define i64 @aligned(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
                     i64 %h, i64 %i) {
 ; CHECK-LABEL: aligned:
 ; CHECK:       // %bb.0:
-; CHECK-NEXT:    .save ar.pfs, r33
-; CHECK-NEXT:    alloc r33 = ar.pfs, 0, 4, 1, 0
-; CHECK-NEXT:    .save rp, r34
-; CHECK-NEXT:    mov r34 = b0
-; CHECK-NEXT:    .vframe r35
-; CHECK-NEXT:    mov r35 = r12
+; CHECK-NEXT:    .save ar.pfs, r34
+; CHECK-NEXT:    alloc r34 = ar.pfs, 0, 5, 1, 0
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0
+; CHECK-NEXT:    .vframe r36
+; CHECK-NEXT:    mov r36 = r12
 ; CHECK-NEXT:    adds r12 = -112, r12 ;;
 ; CHECK-NEXT:    and r12 = -64, r12
 ; CHECK-NEXT:    .body
-; CHECK-NEXT:    mov r32 = r1 ;;
-; CHECK-NEXT:    adds r36 = 64, r12
+; CHECK-NEXT:    adds r14 = 16, r36 ;;
+; CHECK-NEXT:    adds r37 = 64, r12
+; CHECK-NEXT:    mov r33 = r1
+; CHECK-NEXT:    ld8 r32 = [r14]
 ; CHECK-NEXT:    br.call.sptk.many b0 = use ;;
-; CHECK-NEXT:    mov r1 = r32
-; CHECK-NEXT:    adds r14 = 16, r35 ;;
-; CHECK-NEXT:    ld8 r8 = [r14]
+; CHECK-NEXT:    mov r1 = r33
+; CHECK-NEXT:    mov r8 = r32
 ; CHECK-NEXT:    .restore sp
-; CHECK-NEXT:    mov r12 = r35
-; CHECK-NEXT:    mov b0 = r34
-; CHECK-NEXT:    mov ar.pfs = r33
+; CHECK-NEXT:    mov r12 = r36
+; CHECK-NEXT:    mov b0 = r35
+; CHECK-NEXT:    mov ar.pfs = r34
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %x = alloca [64 x i8], align 64
   call void @use(ptr %x)
@@ -55,17 +56,17 @@ define void @page() {
 
 define void @variable(i64 %n) {
 ; CHECK-LABEL: variable:
-; CHECK:         mov r36 = r12
+; CHECK:         mov r35 = r12
 ; CHECK-NEXT:    adds r12 = -112, r12 ;;
 ; CHECK-NEXT:    and r12 = -64, r12 ;;
-; CHECK-NEXT:    mov r37 = r12
+; CHECK-NEXT:    mov r36 = r12
 ; CHECK:         sub r12 = r12, r14 ;;
-; CHECK-NEXT:    adds r38 = 16, r12
+; CHECK-NEXT:    adds r37 = 16, r12
 ; CHECK-NEXT:    br.call.sptk.many b0 = use ;;
-; CHECK-NEXT:    mov r1 = r33
-; CHECK-NEXT:    adds r38 = 64, r37
+; CHECK-NEXT:    adds r37 = 64, r36
+; CHECK-NEXT:    mov r1 = r32
 ; CHECK-NEXT:    br.call.sptk.many b0 = use ;;
-; CHECK:         mov r12 = r36
+; CHECK:         mov r12 = r35
   %x = alloca [64 x i8], align 64
   %y = alloca i8, i64 %n
   call void @use(ptr %y)

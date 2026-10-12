@@ -212,8 +212,9 @@ declare x86_fp80 @g(x86_fp80, i32, x86_fp80)
 define x86_fp80 @call(x86_fp80 %a, x86_fp80 %b) {
 ; CHECK-LABEL: call:
 ; CHECK:       mov f6 = f8
+; CHECK-NEXT:  mov f8 = f9
 ; CHECK-NEXT:  mov r37 = 1
-; CHECK-NEXT:  mov f8 = f9 ;;
+; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  mov f9 = f6
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
   %r = call x86_fp80 @g(x86_fp80 %b, i32 1, x86_fp80 %a)
@@ -239,20 +240,21 @@ define x86_fp80 @fifth(x86_fp80 %a, x86_fp80 %b, x86_fp80 %c, x86_fp80 %d, x86_f
 declare void @v(ptr, ...)
 define void @call_variadic(ptr %f, x86_fp80 %a) {
 ; CHECK-LABEL: call_variadic:
-; CHECK:       mov r36 = r32 ;;
-; CHECK-NEXT:  adds r14 = 48, r12 ;;
+; CHECK:       adds r14 = 48, r12
+; CHECK-NEXT:  adds r15 = 32, r12
+; CHECK-NEXT:  mov r36 = r32
+; CHECK-NEXT:  mov r40 = 7
+; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  stfe [r14] = f8
-; CHECK-NEXT:  adds r15 = 32, r12 ;;
 ; CHECK-NEXT:  stfe [r15] = f8
-; CHECK-NEXT:  or r16 = 8, r14 ;;
-; CHECK-NEXT:  ld8 r39 = [r16]
+; CHECK-NEXT:  or r16 = 8, r14
 ; CHECK-NEXT:  ld8 r38 = [r14]
 ; CHECK-NEXT:  or r14 = 8, r15 ;;
+; CHECK-NEXT:  ld8 r39 = [r16]
 ; CHECK-NEXT:  ld8 r43 = [r14]
 ; CHECK-NEXT:  ld8 r42 = [r15]
 ; CHECK-NEXT:  adds r14 = 16, r12 ;;
 ; CHECK-NEXT:  stfe [r14] = f8
-; CHECK-NEXT:  mov r40 = 7
 ; CHECK-NEXT:  br.call.sptk.many b0 = v ;;
   call void (ptr, ...) @v(ptr %f, x86_fp80 %a, i64 7, x86_fp80 %a, x86_fp80 %a)
   ret void

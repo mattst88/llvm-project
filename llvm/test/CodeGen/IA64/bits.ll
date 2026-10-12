@@ -54,12 +54,12 @@ define i32 @swap32(i32 %a) {
 
 define i64 @rotate(i64 %a, i64 %b) {
 ; CHECK-LABEL: rotate:
-; CHECK:       and r14 = 63, r33 ;;
-; CHECK-NEXT:  shl r14 = r32, r14
-; CHECK-NEXT:  sub r15 = 0, r33 ;;
-; CHECK-NEXT:  and r15 = 63, r15 ;;
-; CHECK-NEXT:  shr.u r15 = r32, r15 ;;
-; CHECK-NEXT:  or r8 = r14, r15
+; CHECK:       sub r14 = 0, r33
+; CHECK-NEXT:  and r15 = 63, r33 ;;
+; CHECK-NEXT:  and r14 = 63, r14
+; CHECK-NEXT:  shl r15 = r32, r15 ;;
+; CHECK-NEXT:  shr.u r14 = r32, r14 ;;
+; CHECK-NEXT:  or r8 = r15, r14
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = call i64 @llvm.fshl.i64(i64 %a, i64 %a, i64 %b)
   ret i64 %r
@@ -69,7 +69,7 @@ define i64 @rotate(i64 %a, i64 %b) {
 define i128 @wide(i128 %a, i128 %b) {
 ; CHECK-LABEL: wide:
 ; CHECK-NOT:   br.call
-; CHECK:       shl r8 = r32, r15
+; CHECK:       shl r8 = r32, r16
 ; CHECK:       (p6) mov r9 = r8
 ; CHECK:       (p6) mov r8 = r0
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;

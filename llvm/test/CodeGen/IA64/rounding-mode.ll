@@ -7,10 +7,10 @@
 
 define i32 @get() {
 ; CHECK-LABEL: get:
-; CHECK:         mov r14 = ar.fpsr ;;
-; CHECK-NEXT:    shr.u r14 = r14, 9 ;;
-; CHECK-NEXT:    and r14 = 6, r14
+; CHECK:         mov r14 = ar.fpsr
 ; CHECK-NEXT:    mov r15 = 45 ;;
+; CHECK-NEXT:    shr.u r14 = r14, 9 ;;
+; CHECK-NEXT:    and r14 = 6, r14 ;;
 ; CHECK-NEXT:    shr.u r14 = r15, r14 ;;
 ; CHECK-NEXT:    and r8 = 3, r14
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
@@ -20,9 +20,10 @@ define i32 @get() {
 
 define void @set(i32 %m) {
 ; CHECK-LABEL: set:
-; CHECK:         mov r15 = ar.fpsr ;;
+; CHECK:         mov r14 = ar.fpsr
 ; CHECK:         mov r16 = 99 ;;
-; CHECK:         shl r15 = r15, 10 ;;
+; CHECK:         shl r15 = r15, 10
+; CHECK-NEXT:    and r14 = r14, r16 ;;
 ; CHECK-NEXT:    or r14 = r14, r15 ;;
 ; CHECK-NEXT:    mov ar.fpsr = r14
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
@@ -32,9 +33,9 @@ define void @set(i32 %m) {
 
 define void @up() {
 ; CHECK-LABEL: up:
-; CHECK:         mov r14 = -3073
-; CHECK-NEXT:    mov r15 = ar.fpsr ;;
-; CHECK-NEXT:    and r14 = r15, r14
+; CHECK:         mov r14 = ar.fpsr
+; CHECK-NEXT:    mov r15 = -3073 ;;
+; CHECK-NEXT:    and r14 = r14, r15
 ; CHECK-NEXT:    mov r15 = 2048 ;;
 ; CHECK-NEXT:    or r14 = r14, r15 ;;
 ; CHECK-NEXT:    mov ar.fpsr = r14
