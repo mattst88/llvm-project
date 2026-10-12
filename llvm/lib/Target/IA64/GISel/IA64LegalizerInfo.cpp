@@ -148,8 +148,12 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
         return Dst.isScalar() && Src.isScalar() && (Dst == s32 || Dst == s64) &&
                Src.getSizeInBits() < Dst.getSizeInBits();
       })
+      .scalarize(0)
       .maxScalar(0, s64);
-  getActionDefinitionsBuilder(G_TRUNC).alwaysLegal();
+  getActionDefinitionsBuilder(G_TRUNC)
+      .legalIf(
+          [=](const LegalityQuery &Query) { return Query.Types[0].isScalar(); })
+      .scalarize(0);
 
   // extr extracts and sign-extends a field of any width.
   getActionDefinitionsBuilder(G_SEXT_INREG)
@@ -203,8 +207,21 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
     unsigned BigTy = Op == G_MERGE_VALUES ? 0 : 1;
     unsigned LitTy = Op == G_MERGE_VALUES ? 1 : 0;
     getActionDefinitionsBuilder(Op)
-        .widenScalarToNextPow2(LitTy, 8)
-        .widenScalarToNextPow2(BigTy, 32)
+        // Vectors are only ever unmerged into the elements they were built
+        // from.
+        .legalIf([=](const LegalityQuery &Query) {
+          return Query.Types[BigTy].isVector();
+        })
+        // Non-byte-sized parts are lowered to shifts. Widening them would
+        // produce an unmerge into wider parts plus truncates, which fold
+        // back into the original. Nor can a non-power-of-two part size,
+        // e.g. 3 bytes, be widened to a matching whole.
+        .lowerIf([=](const LegalityQuery &Query) {
+          unsigned LitBits = Query.Types[LitTy].getSizeInBits();
+          unsigned BigBits = Query.Types[BigTy].getSizeInBits();
+          return BigBits <= 64 && (LitBits < 8 || !isPowerOf2_32(LitBits) ||
+                                   !isPowerOf2_32(BigBits));
+        })
         .clampScalar(LitTy, s8, s64)
         .clampScalar(BigTy, s16, s128)
         // Values wider than a register stay as their halves and are only
@@ -215,6 +232,17 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
         });
   }
   getActionDefinitionsBuilder({G_EXTRACT, G_INSERT}).lower();
+
+  // There are no vector registers. Every vector operation is scalarized, so
+  // each G_BUILD_VECTOR meets the unmerge of its elements and both fold away.
+  getActionDefinitionsBuilder({G_BUILD_VECTOR, G_CONCAT_VECTORS})
+      .legalIf([=](const LegalityQuery &Query) {
+        return Query.Types[0].isVector();
+      });
+  getActionDefinitionsBuilder(G_BUILD_VECTOR_TRUNC).lower();
+  getActionDefinitionsBuilder(
+      {G_EXTRACT_VECTOR_ELT, G_INSERT_VECTOR_ELT, G_SHUFFLE_VECTOR, G_BITCAST})
+      .lower();
 
   // Arithmetic is fma at the result's precision, and sign operations are
   // fmerge. Extended-precision division needs more than frcpa and a few
@@ -251,26 +279,32 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
   // Truncation rounds; extension is exact.
   getActionDefinitionsBuilder(G_FPEXT)
       .legalFor({{s64, s32}, {s80, s32}, {s80, s64}})
+      .scalarize(0)
       .libcallFor({{s128, s32}, {s128, s64}, {s128, s80}});
   getActionDefinitionsBuilder(G_FPTRUNC)
       .legalFor({{s32, s64}, {s32, s80}, {s64, s80}})
+      .scalarize(0)
       .libcallFor({{s32, s128}, {s64, s128}, {s80, s128}});
 
   // Integer/FP conversions go through the significand of an FP register,
   // signed or unsigned.
   getActionDefinitionsBuilder({G_SITOFP, G_UITOFP})
       .legalFor({{s32, s64}, {s64, s64}, {s80, s64}})
+      .scalarize(0)
       .libcallFor(
           {{s32, s128}, {s64, s128}, {s80, s128}, {s128, s64}, {s128, s128}})
       .widenScalarToNextPow2(1)
       .clampScalar(1, s64, s128);
   getActionDefinitionsBuilder({G_FPTOSI, G_FPTOUI})
       .legalFor({{s64, s32}, {s64, s64}, {s64, s80}})
+      .scalarize(0)
       .libcallFor(
           {{s128, s32}, {s128, s64}, {s128, s80}, {s64, s128}, {s128, s128}})
       .widenScalarToNextPow2(0)
       .clampScalar(0, s64, s128);
-  getActionDefinitionsBuilder({G_FPTOSI_SAT, G_FPTOUI_SAT}).lower();
+  getActionDefinitionsBuilder({G_FPTOSI_SAT, G_FPTOUI_SAT})
+      .scalarize(0)
+      .lower();
 
   getActionDefinitionsBuilder({G_FSQRT,
                                G_FREM,
