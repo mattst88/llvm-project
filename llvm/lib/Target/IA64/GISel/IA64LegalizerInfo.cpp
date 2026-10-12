@@ -18,6 +18,7 @@
 #include "IA64LegalizerInfo.h"
 #include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
+#include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerHelper.h"
 #include "llvm/CodeGen/GlobalISel/Utils.h"
@@ -25,6 +26,7 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
 using namespace TargetOpcode;
@@ -84,9 +86,10 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .widenScalarToNextMultipleOf(0, 64)
       .clampScalar(0, s64, s64);
 
-  getActionDefinitionsBuilder(
-      {G_FRAME_INDEX, G_GLOBAL_VALUE, G_BLOCK_ADDR, G_CONSTANT_POOL})
+  getActionDefinitionsBuilder({G_FRAME_INDEX, G_BLOCK_ADDR, G_CONSTANT_POOL})
       .legalFor({p0});
+  // A TLS address may require a call.
+  getActionDefinitionsBuilder(G_GLOBAL_VALUE).customFor({p0});
 
   getActionDefinitionsBuilder(G_PTR_ADD).legalFor({{p0, s64}});
   getActionDefinitionsBuilder(G_PTRMASK).customFor({{p0, s64}});
@@ -432,6 +435,97 @@ bool IA64LegalizerInfo::legalizeCustom(
   switch (MI.getOpcode()) {
   default:
     return false;
+  case G_GLOBAL_VALUE: {
+    // General-dynamic TLS: call __tls_get_addr with the module ID and DTP
+    // offset, both loaded from the linkage table. Local-dynamic: call it with
+    // a zero offset and add the DTP offset to the result. All other addresses
+    // are left to the instruction selector.
+    const MachineOperand &Symbol = MI.getOperand(1);
+    const GlobalValue *GV = Symbol.getGlobal();
+    const TargetMachine &TM = MF.getTarget();
+    if (!GV->isThreadLocal())
+      return true;
+    if (TM.useEmulatedTLS())
+      return false;
+    TLSModel::Model Model = TM.getTLSModel(GV);
+    if (Model != TLSModel::GeneralDynamic && Model != TLSModel::LocalDynamic)
+      return true;
+    if (Symbol.getOffset() != 0)
+      return false;
+
+    MachineRegisterInfo &MRI = MF.getRegInfo();
+    LLT S64 = LLT::scalar(64);
+    LLT P0 = LLT::pointer(0, 64);
+    auto Flagged = [&](unsigned Flags) {
+      MachineOperand Op = Symbol;
+      Op.setTargetFlags(Flags);
+      return Op;
+    };
+    auto LinkageTableEntry = [&](unsigned Flags) {
+      Register Entry = MRI.createVirtualRegister(&IA64::GRRegClass);
+      MIRBuilder.buildInstr(IA64::ADDL)
+          .addDef(Entry)
+          .add(Flagged(Flags))
+          .addReg(IA64::R1)
+          .addReg(IA64::P0);
+      Register Value = MRI.createVirtualRegister(&IA64::GRRegClass);
+      MRI.setType(Value, S64);
+      MIRBuilder.buildInstr(IA64::LD8)
+          .addDef(Value)
+          .addReg(Entry)
+          .addImm(0)
+          .addReg(IA64::P0)
+          .addMemOperand(MF.getMachineMemOperand(
+              MachinePointerInfo::getGOT(MF),
+              MachineMemOperand::MOLoad | MachineMemOperand::MODereferenceable |
+                  MachineMemOperand::MOInvariant,
+              S64, Align(8)));
+      return Value;
+    };
+
+    unsigned Size = TM.Options.TLSSize;
+    Size = Size == 0 ? 22 : Size <= 14 ? 14 : Size <= 22 ? 22 : 64;
+    bool General = Model == TLSModel::GeneralDynamic;
+    Register Dst = MI.getOperand(0).getReg();
+    Register Module = LinkageTableEntry(IA64::S_LTOFF_DTPMOD);
+    Register Offset = General ? LinkageTableEntry(IA64::S_LTOFF_DTPREL)
+                              : MIRBuilder.buildConstant(S64, 0).getReg(0);
+    Register Base = General ? Dst : MRI.createGenericVirtualRegister(P0);
+    LLVMContext &Ctx = MF.getFunction().getContext();
+    Type *Int64 = Type::getInt64Ty(Ctx);
+    if (Helper.createLibcall(
+            "__tls_get_addr", {Base, PointerType::getUnqual(Ctx), 0},
+            {{Module, Int64, 0}, {Offset, Int64, 1}}, CallingConv::C,
+            LocObserver) != LegalizerHelper::Legalized)
+      return false;
+    if (!General) {
+      if (Size == 64) {
+        MIRBuilder.buildPtrAdd(Dst, Base,
+                               LinkageTableEntry(IA64::S_LTOFF_DTPREL));
+      } else if (Size == 14) {
+        Register From = MRI.createVirtualRegister(&IA64::GRRegClass);
+        MIRBuilder.buildCopy(From, Base);
+        MRI.setRegClass(Dst, &IA64::GRRegClass);
+        MIRBuilder.buildInstr(IA64::ADDS)
+            .addDef(Dst)
+            .add(Flagged(IA64::S_DTPREL))
+            .addReg(From)
+            .addReg(IA64::P0);
+      } else {
+        // addl's 22-bit form only accepts r0-r3 as the base.
+        Register From = MRI.createVirtualRegister(&IA64::GR0_3RegClass);
+        MIRBuilder.buildCopy(From, Base);
+        MRI.setRegClass(Dst, &IA64::GRRegClass);
+        MIRBuilder.buildInstr(IA64::ADDL)
+            .addDef(Dst)
+            .add(Flagged(IA64::S_DTPREL))
+            .addReg(From)
+            .addReg(IA64::P0);
+      }
+    }
+    MI.eraseFromParent();
+    return true;
+  }
   case G_BRJT: {
     // Load the entry, add it to the table address and branch there.
     const MachineJumpTableInfo *MJTI = MF.getJumpTableInfo();

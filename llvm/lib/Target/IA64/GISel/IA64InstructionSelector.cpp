@@ -779,8 +779,50 @@ bool IA64InstructionSelector::selectGlobalValue(
   Register Dst = I.getOperand(0).getReg();
   const MachineOperand &Symbol = I.getOperand(1);
   const GlobalValue *GV = Symbol.getGlobal();
-  if (GV->isThreadLocal() || Symbol.getOffset() != 0)
+  if (Symbol.getOffset() != 0)
     return false;
+
+  // Local-exec and initial-exec TLS variables are at an offset from the
+  // thread pointer, known at link time or loaded from the linkage table. A
+  // link-time offset is added with one addl if it fits in 22 bits, which is
+  // assumed unless the TLS size says otherwise, and addl only takes r0-r3 as
+  // its base. The legalizer turned the other models into calls.
+  if (GV->isThreadLocal()) {
+    MachineOperand Relative = Symbol;
+    Relative.setTargetFlags(IA64::S_TPREL);
+    unsigned Size = TM.Options.TLSSize;
+    switch (TM.getTLSModel(GV)) {
+    case TLSModel::LocalExec:
+      if (Size != 0 && Size <= 14) {
+        emit(I, IA64::ADDS, Dst)
+            .add(Relative)
+            .addReg(IA64::R13)
+            .addReg(IA64::P0);
+      } else if (Size == 0 || Size <= 22) {
+        Register Thread = MRI.createVirtualRegister(&IA64::GR0_3RegClass);
+        emit(I, TargetOpcode::COPY, Thread).addReg(IA64::R13);
+        emit(I, IA64::ADDL, Dst).add(Relative).addReg(Thread).addReg(IA64::P0);
+      } else {
+        Register Offset = MRI.createVirtualRegister(&IA64::GRRegClass);
+        emit(I, IA64::MOVL, Offset).add(Relative).addReg(IA64::P0);
+        emit(I, IA64::ADD, Dst)
+            .addReg(Offset)
+            .addReg(IA64::R13)
+            .addReg(IA64::P0);
+      }
+      break;
+    case TLSModel::InitialExec: {
+      Register Offset = MRI.createVirtualRegister(&IA64::GRRegClass);
+      loadLinkageTableEntry(I, Offset, Symbol, IA64::S_LTOFF_TPREL);
+      emit(I, IA64::ADD, Dst).addReg(Offset).addReg(IA64::R13).addReg(IA64::P0);
+      break;
+    }
+    default:
+      return false;
+    }
+    I.eraseFromParent();
+    return true;
+  }
 
   // A small code model variable is addressable by addl from r0.
   if (const auto *Var = dyn_cast<GlobalVariable>(GV);
