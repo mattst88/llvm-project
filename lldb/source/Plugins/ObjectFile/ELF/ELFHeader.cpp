@@ -214,6 +214,11 @@ unsigned ELFHeader::GetRelocationJumpSlotType() const {
   case EM_LOONGARCH:
     slot = R_LARCH_JUMP_SLOT;
     break;
+  case EM_IA_64:
+    // IA-64 has no jump slot relocation as such: a PLT entry branches
+    // through a function descriptor, and this relocation fills one in.
+    slot = R_IA64_IPLTLSB;
+    break;
   }
 
   return slot;
