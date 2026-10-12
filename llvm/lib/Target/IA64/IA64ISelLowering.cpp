@@ -623,6 +623,23 @@ void IA64TargetLowering::ReplaceNodeResults(SDNode *N,
   }
 }
 
+// Stack maps and patch points are not implemented: neither the stack map
+// section nor the patch space is emitted. Statepoints and calls with a
+// "deopt" operand bundle (which become statepoints) are rejected too.
+MachineBasicBlock *
+IA64TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
+                                                MachineBasicBlock *MBB) const {
+  switch (MI.getOpcode()) {
+  case TargetOpcode::STACKMAP:
+  case TargetOpcode::PATCHPOINT:
+  case TargetOpcode::STATEPOINT:
+    reportFatalUsageError("stack maps, patch points and statepoints are not "
+                          "supported on IA-64");
+  default:
+    return TargetLowering::EmitInstrWithCustomInserter(MI, MBB);
+  }
+}
+
 // The address of a symbol that may be preemptible is loaded from the linkage
 // table (GOT), addressed via GP. A function's entry holds the address of its
 // canonical function descriptor, which is the function pointer.
