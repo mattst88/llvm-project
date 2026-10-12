@@ -212,6 +212,8 @@
 #    define ASAN_SHADOW_OFFSET_DYNAMIC
 #  elif SANITIZER_ALPHA
 #    define ASAN_SHADOW_OFFSET_CONST 0x70000000000
+#  elif SANITIZER_IA64
+#    define ASAN_SHADOW_OFFSET_CONST 0
 #  elif defined(__aarch64__)
 #    define ASAN_SHADOW_OFFSET_CONST 0x0000001000000000
 #  elif defined(__powerpc64__)
@@ -294,6 +296,8 @@ extern uptr kHighMemEnd, kMidMemBeg, kMidMemEnd;  // Initialized in __asan_init.
 
 #  if defined(__sparc__) && SANITIZER_WORDSIZE == 64
 #    include "asan_mapping_sparc64.h"
+#  elif SANITIZER_IA64
+#    include "asan_mapping_ia64.h"
 #  else
 #    define MEM_TO_SHADOW(mem) \
       ((STRIP_MTE_TAG(mem) >> ASAN_SHADOW_SCALE) + (ASAN_SHADOW_OFFSET))

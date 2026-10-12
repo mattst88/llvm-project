@@ -222,6 +222,11 @@ typedef DefaultSizeClassMap SizeClassMap;
 // allocator fits comfortably within LowMem alongside other mappings.
 const uptr kAllocatorSize = 0x8000000000ULL;  // 512G.
 typedef DefaultSizeClassMap SizeClassMap;
+#    elif SANITIZER_IA64
+// Only the low 1T of each region is shadowed, and the allocator shares region 1
+// with all other mappings.
+const uptr kAllocatorSize = 0x2000000000ULL;  // 128G.
+typedef VeryCompactSizeClassMap SizeClassMap;
 #    elif SANITIZER_WINDOWS
 const uptr kAllocatorSize = 0x8000000000ULL;  // 500G
 typedef DefaultSizeClassMap SizeClassMap;
