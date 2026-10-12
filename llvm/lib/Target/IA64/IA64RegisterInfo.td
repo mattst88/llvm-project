@@ -72,6 +72,7 @@ class CRName<int i> {
   string Name = !cond(
     !eq(i, 0):   "cr.dcr",      !eq(i, 1):   "cr.itm",
     !eq(i, 2):   "cr.iva",      !eq(i, 8):   "cr.pta",
+    !eq(i, 9):   "cr.gpta",
     !eq(i, 16):  "cr.ipsr",     !eq(i, 17):  "cr.isr",
     !eq(i, 19):  "cr.iip",      !eq(i, 20):  "cr.ifa",
     !eq(i, 21):  "cr.itir",     !eq(i, 22):  "cr.iipa",

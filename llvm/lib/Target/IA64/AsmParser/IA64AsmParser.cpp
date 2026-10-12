@@ -928,10 +928,13 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     }
     if (Status.isFailure())
       return true;
-    // Names that are part of an instruction's syntax and not registers that
-    // can be used freely.
     StringRef Name = Tok.getIdentifier();
-    if (StringSwitch<bool>(Name.lower())
+    // Names that are part of instruction syntax rather than general
+    // registers. They are lower case only, as in GNU as, where other cases
+    // are symbols; only "cpuid" also accepts upper case.
+    if (Name == "CPUID")
+      Name = "cpuid";
+    if (StringSwitch<bool>(Name)
             .Cases({"ip", "pr", "pr.rot", "psr", "psr.l", "psr.um"}, true)
             .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
             .Cases({"cpuid", "dtr", "itr"}, true)

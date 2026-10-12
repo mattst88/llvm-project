@@ -1003,3 +1003,12 @@
 	tak r4 = r5
 // CHECK: ptc.e r4 // encoding: [0x00,0x00,0x40,0xa0,0x21,0x00]
 	ptc.e r4
+
+// GNU as has the processor identification registers in upper case too, and
+// a name for cr9, the page table address of a guest.
+// CHECK: mov r1 = cpuid[r3] // encoding: [0x40,0x00,0x30,0xb8,0x20,0x00]
+	mov r1 = CPUID[r3]
+// CHECK: mov cr.gpta = r6 // encoding: [0x00,0xc0,0x90,0x60,0x21,0x00]
+	mov cr.gpta = r6
+// CHECK: mov r6 = cr.gpta // encoding: [0x80,0x01,0x90,0x20,0x21,0x00]
+	mov r6 = cr9
