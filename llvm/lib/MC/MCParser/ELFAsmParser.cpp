@@ -14,6 +14,7 @@
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDirectives.h"
+#include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCParser/AsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/MC/MCParser/MCAsmParserExtension.h"
@@ -579,7 +580,9 @@ bool ELFAsmParser::parseSectionArguments(bool IsPush, SMLoc loc) {
     if (Mergeable || TypeName == "llvm_cfi_jump_table")
       if (parseMergeSize(Size))
         return true;
-    if (Flags & ELF::SHF_LINK_ORDER)
+    // On IA-64 the "o" flag may appear without a linked-to symbol, as in the
+    // older syntax.
+    if ((Flags & ELF::SHF_LINK_ORDER) && !(IsIA64 && L.isNot(AsmToken::Comma)))
       if (parseLinkedToSym(LinkedToSym))
         return true;
     if (Group)
@@ -652,6 +655,20 @@ EndStmt:
       Type = ELF::SHT_LLVM_DYNDBG_ELF;
     else if (TypeName.getAsInteger(0, Type))
       return TokError("unknown section type");
+  }
+
+  // On IA-64 an unwind table section is identified by its name, whatever type
+  // the directive gives it.
+  if (IsIA64 && ((SectionName.starts_with(".IA_64.unwind") &&
+                  !SectionName.starts_with(".IA_64.unwind_info")) ||
+                 SectionName.starts_with(".gnu.linkonce.ia64unw.")))
+    Type = ELF::SHT_IA_64_UNWIND;
+
+  // An IA-64 unwind table with no linked-to symbol is linked to .text.
+  if (IsIA64 && Type == ELF::SHT_IA_64_UNWIND && !LinkedToSym) {
+    Flags |= ELF::SHF_LINK_ORDER;
+    LinkedToSym = static_cast<MCSymbolELF *>(
+        getContext().getObjectFileInfo()->getTextSection()->getBeginSymbol());
   }
 
   if (UseLastGroup) {
