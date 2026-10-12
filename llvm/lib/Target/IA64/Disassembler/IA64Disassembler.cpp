@@ -244,6 +244,9 @@ static DecodeStatus decodeAlloc(MCInst &MI, uint64_t Insn, uint64_t Address,
   uint64_t Rotating = ((Insn >> 27) & 0xf) * 8;
   if (Sof > IA64II::MaxFrameSize || Sol > Sof || Rotating > Sof)
     return MCDisassembler::Fail;
+  // A qualifying predicate other than p0 is an illegal operation.
+  if ((Insn & 0x3f) != 0)
+    return MCDisassembler::Fail;
   if (DecodeGRRegisterClass(MI, (Insn >> 6) & 0x7f, Address, Decoder) ==
       MCDisassembler::Fail)
     return MCDisassembler::Fail;

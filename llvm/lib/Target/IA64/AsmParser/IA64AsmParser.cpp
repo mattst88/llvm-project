@@ -552,6 +552,10 @@ bool IA64AsmParser::validateInstruction(const MCInst &Inst,
     return false;
   }
 
+  // An alloc with a predicate other than p0 is an illegal operation.
+  if (Inst.getOperand(5).getReg() != IA64::P0)
+    return Error(Operands[1]->getStartLoc(), "alloc takes no predicate");
+
   // After ar.pfs come the four sizes.
   auto Loc = [&](unsigned N) { return Operands[5 + N]->getStartLoc(); };
   uint64_t Inputs = Inst.getOperand(1).getImm();

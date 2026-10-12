@@ -104,6 +104,8 @@
 	alloc r4 = ar.pfs, 90, 3, 4, 0
 // CHECK: :[[#@LINE+1]]:13: error: invalid operand for instruction
 	alloc r4 = ar.lc, 2, 3, 4, 0
+// CHECK: :[[#@LINE+1]]:3: error: alloc takes no predicate
+	(p6) alloc r4 = ar.pfs, 2, 3, 4, 0
 
 // A move written with its unit names an application register that the
 // unit has.
