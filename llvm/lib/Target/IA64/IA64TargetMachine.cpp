@@ -24,6 +24,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
 
   PassRegistry &PR = *PassRegistry::getPassRegistry();
   initializeIA64ExpandBranchesPass(PR);
+  initializeIA64IfConversionPass(PR);
   initializeIA64InsertStopsPass(PR);
 }
 
@@ -85,6 +86,7 @@ public:
 
   void addIRPasses() override;
   bool addInstSelector() override;
+  void addPreSched2() override;
   void addPreEmitPass2() override;
 };
 } // end anonymous namespace
@@ -97,6 +99,11 @@ void IA64PassConfig::addIRPasses() {
 bool IA64PassConfig::addInstSelector() {
   addPass(createIA64ISelDag(getIA64TargetMachine(), getOptLevel()));
   return false;
+}
+
+void IA64PassConfig::addPreSched2() {
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createIA64IfConversionPass());
 }
 
 void IA64PassConfig::addPreEmitPass2() {

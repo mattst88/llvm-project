@@ -1,4 +1,5 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-if-conversion-limit=0 < %s | FileCheck %s
 
 ; A conditional branch is a compare and a branch under its predicate, which
 ; can share a group: a branch reads the predicate as it is written. The
