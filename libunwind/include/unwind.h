@@ -123,6 +123,12 @@ extern _Unwind_Reason_Code _Unwind_Backtrace(_Unwind_Trace_Fn, void *);
 // current frame.
 extern uintptr_t _Unwind_GetCFA(struct _Unwind_Context *);
 
+#if defined(__ia64__)
+// _Unwind_GetBSP is a gcc extension that can be called from within a
+// personality handler to get where the register frame of the function is in
+// the register backing store.
+extern uintptr_t _Unwind_GetBSP(struct _Unwind_Context *);
+#endif
 
 // _Unwind_GetIPInfo is a gcc extension that can be called from within a
 // personality handler.  Similar to _Unwind_GetIP() but also returns in

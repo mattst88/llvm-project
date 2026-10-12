@@ -66,6 +66,12 @@ _Unwind_GetDataRelBase(struct _Unwind_Context *context) {
   _LIBUNWIND_TRACE_API("_Unwind_GetDataRelBase(context=%p)", (void *)context);
 #if defined(_AIX)
   return unw_get_data_rel_base((unw_cursor_t *)context);
+#elif defined(__ia64__)
+  // Data-relative encodings are relative to the function's GP.
+  unw_word_t gp;
+  if (__unw_get_reg((unw_cursor_t *)context, UNW_IA64_GP, &gp) != UNW_ESUCCESS)
+    return 0;
+  return (uintptr_t)gp;
 #else
   (void)context;
   _LIBUNWIND_ABORT("_Unwind_GetDataRelBase() not implemented");
@@ -239,6 +245,18 @@ _LIBUNWIND_EXPORT uintptr_t _Unwind_GetCFA(struct _Unwind_Context *context) {
   return (uintptr_t)result;
 }
 
+#if defined(__ia64__)
+/// Returns the base of the current frame in the register backing store
+/// (ar.bsp). Together with the CFA it identifies the frame.
+_LIBUNWIND_EXPORT uintptr_t _Unwind_GetBSP(struct _Unwind_Context *context) {
+  unw_cursor_t *cursor = (unw_cursor_t *)context;
+  unw_word_t result;
+  __unw_get_reg(cursor, UNW_IA64_AR_BSP, &result);
+  _LIBUNWIND_TRACE_API("_Unwind_GetBSP(context=%p) => 0x%" PRIxPTR,
+                       (void *)context, result);
+  return (uintptr_t)result;
+}
+#endif
 
 /// Called by personality handler during phase 2 to get instruction pointer.
 /// ipBefore is a boolean that says if IP is already adjusted to be the call
