@@ -76,7 +76,7 @@ def CALL_IND : IA64Pseudo<(outs),
 // predicate pair is always p6/p7. The condition is an IA64CC::CondCode, and
 // the second compare operand is a register or an immediate. The "f" forms
 // compare FP registers.
-let Defs = [P6, P7] in {
+let Defs = [P6, P7], hasSideEffects = 0 in {
 let SchedRW = [WriteSelect] in
 def SETCC  : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, GR:$rhs),
                         "#SETCC", []>;
@@ -178,6 +178,7 @@ def BRIND : IA64Pseudo<(outs), (ins GR:$target), "#BRIND", []>;
 // the outgoing argument area: "adds r1 = size, sp", once that size is known.
 // The frame address, i.e. the stack pointer on entry. The prologue picks the
 // register that holds it.
+let hasSideEffects = 0 in
 def FRAMEADDR : IA64Pseudo<(outs GR:$r1), (ins), "#FRAMEADDR", []>;
 
 // A $size-byte compare-and-exchange. The compare value must first be moved to
@@ -231,6 +232,7 @@ def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
 // computed in r2, or for a GR reload in the destination register. r2 is
 // reserved for this and is not marked as defined, since a reload whose result
 // is unused must look dead to be deleted.
+let hasSideEffects = 0 in {
 let mayStore = 1 in {
 let SchedRW = [WriteStore] in
 def SPILL_GR : IA64Pseudo<(outs), (ins GR:$src, i64imm:$fi), "#SPILL_GR", []>;
@@ -243,9 +245,11 @@ def RELOAD_GR : IA64Pseudo<(outs GR:$dst), (ins i64imm:$fi), "#RELOAD_GR", []>;
 let SchedRW = [WriteFLoad] in
 def RELOAD_FR : IA64Pseudo<(outs FR:$dst), (ins i64imm:$fi), "#RELOAD_FR", []>;
 }
+}
 
 let Uses = [R12] in
 def ADJDYNALLOC : IA64Pseudo<(outs GR:$r1), (ins), "#ADJDYNALLOC", []>;
+let hasSideEffects = 0 in
 def DYNAREAOFFSET : IA64Pseudo<(outs GR:$r1), (ins), "#DYNAREAOFFSET", []>;
 
 //===----------------------------------------------------------------------===//
@@ -309,12 +313,17 @@ defvar CmpZeroRels = [
   CmpRel<"lt.or",       0xd, 1, 1>, CmpRel<"lt.or.andcm", 0xe, 1, 1>
 ];
 
+// A parallel compare writes its targets only for one outcome of the relation
+// and otherwise leaves them unchanged, which the operands do not express.
 multiclass Cmp<string mnemonic, bits<2> x2, bits<2> x2imm> {
   foreach R = CmpRels in {
     defvar Suffix = !toupper(!subst(".", "_", R.Name));
+    let hasSideEffects = R.ta in {
     def _#Suffix : A6<R.Opcode, x2, R.ta, R.c, mnemonic#"."#R.Name>;
     def _#Suffix#i : A8<R.Opcode, x2imm, R.ta, R.c, mnemonic#"."#R.Name>;
+    }
   }
+  let hasSideEffects = 1 in
   foreach R = CmpZeroRels in
     def _#!toupper(!subst(".", "_", R.Name))#z
         : A7<R.Opcode, x2, R.ta, R.c, mnemonic#"."#R.Name>;
@@ -439,8 +448,10 @@ foreach R = [TestRel<"z",          0, 0, 0>, TestRel<"z.unc",       0, 0, 1>,
              TestRel<"z.or.andcm", 1, 1, 0>, TestRel<"nz.or.andcm", 1, 1, 1>]
     in {
   defvar Suffix = !toupper(!subst(".", "_", R.Name));
+  let hasSideEffects = !or(R.tb, R.ta) in {
   def TBIT_#Suffix : I16<R.tb, R.ta, R.c, "tbit."#R.Name>;
   def TNAT_#Suffix : I17<R.tb, R.ta, R.c, "tnat."#R.Name>;
+  }
   def TF_#Suffix   : I30<R.tb, R.ta, R.c, "tf."#R.Name>;
 }
 
@@ -499,6 +510,8 @@ def CZX2_R : I29<0x1d, "czx2.r">;
 class MemKind<string name, int enc> {
   string Name = name;
   int Code = enc;
+  // Whether the load allocates or checks an ALAT entry.
+  bit ALAT = !or(!ge(enc, 8), !eq(!and(enc, 6), 2));
 }
 class MemSize<string name, int enc> {
   string Name = name;
@@ -523,6 +536,7 @@ multiclass IntLoad<bits<6> x6, string mnemonic> {
 }
 foreach K = IntLoadKinds in
   foreach S = IntSizes in
+    let hasSideEffects = K.ALAT in
     defm LD#S.Name#!toupper(!subst(".", "_", K.Name))
         : IntLoad<!add(!shl(K.Code, 2), S.Code), "ld"#S.Name#K.Name>;
 // ld8.fill restores a register and its NaT bit saved by st8.spill. The NaT
@@ -560,6 +574,7 @@ multiclass FPLoad<bits<6> x6, string mnemonic> {
 }
 foreach K = FPLoadKinds in
   foreach S = FPSizes in
+    let hasSideEffects = K.ALAT in
     defm LDF#!toupper(S.Name)#!toupper(!subst(".", "_", K.Name))
         : FPLoad<!add(!shl(K.Code, 2), S.Code), "ldf"#S.Name#K.Name>;
 defm LDF_FILL : FPLoad<0x1b, "ldf.fill">;
@@ -579,9 +594,11 @@ let mayLoad = 1 in
 foreach K = FPLoadKinds in
   foreach S = !tail(FPSizes) in {
     defvar Name = "LDFP"#!toupper(S.Name)#!toupper(!subst(".", "_", K.Name));
+    let hasSideEffects = K.ALAT in {
     def Name    : M11<!add(!shl(K.Code, 2), S.Code), "ldfp"#S.Name#K.Name>;
     def Name#_i : M12<!add(!shl(K.Code, 2), S.Code), "ldfp"#S.Name#K.Name,
                       !if(!eq(S.Name, "s"), 8, 16)>;
+    }
   }
 
 multiclass Fetch<bits<6> x6, string mnemonic> {

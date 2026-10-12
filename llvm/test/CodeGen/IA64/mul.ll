@@ -56,3 +56,30 @@ define i128 @wide(i128 %a, i128 %b) {
   %r = mul i128 %a, %b
   ret i128 %r
 }
+
+; The move of a factor to the floating-point unit does nothing but write its
+; result, so the one of a factor that a loop does not change is done once.
+define i64 @invariant(ptr %p, i64 %n, i64 %k) {
+; CHECK-LABEL: invariant:
+; CHECK:       setf.sig f6 = r34
+; CHECK:       .LBB{{[0-9_]+}}:
+; CHECK-NOT:   r34
+; CHECK:       xma.l f7 = f7, f6, f0 ;;
+; CHECK:       br.cond.dptk.few .LBB
+entry:
+  br label %loop
+
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  %s = phi i64 [ 0, %entry ], [ %s.next, %loop ]
+  %q = getelementptr i64, ptr %p, i64 %i
+  %v = load i64, ptr %q
+  %m = mul i64 %v, %k
+  %s.next = add i64 %s, %m
+  %i.next = add i64 %i, 1
+  %c = icmp eq i64 %i.next, %n
+  br i1 %c, label %exit, label %loop
+
+exit:
+  ret i64 %s.next
+}

@@ -36,6 +36,7 @@ lfetch [r32]
 cmpxchg8.acq r8 = [r32], r33, ar.ccv
 fetchadd8.acq r8 = [r32], 1
 chk.s.m r32, again
+alloc r8 = ar.pfs, 2, 3, 2, 0
 setf.sig f6 = r32
 getf.sig r8 = f6
 fma.d f6 = f7, f8, f9
@@ -61,17 +62,17 @@ nop.i 0
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      1     0.17                        add	r8 = r32, r33
-# CHECK-NEXT:  1      1     0.17                  U     cmp.eq	p6, p7 = r8, r9
-# CHECK-NEXT:  1      2     0.17                  U     padd1	r8 = r32, r33
-# CHECK-NEXT:  1      2     0.50                  U     pmpy2.r	r8 = r32, r33
+# CHECK-NEXT:  1      1     0.17                        cmp.eq	p6, p7 = r8, r9
+# CHECK-NEXT:  1      2     0.17                        padd1	r8 = r32, r33
+# CHECK-NEXT:  1      2     0.50                        pmpy2.r	r8 = r32, r33
 # CHECK-NEXT:  1      2     1.00                        popcnt	r8 = r32
 # CHECK-NEXT:  1      2     0.50                        shl	r8 = r32, r33
-# CHECK-NEXT:  1      2     0.50                  U     mix1.l	r8 = r32, r33
-# CHECK-NEXT:  1      1     0.50                  U     pshr2	r8 = r32, 3
+# CHECK-NEXT:  1      2     0.50                        mix1.l	r8 = r32, r33
+# CHECK-NEXT:  1      1     0.50                        pshr2	r8 = r32, 3
 # CHECK-NEXT:  1      1     0.50                        mux1	r8 = r32, @rev
 # CHECK-NEXT:  1      1     1.00                        extr.u	r8 = r32, 3, 5
-# CHECK-NEXT:  1      1     1.00                  U     dep	r8 = r32, r33, 8, 4
-# CHECK-NEXT:  1      1     1.00                  U     tbit.z	p6, p7 = r32, 3
+# CHECK-NEXT:  1      1     1.00                        dep	r8 = r32, r33, 8, 4
+# CHECK-NEXT:  1      1     1.00                        tbit.z	p6, p7 = r32, 3
 # CHECK-NEXT:  1      1     0.50                        sxt4	r8 = r32
 # CHECK-NEXT:  1      1     1.00                  U     mov	b6 = r32
 # CHECK-NEXT:  1      2     1.00                  U     mov	r8 = b6
@@ -81,26 +82,27 @@ nop.i 0
 # CHECK-NEXT:  1      5     1.00                  U     mov.m	ar.ccv = r32
 # CHECK-NEXT:  1      6     1.00                  U     mov.m	r8 = ar.unat
 # CHECK-NEXT:  1      1     0.50    *                   ld8	r8 = [r32]
-# CHECK-NEXT:  1      1     0.50    *             U     ld8	r8 = [r32], 8
+# CHECK-NEXT:  1      1     0.50    *                   ld8	r8 = [r32], 8
 # CHECK-NEXT:  1      1     0.50           *            st8	[r32] = r33
-# CHECK-NEXT:  1      1     0.50           *      U     st8	[r32] = r33, 8
+# CHECK-NEXT:  1      1     0.50           *            st8	[r32] = r33, 8
 # CHECK-NEXT:  1      6     0.50    *                   ldfd	f6 = [r32]
-# CHECK-NEXT:  1      6     0.50    *             U     ldfd	f6 = [r32], 8
-# CHECK-NEXT:  1      6     0.50    *             U     ldfpd	f6, f7 = [r32]
+# CHECK-NEXT:  1      6     0.50    *                   ldfd	f6 = [r32], 8
+# CHECK-NEXT:  1      6     0.50    *                   ldfpd	f6, f7 = [r32]
 # CHECK-NEXT:  1      1     0.50           *            stfd	[r32] = f6
 # CHECK-NEXT:  1      1     0.50                  U     lfetch	[r32]
 # CHECK-NEXT:  1      2     0.50    *      *      U     cmpxchg8.acq	r8 = [r32], r33, ar.ccv
 # CHECK-NEXT:  1      2     0.50    *      *      U     fetchadd8.acq	r8 = [r32], 1
 # CHECK-NEXT:  1      1     0.25                  U     chk.s.m	r32, again
-# CHECK-NEXT:  1      5     0.50                  U     setf.sig	f6 = r32
-# CHECK-NEXT:  1      5     1.00                  U     getf.sig	r8 = f6
+# CHECK-NEXT:  1      1     1.00                  U     alloc	r8 = ar.pfs, 2, 3, 2, 0
+# CHECK-NEXT:  1      5     0.50                        setf.sig	f6 = r32
+# CHECK-NEXT:  1      5     1.00                        getf.sig	r8 = f6
 # CHECK-NEXT:  1      4     0.50                        fma.d	f6 = f7, f8, f9
-# CHECK-NEXT:  1      4     0.50                  U     xma.l	f6 = f7, f8, f9
+# CHECK-NEXT:  1      4     0.50                        xma.l	f6 = f7, f8, f9
 # CHECK-NEXT:  1      4     0.50                        fmerge.s	f6 = f7, f8
-# CHECK-NEXT:  1      2     0.50                  U     fcmp.eq	p6, p7 = f7, f8
-# CHECK-NEXT:  1      4     0.50                  U     frcpa	f6, p6 = f7, f8
-# CHECK-NEXT:  1      4     0.50                  U     fcvt.fx	f6 = f7
-# CHECK-NEXT:  1      4     0.50                  U     fcvt.xf	f6 = f7
+# CHECK-NEXT:  1      2     0.50                        fcmp.eq	p6, p7 = f7, f8
+# CHECK-NEXT:  1      4     0.50                        frcpa	f6, p6 = f7, f8
+# CHECK-NEXT:  1      4     0.50                        fcvt.fx	f6 = f7
+# CHECK-NEXT:  1      4     0.50                        fcvt.xf	f6 = f7
 # CHECK-NEXT:  1      1     0.33                  U     br.cond.dptk.few	again
 # CHECK-NEXT:  1      1     0.33                  U     br.call.sptk.many	b0 = again
 # CHECK-NEXT:  1      1     0.33                        br.ret.sptk.many	b0
@@ -121,7 +123,7 @@ nop.i 0
 
 # CHECK:      Resource pressure per iteration:
 # CHECK-NEXT: [0.0]  [0.1]  [0.2]  [1.0]  [1.1]  [2]    [3]    [4]    [5]    [6]    [7]
-# CHECK-NEXT: 1.00   1.00   1.00   3.50   3.50   12.00  4.00   3.75   3.75   6.75   3.75
+# CHECK-NEXT: 1.00   1.00   1.00   3.50   3.50   12.00  4.00   3.75   3.75   7.75   3.75
 
 # CHECK:      Resource pressure by instruction:
 # CHECK-NEXT: [0.0]  [0.1]  [0.2]  [1.0]  [1.1]  [2]    [3]    [4]    [5]    [6]    [7]    Instructions:
@@ -157,6 +159,7 @@ nop.i 0
 # CHECK-NEXT:  -      -      -      -      -      -      -      -      -     0.50   0.50   cmpxchg8.acq	r8 = [r32], r33, ar.ccv
 # CHECK-NEXT:  -      -      -      -      -      -      -      -      -     0.50   0.50   fetchadd8.acq	r8 = [r32], 1
 # CHECK-NEXT:  -      -      -      -      -      -      -     0.25   0.25   0.25   0.25   chk.s.m	r32, again
+# CHECK-NEXT:  -      -      -      -      -      -      -      -      -     1.00    -     alloc	r8 = ar.pfs, 2, 3, 2, 0
 # CHECK-NEXT:  -      -      -      -      -      -      -      -      -     0.50   0.50   setf.sig	f6 = r32
 # CHECK-NEXT:  -      -      -      -      -      -      -      -      -     1.00    -     getf.sig	r8 = f6
 # CHECK-NEXT:  -      -      -     0.50   0.50    -      -      -      -      -      -     fma.d	f6 = f7, f8, f9
