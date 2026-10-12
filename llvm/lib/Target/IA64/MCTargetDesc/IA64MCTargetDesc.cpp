@@ -15,6 +15,7 @@
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrAnalysis.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -154,6 +155,10 @@ static MCSubtargetInfo *createIA64MCSubtargetInfo(const Triple &TT,
   return createIA64MCSubtargetInfoImpl(TT, CPU, /*TuneCPU=*/CPU, FS);
 }
 
+static MCInstrAnalysis *createIA64MCInstrAnalysis(const MCInstrInfo *Info) {
+  return new MCInstrAnalysis(Info);
+}
+
 static MCInstPrinter *createIA64MCInstPrinter(const Triple &TT,
                                               unsigned SyntaxVariant,
                                               const MCAsmInfo &MAI,
@@ -183,6 +188,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64TargetMC() {
   TargetRegistry::RegisterMCInstrInfo(T, createIA64MCInstrInfo);
   TargetRegistry::RegisterMCRegInfo(T, createIA64MCRegisterInfo);
   TargetRegistry::RegisterMCSubtargetInfo(T, createIA64MCSubtargetInfo);
+  TargetRegistry::RegisterMCInstrAnalysis(T, createIA64MCInstrAnalysis);
   TargetRegistry::RegisterMCInstPrinter(T, createIA64MCInstPrinter);
   TargetRegistry::RegisterMCCodeEmitter(T, createIA64MCCodeEmitter);
   TargetRegistry::RegisterMCAsmBackend(T, createIA64AsmBackend);

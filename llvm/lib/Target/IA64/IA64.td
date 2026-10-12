@@ -13,6 +13,7 @@ include "IA64RegisterInfo.td"
 include "IA64CallingConv.td"
 include "IA64InstrInfo.td"
 include "IA64Patterns.td"
+include "IA64ScheduleItanium2.td"
 
 defm : RemapAllTargetPseudoPointerOperands<GR>;
 
@@ -22,8 +23,10 @@ def IA64InstrInfo : InstrInfo;
 // IA-64 processors.
 //===----------------------------------------------------------------------===//
 
+// All processors use the Itanium 2 model. Itanium has the same kinds of
+// ports but fewer of them, and scheduling for Itanium 2 does not hurt it.
 class Proc<string Name, list<SubtargetFeature> Features>
-    : Processor<Name, NoItineraries, Features>;
+    : ProcessorModel<Name, Itanium2Model, Features>;
 
 def : Proc<"generic",  []>;
 def : Proc<"itanium",  []>;
