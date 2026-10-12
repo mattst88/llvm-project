@@ -103,6 +103,7 @@ class IA64AsmParser : public MCTargetAsmParser {
   /// The location of the "{" of the open bundle, if any.
   SMLoc OpenBundle;
   void onEndOfFile() override;
+  void onLabelParsed(MCSymbol *Symbol) override;
 
   void onEmptyStatement(const AsmToken &Terminator) override;
 
@@ -513,6 +514,12 @@ static MCRegister matchRegister(StringRef Name) {
       Digit.size() == 1 && !Digit.getAsInteger(10, Number) && Number < 8)
     return IA64::F8 + Number;
   return MCRegister();
+}
+
+// "name::" defines the symbol and makes it global.
+void IA64AsmParser::onLabelParsed(MCSymbol *Symbol) {
+  if (parseOptionalToken(AsmToken::Colon))
+    getStreamer().emitSymbolAttribute(Symbol, MCSA_Global);
 }
 
 void IA64AsmParser::onEndOfFile() {
