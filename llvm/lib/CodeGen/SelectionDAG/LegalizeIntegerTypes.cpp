@@ -364,6 +364,8 @@ void DAGTypeLegalizer::PromoteIntegerResult(SDNode *N, unsigned ResNo) {
 
   case ISD::LRINT:
   case ISD::LLRINT:
+  case ISD::LROUND:
+  case ISD::LLROUND:
     Res = PromoteIntRes_XRINT(N);
     break;
 
