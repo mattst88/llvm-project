@@ -102,6 +102,8 @@ public:
 
   bool expandPostRAPseudo(MachineInstr &MI) const override;
 
+  const MachineOperand &getCalleeOperand(const MachineInstr &MI) const override;
+
   // An operand's target flags are a single relocation specifier, never a
   // bitmask.
   std::pair<unsigned, unsigned>

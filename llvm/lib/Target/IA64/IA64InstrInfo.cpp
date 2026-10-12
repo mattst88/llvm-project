@@ -342,6 +342,20 @@ IA64InstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
   return ArrayRef(Flags);
 }
 
+// The first operand of a call is the BR that receives the return address,
+// and the callee follows it.
+const MachineOperand &
+IA64InstrInfo::getCalleeOperand(const MachineInstr &MI) const {
+  switch (MI.getOpcode()) {
+  case IA64::BR_CALL:
+  case IA64::BR_CALL_B:
+  case IA64::BRL_CALL:
+    return MI.getOperand(1);
+  default:
+    return TargetInstrInfo::getCalleeOperand(MI);
+  }
+}
+
 bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   MachineBasicBlock &MBB = *MI.getParent();
   const DebugLoc &DL = MI.getDebugLoc();
