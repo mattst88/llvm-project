@@ -348,6 +348,10 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
 
   getActionDefinitionsBuilder({G_STACKSAVE, G_STACKRESTORE}).lower();
 
+  // The outgoing argument area is at the stack pointer, so dynamic
+  // allocations start above it.
+  getActionDefinitionsBuilder(G_DYN_STACKALLOC).customFor({{p0, s64}});
+
   // va_list is a pointer to the next variadic argument.
   getActionDefinitionsBuilder(G_VASTART).customFor({p0});
   getActionDefinitionsBuilder(G_FENCE).alwaysLegal();
@@ -397,6 +401,42 @@ bool IA64LegalizerInfo::legalizeCustom(
     MIRBuilder.buildBrIndirect(
         MIRBuilder.buildPtrAdd(P0, Table, MIRBuilder.buildSExt(S64, Entry))
             .getReg(0));
+    MI.eraseFromParent();
+    return true;
+  }
+  case G_DYN_STACKALLOC: {
+    // Decrement sp by the size, which is already a multiple of 16. Larger
+    // alignments over-allocate and round the address up.
+    MachineRegisterInfo &MRI = *MIRBuilder.getMRI();
+    LLT P0 = LLT::pointer(0, 64);
+    LLT S64 = LLT::scalar(64);
+    Register Dst = MI.getOperand(0).getReg();
+    Register Size = MI.getOperand(1).getReg();
+    uint64_t Alignment = MI.getOperand(2).getImm();
+    if (Alignment > 16)
+      Size = MIRBuilder
+                 .buildAdd(S64, Size,
+                           MIRBuilder.buildConstant(S64, Alignment - 16))
+                 .getReg(0);
+    auto SP = MIRBuilder.buildCopy(P0, Register(IA64::R12));
+    auto Lower =
+        MIRBuilder.buildSub(S64, MIRBuilder.buildPtrToInt(S64, SP), Size);
+    MIRBuilder.buildCopy(Register(IA64::R12),
+                         MIRBuilder.buildIntToPtr(P0, Lower));
+    Register Addr = Dst;
+    if (Alignment > 16)
+      Addr = MRI.createGenericVirtualRegister(P0);
+    MRI.setRegClass(Addr, &IA64::GRRegClass);
+    MIRBuilder.buildInstr(IA64::ADJDYNALLOC, {Addr}, {});
+    if (Alignment > 16) {
+      auto Mask = MIRBuilder.buildConstant(S64, Alignment - 1);
+      auto Up =
+          MIRBuilder.buildAdd(S64, MIRBuilder.buildPtrToInt(S64, Addr), Mask);
+      MIRBuilder.buildIntToPtr(
+          Dst,
+          MIRBuilder.buildAnd(
+              S64, Up, MIRBuilder.buildConstant(S64, -int64_t(Alignment))));
+    }
     MI.eraseFromParent();
     return true;
   }
