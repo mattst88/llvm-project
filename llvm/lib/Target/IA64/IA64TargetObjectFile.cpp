@@ -78,6 +78,16 @@ const MCExpr *IA64TargetObjectFile::getTTypeGlobalReference(
                                  IA64::S_GPREL, getContext());
 }
 
+// A constant containing an address is not read-only data even in non-PIC
+// code: the address of a symbol defined in another module, and the function
+// descriptor address of any preemptible function, are only known to the
+// dynamic loader, which would have to write them into the text segment.
+static bool holdsAddress(const GlobalObject *GO) {
+  const auto *Var = dyn_cast<GlobalVariable>(GO);
+  return Var && Var->hasInitializer() &&
+         Var->getInitializer()->needsDynamicRelocation();
+}
+
 bool IA64TargetObjectFile::isShortData(const GlobalValue *GV,
                                        const TargetMachine &TM) const {
   const auto *Var = dyn_cast<GlobalVariable>(GV);
@@ -106,7 +116,8 @@ bool IA64TargetObjectFile::isShortData(const GlobalValue *GV,
   // constants equal to it.
   if (Var->hasLocalLinkage()) {
     SectionKind Kind = getKindForGlobal(Var, TM);
-    if (Kind.isMergeableConst() || Kind.isMergeableCString())
+    if ((Kind.isMergeableConst() && !holdsAddress(Var)) ||
+        Kind.isMergeableCString())
       return false;
   }
   return true;
@@ -116,6 +127,8 @@ bool IA64TargetObjectFile::isShortData(const GlobalValue *GV,
 // data is not where GP points.
 MCSection *IA64TargetObjectFile::SelectSectionForGlobal(
     const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+  if (Kind.isReadOnly() && holdsAddress(GO))
+    Kind = SectionKind::getReadOnlyWithRel();
   if (!isShortData(GO, TM))
     return TargetLoweringObjectFileELF::SelectSectionForGlobal(GO, Kind, TM);
 
