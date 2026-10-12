@@ -169,6 +169,8 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool AwaitedByMask = false;
   /// Whether ".handlerdata" has ended the unwind information.
   bool HandlerData = false;
+  // The section that .handlerdata left, which .endp goes back to.
+  MCSectionSubPair HandlerDataFrom;
 
   /// The operand of a memory access written without a locality hint.
   std::unique_ptr<IA64Operand> defaultHintOperand();
@@ -1928,6 +1930,12 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
     }
     if (parseEOL())
       return ParseStatus::Failure;
+    // Handler data was emitted in another section; the procedure ends in
+    // the section where the handler data started.
+    if (HandlerData && HandlerDataFrom.first &&
+        HandlerDataFrom != getStreamer().getCurrentSection())
+      getStreamer().switchSection(HandlerDataFrom.first,
+                                  HandlerDataFrom.second);
     bool Undefined = false;
     const MCSection *Section = getStreamer().getCurrentSectionOnly();
     for (MCSymbol *Entry : ProcEntries)
@@ -2307,6 +2315,7 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
       return Error(std::exchange(AwaitsInstruction, SMLoc()),
                    "no instruction follows for this to tell of");
     HandlerData = true;
+    HandlerDataFrom = getStreamer().getCurrentSection();
     TS.emitHandlerData();
     return ParseStatus::Success;
   }

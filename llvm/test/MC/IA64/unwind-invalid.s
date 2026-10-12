@@ -273,6 +273,5 @@ h:
 	.body
 // CHECK: :[[#@LINE+1]]:2: error: .personality after .handlerdata
 	.personality routine
-// The code is not the section that the procedure ends in.
-// CHECK: :[[#@LINE+1]]:7: error: symbol 'h' is not defined in its procedure
+// The end goes back to the section of the code.
 	.endp
