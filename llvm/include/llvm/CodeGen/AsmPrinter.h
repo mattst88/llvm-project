@@ -642,6 +642,11 @@ public:
   /// Targets can override this to emit stuff at the end of a basic block.
   virtual void emitBasicBlockEnd(const MachineBasicBlock &MBB);
 
+  /// Emit a label requested by debug info before or after an instruction.
+  /// Targets that cannot place a label between arbitrary instructions can
+  /// override this.
+  virtual void emitDebugInstrLabel(MCSymbol *Sym);
+
   /// Targets should implement this to emit instructions.
   virtual void emitInstruction(const MachineInstr *) {
     llvm_unreachable("EmitInstruction not implemented");

@@ -3859,6 +3859,10 @@ void AsmPrinter::emitInt64(uint64_t Value) const {
   OutStreamer->emitInt64(Value);
 }
 
+void AsmPrinter::emitDebugInstrLabel(MCSymbol *Sym) {
+  OutStreamer->emitLabel(Sym);
+}
+
 /// Emit something like ".long Hi-Lo" where the size in bytes of the directive
 /// is specified by Size and Hi/Lo specify the labels. This implicitly uses
 /// .set if it avoids relocations.

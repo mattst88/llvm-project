@@ -384,7 +384,7 @@ void DebugHandlerBase::beginInstruction(const MachineInstr *MI) {
 
   if (!PrevLabel) {
     PrevLabel = MMI->getContext().createTempSymbol();
-    Asm->OutStreamer->emitLabel(PrevLabel);
+    Asm->emitDebugInstrLabel(PrevLabel);
   }
   I->second = PrevLabel;
 }
@@ -417,7 +417,7 @@ void DebugHandlerBase::endInstruction() {
     PrevLabel = CurMI->getParent()->getEndSymbol();
   } else if (!PrevLabel) {
     PrevLabel = MMI->getContext().createTempSymbol();
-    Asm->OutStreamer->emitLabel(PrevLabel);
+    Asm->emitDebugInstrLabel(PrevLabel);
   }
   I->second = PrevLabel;
   CurMI = nullptr;
