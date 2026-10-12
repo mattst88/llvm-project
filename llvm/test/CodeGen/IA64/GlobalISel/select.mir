@@ -1,0 +1,419 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=instruction-select \
+# RUN:   -global-isel-abort=1 -verify-machineinstrs %s -o - | FileCheck %s
+
+--- |
+  @g = external global i64
+  @l = internal global [100 x i64] zeroinitializer
+  @s = internal global i32 0
+  @sm = external global i32, code_model "small"
+  @w = extern_weak global i32
+  declare void @f()
+  define void @arith() { ret void }
+  define void @mem() { ret void }
+  define void @ext() { ret void }
+  define void @cmp() { unreachable }
+  define void @fp() { ret void }
+  define void @addr() {
+  entry:
+    br label %next
+  next:
+    ret void
+  }
+  define void @phi() { ret void }
+...
+---
+# Arithmetic on registers is an instruction apiece, a constant that fits
+# goes into the instruction, and a shift by a constant is a field. A product
+# is made in the floating-point registers. A pointer is a number.
+# CHECK-LABEL: name: arith
+# CHECK: bb.0:
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADDS 100, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = DEP_Z %{{[0-9]+}}, 5, 59, $p0
+# CHECK: %{{[0-9]+}}:gr = SHR_U %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = EXTR %{{[0-9]+}}, 5, 59, $p0
+# CHECK: %{{[0-9]+}}:gr = MOVL 123456789012, $p0
+# CHECK: %{{[0-9]+}}:fr = SETF_SIG %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = SETF_SIG %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = XMA_L %{{[0-9]+}}, %{{[0-9]+}}, $f0, $p0
+# CHECK: %{{[0-9]+}}:gr = GETF_SIG %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = SUBi 0, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADDS 5, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = POPCNT %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = MUX1 %{{[0-9]+}}, 11, $p0
+# CHECK: $r8 = COPY %{{[0-9]+}}
+# CHECK: BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+name:            arith
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33
+    %0:gpr(s64) = COPY $r32
+    %1:gpr(s64) = COPY $r33
+    %2:gpr(s64) = G_ADD %0, %1
+    %3:gpr(s64) = G_CONSTANT i64 100
+    %4:gpr(s64) = G_ADD %2, %3
+    %5:gpr(s64) = G_CONSTANT i64 5
+    %6:gpr(s64) = G_SHL %4, %5
+    %7:gpr(s64) = G_LSHR %6, %0
+    %8:gpr(s64) = G_ASHR %7, %5
+    %9:gpr(s64) = G_CONSTANT i64 123456789012
+    %10:gpr(s64) = G_MUL %8, %9
+    %11:gpr(s64) = G_CONSTANT i64 0
+    %12:gpr(s64) = G_SUB %11, %10
+    %13:gpr(p0) = G_INTTOPTR %12
+    %14:gpr(p0) = G_PTR_ADD %13, %5
+    %15:gpr(s64) = G_PTRTOINT %14
+    %16:gpr(s64) = G_CTPOP %15
+    %17:gpr(s64) = G_BSWAP %16
+    $r8 = COPY %17(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The size of the access chooses the load or the store, and the bank of the
+# value whether it is one that converts. No load extends a sign.
+# CHECK-LABEL: name: mem
+# CHECK: bb.0:
+# CHECK: %{{[0-9]+}}:gr = LD8 %{{[0-9]+}}, 0, $p0 :: (load (s64))
+# CHECK: %{{[0-9]+}}:gr = LD2 %{{[0-9]+}}, 0, $p0 :: (load (s16))
+# CHECK: %{{[0-9]+}}:gr = LD4 %{{[0-9]+}}, 0, $p0 :: (load (s32))
+# CHECK: %{{[0-9]+}}:gr = SXT4 %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = LD1 %{{[0-9]+}}, 0, $p0 :: (load (s8))
+# CHECK: %{{[0-9]+}}:gr = LD8 %{{[0-9]+}}, 0, $p0 :: (load (p0))
+# CHECK: %{{[0-9]+}}:fr = LDFS %{{[0-9]+}}, 0, $p0 :: (load (s32))
+# CHECK: %{{[0-9]+}}:fr = LDFE %{{[0-9]+}}, 0, $p0 :: (load (s80), align 16)
+# CHECK: %{{[0-9]+}}:gr = LD4 %{{[0-9]+}}, 0, $p0 :: (load (s32))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s64))
+# CHECK: ST2 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s16))
+# CHECK: ST4 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s32))
+# CHECK: ST1 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s8))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: STFS %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s32))
+# CHECK: STFE %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s80), align 16)
+# CHECK: ST4 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s32))
+# CHECK: STFD %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s64))
+# CHECK: %{{[0-9]+}}:gr = ADDS 0, %stack.0, $p0
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: %{{[0-9]+}}:gr = LD8_ACQ %{{[0-9]+}}, 0, $p0 :: (load seq_cst (s64))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (s64))
+# CHECK: BR_RET $b0, 0, 1, 0, $p0
+name:            mem
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 8, alignment: 8 }
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $f8
+    %0:gpr(p0) = COPY $r32
+    %1:gpr(p0) = COPY $r33
+    %2:fpr(s64) = COPY $f8
+    %3:gpr(s64) = G_LOAD %0 :: (load (s64))
+    %4:gpr(s64) = G_ZEXTLOAD %0 :: (load (s16))
+    %5:gpr(s64) = G_SEXTLOAD %0 :: (load (s32))
+    %6:gpr(s64) = G_LOAD %0 :: (load (s8))
+    %7:gpr(p0) = G_LOAD %0 :: (load (p0))
+    %8:fpr(s32) = G_LOAD %0 :: (load (s32))
+    %9:fpr(s80) = G_LOAD %0 :: (load (s80), align 16)
+    %10:gpr(s32) = G_LOAD %0 :: (load (s32))
+    G_STORE %3, %1 :: (store (s64))
+    G_STORE %4, %1 :: (store (s16))
+    G_STORE %5, %1 :: (store (s32))
+    G_STORE %6, %1 :: (store (s8))
+    G_STORE %7, %1 :: (store (p0))
+    G_STORE %8, %1 :: (store (s32))
+    G_STORE %9, %1 :: (store (s80), align 16)
+    G_STORE %10, %1 :: (store (s32))
+    G_STORE %2, %1 :: (store (s64))
+    %11:gpr(p0) = G_FRAME_INDEX %stack.0
+    G_STORE %1, %11 :: (store (p0))
+    %12:gpr(s64) = G_LOAD %0 :: (load seq_cst (s64))
+    G_STORE %12, %11 :: (store (s64))
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# An extension is a field from the bottom of the register, and what only
+# narrows or widens without saying what the new bits are is nothing at all.
+# CHECK-LABEL: name: ext
+# CHECK: bb.0:
+# CHECK: %{{[0-9]+}}:gr = ZXT1 %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = SXT2 %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = EXTR_U %{{[0-9]+}}, 0, 1, $p0
+# CHECK: %{{[0-9]+}}:gr = EXTR %{{[0-9]+}}, 0, 13, $p0
+# CHECK: %{{[0-9]+}}:gr = SXT4 %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = EXTR %{{[0-9]+}}, 0, 7, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: $r8 = COPY %{{[0-9]+}}
+# CHECK: BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+name:            ext
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    %0:gpr(s64) = COPY $r32
+    %1:gpr(s8) = G_TRUNC %0
+    %2:gpr(s64) = G_ZEXT %1
+    %3:gpr(s16) = G_TRUNC %0
+    %4:gpr(s64) = G_SEXT %3
+    %5:gpr(s32) = G_TRUNC %0
+    %6:gpr(s64) = G_ANYEXT %5
+    %7:gpr(s1) = G_TRUNC %0
+    %8:gpr(s64) = G_ZEXT %7
+    %9:gpr(s13) = G_TRUNC %0
+    %10:gpr(s64) = G_SEXT %9
+    %11:gpr(s64) = G_SEXT_INREG %0, 32
+    %12:gpr(s64) = G_SEXT_INREG %0, 7
+    %13:gpr(s64) = G_ADD %2, %4
+    %14:gpr(s64) = G_ADD %13, %6
+    %15:gpr(s64) = G_ADD %14, %8
+    %16:gpr(s64) = G_ADD %15, %10
+    %17:gpr(s64) = G_ADD %16, %11
+    %18:gpr(s64) = G_ADD %17, %12
+    %19:gpr(s64) = G_FREEZE %18
+    $r8 = COPY %19(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A compare is made where its result is tested, in the instruction that
+# tests it. Two of the floating-point conditions take two compares.
+# CHECK-LABEL: name: cmp
+# CHECK: bb.0:
+# CHECK: %{{[0-9]+}}:gr = ADDL 10, $r0, $p0
+# CHECK: %{{[0-9]+}}:gr = SETCCi 0, %{{[0-9]+}}, 0, implicit-def $p6, implicit-def $p7
+# CHECK: %{{[0-9]+}}:gr = SETCCf 12, %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit-def $p7, implicit $ar40
+# CHECK: %{{[0-9]+}}:gr = SETCCf 16, %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit-def $p7, implicit $ar40
+# CHECK: %{{[0-9]+}}:gr = OR %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = SELECTi %{{[0-9]+}}, %{{[0-9]+}}, 2, %{{[0-9]+}}, 10, implicit-def $p6, implicit-def $p7
+# CHECK: %{{[0-9]+}}:fr = SELECT_FRf %{{[0-9]+}}, %{{[0-9]+}}, 19, %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit-def $p7, implicit $ar40
+# CHECK: %{{[0-9]+}}:gr = AND %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = SELECT %{{[0-9]+}}, %{{[0-9]+}}, 1, %{{[0-9]+}}, $r0, implicit-def $p6, implicit-def $p7
+# CHECK: %{{[0-9]+}}:fr = SELECT_FR %{{[0-9]+}}, %{{[0-9]+}}, 8, %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit-def $p7
+# CHECK: $f8 = COPY %{{[0-9]+}}
+# CHECK: BRCC %bb.2, 8, %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit-def $p7
+# CHECK: BRUNCOND %bb.1
+# CHECK: bb.1:
+# CHECK: BRCC %bb.3, 1, %{{[0-9]+}}, $r0, implicit-def $p6, implicit-def $p7
+# CHECK: bb.2:
+# CHECK: BRCCf %bb.3, 19, %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit-def $p7, implicit $ar40
+# CHECK: BRIND %{{[0-9]+}}, implicit-def $b6
+# CHECK: bb.3:
+# CHECK: BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+name:            cmp
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $f8, $f9
+    %0:gpr(s64) = COPY $r32
+    %1:gpr(p0) = COPY $r33
+    %2:fpr(s64) = COPY $f8
+    %3:fpr(s64) = COPY $f9
+    %4:gpr(s64) = G_CONSTANT i64 10
+    %5:gpr(s64) = G_ICMP intpred(slt), %0, %4
+    %6:gpr(p0) = G_CONSTANT i64 0
+    %7:gpr(s64) = G_ICMP intpred(eq), %1, %6
+    %8:gpr(s64) = G_FCMP floatpred(one), %2, %3
+    %9:gpr(s64) = G_FCMP floatpred(ult), %2, %3
+    %10:gpr(s64) = G_SELECT %5, %0, %4
+    %11:fpr(s64) = G_SELECT %9, %2, %3
+    %12:gpr(s64) = G_AND %7, %8
+    %13:gpr(s64) = G_SELECT %12, %10, %0
+    %14:gpr(s64) = G_ICMP intpred(ugt), %13, %0
+    %15:fpr(s64) = G_SELECT %14, %11, %3
+    $f8 = COPY %15(s64)
+    G_BRCOND %14, %bb.2
+    G_BR %bb.1
+  bb.1:
+    G_BRCOND %12, %bb.3
+  bb.2:
+    liveins: $f8
+    G_BRCOND %9, %bb.3
+    G_BRINDIRECT %1
+  bb.3:
+    liveins: $f8
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...
+---
+# Arithmetic is a multiply and add, f0 and f1 are the constants there are,
+# and the bits of a value cross between the banks by getf and setf.
+# CHECK-LABEL: name: fp
+# CHECK: bb.0:
+# CHECK: %{{[0-9]+}}:gr = MOVL 4612811918334230528, $p0
+# CHECK: %{{[0-9]+}}:fraddend = SETF_D %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = MOVL 1077936128, $p0
+# CHECK: %{{[0-9]+}}:fr = SETF_S %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D_SUM %{{[0-9]+}}, $f1, %{{[0-9]+}}, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D %{{[0-9]+}}, %{{[0-9]+}}, $f0, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fraddend = nofpexcept FMS_D_SUM %{{[0-9]+}}, $f1, %{{[0-9]+}}, 0, $p0, implicit $ar40
+# CHECK: early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr = FDIV_D %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit $ar40
+# CHECK: early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr = FDIV_S %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D_SUM %{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = FMERGE_NS %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = FMERGE_S $f0, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = FMERGE_S %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_S %{{[0-9]+}}, $f1, $f0, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FCVT_FX_TRUNC %{{[0-9]+}}, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:gr = GETF_SIG %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FCVT_FXU_TRUNC %{{[0-9]+}}, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:gr = GETF_SIG %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = SETF_SIG %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = FCVT_XF %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fraddend = nofpexcept FMA_D %{{[0-9]+}}, $f1, $f0, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = SETF_SIG %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_S %{{[0-9]+}}, $f1, $f0, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:gr = GETF_S %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = ZXT4 %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = SETF_D %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D_SUM %{{[0-9]+}}, $f1, %{{[0-9]+}}, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA %{{[0-9]+}}, $f1, $f0, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_SUM %{{[0-9]+}}, $f1, %{{[0-9]+}}, 0, $p0, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D %{{[0-9]+}}, $f1, $f0, 0, $p0, implicit $ar40
+# CHECK: $f8 = COPY %{{[0-9]+}}
+# CHECK: BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+name:            fp
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $f8, $f9, $f10
+    %0:gpr(s64) = COPY $r32
+    %1:fpr(s64) = COPY $f8
+    %2:fpr(s32) = COPY $f9
+    %30:fpr(s80) = COPY $f10
+    %3:fpr(s64) = G_FCONSTANT double 2.5
+    %4:fpr(s64) = G_FCONSTANT double 0.0
+    %5:fpr(s64) = G_FCONSTANT double 1.0
+    %6:fpr(s32) = G_FCONSTANT float 3.0
+    %7:fpr(s64) = G_FADD %1, %3
+    %8:fpr(s64) = G_FMUL %7, %4
+    %9:fpr(s64) = G_FSUB %8, %5
+    %10:fpr(s64) = G_FDIV %9, %1
+    %11:fpr(s32) = G_FDIV %2, %6
+    %12:fpr(s64) = G_FPEXT %11
+    %13:fpr(s64) = G_FMA %10, %12, %1
+    %14:fpr(s64) = G_FNEG %13
+    %15:fpr(s64) = G_FABS %14
+    %16:fpr(s64) = G_FCOPYSIGN %15, %2
+    %17:fpr(s32) = G_FPTRUNC %16
+    %18:gpr(s64) = G_FPTOSI %17
+    %19:gpr(s64) = G_FPTOUI %16
+    %20:gpr(s64) = G_ADD %18, %19
+    %21:fpr(s64) = G_SITOFP %20
+    %22:fpr(s32) = G_UITOFP %0
+    %23:gpr(s32) = COPY %22
+    %24:gpr(s64) = G_ZEXT %23
+    %25:fpr(s64) = COPY %24
+    %26:fpr(s64) = G_FADD %25, %21
+    %27:fpr(s80) = G_FPEXT %26
+    %28:fpr(s80) = G_FADD %27, %30
+    %29:fpr(s64) = G_FPTRUNC %28
+    $f8 = COPY %29(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...
+---
+# The address of a symbol that may be another module's, and of a function,
+# is read from the linkage table. One of this module is at an offset from the
+# global pointer.
+# CHECK-LABEL: name: addr
+# CHECK: bb.0:
+# CHECK: %{{[0-9]+}}:gr = ADDL target-flags(ia64-ltoff) @g, $r1, $p0
+# CHECK: %{{[0-9]+}}:gr = LD8 %{{[0-9]+}}, 0, $p0 :: (dereferenceable invariant load (s64) from got)
+# CHECK: %{{[0-9]+}}:gr = MOVL target-flags(ia64-gprel) @l, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, $r1, $p0
+# CHECK: %{{[0-9]+}}:gr = ADDL target-flags(ia64-gprel) @s, $r1, $p0
+# CHECK: %{{[0-9]+}}:gr = ADDL target-flags(ia64-ltoff-fptr) @f, $r1, $p0
+# CHECK: %{{[0-9]+}}:gr = LD8 %{{[0-9]+}}, 0, $p0 :: (dereferenceable invariant load (s64) from got)
+# CHECK: %{{[0-9]+}}:gr = MOVL target-flags(ia64-gprel) %const.0, $p0
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, $r1, $p0
+# CHECK: %{{[0-9]+}}:gr = ADDL @sm, $r0, $p0
+# CHECK: %{{[0-9]+}}:gr = ADDL target-flags(ia64-ltoff) @w, $r1, $p0
+# CHECK: %{{[0-9]+}}:gr = LD8 %{{[0-9]+}}, 0, $p0 :: (dereferenceable invariant load (s64) from got)
+# CHECK: %{{[0-9]+}}:gr = ADDL target-flags(ia64-ltoff) blockaddress(@addr, %ir-block.next), $r1, $p0
+# CHECK: %{{[0-9]+}}:gr = LD8 %{{[0-9]+}}, 0, $p0 :: (dereferenceable invariant load (s64) from got)
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: ST8 %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0 :: (store (p0))
+# CHECK: BR_RET $b0, 0, 1, 0, $p0
+name:            addr
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+constants:
+  - id: 0
+    value: 'x86_fp80 0xK4000C000000000000000'
+    alignment: 16
+body:             |
+  bb.0:
+    liveins: $r32
+    %0:gpr(p0) = COPY $r32
+    %1:gpr(p0) = G_GLOBAL_VALUE @g
+    %2:gpr(p0) = G_GLOBAL_VALUE @l
+    %3:gpr(p0) = G_GLOBAL_VALUE @s
+    %4:gpr(p0) = G_GLOBAL_VALUE @f
+    %5:gpr(p0) = G_CONSTANT_POOL %const.0
+    %6:gpr(p0) = G_GLOBAL_VALUE @sm
+    %7:gpr(p0) = G_GLOBAL_VALUE @w
+    %8:gpr(p0) = G_BLOCK_ADDR blockaddress(@addr, %ir-block.next)
+    G_STORE %1, %0 :: (store (p0))
+    G_STORE %2, %0 :: (store (p0))
+    G_STORE %3, %0 :: (store (p0))
+    G_STORE %4, %0 :: (store (p0))
+    G_STORE %5, %0 :: (store (p0))
+    G_STORE %6, %0 :: (store (p0))
+    G_STORE %7, %0 :: (store (p0))
+    G_STORE %8, %0 :: (store (p0))
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# A value of the other bank is moved to that of the phi where it comes from.
+# CHECK-LABEL: name: phi
+# CHECK: bb.0:
+# CHECK: BRCC %bb.2, 1, %{{[0-9]+}}, $r0, implicit-def $p6, implicit-def $p7
+# CHECK: bb.1:
+# CHECK: %{{[0-9]+}}:gr = ADD %{{[0-9]+}}, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = IMPLICIT_DEF
+# CHECK: %{{[0-9]+}}:fr = SETF_D %{{[0-9]+}}, $p0
+# CHECK: bb.2:
+# CHECK: %{{[0-9]+}}:fr = PHI %{{[0-9]+}}, %bb.0, %{{[0-9]+}}, %bb.1
+# CHECK: %{{[0-9]+}}:gr = PHI %{{[0-9]+}}, %bb.0, %{{[0-9]+}}, %bb.1
+# CHECK: $f8 = COPY %{{[0-9]+}}
+# CHECK: $r8 = COPY %{{[0-9]+}}
+# CHECK: BR_RET $b0, 0, 1, 0, $p0, implicit $f8, implicit $r8
+name:            phi
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $f8
+    %0:gpr(s64) = COPY $r32
+    %1:fpr(s64) = COPY $f8
+    G_BRCOND %0, %bb.2
+  bb.1:
+    %2:gpr(s64) = G_ADD %0, %0
+    %5:gpr(s64) = G_IMPLICIT_DEF
+  bb.2:
+    %3:fpr(s64) = G_PHI %1, %bb.0, %2, %bb.1
+    %4:gpr(s64) = G_PHI %0, %bb.0, %5, %bb.1
+    $f8 = COPY %3(s64)
+    $r8 = COPY %4(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8, implicit $r8
+...

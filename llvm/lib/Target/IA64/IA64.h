@@ -19,8 +19,11 @@
 
 namespace llvm {
 
-class IA64TargetMachine;
 class FunctionPass;
+class IA64RegisterBankInfo;
+class IA64Subtarget;
+class IA64TargetMachine;
+class InstructionSelector;
 class PassRegistry;
 
 FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
@@ -28,6 +31,10 @@ FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
 FunctionPass *createIA64ExpandBranchesPass();
 FunctionPass *createIA64IfConversionPass();
 FunctionPass *createIA64InsertStopsPass();
+InstructionSelector *
+createIA64InstructionSelector(const IA64TargetMachine &TM,
+                              const IA64Subtarget &STI,
+                              const IA64RegisterBankInfo &RBI);
 
 void initializeIA64ExpandBranchesPass(PassRegistry &);
 void initializeIA64IfConversionPass(PassRegistry &);

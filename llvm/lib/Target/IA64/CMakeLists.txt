@@ -7,6 +7,7 @@ tablegen(LLVM IA64GenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM IA64GenCallingConv.inc -gen-callingconv)
 tablegen(LLVM IA64GenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM IA64GenDisassemblerTables.inc -gen-disassembler)
+tablegen(LLVM IA64GenGlobalISel.inc -gen-global-isel)
 tablegen(LLVM IA64GenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM IA64GenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM IA64GenRegisterBank.inc -gen-register-bank)
@@ -17,6 +18,7 @@ tablegen(LLVM IA64GenSubtargetInfo.inc -gen-subtarget)
 add_public_tablegen_target(IA64CommonTableGen)
 
 add_llvm_target(IA64CodeGen
+  GISel/IA64InstructionSelector.cpp
   GISel/IA64LegalizerInfo.cpp
   GISel/IA64RegisterBankInfo.cpp
   IA64AsmPrinter.cpp

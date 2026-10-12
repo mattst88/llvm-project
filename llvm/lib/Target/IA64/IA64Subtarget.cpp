@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64Subtarget.h"
+#include "IA64.h"
 #include "IA64TargetMachine.h"
 
 #define DEBUG_TYPE "ia64-subtarget"
@@ -33,4 +34,7 @@ IA64Subtarget::IA64Subtarget(const Triple &TT, StringRef CPU, StringRef TuneCPU,
     : IA64GenSubtargetInfo(TT, CPU, TuneCPU.empty() ? CPU : TuneCPU, FS),
       InstrInfo(initializeSubtargetDependencies(CPU, TuneCPU, FS)),
       TLInfo(static_cast<const IA64TargetMachine &>(TM), *this),
-      FrameLowering(*this), Legalizer(*this) {}
+      FrameLowering(*this), Legalizer(*this) {
+  InstSelector.reset(createIA64InstructionSelector(
+      static_cast<const IA64TargetMachine &>(TM), *this, RegBankInfo));
+}

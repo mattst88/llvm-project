@@ -20,6 +20,7 @@
 #include "IA64InstrInfo.h"
 #include "IA64SelectionDAGInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include <bitset>
 #include <memory>
@@ -44,6 +45,7 @@ class IA64Subtarget : public IA64GenSubtargetInfo {
   IA64SelectionDAGInfo TSInfo;
   IA64LegalizerInfo Legalizer;
   IA64RegisterBankInfo RegBankInfo;
+  std::unique_ptr<InstructionSelector> InstSelector;
 
   IA64Subtarget &initializeSubtargetDependencies(StringRef CPU,
                                                  StringRef TuneCPU,
@@ -73,6 +75,10 @@ public:
   const LegalizerInfo *getLegalizerInfo() const override { return &Legalizer; }
   const RegisterBankInfo *getRegBankInfo() const override {
     return &RegBankInfo;
+  }
+
+  InstructionSelector *getInstructionSelector() const override {
+    return InstSelector.get();
   }
 
   bool hasConstantGP() const { return HasConstantGP; }
