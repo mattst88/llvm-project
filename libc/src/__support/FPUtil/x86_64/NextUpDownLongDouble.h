@@ -12,9 +12,9 @@
 #include "src/__support/FPUtil/FPBits.h"
 #include "src/__support/macros/attributes.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/macros/properties/architectures.h"
+#include "src/__support/macros/properties/types.h"
 
-#if !defined(LIBC_TARGET_ARCH_IS_X86)
+#if !defined(LIBC_TYPES_LONG_DOUBLE_IS_X86_FLOAT80)
 #error "Invalid include"
 #endif
 

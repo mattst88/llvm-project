@@ -10,9 +10,9 @@
 #define LLVM_LIBC_SRC___SUPPORT_FPUTIL_X86_64_NEXTAFTERLONGDOUBLE_H
 
 #include "src/__support/macros/config.h"
-#include "src/__support/macros/properties/architectures.h"
+#include "src/__support/macros/properties/types.h"
 
-#if !defined(LIBC_TARGET_ARCH_IS_X86)
+#if !defined(LIBC_TYPES_LONG_DOUBLE_IS_X86_FLOAT80)
 #error "Invalid include"
 #endif
 
