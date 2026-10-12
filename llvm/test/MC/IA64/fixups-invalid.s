@@ -59,3 +59,10 @@ f:
 	adds r4 = x - f, r5
 // CHECK: :[[#@LINE+1]]:22: error: a difference cannot take a relocation specifier
 	addl r4 = @gprel(x) - f, r1
+
+// A relocation specifier needs a symbol to make a relocation of.
+	abs = 0x1234
+// CHECK: :[[#@LINE+1]]:12: error: a relocation specifier needs a symbol
+	addl r4 = @ltoff(abs), r1
+// CHECK: :[[#@LINE+1]]:8: error: a relocation specifier needs a symbol
+	data8 @fptr(abs)

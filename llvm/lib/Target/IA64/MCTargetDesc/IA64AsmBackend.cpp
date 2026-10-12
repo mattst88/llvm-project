@@ -116,6 +116,14 @@ void IA64AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
     return;
   }
 
+  // A relocation specifier needs a relocation, and there is none for an
+  // absolute value.
+  if (Target.getSpecifier() && !Target.getAddSym()) {
+    getContext().reportError(Fixup.getLoc(),
+                             "a relocation specifier needs a symbol");
+    return;
+  }
+
   // The symbol of ld8.mov is there for the linker alone.
   if (Kind == IA64::fixup_ia64_ldxmov || Kind == IA64::fixup_ia64_iplt)
     return;
