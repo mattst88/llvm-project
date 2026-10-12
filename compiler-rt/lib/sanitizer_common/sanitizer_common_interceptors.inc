@@ -5690,7 +5690,25 @@ DEFINE_REAL(uptr, __tls_get_offset, void *arg)
 #endif
 
 #if SANITIZER_INTERCEPT_TLS_GET_ADDR
-#if !SANITIZER_S390
+#if SANITIZER_IA64
+#define INIT_TLS_GET_ADDR COMMON_INTERCEPT_FUNCTION(__tls_get_addr)
+// The IA-64 psABI passes the module ID and offset in registers rather than
+// through a pointer to a tls_index structure.
+INTERCEPTOR(void *, __tls_get_addr, uptr dso_id, uptr offset) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, __tls_get_addr, dso_id, offset);
+  void *res = REAL(__tls_get_addr)(dso_id, offset);
+  uptr tls_begin, tls_end;
+  COMMON_INTERCEPTOR_GET_TLS_RANGE(&tls_begin, &tls_end);
+  uptr arg[2] = {dso_id, offset};
+  DTLS::DTV *dtv = DTLS_on_tls_get_addr(arg, res, tls_begin, tls_end);
+  if (dtv) {
+    // New DTLS block has been allocated.
+    COMMON_INTERCEPTOR_INITIALIZE_RANGE((void *)dtv->beg, dtv->size);
+  }
+  return res;
+}
+#elif !SANITIZER_S390
 #define INIT_TLS_GET_ADDR COMMON_INTERCEPT_FUNCTION(__tls_get_addr)
 // If you see any crashes around this functions, there are 2 known issues with
 // it: 1. __tls_get_addr can be called with mis-aligned stack due to:

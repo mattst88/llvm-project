@@ -315,6 +315,12 @@
 #  define SANITIZER_ALPHA 0
 #endif
 
+#if defined(__ia64__)
+#  define SANITIZER_IA64 1
+#else
+#  define SANITIZER_IA64 0
+#endif
+
 #if defined(__AMDGPU__)
 #  define SANITIZER_AMDGPU 1
 #else
@@ -403,7 +409,10 @@
 // Whether the addresses are sign-extended from the VMA range to the word.
 // The SPARC64 Linux port implements this to split the VMA space into two
 // non-contiguous halves with a huge hole in the middle.
-#if defined(__sparc__) && SANITIZER_WORDSIZE == 64
+// IA-64 keeps a region number in the top three address bits instead, which
+// leaves the same kind of hole below each region, so its addresses are reduced
+// to the VMA range the same way.
+#if (defined(__sparc__) && SANITIZER_WORDSIZE == 64) || SANITIZER_IA64
 #  define SANITIZER_SIGN_EXTENDED_ADDRESSES 1
 #else
 #  define SANITIZER_SIGN_EXTENDED_ADDRESSES 0

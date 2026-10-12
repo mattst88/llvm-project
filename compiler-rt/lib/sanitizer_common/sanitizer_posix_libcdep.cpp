@@ -276,7 +276,16 @@ bool SignalContext::IsStackOverflow() const {
   bool IsStackAccess = addr + GetPageSizeCached() > sp && addr < sp + 0xFFFF;
 #endif
 
-#if __powerpc__
+#    if defined(__ia64__) && SANITIZER_LINUX
+  // The RSE spills stacked registers to the register backing store, which
+  // grows upward; deep recursion usually exhausts it first.
+  if (!IsStackAccess) {
+    uptr bsp = static_cast<const ucontext_t*>(context)->uc_mcontext.sc_ar_bsp;
+    IsStackAccess = addr + GetPageSizeCached() > bsp && addr < bsp + 0xFFFF;
+  }
+#    endif
+
+#    if __powerpc__
   // Large stack frames can be allocated with e.g.
   //   lis r0,-10000
   //   stdux r1,r1,r0 # store sp to [sp-10000] and update sp by -10000

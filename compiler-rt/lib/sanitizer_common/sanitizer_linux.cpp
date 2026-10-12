@@ -813,6 +813,15 @@ static void GetArgsAndEnv(char ***argv, char ***envp) {
 #      if SANITIZER_LINUX && defined(__sparc__)
     stack_end = &stack_end[16];
 #      endif
+    // On Linux/ia64 glibc sets __libc_stack_end to &argc in a static
+    // executable, but to the entry point's stack pointer, 16 bytes below argc,
+    // when the dynamic loader starts the program. No other value that can be
+    // in that slot is as small as a plausible argc.
+#      if SANITIZER_LINUX && SANITIZER_IA64
+    const uptr kMaxArgc = 1 << 24;
+    if (stack_end[2] - 1 < kMaxArgc && !stack_end[stack_end[2] + 3])
+      stack_end = &stack_end[2];
+#      endif
     // Normally argc can be obtained from *stack_end, however, on ARM glibc's
     // _start clobbers it:
     // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/arm/start.S;hb=refs/heads/release/2.31/master#l75
@@ -1023,7 +1032,8 @@ int internal_sigaction_norestorer(int signum, const void *act, void *oldact) {
     // rt_sigaction, so we need to do the same (we'll need to reimplement the
     // restorers; for x86_64 the restorer address can be obtained from
     // oldact->sa_restorer upon a call to sigaction(xxx, NULL, oldact).
-#      if (!SANITIZER_ANDROID || !SANITIZER_MIPS32) && !defined(__alpha__)
+#      if (!SANITIZER_ANDROID || !SANITIZER_MIPS32) && !defined(__alpha__) && \
+          !defined(__ia64__)
     k_act.sa_restorer = u_act->sa_restorer;
 #      endif
   }
@@ -1039,7 +1049,8 @@ int internal_sigaction_norestorer(int signum, const void *act, void *oldact) {
     internal_memcpy(&u_oldact->sa_mask, &k_oldact.sa_mask,
                     sizeof(__sanitizer_kernel_sigset_t));
     u_oldact->sa_flags = k_oldact.sa_flags;
-#      if (!SANITIZER_ANDROID || !SANITIZER_MIPS32) && !defined(__alpha__)
+#      if (!SANITIZER_ANDROID || !SANITIZER_MIPS32) && !defined(__alpha__) && \
+          !defined(__ia64__)
     u_oldact->sa_restorer = k_oldact.sa_restorer;
 #      endif
   }
@@ -1258,6 +1269,9 @@ uptr GetMaxVirtualAddress() {
   //   HighMem:   [0x018000000000, 0x03ffffffffff]  (2.5 TiB, stack near top)
   // Capping at TASK_SIZE - 1 avoids treating kernel addresses as HighMem.
   return (1ULL << 42) - 1;  // TASK_SIZE - 1
+#    elif SANITIZER_IA64
+  // User space ends at the top of region 4.
+  return (5ULL << 61) - 1;  // 0x9fffffffffffffffUL;
 #    elif SANITIZER_MIPS64
   return (1ULL << 40) - 1;  // 0x000000ffffffffffUL;
 #    elif defined(__s390x__)
@@ -2260,6 +2274,17 @@ SignalContext::WriteFlag SignalContext::GetWriteFlag() const {
     default:
       return SignalContext::Unknown;
   }
+#  elif defined(__ia64__)
+  // The kernel passes the interruption status register (ISR) in si_isr.
+  (void)ucontext;
+  static const u64 ISR_W = 1ULL << 33;
+  static const u64 ISR_R = 1ULL << 34;
+  u64 isr = static_cast<const siginfo_t*>(siginfo)->si_isr;
+  if (isr & ISR_W)
+    return Write;
+  if (isr & ISR_R)
+    return Read;
+  return Unknown;
 #  else
   (void)ucontext;
   return Unknown;  // FIXME: Implement.
@@ -2797,6 +2822,13 @@ static void GetPcSpBp(void *context, uptr *pc, uptr *sp, uptr *bp) {
   *pc = ucontext->uc_mcontext.sc_pc;
   *bp = ucontext->uc_mcontext.sc_regs[15];  // $fp / $s6
   *sp = ucontext->uc_mcontext.sc_regs[30];  // $sp
+#  elif defined(__ia64__)
+  ucontext_t* ucontext = (ucontext_t*)context;
+  // There is no frame pointer register; the frame chain lives in the register
+  // backing store.
+  *pc = ucontext->uc_mcontext.sc_ip;
+  *bp = ucontext->uc_mcontext.sc_gr[12];
+  *sp = ucontext->uc_mcontext.sc_gr[12];
 #  else
 #    error "Unsupported arch"
 #  endif

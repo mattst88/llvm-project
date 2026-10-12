@@ -477,7 +477,10 @@ SANITIZER_WEAK_IMPORT void *aligned_alloc(__sanitizer::usize __alignment,
 #else
 #define SANITIZER_INTERCEPT_AEABI_MEM 0
 #endif
-#define SANITIZER_INTERCEPT___BZERO SI_MAC || SI_GLIBC
+// glibc has no __bzero on IA-64, where bzero is written in assembly, and a
+// symbol that is looked up and not found has the dynamic linker allocate its
+// error message before the interceptors are in place.
+#define SANITIZER_INTERCEPT___BZERO SI_MAC || (SI_GLIBC && !SANITIZER_IA64)
 #define SANITIZER_INTERCEPT_BZERO SI_LINUX_NOT_ANDROID
 #define SANITIZER_INTERCEPT_FTIME (!SI_FREEBSD && !SI_NETBSD && SI_POSIX)
 #define SANITIZER_INTERCEPT_XDR (SI_GLIBC || SI_SOLARIS)

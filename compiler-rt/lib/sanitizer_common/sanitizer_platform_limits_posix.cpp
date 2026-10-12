@@ -314,6 +314,8 @@ namespace __sanitizer {
   // Not used. The minimum Glibc version available for LoongArch is 2.36
   // so ustat() wrapper is already gone.
 #      define SIZEOF_STRUCT_USTAT 0
+#    elif defined(__ia64__)
+#      define SIZEOF_STRUCT_USTAT 32
 #    else
 #      error Unknown size of struct ustat
 #    endif
@@ -1177,7 +1179,7 @@ CHECK_STRUCT_SIZE_AND_OFFSET(sigaction, sa_mask);
 CHECK_STRUCT_SIZE_AND_OFFSET(sigaction, sa_flags);
 #endif
 #  if SANITIZER_LINUX && (!SANITIZER_ANDROID || !SANITIZER_MIPS32) && \
-      !defined(__alpha__)
+      !defined(__alpha__) && !defined(__ia64__)
 CHECK_STRUCT_SIZE_AND_OFFSET(sigaction, sa_restorer);
 #endif
 

@@ -142,6 +142,9 @@ const unsigned struct_kernel_stat64_sz = 0;
 #    elif defined(__alpha__)
 const unsigned struct_kernel_stat_sz = 80;
 const unsigned struct_kernel_stat64_sz = 136;
+#    elif defined(__ia64__)
+const unsigned struct_kernel_stat_sz = 144;
+const unsigned struct_kernel_stat64_sz = 0;
 #    endif
 struct __sanitizer_perf_event_attr {
   unsigned type;
@@ -162,7 +165,8 @@ const unsigned struct_kexec_segment_sz = 4 * sizeof(unsigned long);
 
 #  if SANITIZER_LINUX
 
-#    if defined(__powerpc64__) || defined(__s390__) || defined(__loongarch__)
+#    if defined(__powerpc64__) || defined(__s390__) || \
+        defined(__loongarch__) || defined(__ia64__)
 const unsigned struct___old_kernel_stat_sz = 0;
 #    elif !defined(__sparc__)
 const unsigned struct___old_kernel_stat_sz = 32;
@@ -759,6 +763,10 @@ struct __sanitizer_sigaction {
 #    if SANITIZER_FREEBSD
   int sa_flags;
   __sanitizer_sigset_t sa_mask;
+#    elif defined(__ia64__)
+  int sa_flags;
+  int __glibc_reserved0;
+  __sanitizer_sigset_t sa_mask;
 #    else
 #      if defined(__s390x__)
   int sa_resv;
@@ -783,7 +791,8 @@ struct __sanitizer_sigaction {
 #        endif
 #      endif
 #    endif
-#    if (SANITIZER_LINUX || SANITIZER_HAIKU) && !defined(__alpha__)
+#    if (SANITIZER_LINUX || SANITIZER_HAIKU) && !defined(__alpha__) && \
+        !defined(__ia64__)
   void (*sa_restorer)();
 #    endif
 #    if defined(__mips__) && (SANITIZER_WORDSIZE == 32) && !SANITIZER_MUSL
@@ -815,6 +824,15 @@ struct __sanitizer_kernel_sigaction_t {
   };
   __sanitizer_kernel_sigset_t sa_mask;
   void (*sa_restorer)(void);
+};
+#  elif defined(__ia64__)
+struct __sanitizer_kernel_sigaction_t {
+  union {
+    void (*handler)(int signo);
+    void (*sigaction)(int signo, __sanitizer_siginfo* info, void* ctx);
+  };
+  unsigned long sa_flags;
+  __sanitizer_kernel_sigset_t sa_mask;
 };
 #  else
 struct __sanitizer_kernel_sigaction_t {
