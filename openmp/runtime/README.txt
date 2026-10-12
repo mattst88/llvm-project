@@ -37,6 +37,7 @@ Architectures Supported
 * IBM(R) Power architecture (big endian)
 * IBM(R) Power architecture (little endian)
 * IBM(R) Z (s390x) architecture
+* Intel(R) Itanium(R) architecture (IA-64)
 * MIPS and MIPS64 architecture
 * RISCV64 architecture
 * LoongArch64 architecture
