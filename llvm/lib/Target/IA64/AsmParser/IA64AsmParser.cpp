@@ -104,6 +104,9 @@ class IA64AsmParser : public MCTargetAsmParser {
   SMLoc OpenBundle;
   void onEndOfFile() override;
   void onLabelParsed(MCSymbol *Symbol) override;
+  void doBeforeLabelEmit(MCSymbol *Symbol, SMLoc IDLoc) override {
+    noteSectionAgain();
+  }
 
   void onEmptyStatement(const AsmToken &Terminator) override;
 
@@ -169,6 +172,22 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool AwaitedByMask = false;
   /// Whether ".handlerdata" has ended the unwind information.
   bool HandlerData = false;
+  // Set when a section directive was parsed; SelectedFrom is the section
+  // before it. GNU as ends the instruction group and the bundle at any such
+  // directive, even if the section does not change. An actual section change
+  // does that by itself; this handles a directive that leaves the section
+  // unchanged, which is known only after the directive is processed, and
+  // only if an instruction was emitted that needs its group ended.
+  bool SectionSelected = false;
+  bool InstructionInSection = false;
+  MCSectionSubPair SelectedFrom;
+  void noteSectionAgain() {
+    if (!std::exchange(SectionSelected, false))
+      return;
+    if (std::exchange(InstructionInSection, false) &&
+        SelectedFrom == getStreamer().getCurrentSection())
+      getTargetStreamer().emitSectionAgain();
+  }
   // The section that .handlerdata left, which .endp goes back to.
   MCSectionSubPair HandlerDataFrom;
 
@@ -525,6 +544,7 @@ void IA64AsmParser::onLabelParsed(MCSymbol *Symbol) {
 }
 
 void IA64AsmParser::onEndOfFile() {
+  noteSectionAgain();
   if (OpenBundle.isValid())
     Error(OpenBundle, "bundle is not closed");
 }
@@ -1134,6 +1154,8 @@ bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
 bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
                                      SMLoc NameLoc, OperandVector &Operands) {
   MCAsmParser &Parser = getParser();
+  noteSectionAgain();
+  InstructionInSection = true;
 
   // "{" and "}" delimit a bundle. Whatever follows a brace on the same line
   // is a separate statement.
@@ -1703,6 +1725,16 @@ ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
 
 ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
   StringRef Name = DirectiveID.getString();
+
+  noteSectionAgain();
+  if (StringSwitch<bool>(Name.lower())
+          .Cases({".text", ".data", ".bss", ".sdata", ".sbss"}, true)
+          .Cases({".section", ".pushsection", ".popsection"}, true)
+          .Cases({".previous", ".subsection"}, true)
+          .Default(false)) {
+    SectionSelected = true;
+    SelectedFrom = getStreamer().getCurrentSection();
+  }
 
   // A template for the next bundle, named by its units, e.g. ".mmi".
   if (Name.size() == 4)

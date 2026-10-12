@@ -778,6 +778,10 @@ void IA64TargetELFStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {
   static_cast<IA64ELFStreamer &>(getStreamer()).emitData16(Value, Loc);
 }
 
+void IA64TargetELFStreamer::emitSectionAgain() {
+  static_cast<IA64ELFStreamer &>(getStreamer()).flush();
+}
+
 void IA64TargetELFStreamer::emitHandlerData() {
   auto &S = static_cast<IA64ELFStreamer &>(getStreamer());
   // The unwind information covers the code up to here. Unlike the end of

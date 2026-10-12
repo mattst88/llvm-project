@@ -62,6 +62,7 @@ public:
   void emitPersonality(const MCSymbol *Routine) override;
   void emitUnwEntry() override;
   void emitHandlerData() override;
+  void emitSectionAgain() override;
   void emitData16(const MCExpr *Value, SMLoc Loc) override;
   void beginDataElsewhere(MCSection *Section) override;
   void endDataElsewhere() override;

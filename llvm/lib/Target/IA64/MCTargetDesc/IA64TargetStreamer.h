@@ -200,6 +200,11 @@ public:
   /// ".handlerdata".
   virtual void emitHandlerData();
 
+  /// A directive reselected the current section. GNU as ends the instruction
+  /// group and the bundle at every section directive, so this does too.
+  /// Assembly writes the section directive again.
+  virtual void emitSectionAgain();
+
   /// Sixteen bytes for the dynamic linker to fill in according to \p Value,
   /// an @iplt of a function. Assembly writes this as "data16.ua".
   virtual void emitData16(const MCExpr *Value, SMLoc Loc = SMLoc());
@@ -264,6 +269,7 @@ public:
   void emitPersonality(const MCSymbol *Routine) override;
   void emitUnwEntry() override;
   void emitHandlerData() override;
+  void emitSectionAgain() override;
   void emitData16(const MCExpr *Value, SMLoc Loc) override;
   void emitTLSCommon(MCSymbol *Sym, uint64_t Size, Align Alignment) override;
 };

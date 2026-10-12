@@ -128,6 +128,7 @@ void IA64TargetStreamer::emitPersonality(const MCSymbol *Routine) {}
 void IA64TargetStreamer::emitUnwEntry() {}
 
 void IA64TargetStreamer::emitHandlerData() {}
+void IA64TargetStreamer::emitSectionAgain() {}
 
 void IA64TargetStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {}
 
@@ -343,6 +344,14 @@ void IA64TargetAsmStreamer::emitPersonality(const MCSymbol *Routine) {
 }
 
 void IA64TargetAsmStreamer::emitUnwEntry() { OS << "\t.unwentry\n"; }
+
+void IA64TargetAsmStreamer::emitSectionAgain() {
+  MCStreamer &S = getStreamer();
+  MCContext &Ctx = S.getContext();
+  MCSectionSubPair Current = S.getCurrentSection();
+  Ctx.getAsmInfo().printSwitchToSection(*Current.first, Current.second,
+                                        Ctx.getTargetTriple(), OS);
+}
 
 void IA64TargetAsmStreamer::emitHandlerData() {
   MCStreamer &S = getStreamer();
