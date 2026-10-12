@@ -372,9 +372,17 @@ public:
   bool isSImm8Minus1NonZero() const {
     return isSImm8Minus1() && *getConstant();
   }
-  // The locality hint completers: loads have no .nt2, and stores only .nta.
+  // Locality hint completers. A data access hint has DataHintFlag set in
+  // addition to its number. Prefetches accept all of them, as do accesses
+  // without base update, except .d0, which only prefetches have. Accesses
+  // with base update take no data access hints: loads cannot use .nt2, and
+  // stores can only use .nta.
+  enum : unsigned { DataHintFlag = 8 };
   bool isFetchHint() const { return Kind == Hint; }
-  bool isLoadHint() const { return Kind == Hint && Completer != 2; }
+  bool isDataHint() const { return Kind == Hint && Completer != DataHintFlag; }
+  bool isLoadHint() const {
+    return Kind == Hint && (Completer == 0 || Completer == 1 || Completer == 3);
+  }
   bool isStoreHint() const {
     return Kind == Hint && (Completer == 0 || Completer == 3);
   }
@@ -422,6 +430,17 @@ public:
       Inst.addOperand(MCOperand::createImm(*V));
     else
       Inst.addOperand(MCOperand::createExpr(getImm()));
+  }
+
+  void addHintOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "invalid number of operands");
+    Inst.addOperand(MCOperand::createImm(Completer & ~DataHintFlag));
+  }
+
+  /// The stride of a counted prefetch; its low six bits are not encoded.
+  void addStrideOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "invalid number of operands");
+    Inst.addOperand(MCOperand::createImm(*getConstant() & ~INT64_C(63)));
   }
 
   void addImmMinus1Operands(MCInst &Inst, unsigned N) const {
@@ -531,6 +550,15 @@ static void splitCompleters(
       return;
     }
   }
+  // Or in a data access hint, which is a locality hint under another name,
+  // or one with an extra bit.
+  if (Name.size() > 3 && Name.drop_back().ends_with(".d") &&
+      Name.back() >= '0' && Name.back() <= '7') {
+    Completers.push_back({IA64Operand::Hint, IA64Operand::DataHintFlag |
+                                                 unsigned(Name.back() - '0')});
+    Name = Name.drop_back(3);
+    return;
+  }
   // A floating-point instruction may end in a status field.
   if (Name.size() > 3 && Name.drop_back().ends_with(".s") &&
       Name.back() >= '0' && Name.back() <= '3') {
@@ -636,6 +664,15 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
         return Error(Operand.getStartLoc(),
                      "'.' is only for the target of a branch here");
     }
+    // The stride of a counted prefetch is its last operand, and only the
+    // multiple of 64 in it is encoded.
+    if (Inst.getOpcode() == IA64::LFETCH_COUNT) {
+      const auto &Stride = static_cast<const IA64Operand &>(*Operands.back());
+      if (Stride.isImm() && Stride.getConstant() &&
+          (*Stride.getConstant() & 63) != 0)
+        Warning(Stride.getStartLoc(),
+                "stride must be a multiple of 64; the low 6 bits are ignored");
+    }
     // "add" with an immediate and an r0-r3 base prefers addl; the matcher
     // only reaches addl for an immediate that does not fit in adds.
     if (Inst.getOpcode() == IA64::ADDS &&
@@ -683,7 +720,9 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_InvalidPCRel21:
   case Match_InvalidPCRel60:
   case Match_InvalidCount1To3:
-  case Match_InvalidCount1To4: {
+  case Match_InvalidCount1To4:
+  case Match_InvalidCount1To64:
+  case Match_InvalidStride: {
     // The failing operand may be one that the statement omitted.
     if (ErrorInfo == ~0ULL)
       return Error(IDLoc, "invalid operand for instruction");
@@ -715,6 +754,10 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                    "target must be a multiple of 16 in [-16777216, 16777200]");
     case Match_InvalidPCRel60:
       return Error(ErrorLoc, "target must be a multiple of 16");
+    case Match_InvalidCount1To64:
+      return Error(ErrorLoc, "count must be an integer in [1, 64]");
+    case Match_InvalidStride:
+      return Error(ErrorLoc, "stride must be a multiple of 64 in [-1024, 960]");
     case Match_InvalidCount1To3:
       return Error(ErrorLoc, "shift count must be an integer in [1, 3]");
     default:
@@ -988,9 +1031,20 @@ bool IA64AsmParser::parseOperand(OperandVector &Operands) {
     if (StringSwitch<bool>(Name)
             .Cases({"ip", "pr", "pr.rot", "psr", "psr.l", "psr.um"}, true)
             .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
-            .Cases({"cpuid", "dtr", "itr"}, true)
+            .Cases({"cpuid", "dtr", "itr", "dahr"}, true)
             .Default(false)) {
       Operands.push_back(IA64Operand::createToken(Name, S));
+      Parser.Lex();
+      return false;
+    }
+    // A data access hint register (dahr0-dahr7), named only by the
+    // move-immediate form.
+    if (Name.size() == 5 && Name.starts_with_insensitive("dahr") &&
+        Name.back() >= '0' && Name.back() <= '7') {
+      Operands.push_back(IA64Operand::createToken("dahr", S));
+      Operands.push_back(IA64Operand::createImm(
+          MCConstantExpr::create(Name.back() - '0', getContext()), S,
+          Tok.getEndLoc()));
       Parser.Lex();
       return false;
     }

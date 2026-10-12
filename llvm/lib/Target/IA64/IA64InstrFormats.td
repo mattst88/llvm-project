@@ -119,6 +119,8 @@ class UImm<int width> : Operand<i64> {
 def uimm5  : UImm<5>;
 def uimm6  : UImm<6>;
 def uimm8  : UImm<8>;
+def uimm3  : UImm<3>;
+def uimm16 : UImm<16>;
 def uimm19 : UImm<19>;
 def uimm21 : UImm<21>;
 
@@ -255,12 +257,15 @@ def target64 : PCRel<60, "pcrel60b"> {
   let DecoderMethod = "decodeLongPCRel";
 }
 
-// The locality hint of a memory access is a completer on the mnemonic:
-// "ld8.nta". The parser splits it off, and it is optional. Loads cannot say
-// .nt2, and stores only .nta.
+// The locality hint of a memory access is an optional mnemonic completer,
+// "ld8.nta", which the parser splits off. Loads with base update cannot use
+// .nt2, and stores with base update can only use .nta. All other accesses,
+// and all line prefetches, also accept the data access hints .d1 to .d7 of
+// later processors: .d1-.d3 are aliases for the locality hints, and .d4-.d7
+// are the same with one extra bit set.
 class HintAsmOperand<string name> : AsmOperandClass {
   let Name = name;
-  let RenderMethod = "addImmOperands";
+  let RenderMethod = "addHintOperands";
   let PredicateMethod = "is"#name;
   let IsOptional = 1;
   let DefaultMethod = "defaultHintOperand";
@@ -274,6 +279,22 @@ class Hint<string name> : Operand<i64> {
 def ldhint : Hint<"LoadHint">;
 def sthint : Hint<"StoreHint">;
 def lfhint : Hint<"FetchHint">;
+def dahint : Hint<"DataHint">;
+
+// The stride of a counted prefetch: a multiple of 64, encoded as a 5-bit
+// signed multiplier.
+def StrideAsmOperand : AsmOperandClass {
+  let Name = "Stride";
+  let RenderMethod = "addStrideOperands";
+  let PredicateMethod = "isImmInRange<-1024, 960>";
+  let DiagnosticType = "InvalidStride";
+}
+def stride5 : Operand<i64> {
+  let ParserMatchClass = StrideAsmOperand;
+  let EncoderMethod = "getStrideOpValue";
+  let DecoderMethod = "decodeStride";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
 
 // The FP status field is also a completer, "fma.s1". It defaults to .s0, the
 // main status field.
@@ -406,7 +427,7 @@ class AInst<dag outs, dag ins, string mnemonic, string operands>
   let DecoderNamespace = "A";
 }
 
-// A1: integer ALU, register-register.
+// A1: integer ALU, register-register. Bit 36 is ignored.
 class A1<bits<4> x4, bits<2> x2b, string mnemonic,
          string operands = "$r1 = $r2, $r3">
     : AInst<(outs GR:$r1), (ins GR:$r2, GR:$r3), mnemonic, operands> {
@@ -414,7 +435,7 @@ class A1<bits<4> x4, bits<2> x2b, string mnemonic,
   bits<7> r2;
   bits<7> r3;
   let Opcode = 8;
-  let Inst{36-33} = 0;
+  let Inst{35-33} = 0;
   let Inst{32-29} = x4;
   let Inst{28-27} = x2b;
   let Inst{26-20} = r3;
@@ -422,7 +443,7 @@ class A1<bits<4> x4, bits<2> x2b, string mnemonic,
   let Inst{12-6} = r1;
 }
 
-// A2: shift left and add.
+// A2: shift left and add. Bit 36 is ignored.
 class A2<bits<4> x4, string mnemonic>
     : AInst<(outs GR:$r1), (ins GR:$r2, count2:$count, GR:$r3), mnemonic,
             "$r1 = $r2, $count, $r3"> {
@@ -431,7 +452,7 @@ class A2<bits<4> x4, string mnemonic>
   bits<7> r3;
   bits<2> count;
   let Opcode = 8;
-  let Inst{36-33} = 0;
+  let Inst{35-33} = 0;
   let Inst{32-29} = x4;
   let Inst{28-27} = count;
   let Inst{26-20} = r3;
@@ -1035,11 +1056,11 @@ class MInst<dag outs, dag ins, string mnemonic, string operands>
 class MMemInst<bits<4> op, bits<6> x6, dag outs, dag ins, string mnemonic,
                string operands>
     : MInst<outs, ins, mnemonic, operands> {
-  bits<2> hint;
+  bits<3> hint;
   bits<7> r3;
   let Opcode = op;
   let Inst{35-30} = x6;
-  let Inst{29-28} = hint;
+  let Inst{29-28} = hint{1-0};
   let Inst{26-20} = r3;
   let AsmString = mnemonic#"${qp}${hint}\t"#operands;
 }
@@ -1060,11 +1081,12 @@ class MMemImmInst<bits<4> op, bits<6> x6, dag outs, dag ins, string mnemonic,
 
 // M1: integer load.
 class M1<bits<6> x6, string mnemonic>
-    : MMemRegInst<4, 0, x6, 0, (outs GR:$r1), (ins GR:$r3, ldhint:$hint),
+    : MMemRegInst<4, 0, x6, 0, (outs GR:$r1), (ins GR:$r3, dahint:$hint),
                   mnemonic, "$r1 = [$r3]"> {
   let hasSideEffects = 0;
   let SchedRW = [WriteLoad];
   bits<7> r1;
+  let Inst{19} = hint{2};
   let Inst{12-6} = r1;
 }
 // A linkage table load that names the symbol whose address it loads. If the
@@ -1093,10 +1115,11 @@ class M1Mov<bits<6> x6, string mnemonic>
 }
 // The 16-byte load puts the high half in ar.csd.
 class M1_16<bits<6> x6, string mnemonic>
-    : MMemRegInst<4, 0, x6, 1, (outs GR:$r1), (ins GR:$r3, ldhint:$hint),
+    : MMemRegInst<4, 0, x6, 1, (outs GR:$r1), (ins GR:$r3, dahint:$hint),
                   mnemonic, "$r1, ar.csd = [$r3]"> {
   let SchedRW = [WriteLoad];
   bits<7> r1;
+  let Inst{19} = hint{2};
   let Inst{12-6} = r1;
 }
 
@@ -1128,18 +1151,20 @@ class M3<bits<6> x6, string mnemonic>
 
 // M4: integer store.
 class M4<bits<6> x6, string mnemonic>
-    : MMemRegInst<4, 0, x6, 0, (outs), (ins GR:$r3, GR:$r2, sthint:$hint),
+    : MMemRegInst<4, 0, x6, 0, (outs), (ins GR:$r3, GR:$r2, dahint:$hint),
                   mnemonic, "[$r3] = $r2"> {
   let hasSideEffects = 0;
   let SchedRW = [WriteStore];
   bits<7> r2;
+  let Inst{12} = hint{2};
   let Inst{19-13} = r2;
 }
 class M4_16<bits<6> x6, string mnemonic>
-    : MMemRegInst<4, 0, x6, 1, (outs), (ins GR:$r3, GR:$r2, sthint:$hint),
+    : MMemRegInst<4, 0, x6, 1, (outs), (ins GR:$r3, GR:$r2, dahint:$hint),
                   mnemonic, "[$r3] = $r2, ar.csd"> {
   let SchedRW = [WriteStore];
   bits<7> r2;
+  let Inst{12} = hint{2};
   let Inst{19-13} = r2;
 }
 
@@ -1157,11 +1182,12 @@ class M5<bits<6> x6, string mnemonic>
 
 // M6: floating-point load.
 class M6<bits<6> x6, string mnemonic>
-    : MMemRegInst<6, 0, x6, 0, (outs FR:$f1), (ins GR:$r3, ldhint:$hint),
+    : MMemRegInst<6, 0, x6, 0, (outs FR:$f1), (ins GR:$r3, dahint:$hint),
                   mnemonic, "$f1 = [$r3]"> {
   let hasSideEffects = 0;
   let SchedRW = [WriteFLoad];
   bits<7> f1;
+  let Inst{19} = hint{2};
   let Inst{12-6} = f1;
 }
 
@@ -1193,11 +1219,12 @@ class M8<bits<6> x6, string mnemonic>
 
 // M9: floating-point store.
 class M9<bits<6> x6, string mnemonic>
-    : MMemRegInst<6, 0, x6, 0, (outs), (ins GR:$r3, FR:$f2, sthint:$hint),
+    : MMemRegInst<6, 0, x6, 0, (outs), (ins GR:$r3, FR:$f2, dahint:$hint),
                   mnemonic, "[$r3] = $f2"> {
   let hasSideEffects = 0;
   let SchedRW = [WriteFStore];
   bits<7> f2;
+  let Inst{12} = hint{2};
   let Inst{19-13} = f2;
 }
 
@@ -1239,11 +1266,30 @@ class M12<bits<6> x6, string mnemonic, int size>
   let Constraints = "$wb = $r3";
 }
 
-// M13: line prefetch.
-class M13<bits<6> x6, string mnemonic>
+// M13: line prefetch. Bit 19 is ignored, except when \p hasCount is set,
+// where it distinguishes M13Count from this form.
+class M13<bits<6> x6, string mnemonic, bit hasCount>
     : MMemRegInst<6, 0, x6, 0, (outs), (ins GR:$r3, lfhint:$hint), mnemonic,
                   "[$r3]"> {
   let SchedRW = [WritePrefetch];
+  let Inst{19} = !if(hasCount, 0, ?);
+  let Inst{12} = hint{2};
+}
+// Counted prefetch of lines a stride apart, distinguished from the plain
+// prefetch by bit 19.
+class M13Count<bits<6> x6, string mnemonic>
+    : MMemRegInst<6, 0, x6, 0, (outs),
+                  (ins GR:$r3, Count<64>:$count, stride5:$stride,
+                       lfhint:$hint),
+                  mnemonic, "[$r3], $count, $stride"> {
+  let SchedRW = [WritePrefetch];
+  bits<6> count;
+  bits<5> stride;
+  let Inst{19} = 1;
+  let Inst{18} = 0;
+  let Inst{17-13} = stride;
+  let Inst{12} = hint{2};
+  let Inst{11-6} = count;
 }
 
 // M14: line prefetch, incrementing the base by a register.
@@ -1254,6 +1300,7 @@ class M14<bits<6> x6, string mnemonic>
   let SchedRW = [WritePrefetch];
   bits<7> r2;
   let Inst{19-13} = r2;
+  let Inst{12} = hint{2};
   let Constraints = "$wb = $r3";
 }
 
@@ -1264,6 +1311,7 @@ class M15<bits<6> x6, string mnemonic>
                   "[$r3], $imm"> {
   let SchedRW = [WritePrefetch];
   let Inst{19-13} = imm{6-0};
+  let Inst{12} = hint{2};
 }
 
 // M16: exchange and compare-and-exchange. The compare value is in ar.ccv,
@@ -1506,6 +1554,21 @@ class M48Hint<string mnemonic>
   let Inst{26} = 1;
   let Inst{25-12} = imm{17-4};
   let Inst{11-10} = 0;
+  let Inst{9-6} = imm{3-0};
+}
+
+// Move an immediate to one of the eight data access hint registers. Bits
+// 11:10 distinguish it from hint.m.
+class M50<string mnemonic>
+    : MSys0Inst<1, 0, (outs), (ins uimm3:$dahr, uimm16:$imm), mnemonic,
+                "dahr$dahr = $imm"> {
+  bits<3> dahr;
+  bits<16> imm;
+  let Inst{36} = imm{15};
+  let Inst{26} = 1;
+  let Inst{25-23} = dahr;
+  let Inst{22-12} = imm{14-4};
+  let Inst{11-10} = 1;
   let Inst{9-6} = imm{3-0};
 }
 

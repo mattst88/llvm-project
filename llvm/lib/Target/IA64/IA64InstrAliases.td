@@ -46,6 +46,33 @@ def : IA64Alias<"mov", "$b1 = $r2", (MOV_BR BR:$b1, GR:$r2, 0, qp:$qp), 1>;
 def : IA64Alias<"mov", "pr = $r2", (MOV_PR GR:$r2, -2, qp:$qp)>;
 
 //===----------------------------------------------------------------------===//
+// Memory accesses with implicit register operands omitted
+//===----------------------------------------------------------------------===//
+
+class IA64HintAlias<string mnemonic, string operands, dag result>
+    : InstAlias<mnemonic#"${qp}${hint}\t"#operands, result, 0>;
+
+// 16-byte accesses keep the other half in ar.csd, and cmpxchg compares
+// against ar.ccv. GNU as accepts them without either operand.
+def : IA64HintAlias<"ld16", "$r1 = [$r3]",
+                    (LD16 GR:$r1, GR:$r3, dahint:$hint, qp:$qp)>;
+def : IA64HintAlias<"ld16.acq", "$r1 = [$r3]",
+                    (LD16_ACQ GR:$r1, GR:$r3, dahint:$hint, qp:$qp)>;
+def : IA64HintAlias<"st16", "[$r3] = $r2",
+                    (ST16 GR:$r3, GR:$r2, dahint:$hint, qp:$qp)>;
+def : IA64HintAlias<"st16.rel", "[$r3] = $r2",
+                    (ST16_REL GR:$r3, GR:$r2, dahint:$hint, qp:$qp)>;
+foreach S = IntSizes in
+  foreach K = ["acq", "rel"] in
+    def : IA64HintAlias<"cmpxchg"#S.Name#"."#K, "$r1 = [$r3], $r2",
+                        (!cast<Instruction>("CMPXCHG"#S.Name#"_"#!toupper(K))
+                           GR:$r1, GR:$r3, GR:$r2, ldhint:$hint, qp:$qp)>;
+foreach K = ["acq", "rel"] in
+  def : IA64HintAlias<"cmp8xchg16."#K, "$r1 = [$r3], $r2",
+                      (!cast<Instruction>("CMP8XCHG16_"#!toupper(K))
+                         GR:$r1, GR:$r3, GR:$r2, ldhint:$hint, qp:$qp)>;
+
+//===----------------------------------------------------------------------===//
 // Integer compare
 //===----------------------------------------------------------------------===//
 

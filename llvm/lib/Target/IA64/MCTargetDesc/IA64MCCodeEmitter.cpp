@@ -67,6 +67,12 @@ public:
     return static_cast<uint64_t>(N - MI.getOperand(OpNo).getImm());
   }
 
+  uint64_t getStrideOpValue(const MCInst &MI, unsigned OpNo,
+                            SmallVectorImpl<MCFixup> &Fixups,
+                            const MCSubtargetInfo &STI) const {
+    return static_cast<uint64_t>(MI.getOperand(OpNo).getImm() >> 6) & 0x1f;
+  }
+
   uint64_t getPmpyshrCountOpValue(const MCInst &MI, unsigned OpNo,
                                   SmallVectorImpl<MCFixup> &Fixups,
                                   const MCSubtargetInfo &STI) const;

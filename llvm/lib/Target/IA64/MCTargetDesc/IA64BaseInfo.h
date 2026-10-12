@@ -85,6 +85,14 @@ inline const char *getHintName(uint64_t Hint) {
     return ".nt2";
   case 3:
     return ".nta";
+  case 4:
+    return ".d4";
+  case 5:
+    return ".d5";
+  case 6:
+    return ".d6";
+  case 7:
+    return ".d7";
   }
   return nullptr;
 }

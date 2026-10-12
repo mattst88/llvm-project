@@ -60,11 +60,43 @@
 // CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction
 	hint.m 0x80000
 
-// A load takes no .nt2 hint and a store only .nta.
+// A load that changes its base takes no .nt2 hint and a store that does only
+// .nta, and neither takes a data access hint. Only a prefetch has .d0.
+// CHECK: :[[#@LINE+1]]:21: error: invalid operand for instruction
+	ld8.nt2 r4 = [r5], 8
+// CHECK: :[[#@LINE+1]]:20: error: invalid operand for instruction
+	ld8.d1 r4 = [r5], r6
+// CHECK: :[[#@LINE+1]]:21: error: invalid operand for instruction
+	st8.nt1 [r4] = r5, 8
+// CHECK: :[[#@LINE+1]]:20: error: invalid operand for instruction
+	st8.d4 [r4] = r5, 8
 // CHECK: :[[#@LINE+1]]:5: error: invalid operand for instruction
-	ld8.nt2 r4 = [r5]
-// CHECK: :[[#@LINE+1]]:5: error: invalid operand for instruction
-	st8.nt1 [r4] = r5
+	ld8.d0 r4 = [r5]
+// CHECK: :[[#@LINE+1]]:7: error: invalid operand for instruction
+	ldfpd.d4 f6, f7 = [r5]
+// CHECK: :[[#@LINE+1]]:14: error: invalid operand for instruction
+	cmpxchg8.acq.d4 r4 = [r5], r6, ar.ccv
+
+// The counted prefetch takes 1 to 64 lines, and a stride that five signed
+// bits hold in units of 64.
+// CHECK: :[[#@LINE+1]]:21: error: count must be an integer in [1, 64]
+	lfetch.count [r4], 0, 64
+// CHECK: :[[#@LINE+1]]:21: error: count must be an integer in [1, 64]
+	lfetch.count [r4], 65, 64
+// CHECK: :[[#@LINE+1]]:24: error: stride must be a multiple of 64 in [-1024, 960]
+	lfetch.count [r4], 1, 1024
+// CHECK: :[[#@LINE+1]]:24: error: stride must be a multiple of 64 in [-1024, 960]
+	lfetch.count [r4], 1, -1025
+// CHECK: :[[#@LINE+1]]:24: warning: stride must be a multiple of 64; the low 6 bits are ignored
+	lfetch.count [r4], 1, 0x3bf
+
+// The data access hint registers are eight, and hold 16 bits.
+// CHECK: :[[#@LINE+1]]:14: error: invalid operand for instruction
+	mov dahr0 = 0x10000
+// CHECK: :[[#@LINE+1]]:6: error: invalid operand for instruction
+	mov dahr8 = 0
+// CHECK: :[[#@LINE+1]]:10: error: invalid operand for instruction
+	mov dahr[r4] = r5
 // CHECK: :[[#@LINE+1]]:5: error: invalid operand for instruction
 	add.nta r4 = r5, r6
 // CHECK: :[[#@LINE+1]]:9: error: invalid operand for instruction

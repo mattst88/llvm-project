@@ -201,7 +201,21 @@ static DecodeStatus decodeLongPCRel(MCInst &MI, uint64_t Imm, uint64_t Address,
   return MCDisassembler::Success;
 }
 
-/// The locality hint of a load, which cannot be .nt2.
+/// The locality hint of an access that does not update its base; any hint.
+static DecodeStatus decodeDataHint(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                   const MCDisassembler *Decoder) {
+  MI.addOperand(MCOperand::createImm(Imm));
+  return MCDisassembler::Success;
+}
+
+/// The stride of a counted prefetch: five signed bits, in units of 64.
+static DecodeStatus decodeStride(MCInst &MI, uint64_t Imm, uint64_t Address,
+                                 const MCDisassembler *Decoder) {
+  MI.addOperand(MCOperand::createImm(SignExtend64<5>(Imm) * 64));
+  return MCDisassembler::Success;
+}
+
+/// The locality hint of a base-updating load, which cannot be .nt2.
 static DecodeStatus decodeLoadHint(MCInst &MI, uint64_t Imm, uint64_t Address,
                                    const MCDisassembler *Decoder) {
   if (Imm == 2)

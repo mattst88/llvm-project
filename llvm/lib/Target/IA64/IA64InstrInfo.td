@@ -609,15 +609,16 @@ foreach K = FPLoadKinds in
     }
   }
 
-multiclass Fetch<bits<6> x6, string mnemonic> {
-  def "" : M13<x6, mnemonic>;
+multiclass Fetch<bits<6> x6, string mnemonic, bit hasCount = 0> {
+  def "" : M13<x6, mnemonic, hasCount>;
   def _r : M14<x6, mnemonic>;
   def _i : M15<x6, mnemonic>;
 }
-defm LFETCH            : Fetch<0x2c, "lfetch">;
+defm LFETCH            : Fetch<0x2c, "lfetch", /*hasCount=*/1>;
 defm LFETCH_EXCL       : Fetch<0x2d, "lfetch.excl">;
 defm LFETCH_FAULT      : Fetch<0x2e, "lfetch.fault">;
 defm LFETCH_FAULT_EXCL : Fetch<0x2f, "lfetch.fault.excl">;
+def LFETCH_COUNT : M13Count<0x2c, "lfetch.count">;
 
 let mayLoad = 1, mayStore = 1 in {
 foreach S = IntSizes in {
@@ -729,6 +730,11 @@ def MOV_FROM_PKR   : M43<0x13, "mov", "pkr">;
 def MOV_FROM_PMC   : M43<0x14, "mov", "pmc">;
 def MOV_FROM_PMD   : M43<0x15, "mov", "pmd">;
 def MOV_FROM_CPUID : M43<0x17, "mov", "cpuid">;
+
+// The data access hint registers, written from an immediate, and the
+// read-only DAHR stack.
+def MOV_DAHR      : M50<"mov">;
+def MOV_FROM_DAHR : M43<0x20, "mov", "dahr">;
 
 def SUM : M44<4, "sum">;
 def RUM : M44<5, "rum">;
