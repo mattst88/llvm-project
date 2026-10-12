@@ -353,9 +353,11 @@ static constexpr const CoreDefinition g_core_definitions[] = {
      ArchSpec::eCore_amd_gpu_unknown, "amdgpu"},
 
     // An instruction is a slot of a 16-byte bundle, and its address is the
-    // bundle's plus the number of the slot. So slots 0 and 1 are one byte
-    // and the last one, which may be slots 1 and 2 together, is the rest.
-    {eByteOrderLittle, 8, 1, 15, llvm::Triple::ia64, ArchSpec::eCore_ia64,
+    // bundle address plus the slot number. So slots 0 and 1 are one byte and
+    // the last, which may be slots 1 and 2 together, is the rest of the
+    // bundle. No slot can be decoded without its bundle's template, so the
+    // maximum opcode size is a full bundle.
+    {eByteOrderLittle, 8, 1, 16, llvm::Triple::ia64, ArchSpec::eCore_ia64,
      "ia64"},
 };
 

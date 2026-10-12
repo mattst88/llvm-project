@@ -47,6 +47,7 @@
 #include "lldb/Utility/Stream.h"
 
 #include <algorithm>
+#include <array>
 #include <optional>
 
 using namespace lldb;
@@ -502,7 +503,29 @@ public:
             GetDisasmToUse(is_alternate_isa, disasm);
 
         const llvm::Triple::ArchType machine = arch.GetMachine();
-        if (machine == llvm::Triple::arm || machine == llvm::Triple::thumb) {
+        if (machine == llvm::Triple::ia64) {
+          // The bundle starts slot-number bytes before pc.
+          const addr_t pc = m_address.GetFileAddress();
+          const unsigned slot = pc & 0xf;
+          m_opcode.Clear();
+          if (slot < IA64SlotsPerBundle && data_offset >= slot &&
+              data.ValidOffsetForDataOfSize(data_offset - slot,
+                                            IA64BundleBytes)) {
+            m_ia64_bundle.emplace();
+            memcpy(m_ia64_bundle->data(),
+                   data.PeekData(data_offset - slot, IA64BundleBytes),
+                   IA64BundleBytes);
+            // A slot that fails to decode still gets a size, so decoding
+            // continues with the next slot.
+            llvm::MCInst inst;
+            uint64_t inst_size =
+                slot == IA64SlotsPerBundle - 1 ? IA64BundleBytes - slot : 1;
+            m_is_valid = GetIA64MCInst(mc_disasm_ptr, pc, inst, inst_size);
+            m_opcode.SetOpcodeBytes(data.PeekData(data_offset, inst_size),
+                                    inst_size);
+          }
+        } else if (machine == llvm::Triple::arm ||
+                   machine == llvm::Triple::thumb) {
           if (machine == llvm::Triple::thumb || is_alternate_isa) {
             uint32_t thumb_opcode = data.GetU16(&data_offset);
             if ((thumb_opcode & 0xe000) != 0xe000 ||
@@ -613,8 +636,11 @@ public:
         const size_t opcode_data_len = data.GetByteSize();
         llvm::MCInst inst;
         uint64_t inst_size = 0;
-        bool valid = mc_disasm_ptr->GetMCInst(opcode_data, opcode_data_len, pc,
-                                              inst, inst_size);
+        bool valid =
+            m_ia64_bundle
+                ? GetIA64MCInst(mc_disasm_ptr, pc, inst, inst_size)
+                : mc_disasm_ptr->GetMCInst(opcode_data, opcode_data_len, pc,
+                                           inst, inst_size);
 
         if (valid && inst_size > 0) {
           mc_disasm_ptr->SetStyle(use_hex_immediates, hex_style);
@@ -1197,6 +1223,50 @@ protected:
   bool m_is_authenticated = false;
   bool m_is_barrier = false;
 
+  // An IA-64 instruction is a slot of a 16-byte bundle whose template gives
+  // the instruction type of each slot, so a slot cannot be decoded without
+  // the rest of its bundle. Each instruction keeps a copy of its bundle.
+  static constexpr unsigned IA64BundleBytes = 16;
+  static constexpr unsigned IA64SlotsPerBundle = 3;
+  std::optional<std::array<uint8_t, IA64BundleBytes>> m_ia64_bundle;
+
+  /// Decodes the IA-64 instruction at \p pc from m_ia64_bundle.
+  ///
+  /// An instruction address is the bundle address plus the slot number: that
+  /// is what the processor reports, and what line tables and return
+  /// addresses hold. So slots 0 and 1 are one byte long here and the last
+  /// slot is the rest of the bundle. LLVM's IA-64 disassembler places the
+  /// slots at offsets 0, 6 and 12 in the bundle, and reads the whole bundle
+  /// when given the first.
+  ///
+  /// \p inst_size is unchanged if the slot does not decode.
+  bool GetIA64MCInst(DisassemblerLLVMC::MCDisasmInstance *mc_disasm_ptr,
+                     lldb::addr_t pc, llvm::MCInst &inst,
+                     uint64_t &inst_size) const {
+    const unsigned slot = pc & 0xf;
+    if (!m_ia64_bundle || slot >= IA64SlotsPerBundle)
+      return false;
+    const uint8_t *bundle = m_ia64_bundle->data();
+    const lldb::addr_t base = pc - slot;
+    uint64_t mc_size = 0;
+    bool valid =
+        mc_disasm_ptr->GetMCInst(bundle, IA64BundleBytes, base, inst, mc_size);
+    if (slot != 0) {
+      const unsigned offset = slot * 6;
+      inst = llvm::MCInst();
+      valid =
+          mc_disasm_ptr->GetMCInst(bundle + offset, IA64BundleBytes - offset,
+                                   base + offset, inst, mc_size);
+    }
+    if (!valid)
+      return false;
+    // The long instruction of an MLX bundle is slots 1 and 2 together.
+    const bool is_long = slot == 1 && mc_size == 10;
+    inst_size =
+        slot == IA64SlotsPerBundle - 1 || is_long ? IA64BundleBytes - slot : 1;
+    return true;
+  }
+
   void VisitInstruction() {
     if (m_has_visited_instruction)
       return;
@@ -1217,8 +1287,10 @@ protected:
     const size_t opcode_data_len = data.GetByteSize();
     llvm::MCInst inst;
     uint64_t inst_size = 0;
-    const bool valid = mc_disasm_ptr->GetMCInst(opcode_data, opcode_data_len,
-                                                pc, inst, inst_size);
+    const bool valid =
+        m_ia64_bundle ? GetIA64MCInst(mc_disasm_ptr, pc, inst, inst_size)
+                      : mc_disasm_ptr->GetMCInst(opcode_data, opcode_data_len,
+                                                 pc, inst, inst_size);
     if (!valid)
       return;
 
