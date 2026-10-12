@@ -19,10 +19,9 @@ declare void @take_split(i64, i64, i64, i64, i64, i64,
 
 define void @small(ptr %p) {
 ; CHECK-LABEL: small:
-; CHECK:       adds r14 = 8, r32
-; CHECK-NEXT:  ld8 r35 = [r32]
-; CHECK-NEXT:  mov r32 = r1 ;;
-; CHECK-NEXT:  ld8 r36 = [r14]
+; CHECK:       ld8 r36 = [r32], 8
+; CHECK-NEXT:  mov r33 = r1 ;;
+; CHECK-NEXT:  ld8 r37 = [r32]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take ;;
   call void @take(ptr byval(%struct.s) align 8 %p)
   ret void
@@ -31,14 +30,13 @@ define void @small(ptr %p) {
 ; The bytes after the last of the argument are not read.
 define void @odd(ptr %p) {
 ; CHECK-LABEL: odd:
-; CHECK:       adds r14 = 10, r32
-; CHECK-NEXT:  adds r15 = 8, r32
-; CHECK-NEXT:  mov r33 = r1 ;;
-; CHECK-NEXT:  ld1 r14 = [r14]
-; CHECK-NEXT:  ld2 r15 = [r15] ;;
-; CHECK-NEXT:  shl r14 = r14, 16 ;;
-; CHECK-NEXT:  or r37 = r15, r14
-; CHECK-NEXT:  ld8 r36 = [r32]
+; CHECK:       adds r14 = 8, r32
+; CHECK-NEXT:  ld8 r35 = [r32], 10 ;;
+; CHECK-NEXT:  ld1 r15 = [r32]
+; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  ld2 r14 = [r14] ;;
+; CHECK-NEXT:  shl r15 = r15, 16 ;;
+; CHECK-NEXT:  or r36 = r14, r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_odd ;;
   call void @take_odd(ptr byval(%struct.odd) align 8 %p)
   ret void
@@ -50,10 +48,10 @@ define void @odd(ptr %p) {
 define void @large(ptr %p, i64 %x) {
 ; CHECK-LABEL: large:
 ; CHECK:       adds r12 = -976, r12
-; CHECK:       adds r46 = 64, r32 ;;
-; CHECK-NEXT:  adds r45 = 16, r12
-; CHECK-NEXT:  mov r47 = 960
-; CHECK:       ld8 r{{[0-9]+}} = [r32]
+; CHECK:       mov r45 = r32 ;;
+; CHECK-NEXT:  adds r44 = 16, r12
+; CHECK-NEXT:  mov r46 = 960
+; CHECK:       ld8 r{{[0-9]+}} = [r45], 64 ;;
 ; CHECK:       br.call.sptk.many b0 = memcpy ;;
 ; CHECK-NEXT:  adds r14 = 976, r12
 ; CHECK:       st8 [r14] = r33
@@ -65,11 +63,11 @@ define void @large(ptr %p, i64 %x) {
 ; One that is aligned to sixteen bytes begins at an even slot.
 define void @aligned(ptr %p) {
 ; CHECK-LABEL: aligned:
-; CHECK:       ld8 r37 = [r32]
-; CHECK-NEXT:  mov r35 = r0 ;;
+; CHECK:       mov r35 = r0 ;;
+; CHECK-NEXT:  ld8 r37 = [r14], 24 ;;
 ; CHECK-NEXT:  ld8 r40 = [r14]
-; CHECK:       ld8 r39 = [r14]
-; CHECK:       ld8 r38 = [r14]
+; CHECK:       ld8 r39 = [r15] ;;
+; CHECK-NEXT:  ld8 r38 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_al ;;
   call void @take_al(i64 0, ptr byval(%struct.al) align 16 %p)
   ret void
@@ -80,10 +78,10 @@ define void @split(ptr %p) {
 ; CHECK-LABEL: split:
 ; CHECK:       adds r15 = 16, r12
 ; CHECK:       ld8 r42 = [r14]
-; CHECK:       ld8 r41 = [r32] ;;
+; CHECK:       ld8 r41 = [r32], 24 ;;
 ; CHECK-NEXT:  st8 [r15] = r14
-; CHECK-NEXT:  adds r14 = 24, r32
 ; CHECK-NEXT:  adds r15 = 24, r12
+; CHECK-NEXT:  ld8 r14 = [r32]
 ; CHECK:       st8 [r15] = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_split ;;
   call void @take_split(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5,

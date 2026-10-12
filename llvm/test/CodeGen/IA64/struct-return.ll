@@ -47,7 +47,8 @@ define void @forward(ptr sret(%big) %res, i64 %a) {
 
 define i512 @wide(i512 %a) {
 ; CHECK-LABEL: wide:
-; CHECK:         st8 [r8] = r32
+; CHECK:         mov r15 = r8
+; CHECK:         st8 [r15] = r32, 48
   ret i512 %a
 }
 

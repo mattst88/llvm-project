@@ -39,15 +39,14 @@ define void @library(ptr %d, ptr %s, i64 %n) {
 ; call through one takes it from there and puts this function's back.
 define i64 @indirect(ptr %f, i64 %a) {
 ; CHECK-LABEL: indirect:
-; CHECK:       ld8 r14 = [r32]
-; CHECK-NEXT:  adds r15 = 8, r32
-; CHECK-NEXT:  mov r36 = r33
-; CHECK-NEXT:  mov r32 = r1 ;;
-; CHECK-NEXT:  ld8 r15 = [r15]
+; CHECK:       ld8 r14 = [r32], 8
+; CHECK-NEXT:  mov r37 = r33
+; CHECK-NEXT:  mov r34 = r1 ;;
+; CHECK-NEXT:  ld8 r15 = [r32]
 ; CHECK-NEXT:  mov b6 = r14 ;;
 ; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
-; CHECK-NEXT:  mov r1 = r32
+; CHECK-NEXT:  mov r1 = r34
   %r = call i64 %f(i64 %a)
   ret i64 %r
 }

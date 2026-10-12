@@ -74,6 +74,14 @@ public:
 
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
 
+  // The only addressing mode is a plain register.
+  bool isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM, Type *Ty,
+                             unsigned AddrSpace,
+                             Instruction *I = nullptr) const override {
+    return !AM.BaseGV && AM.BaseOffs == 0 &&
+           (AM.Scale == 0 || (AM.Scale == 1 && !AM.HasBaseReg));
+  }
+
   bool getPostIndexedAddressParts(SDNode *N, SDNode *Op, SDValue &Base,
                                   SDValue &Offset, ISD::MemIndexedMode &AM,
                                   SelectionDAG &DAG) const override;
