@@ -53,10 +53,10 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .scalarize(0)
       .widenScalarToNextMultipleOf(0, 64)
       .clampScalar(0, s64, s64);
+  // The high half of a narrower product comes from the widened product.
   getActionDefinitionsBuilder({G_UMULH, G_SMULH})
       .legalFor({s64})
       .scalarize(0)
-      .minScalar(0, s64)
       .lower();
   getActionDefinitionsBuilder({G_SMULO, G_UMULO}).lower();
 
