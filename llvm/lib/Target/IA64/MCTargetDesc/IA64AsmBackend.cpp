@@ -81,7 +81,7 @@ MCFixupKindInfo IA64AsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_ia64_pcrel21m", 20, 13, 0}, {"fixup_ia64_pcrel21f", 6, 20, 0},
       {"fixup_ia64_pcrel60b", 2, 39, 0},  {"fixup_ia64_tag13b", 6, 7, 0},
       {"fixup_ia64_tag13i", 24, 9, 0},    {"fixup_ia64_ldxmov", 0, 0, 0},
-      {"fixup_ia64_iplt", 0, 128, 0},
+      {"fixup_ia64_iplt", 0, 128, 0},     {"fixup_ia64_bundle", 0, 0, 0},
   };
   if (Kind < FirstTargetFixupKind)
     return MCAsmBackend::getFixupKindInfo(Kind);
@@ -109,6 +109,12 @@ void IA64AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
                                 const MCValue &Target, uint8_t *Data,
                                 uint64_t Value, bool IsResolved) {
   MCFixupKind Kind = Fixup.getKind();
+  if (Kind == IA64::fixup_ia64_bundle) {
+    if ((Asm->getFragmentOffset(F) + Fixup.getOffset()) % IA64II::BundleBytes)
+      getContext().reportError(Fixup.getLoc(),
+                               "instruction address is not a multiple of 16");
+    return;
+  }
   bool IsTag =
       Kind == IA64::fixup_ia64_tag13b || Kind == IA64::fixup_ia64_tag13i;
   // There is no relocation for a tag, so a preemptible global symbol

@@ -43,6 +43,9 @@ enum Fixups {
   // The two data16 words that the dynamic linker fills with a function's
   // address and gp, forming a non-official function descriptor.
   fixup_ia64_iplt,
+  // A bundle, which fills no field either: its address must be 16-byte
+  // aligned, and the preceding code left its alignment unknown.
+  fixup_ia64_bundle,
 
   fixup_ia64_invalid,
   NumTargetFixupKinds = fixup_ia64_invalid - FirstTargetFixupKind

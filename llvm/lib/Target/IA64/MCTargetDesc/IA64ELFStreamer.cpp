@@ -143,6 +143,10 @@ class IA64ELFStreamer : public MCELFStreamer {
   /// leaving the pending instructions untouched.
   bool Elsewhere = false;
 
+  /// Whether something other than a bundle was emitted since the address was
+  /// last known to be 16-byte aligned, so the next bundle must be aligned.
+  bool OffGrid = false;
+
   /// Whether the pending instructions are inside bundle braces and so form
   /// one bundle.
   bool InBundle = false;
@@ -208,6 +212,22 @@ public:
   /// instruction.
   void leavePadding() { PaddingFragment = nullptr; }
 
+  /// Note that the next output may leave the address not bundle-aligned.
+  void leaveGrid() {
+    if (!Elsewhere)
+      OffGrid = true;
+  }
+  /// Note an alignment, which may restore bundle alignment.
+  void noteAlignment(Align Alignment, unsigned MaxBytesToEmit) {
+    if (!Elsewhere && Alignment >= IA64II::BundleBytes && !MaxBytesToEmit)
+      OffGrid = false;
+  }
+  /// Align to a bundle boundary if the address may be misaligned.
+  void alignForBundle() {
+    if (OffGrid)
+      emitValueToAlignment(Align(IA64II::BundleBytes), 0, 1, 0);
+  }
+
   /// Whether nothing has been written to the section since the padding.
   bool isAfterPadding() {
     if (!PaddingFragment ||
@@ -271,6 +291,7 @@ public:
     OpenFragment = nullptr;
     PaddingFragment = nullptr;
     StoppedPadding.clear();
+    OffGrid = false;
     InBundle = false;
     BraceStart = 0;
     NextTemplate = -1;
@@ -386,27 +407,33 @@ public:
   }
   void changeSection(MCSection *Section, uint32_t Subsection) override {
     flush();
+    leaveGrid();
     MCELFStreamer::changeSection(Section, Subsection);
   }
   void emitBytes(StringRef Data) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitBytes(Data);
   }
   void emitValueImpl(const MCExpr *Value, unsigned Size, SMLoc Loc) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitValueImpl(Value, Size, Loc);
   }
   void emitULEB128Value(const MCExpr *Value) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitULEB128Value(Value);
   }
   void emitSLEB128Value(const MCExpr *Value) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitSLEB128Value(Value);
   }
   void emitValueToAlignment(Align Alignment, int64_t Fill, uint8_t FillLen,
                             unsigned MaxBytesToEmit) override {
     flushForAlignment();
+    noteAlignment(Alignment, MaxBytesToEmit);
     MCELFStreamer::emitValueToAlignment(Alignment, Fill, FillLen,
                                         MaxBytesToEmit);
   }
@@ -414,6 +441,7 @@ public:
                          unsigned MaxBytesToEmit) override {
     flushForAlignment();
     PaddingFragment = Elsewhere ? nullptr : getCurrentFragment();
+    noteAlignment(Alignment, MaxBytesToEmit);
     MCELFStreamer::emitCodeAlignment(Alignment, STI, MaxBytesToEmit);
   }
   void emitPrefAlign(Align Alignment, const MCSymbol &End, bool EmitNops,
@@ -424,6 +452,7 @@ public:
   void emitValueToOffset(const MCExpr *Offset, unsigned char Value,
                          SMLoc Loc) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitValueToOffset(Offset, Value, Loc);
   }
   void emitRelocDirective(const MCExpr &Offset, StringRef Name,
@@ -442,16 +471,19 @@ public:
   void emitFill(const MCExpr &NumBytes, uint64_t FillValue,
                 SMLoc Loc) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitFill(NumBytes, FillValue, Loc);
   }
   void emitFill(const MCExpr &NumValues, int64_t Size, int64_t Expr,
                 SMLoc Loc) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitFill(NumValues, Size, Expr, Loc);
   }
   void emitNops(int64_t NumBytes, int64_t ControlledNopLength, SMLoc Loc,
                 const MCSubtargetInfo &STI) override {
     flush();
+    leaveGrid();
     MCELFStreamer::emitNops(NumBytes, ControlledNopLength, Loc, STI);
   }
 };
@@ -622,6 +654,17 @@ size_t IA64ELFStreamer::emitBundle(MutableArrayRef<PendingInst> Insts,
   uint64_t Slots[3];
   bool Used[3] = {false, false, false};
   SmallVector<MCFixup, 2> Fixups;
+  // The bundle's address is known only after layout.
+  if (OffGrid) {
+    // The expression only carries the source location.
+    const MCExpr *Where =
+        MCUnaryExpr::createPlus(MCConstantExpr::create(0, getContext()),
+                                getContext(), Insts[0].Inst.getLoc());
+    Fixups.push_back(
+        MCFixup::create(BundleOffset, Where,
+                        static_cast<MCFixupKind>(IA64::fixup_ia64_bundle)));
+    OffGrid = false;
+  }
   SmallString<12> Code;
   size_t Taken = 0;
   bool EndStop = false;
@@ -849,6 +892,7 @@ void IA64TargetELFStreamer::emitProc(ArrayRef<MCSymbol *> Entries) {
   // A procedure starts a new bundle and a new instruction group, which does
   // not include the padding before it.
   S.flush();
+  S.alignForBundle();
   S.leavePadding();
   // Discard unwind information from a procedure that was never ended.
   S.bindMarks(nullptr);
