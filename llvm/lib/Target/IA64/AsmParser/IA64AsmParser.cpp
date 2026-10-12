@@ -523,11 +523,36 @@ std::unique_ptr<IA64Operand> IA64AsmParser::defaultBranchDeallocOperand() {
 
 bool IA64AsmParser::validateInstruction(const MCInst &Inst,
                                         const OperandVector &Operands) {
-  if (Inst.getOpcode() != IA64::ALLOC)
+  const MCRegisterInfo &MRI = *getContext().getRegisterInfo();
+  // Operands are the mnemonic, the predicate, the destination, "=" and the
+  // source. A move that names its unit (mov.m, mov.i) must name an AR
+  // accessible from that unit.
+  auto CheckAR = [&](unsigned OpNo, unsigned ParsedNo, IA64II::Unit Unit) {
+    unsigned Number = MRI.getEncodingValue(Inst.getOperand(OpNo).getReg());
+    if (IA64::getARUnits(Number) & (1u << Unit))
+      return false;
+    return Error(Operands[ParsedNo]->getStartLoc(),
+                 Twine("application register is not one of the ") +
+                     (Unit == IA64II::UnitM ? "M" : "I") + " unit");
+  };
+  switch (Inst.getOpcode()) {
+  case IA64::MOV_M_AR:
+  case IA64::MOV_M_ARi:
+    return CheckAR(0, 2, IA64II::UnitM);
+  case IA64::MOV_M_FROM_AR:
+    return CheckAR(1, 4, IA64II::UnitM);
+  case IA64::MOV_I_AR:
+  case IA64::MOV_I_ARi:
+    return CheckAR(0, 2, IA64II::UnitI);
+  case IA64::MOV_I_FROM_AR:
+    return CheckAR(1, 4, IA64II::UnitI);
+  case IA64::ALLOC:
+    break;
+  default:
     return false;
+  }
 
-  // Operands are the mnemonic, the predicate, the destination, "=" and
-  // ar.pfs; the four sizes follow.
+  // After ar.pfs come the four sizes.
   auto Loc = [&](unsigned N) { return Operands[5 + N]->getStartLoc(); };
   uint64_t Inputs = Inst.getOperand(1).getImm();
   uint64_t Locals = Inst.getOperand(2).getImm();

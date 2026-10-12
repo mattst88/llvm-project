@@ -75,10 +75,7 @@ unsigned IA64::getOpcodeForUnit(unsigned Opcode, IA64II::Unit Unit) {
   return Opcode;
 }
 
-/// The units that can read or write application register \p Number: the M
-/// unit has the low ones and the I unit ar64 to ar111. Either can reach the
-/// ones that are ignored, ar48 to ar63 and ar112 to ar127.
-static unsigned getARUnits(unsigned Number) {
+unsigned IA64::getARUnits(unsigned Number) {
   if (Number < 48)
     return 1u << IA64II::UnitM;
   if (Number >= 64 && Number < 112)

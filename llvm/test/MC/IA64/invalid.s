@@ -105,6 +105,21 @@
 // CHECK: :[[#@LINE+1]]:13: error: invalid operand for instruction
 	alloc r4 = ar.lc, 2, 3, 4, 0
 
+// A move written with its unit names an application register that the
+// unit has.
+// CHECK: :[[#@LINE+1]]:8: error: application register is not one of the M unit
+	mov.m ar.lc = r4
+// CHECK: :[[#@LINE+1]]:8: error: application register is not one of the M unit
+	mov.m ar.pfs = 5
+// CHECK: :[[#@LINE+1]]:13: error: application register is not one of the M unit
+	mov.m r4 = ar.ec
+// CHECK: :[[#@LINE+1]]:8: error: application register is not one of the I unit
+	mov.i ar.k0 = r4
+// CHECK: :[[#@LINE+1]]:8: error: application register is not one of the I unit
+	mov.i ar.fpsr = 5
+// CHECK: :[[#@LINE+1]]:13: error: application register is not one of the I unit
+	mov.i r4 = ar.unat
+
 // A register that is read from by its index needs the index.
 // CHECK: :[[#@LINE+1]]:2: error: too few operands for instruction
 	mov r4 = cpuid

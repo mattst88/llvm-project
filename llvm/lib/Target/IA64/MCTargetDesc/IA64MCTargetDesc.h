@@ -40,6 +40,11 @@ namespace IA64 {
 /// The bytes the code emitter writes for one 41-bit instruction slot.
 constexpr unsigned SlotBytes = 6;
 
+/// The units that can access application register \p Number, one bit per
+/// IA64II::Unit: the M unit has the low ones and the I unit ar64-ar111.
+/// Either can access the ignored ones, ar48-ar63 and ar112-ar127.
+unsigned getARUnits(unsigned Number);
+
 /// The slot kinds that can hold \p MI, one bit per IA64II::Unit. Most
 /// instructions have one, or two for an A-unit instruction, but a pseudo-op
 /// such as "nop" takes the unit of the slot it lands in.
