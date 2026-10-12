@@ -87,7 +87,7 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .legalFor({p0});
 
   getActionDefinitionsBuilder(G_PTR_ADD).legalFor({{p0, s64}});
-  getActionDefinitionsBuilder(G_PTRMASK).lower();
+  getActionDefinitionsBuilder(G_PTRMASK).customFor({{p0, s64}});
   getActionDefinitionsBuilder(G_INTTOPTR)
       .legalFor({{p0, s64}})
       .clampScalar(1, s64, s64);
@@ -437,6 +437,17 @@ bool IA64LegalizerInfo::legalizeCustom(
           MIRBuilder.buildAnd(
               S64, Up, MIRBuilder.buildConstant(S64, -int64_t(Alignment))));
     }
+    MI.eraseFromParent();
+    return true;
+  }
+  case G_PTRMASK: {
+    // Mask the pointer as an integer.
+    LLT S64 = LLT::scalar(64);
+    MIRBuilder.buildIntToPtr(
+        MI.getOperand(0).getReg(),
+        MIRBuilder.buildAnd(
+            S64, MIRBuilder.buildPtrToInt(S64, MI.getOperand(1).getReg()),
+            MI.getOperand(2).getReg()));
     MI.eraseFromParent();
     return true;
   }
