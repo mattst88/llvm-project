@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -359,6 +360,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i64, Custom);
+  setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
   setOperationAction(ISD::JumpTable, MVT::i64, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
   setOperationAction(ISD::ConstantPool, MVT::i64, Custom);
@@ -429,6 +431,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerGET_ROUNDING(Op, DAG);
   case ISD::SET_ROUNDING:
     return LowerSET_ROUNDING(Op, DAG);
+  case ISD::INTRINSIC_WO_CHAIN:
+    return LowerINTRINSIC_WO_CHAIN(Op, DAG);
   case ISD::RETURNADDR:
     return LowerRETURNADDR(Op, DAG);
   case ISD::FRAMEADDR:
@@ -734,6 +738,17 @@ SDValue IA64TargetLowering::LowerRETURNADDR(SDValue Op,
     return DAG.getConstant(0, DL, MVT::i64);
   Register Reg = MF.addLiveIn(IA64::B0, &IA64::GRRegClass);
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, MVT::i64);
+}
+
+SDValue IA64TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
+                                                    SelectionDAG &DAG) const {
+  switch (Op.getConstantOperandVal(0)) {
+  default:
+    return SDValue();
+  case Intrinsic::thread_pointer:
+    return DAG.getCopyFromReg(DAG.getEntryNode(), SDLoc(Op), IA64::R13,
+                              MVT::i64);
+  }
 }
 
 // The frame address is SP on entry, where the caller's frame ends.
