@@ -1319,6 +1319,26 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
                                              Target.getEndLoc()));
   }
 
+  // An unsigned cmp4 accepts its immediate as a 32-bit value: 0xffffffff
+  // means -1.
+  if (StringRef Rest = Name; Rest.consume_front_insensitive("cmp4.")) {
+    StringRef Relation = Rest.take_until([](char C) { return C == '.'; });
+    if (Relation.equals_insensitive("ltu") ||
+        Relation.equals_insensitive("leu") ||
+        Relation.equals_insensitive("gtu") ||
+        Relation.equals_insensitive("geu"))
+      for (auto &Operand : Operands) {
+        auto &Op = static_cast<IA64Operand &>(*Operand);
+        if (!Op.isImm())
+          continue;
+        std::optional<int64_t> Value = Op.getConstant();
+        if (Value && isUInt<32>(*Value) && !isInt<32>(*Value))
+          Operand = IA64Operand::createImm(
+              MCConstantExpr::create(SignExtend64<32>(*Value), getContext()),
+              Op.getStartLoc(), Op.getEndLoc());
+      }
+  }
+
   // A shift by a constant is a pseudo-op for dep.z or extr of the remaining
   // bits.
   StringRef Field = StringSwitch<StringRef>(Name)
