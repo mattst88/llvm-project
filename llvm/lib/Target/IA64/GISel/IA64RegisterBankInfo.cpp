@@ -299,6 +299,7 @@ IA64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   // Extending loads read a field narrower than the register, which no FP
   // load does.
   case G_ZEXTLOAD:
+  case G_SEXTLOAD:
     break;
   case G_FADD:
   case G_FSUB:

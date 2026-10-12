@@ -147,7 +147,13 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .clampScalar(0, s64, s64)
       .lower();
 
+  // An s80 register value is always extended-precision FP. Conversions
+  // between it and integers go through memory (stfe/ldfe).
   getActionDefinitionsBuilder({G_SEXT, G_ZEXT, G_ANYEXT})
+      .customIf([=](const LegalityQuery &Query) {
+        return Query.Types[1] == s80 && Query.Types[0].isScalar() &&
+               Query.Types[0].getSizeInBits() % 64 == 0;
+      })
       .legalIf([=](const LegalityQuery &Query) {
         const LLT Dst = Query.Types[0];
         const LLT Src = Query.Types[1];
@@ -157,6 +163,10 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .scalarize(0)
       .maxScalar(0, s64);
   getActionDefinitionsBuilder(G_TRUNC)
+      .customIf([=](const LegalityQuery &Query) {
+        return Query.Types[0] == s80 && Query.Types[1].isScalar() &&
+               Query.Types[1].getSizeInBits() % 64 == 0;
+      })
       .legalIf(
           [=](const LegalityQuery &Query) { return Query.Types[0].isScalar(); })
       .scalarize(0);
@@ -218,6 +228,11 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
         .legalIf([=](const LegalityQuery &Query) {
           return Query.Types[BigTy].isVector();
         })
+        // An s80 value is always extended-precision FP; its parts are
+        // accessed through memory.
+        .customIf([=](const LegalityQuery &Query) {
+          return Query.Types[BigTy] == s80;
+        })
         // Non-byte-sized parts are lowered to shifts. Widening them would
         // produce an unmerge into wider parts plus truncates, which fold
         // back into the original. Nor can a non-power-of-two part size,
@@ -228,6 +243,8 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
           return BigBits <= 64 && (LitBits < 8 || !isPowerOf2_32(LitBits) ||
                                    !isPowerOf2_32(BigBits));
         })
+        .widenScalarToNextPow2(LitTy, 8)
+        .widenScalarToNextPow2(BigTy, 32)
         .clampScalar(LitTy, s8, s64)
         .clampScalar(BigTy, s16, s128)
         // Values wider than a register stay as their halves and are only
@@ -526,6 +543,95 @@ bool IA64LegalizerInfo::legalizeCustom(
             .addReg(IA64::P0);
       }
     }
+    MI.eraseFromParent();
+    return true;
+  }
+  case G_SEXT:
+  case G_ZEXT:
+  case G_ANYEXT:
+  case G_TRUNC: {
+    // stfe stores an extended value as 10 bytes: a doubleword plus 2 bytes,
+    // which are sign- or zero-extended when converting to a wider integer.
+    // ldfe reads the low 10 bytes of an integer stored there.
+    MachineRegisterInfo &MRI = MF.getRegInfo();
+    LLT P0 = LLT::pointer(0, 64);
+    LLT S16 = LLT::scalar(16);
+    LLT S64 = LLT::scalar(64);
+    Register Dst = MI.getOperand(0).getReg();
+    Register Src = MI.getOperand(1).getReg();
+    int FI = MF.getFrameInfo().CreateStackObject(16, Align(16), false);
+    auto Slot = MIRBuilder.buildFrameIndex(P0, FI);
+    auto SlotHigh =
+        MIRBuilder.buildPtrAdd(P0, Slot, MIRBuilder.buildConstant(S64, 8));
+    MachinePointerInfo SlotInfo = MachinePointerInfo::getFixedStack(MF, FI);
+    MachineMemOperand *High = MF.getMachineMemOperand(
+        SlotInfo.getWithOffset(8),
+        MI.getOpcode() == G_TRUNC ? MachineMemOperand::MOStore
+                                  : MachineMemOperand::MOLoad,
+        S16, Align(8));
+    if (MI.getOpcode() == G_TRUNC) {
+      auto Parts = MIRBuilder.buildUnmerge(S64, Src);
+      MIRBuilder.buildStore(Parts.getReg(0), Slot, SlotInfo, Align(16));
+      MIRBuilder.buildStore(Parts.getReg(1), SlotHigh, *High);
+      MIRBuilder.buildLoad(Dst, Slot, SlotInfo, Align(16));
+    } else {
+      bool Signed = MI.getOpcode() == G_SEXT;
+      MIRBuilder.buildStore(Src, Slot, SlotInfo, Align(16));
+      SmallVector<Register, 4> Parts;
+      Parts.push_back(
+          MIRBuilder.buildLoad(S64, Slot, SlotInfo, Align(16)).getReg(0));
+      Parts.push_back(MIRBuilder
+                          .buildLoadInstr(Signed ? G_SEXTLOAD : G_ZEXTLOAD, S64,
+                                          SlotHigh, *High)
+                          .getReg(0));
+      Register Rest;
+      while (Parts.size() != MRI.getType(Dst).getSizeInBits() / 64) {
+        if (!Rest)
+          Rest = Signed ? MIRBuilder
+                              .buildAShr(S64, Parts[1],
+                                         MIRBuilder.buildConstant(S64, 63))
+                              .getReg(0)
+                        : MIRBuilder.buildConstant(S64, 0).getReg(0);
+        Parts.push_back(Rest);
+      }
+      MIRBuilder.buildMergeLikeInstr(Dst, Parts);
+    }
+    MI.eraseFromParent();
+    return true;
+  }
+  case G_MERGE_VALUES:
+  case G_UNMERGE_VALUES: {
+    // Unmerge: stfe to a stack slot and load the parts. Merge: store the
+    // parts and ldfe the whole.
+    LLT P0 = LLT::pointer(0, 64);
+    LLT S64 = LLT::scalar(64);
+    bool IsMerge = MI.getOpcode() == G_MERGE_VALUES;
+    unsigned NumParts = MI.getNumOperands() - 1;
+    Register Whole = MI.getOperand(IsMerge ? 0 : NumParts).getReg();
+    LLT PartTy =
+        MF.getRegInfo().getType(MI.getOperand(IsMerge ? 1 : 0).getReg());
+    unsigned PartBytes = PartTy.getSizeInBytes();
+    if (PartTy.getSizeInBits() != PartBytes * 8 || !isPowerOf2_32(PartBytes))
+      return false;
+    int FI = MF.getFrameInfo().CreateStackObject(16, Align(16), false);
+    auto Slot = MIRBuilder.buildFrameIndex(P0, FI);
+    MachinePointerInfo SlotInfo = MachinePointerInfo::getFixedStack(MF, FI);
+    if (!IsMerge)
+      MIRBuilder.buildStore(Whole, Slot, SlotInfo, Align(16));
+    for (unsigned Part = 0; Part != NumParts; ++Part) {
+      unsigned Offset = Part * PartBytes;
+      Register PartReg = MI.getOperand(IsMerge ? Part + 1 : Part).getReg();
+      auto Address = MIRBuilder.buildPtrAdd(
+          P0, Slot, MIRBuilder.buildConstant(S64, Offset));
+      MachinePointerInfo Info = SlotInfo.getWithOffset(Offset);
+      Align Alignment = commonAlignment(Align(16), Offset);
+      if (IsMerge)
+        MIRBuilder.buildStore(PartReg, Address, Info, Alignment);
+      else
+        MIRBuilder.buildLoad(PartReg, Address, Info, Alignment);
+    }
+    if (IsMerge)
+      MIRBuilder.buildLoad(Whole, Slot, SlotInfo, Align(16));
     MI.eraseFromParent();
     return true;
   }
