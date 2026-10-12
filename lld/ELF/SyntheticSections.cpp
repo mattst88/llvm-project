@@ -4268,19 +4268,22 @@ bool elf::isIA64DynamicFdesc(Ctx &ctx, const Symbol &sym) {
   return sym.isPreemptible || (sym.isExported && ctx.hasDynsym);
 }
 
-// Two references name the same address, and so share an entry, when they are
-// to the same place in the same section: a local symbol and its section's
-// symbol with an addend are interchangeable in what an assembler emits.
+// Two references share an entry when they resolve to the same offset in the
+// same section, since an assembler may emit either a local symbol or its
+// section symbol plus an addend. Only symbols defined by object files have a
+// section offset at this point; symbols defined by a linker script or by the
+// linker are placed during address assignment.
 static std::pair<const void *, uint64_t> ia64EntryKey(const Symbol &sym,
                                                       int64_t addend) {
-  if (auto *d = dyn_cast<Defined>(&sym); d && !sym.isPreemptible) {
-    if (!d->section)
-      return {nullptr, d->value + addend};
-    if (auto *isec = dyn_cast<InputSection>(d->section))
-      return {isec->repl, d->value + addend};
-    return {d->section, d->value + addend};
-  }
-  return {&sym, addend};
+  auto *d = dyn_cast<Defined>(&sym);
+  if (!d || sym.isPreemptible || !d->file ||
+      d->file->kind() != InputFile::ObjKind)
+    return {&sym, addend};
+  if (!d->section)
+    return {nullptr, d->value + addend};
+  if (auto *isec = dyn_cast<InputSection>(d->section))
+    return {isec->repl, d->value + addend};
+  return {d->section, d->value + addend};
 }
 
 IA64OpdSection::IA64OpdSection(Ctx &ctx)
