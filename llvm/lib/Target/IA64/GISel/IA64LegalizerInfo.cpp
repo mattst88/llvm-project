@@ -125,6 +125,9 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
                                  {s32, p0, s32, 32},
                                  {p0, p0, s64, 64},
                                  {s80, p0, s80, 128}})
+      // s80 accesses that may be under-aligned go through an aligned stack
+      // slot.
+      .customIf([=](const LegalityQuery &Q) { return Q.Types[0] == s80; })
       .scalarize(0)
       .lowerIf([=](const LegalityQuery &Q) {
         return Q.Types[0].getScalarSizeInBits() > 64 && Q.Types[0] != s80 &&
@@ -522,6 +525,55 @@ bool IA64LegalizerInfo::legalizeCustom(
             .addReg(From)
             .addReg(IA64::P0);
       }
+    }
+    MI.eraseFromParent();
+    return true;
+  }
+  case G_LOAD:
+  case G_STORE: {
+    // Copy the 10 bytes as an 8-byte and a 2-byte access between the
+    // original address and a 16-byte-aligned stack slot, where ldfe/stfe get
+    // the alignment they require.
+    auto &Access = cast<GLoadStore>(MI);
+    LLT P0 = LLT::pointer(0, 64);
+    LLT S16 = LLT::scalar(16);
+    LLT S64 = LLT::scalar(64);
+    LLT S80 = LLT::scalar(80);
+    Register Value = MI.getOperand(0).getReg();
+    Register Pointer = Access.getPointerReg();
+    const MachineMemOperand &MMO = Access.getMMO();
+    if (MMO.getMemoryType() != S80 || MMO.isAtomic())
+      return false;
+    int FI = MF.getFrameInfo().CreateStackObject(16, Align(16), false);
+    auto Slot = MIRBuilder.buildFrameIndex(P0, FI);
+    MachinePointerInfo SlotInfo = MachinePointerInfo::getFixedStack(MF, FI);
+    auto Eight = MIRBuilder.buildConstant(S64, 8);
+    auto SlotHigh = MIRBuilder.buildPtrAdd(P0, Slot, Eight);
+    auto PointerHigh = MIRBuilder.buildPtrAdd(P0, Pointer, Eight);
+    MachineMemOperand *Low = MF.getMachineMemOperand(&MMO, 0, S64);
+    MachineMemOperand *High = MF.getMachineMemOperand(&MMO, 8, S16);
+    bool IsLoad = MI.getOpcode() == G_LOAD;
+    if (!IsLoad)
+      MIRBuilder.buildStore(Value, Slot, SlotInfo, Align(16));
+    Register From = IsLoad ? Pointer : Slot.getReg(0);
+    Register FromHigh = IsLoad ? PointerHigh.getReg(0) : SlotHigh.getReg(0);
+    Register To = IsLoad ? Slot.getReg(0) : Pointer;
+    Register ToHigh = IsLoad ? SlotHigh.getReg(0) : PointerHigh.getReg(0);
+    auto LowValue = IsLoad
+                        ? MIRBuilder.buildLoad(S64, From, *Low)
+                        : MIRBuilder.buildLoad(S64, From, SlotInfo, Align(16));
+    auto HighValue =
+        IsLoad ? MIRBuilder.buildLoad(S16, FromHigh, *High)
+               : MIRBuilder.buildLoad(S16, FromHigh, SlotInfo.getWithOffset(8),
+                                      Align(8));
+    if (IsLoad) {
+      MIRBuilder.buildStore(LowValue, To, SlotInfo, Align(16));
+      MIRBuilder.buildStore(HighValue, ToHigh, SlotInfo.getWithOffset(8),
+                            Align(8));
+      MIRBuilder.buildLoad(Value, Slot, SlotInfo, Align(16));
+    } else {
+      MIRBuilder.buildStore(LowValue, To, *Low);
+      MIRBuilder.buildStore(HighValue, ToHigh, *High);
     }
     MI.eraseFromParent();
     return true;
