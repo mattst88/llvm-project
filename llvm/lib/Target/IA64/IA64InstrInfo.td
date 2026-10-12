@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+include "IA64Schedule.td"
 include "IA64InstrFormats.td"
 
 //===----------------------------------------------------------------------===//
@@ -45,6 +46,7 @@ def ADJCALLSTACKUP   : IA64Pseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
 // call, which also keeps it from being coalesced with r1. An r0 save register
 // means the callee is known to be in this module.
 let isCall = 1, Defs = [B0, R1] in
+let SchedRW = [WriteBr] in
 def CALL : IA64Pseudo<(outs), (ins calltarget:$target, GRSave:$gp, variable_ops),
                       "#CALL", []>;
 
@@ -52,6 +54,7 @@ def CALL : IA64Pseudo<(outs), (ins calltarget:$target, GRSave:$gp, variable_ops)
 // registers, and the register frame is resized to just those:
 // "alloc r2 = ar.pfs, 0, 0, inputs, 0" and "br.cond.sptk.many target".
 let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in
+let SchedRW = [WriteBr] in
 def TCRETURN : IA64Pseudo<(outs),
                           (ins calltarget:$target, i64imm:$inputs,
                                variable_ops),
@@ -60,6 +63,7 @@ def TCRETURN : IA64Pseudo<(outs),
 // An indirect call through a function descriptor. The entry point and GP have
 // already been loaded from it; the entry point goes to b6 and the GP to r1.
 let isCall = 1, Defs = [B0, B6, R1] in
+let SchedRW = [WriteBr] in
 def CALL_IND : IA64Pseudo<(outs),
                           (ins GR:$entry, GR:$calleegp, GRSave:$gp,
                                variable_ops),
@@ -73,11 +77,14 @@ def CALL_IND : IA64Pseudo<(outs),
 // the second compare operand is a register or an immediate. The "f" forms
 // compare FP registers.
 let Defs = [P6, P7] in {
+let SchedRW = [WriteSelect] in
 def SETCC  : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, GR:$rhs),
                         "#SETCC", []>;
+let SchedRW = [WriteSelect] in
 def SETCCi : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, GR:$lhs, i64imm:$rhs),
                         "#SETCCi", []>;
 let Uses = [AR40], mayRaiseFPException = 1 in {
+let SchedRW = [WriteFSelect] in
 def SETCCf : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
                         "#SETCCf", []>;
 
@@ -85,8 +92,10 @@ def SETCCf : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
 // predicates, but for equality and ordered/unordered tests only on a signaling
 // NaN. These are compares that raise it for no predicate (quiet) and for every
 // predicate (signaling).
+let SchedRW = [WriteFSelect] in
 def SETCCfq : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
                          "#SETCCfq", []>;
+let SchedRW = [WriteFSelect] in
 def SETCCfs : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
                          "#SETCCfs", []>;
 }
@@ -94,30 +103,36 @@ def SETCCfs : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
 // Select: $r1 is tied to $false and overwritten with $true under the
 // predicate.
 let Constraints = "$false = $r1" in {
+let SchedRW = [WriteSelect] in
 def SELECT  : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$false, GR:$true, i64imm:$cc, GR:$lhs,
                               GR:$rhs),
                          "#SELECT", []>;
+let SchedRW = [WriteSelect] in
 def SELECTi : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$false, GR:$true, i64imm:$cc, GR:$lhs,
                               i64imm:$rhs),
                          "#SELECTi", []>;
 let Uses = [AR40], mayRaiseFPException = 1 in
+let SchedRW = [WriteFSelect] in
 def SELECTf : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$false, GR:$true, i64imm:$cc, FR:$lhs,
                               FR:$rhs),
                          "#SELECTf", []>;
 
 // The same, selecting between FP registers.
+let SchedRW = [WriteSelect] in
 def SELECT_FR  : IA64Pseudo<(outs FR:$r1),
                             (ins FR:$false, FR:$true, i64imm:$cc, GR:$lhs,
                                  GR:$rhs),
                             "#SELECT_FR", []>;
+let SchedRW = [WriteSelect] in
 def SELECT_FRi : IA64Pseudo<(outs FR:$r1),
                             (ins FR:$false, FR:$true, i64imm:$cc, GR:$lhs,
                                  i64imm:$rhs),
                             "#SELECT_FRi", []>;
 let Uses = [AR40], mayRaiseFPException = 1 in
+let SchedRW = [WriteFSelect] in
 def SELECT_FRf : IA64Pseudo<(outs FR:$r1),
                             (ins FR:$false, FR:$true, i64imm:$cc, FR:$lhs,
                                  FR:$rhs),
@@ -127,14 +142,17 @@ def SELECT_FRf : IA64Pseudo<(outs FR:$r1),
 // A conditional branch, predicated on the compare. It is not expanded until
 // blocks can no longer be moved.
 let isBranch = 1, isTerminator = 1 in {
+let SchedRW = [WriteBr] in
 def BRCC  : IA64Pseudo<(outs),
                        (ins brtarget:$target, i64imm:$cc, GR:$lhs, GR:$rhs),
                        "#BRCC", []>;
+let SchedRW = [WriteBr] in
 def BRCCi : IA64Pseudo<(outs),
                        (ins brtarget:$target, i64imm:$cc, GR:$lhs,
                             i64imm:$rhs),
                        "#BRCCi", []>;
 let Uses = [AR40], mayRaiseFPException = 1 in
+let SchedRW = [WriteBr] in
 def BRCCf : IA64Pseudo<(outs),
                        (ins brtarget:$target, i64imm:$cc, FR:$lhs, FR:$rhs),
                        "#BRCCf", []>;
@@ -145,6 +163,7 @@ def BRCCf : IA64Pseudo<(outs),
 // p0 as their qualifying predicate, but the code generator needs a distinct
 // opcode, so this stands for "br.cond" until it is emitted.
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+let SchedRW = [WriteBr] in
 def BRUNCOND : IA64Pseudo<(outs), (ins brtarget:$target), "#BRUNCOND", []>;
 
 // An indirect branch through a GR, via b6: "mov b6 = r" and
@@ -152,6 +171,7 @@ def BRUNCOND : IA64Pseudo<(outs), (ins brtarget:$target), "#BRUNCOND", []>;
 // terminator.
 let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1,
     Defs = [B6] in
+let SchedRW = [WriteBr] in
 def BRIND : IA64Pseudo<(outs), (ins GR:$target), "#BRIND", []>;
 
 // The address of the most recent dynamic stack allocation, which lies above
@@ -163,6 +183,7 @@ def FRAMEADDR : IA64Pseudo<(outs GR:$r1), (ins), "#FRAMEADDR", []>;
 // A $size-byte compare-and-exchange. The compare value must first be moved to
 // ar.ccv, which is why this stays a single pseudo until register allocation.
 let Defs = [AR32], mayLoad = 1, mayStore = 1, hasSideEffects = 1 in
+let SchedRW = [WriteSem] in
 def CMPXCHG : IA64Pseudo<(outs GR:$r1),
                          (ins GR:$r3, GR:$cmp, GR:$new, i64imm:$size),
                          "#CMPXCHG", []>;
@@ -173,8 +194,10 @@ def CMPXCHG : IA64Pseudo<(outs GR:$r1),
 // side-effecting pseudos rather than plain moves.
 let hasSideEffects = 1 in {
 let Uses = [AR40] in
+let SchedRW = [WriteFromAR] in
 def GET_FPSR : IA64Pseudo<(outs GR:$r1), (ins), "#GET_FPSR", []>;
 let Defs = [AR40] in
+let SchedRW = [WriteToAR] in
 def SET_FPSR : IA64Pseudo<(outs), (ins GR:$r2), "#SET_FPSR", []>;
 }
 
@@ -195,10 +218,12 @@ def SET_FPSR : IA64Pseudo<(outs), (ins GR:$r2), "#SET_FPSR", []>;
 let hasSideEffects = 0, Defs = [P6], Uses = [AR40], mayRaiseFPException = 1,
     Constraints = "@earlyclobber $f1,@earlyclobber $q,@earlyclobber $e,"
                   "@earlyclobber $t" in {
+let SchedRW = [WriteFDiv, WriteFMA, WriteFMA, WriteFMA] in
 def FDIV_S : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
-                        (ins FR:$a, FR:$b), "#FDIV_S", []>;
+                        (ins FRAddend:$a, FR:$b), "#FDIV_S", []>;
+let SchedRW = [WriteFDiv, WriteFMA, WriteFMA, WriteFMA] in
 def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
-                        (ins FR:$a, FR:$b), "#FDIV_D", []>;
+                        (ins FRAddend:$a, FR:$b), "#FDIV_D", []>;
 }
 
 // Spills and reloads stay single pseudos until frame layout, so nothing can be
@@ -207,11 +232,15 @@ def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
 // reserved for this and is not marked as defined, since a reload whose result
 // is unused must look dead to be deleted.
 let mayStore = 1 in {
+let SchedRW = [WriteStore] in
 def SPILL_GR : IA64Pseudo<(outs), (ins GR:$src, i64imm:$fi), "#SPILL_GR", []>;
+let SchedRW = [WriteFStore] in
 def SPILL_FR : IA64Pseudo<(outs), (ins FR:$src, i64imm:$fi), "#SPILL_FR", []>;
 }
 let mayLoad = 1 in {
+let SchedRW = [WriteLoad] in
 def RELOAD_GR : IA64Pseudo<(outs GR:$dst), (ins i64imm:$fi), "#RELOAD_GR", []>;
+let SchedRW = [WriteFLoad] in
 def RELOAD_FR : IA64Pseudo<(outs FR:$dst), (ins i64imm:$fi), "#RELOAD_FR", []>;
 }
 
@@ -883,13 +912,18 @@ def HINT_X  : X5<1, "hint.x">;
 // moves go to whichever unit owns the register.
 def NOP   : IA64AnyUnit<(outs), (ins uimm21:$imm), "nop", "$imm">;
 def HINT  : IA64AnyUnit<(outs), (ins uimm21:$imm), "hint", "$imm">;
+let SchedRW = [WriteSys] in
 def BREAK : IA64AnyUnit<(outs), (ins uimm21:$imm), "break", "$imm">;
+let SchedRW = [WriteChk] in
 def CHK_S : IA64AnyUnit<(outs), (ins GR:$r2, target25m:$target), "chk.s",
                         "$r2, $target">;
+let SchedRW = [WriteToAR] in
 def MOV_AR      : IA64AnyUnit<(outs AR:$ar3), (ins GR:$r2), "mov",
                               "$ar3 = $r2">;
+let SchedRW = [WriteToAR] in
 def MOV_ARi     : IA64AnyUnit<(outs AR:$ar3), (ins simm8:$imm), "mov",
                               "$ar3 = $imm">;
+let SchedRW = [WriteFromAR] in
 def MOV_FROM_AR : IA64AnyUnit<(outs GR:$r1), (ins AR:$ar3), "mov",
                               "$r1 = $ar3">;
 

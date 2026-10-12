@@ -345,6 +345,7 @@ def inc3 : Operand<i64> {
 class IA64Inst<dag outs, dag ins, string mnemonic, string operands,
                list<dag> pattern>
     : Instruction {
+  let SchedRW = [WriteSys];
   field bits<48> Inst;
   field bits<48> SoftFail = 0;
   let Namespace = "IA64";
@@ -382,11 +383,13 @@ class IA64QPInst<dag oops, dag iops, string mnemonic, string operands,
 // real instructions, which IA64::getOpcodeForUnit returns.
 class IA64AnyUnit<dag outs, dag ins, string mnemonic, string operands>
     : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteNop];
   let isPseudo = 1;
 }
 
 class IA64Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
     : IA64Inst<outs, ins, asmstr, "", pattern> {
+  let SchedRW = [WriteALU];
   let isPseudo = 1;
   let isCodeGenOnly = 1;
 }
@@ -397,6 +400,7 @@ class IA64Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 class AInst<dag outs, dag ins, string mnemonic, string operands>
     : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteALU];
   let Unit = UnitA;
   let DecoderNamespace = "A";
 }
@@ -488,6 +492,7 @@ class A5<string mnemonic>
 class A6<bits<4> opcode, bits<2> x2, bit ta, bit c, string mnemonic>
     : AInst<(outs PR:$p1, PR:$p2), (ins GR:$r2, GR:$r3), mnemonic,
             "$p1, $p2 = $r2, $r3"> {
+  let SchedRW = [WriteICmp, WritePred2];
   bits<6> p1;
   bits<6> p2;
   bits<7> r2;
@@ -507,6 +512,7 @@ class A6<bits<4> opcode, bits<2> x2, bit ta, bit c, string mnemonic>
 class A7<bits<4> opcode, bits<2> x2, bit ta, bit c, string mnemonic>
     : AInst<(outs PR:$p1, PR:$p2), (ins GR:$r3), mnemonic,
             "$p1, $p2 = r0, $r3"> {
+  let SchedRW = [WriteICmp, WritePred2];
   bits<6> p1;
   bits<6> p2;
   bits<7> r3;
@@ -525,6 +531,7 @@ class A7<bits<4> opcode, bits<2> x2, bit ta, bit c, string mnemonic>
 class A8<bits<4> opcode, bits<2> x2, bit ta, bit c, string mnemonic>
     : AInst<(outs PR:$p1, PR:$p2), (ins simm8:$imm, GR:$r3), mnemonic,
             "$p1, $p2 = $imm, $r3"> {
+  let SchedRW = [WriteICmp, WritePred2];
   bits<6> p1;
   bits<6> p2;
   bits<7> r3;
@@ -544,6 +551,7 @@ class A8<bits<4> opcode, bits<2> x2, bit ta, bit c, string mnemonic>
 class A9<bit za, bit zb, bits<4> x4, bits<2> x2b, string mnemonic>
     : AInst<(outs GR:$r1), (ins GR:$r2, GR:$r3), mnemonic,
             "$r1 = $r2, $r3"> {
+  let SchedRW = [WriteMMALU];
   bits<7> r1;
   bits<7> r2;
   bits<7> r3;
@@ -562,6 +570,7 @@ class A9<bit za, bit zb, bits<4> x4, bits<2> x2b, string mnemonic>
 class A10<bits<4> x4, string mnemonic>
     : AInst<(outs GR:$r1), (ins GR:$r2, count2mm:$count, GR:$r3), mnemonic,
             "$r1 = $r2, $count, $r3"> {
+  let SchedRW = [WriteMMALU];
   bits<7> r1;
   bits<7> r2;
   bits<7> r3;
@@ -583,6 +592,7 @@ class A10<bits<4> x4, string mnemonic>
 
 class IInst<dag outs, dag ins, string mnemonic, string operands>
     : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteShift];
   let Unit = UnitI;
   let DecoderNamespace = "I";
 }
@@ -592,6 +602,7 @@ class IInst<dag outs, dag ins, string mnemonic, string operands>
 class IMMInst<bit za, bits<2> x2a, bit zb, bits<2> x2b, dag outs, dag ins,
               string mnemonic, string operands>
     : IInst<outs, ins, mnemonic, operands> {
+  let SchedRW = [WriteMMShift];
   bits<7> r1;
   let Opcode = 7;
   let Inst{36} = za;
@@ -607,6 +618,7 @@ class I1<bits<2> x2b, string mnemonic>
     : IMMInst<0, 0, 1, x2b, (outs GR:$r1),
               (ins GR:$r2, GR:$r3, pmpyshr_count:$count), mnemonic,
               "$r1 = $r2, $r3, $count"> {
+  let SchedRW = [WriteMMMul];
   bits<7> r2;
   bits<7> r3;
   bits<2> count;
@@ -632,6 +644,7 @@ class I7<bit za, bit zb, string mnemonic> : I2<za, 0, zb, 1, 0, mnemonic>;
 class I3<string mnemonic>
     : IMMInst<0, 3, 0, 2, (outs GR:$r1), (ins GR:$r2, mbtype4:$mbtype),
               mnemonic, "$r1 = $r2, $mbtype"> {
+  let SchedRW = [WriteMMShiftI];
   bits<7> r2;
   bits<4> mbtype;
   let Inst{31-30} = 2;
@@ -643,6 +656,7 @@ class I3<string mnemonic>
 class I4<string mnemonic>
     : IMMInst<0, 3, 1, 2, (outs GR:$r1), (ins GR:$r2, uimm8:$mhtype),
               mnemonic, "$r1 = $r2, $mhtype"> {
+  let SchedRW = [WriteMMShiftI];
   bits<7> r2;
   bits<8> mhtype;
   let Inst{31-30} = 2;
@@ -665,6 +679,7 @@ class I5<bit za, bit zb, bits<2> x2b, string mnemonic>
 class I6<bit za, bit zb, bits<2> x2b, string mnemonic>
     : IMMInst<za, 1, zb, x2b, (outs GR:$r1), (ins GR:$r3, uimm5:$count),
               mnemonic, "$r1 = $r3, $count"> {
+  let SchedRW = [WriteMMShiftI];
   bits<7> r3;
   bits<5> count;
   let Inst{31-30} = 0;
@@ -676,6 +691,7 @@ class I6<bit za, bit zb, bits<2> x2b, string mnemonic>
 class I8<bit za, bit zb, string mnemonic>
     : IMMInst<za, 3, zb, 1, (outs GR:$r1), (ins GR:$r2, ccount5:$count),
               mnemonic, "$r1 = $r2, $count"> {
+  let SchedRW = [WriteMMShiftI];
   bits<7> r2;
   bits<5> count;
   let Inst{31-30} = 1;
@@ -687,6 +703,7 @@ class I8<bit za, bit zb, string mnemonic>
 class I9<bits<2> x2c, string mnemonic>
     : IMMInst<0, 1, 1, 1, (outs GR:$r1), (ins GR:$r3), mnemonic,
               "$r1 = $r3"> {
+  let SchedRW = [WriteMMMul];
   bits<7> r3;
   let Inst{31-30} = x2c;
   let Inst{26-20} = r3;
@@ -805,6 +822,7 @@ class I15<string mnemonic>
 class ITestInst<bit tb, bit ta, bit c, dag ins, string mnemonic,
                 string operands>
     : IInst<(outs PR:$p1, PR:$p2), ins, mnemonic, operands> {
+  let SchedRW = [WriteTBit, WritePred2];
   bits<6> p1;
   bits<6> p2;
   let Opcode = 5;
@@ -851,6 +869,7 @@ class I30<bit tb, bit ta, bit c, string mnemonic>
 class IMiscInst<bits<3> x3, dag outs, dag ins, string mnemonic,
                 string operands>
     : IInst<outs, ins, mnemonic, operands> {
+  let SchedRW = [WriteSys];
   let Opcode = 0;
   let Inst{35-33} = x3;
 }
@@ -868,6 +887,7 @@ class I19<bits<6> x6, string mnemonic>
   let Inst{25-6} = imm{19-0};
 }
 class I18<bit y, string mnemonic> : I19<1, mnemonic> {
+  let SchedRW = [WriteNop];
   let Inst{26} = y;
 }
 
@@ -875,6 +895,7 @@ class I18<bit y, string mnemonic> : I19<1, mnemonic> {
 class I20<string mnemonic>
     : IMiscInst<1, (outs), (ins GR:$r2, target25m:$target), mnemonic,
                 "$r2, $target"> {
+  let SchedRW = [WriteChk];
   bits<7> r2;
   bits<21> target;
   let Inst{36} = target{20};
@@ -888,6 +909,7 @@ class I20<string mnemonic>
 class I21<bit x, bits<2> wh, bit ih, string mnemonic>
     : IMiscInst<7, (outs BR:$b1), (ins GR:$r2, tag13i:$tag), mnemonic,
                 "$b1 = $r2, $tag"> {
+  let SchedRW = [WriteToBR];
   bits<3> b1;
   bits<7> r2;
   bits<9> tag;
@@ -902,6 +924,7 @@ class I21<bit x, bits<2> wh, bit ih, string mnemonic>
 // I22: move from a branch register.
 class I22<string mnemonic>
     : IMisc6Inst<0x31, (outs GR:$r1), (ins BR:$b2), mnemonic, "$r1 = $b2"> {
+  let SchedRW = [WriteFromBR];
   bits<7> r1;
   bits<3> b2;
   let Inst{15-13} = b2;
@@ -912,6 +935,7 @@ class I22<string mnemonic>
 class I23<string mnemonic>
     : IMiscInst<3, (outs), (ins GR:$r2, mask17:$mask), mnemonic,
                 "pr = $r2, $mask"> {
+  let SchedRW = [WriteToPR];
   bits<7> r2;
   bits<17> mask;
   let Inst{36} = mask{16};
@@ -923,6 +947,7 @@ class I23<string mnemonic>
 // I24: move an immediate to the rotating predicates.
 class I24<string mnemonic>
     : IMiscInst<2, (outs), (ins simm44:$imm), mnemonic, "pr.rot = $imm"> {
+  let SchedRW = [WriteToPR];
   bits<44> imm;
   let Inst{36} = imm{43};
   let Inst{32-6} = imm{42-16};
@@ -931,6 +956,7 @@ class I24<string mnemonic>
 // I25: move from the predicates or the instruction pointer.
 class I25<bits<6> x6, string mnemonic, string source>
     : IMisc6Inst<x6, (outs GR:$r1), (ins), mnemonic, "$r1 = "#source> {
+  let SchedRW = [WriteFromPR];
   bits<7> r1;
   let Inst{12-6} = r1;
 }
@@ -939,6 +965,7 @@ class I25<bits<6> x6, string mnemonic, string source>
 class I26<string mnemonic>
     : IMisc6Inst<0x2a, (outs AR:$ar3), (ins GR:$r2), mnemonic,
                  "$ar3 = $r2"> {
+  let SchedRW = [WriteToAR];
   bits<7> ar3;
   bits<7> r2;
   let Inst{26-20} = ar3;
@@ -949,6 +976,7 @@ class I26<string mnemonic>
 class I27<string mnemonic>
     : IMisc6Inst<0x0a, (outs AR:$ar3), (ins simm8:$imm), mnemonic,
                  "$ar3 = $imm"> {
+  let SchedRW = [WriteToAR];
   bits<7> ar3;
   bits<8> imm;
   let Inst{36} = imm{7};
@@ -960,6 +988,7 @@ class I27<string mnemonic>
 class I28<string mnemonic>
     : IMisc6Inst<0x32, (outs GR:$r1), (ins AR:$ar3), mnemonic,
                  "$r1 = $ar3"> {
+  let SchedRW = [WriteFromAR];
   bits<7> r1;
   bits<7> ar3;
   let Inst{26-20} = ar3;
@@ -969,6 +998,7 @@ class I28<string mnemonic>
 // I29: sign and zero extension, and compute zero index.
 class I29<bits<6> x6, string mnemonic>
     : IMisc6Inst<x6, (outs GR:$r1), (ins GR:$r3), mnemonic, "$r1 = $r3"> {
+  let SchedRW = [WriteExt];
   bits<7> r1;
   bits<7> r3;
   let Inst{26-20} = r3;
@@ -981,6 +1011,7 @@ class I29<bits<6> x6, string mnemonic>
 
 class MInst<dag outs, dag ins, string mnemonic, string operands>
     : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteSys];
   let Unit = UnitM;
   let DecoderNamespace = "M";
 }
@@ -1019,6 +1050,7 @@ class MMemImmInst<bits<4> op, bits<6> x6, dag outs, dag ins, string mnemonic,
 class M1<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 0, x6, 0, (outs GR:$r1), (ins GR:$r3, ldhint:$hint),
                   mnemonic, "$r1 = [$r3]"> {
+  let SchedRW = [WriteLoad];
   bits<7> r1;
   let Inst{12-6} = r1;
 }
@@ -1038,6 +1070,7 @@ def ldxmov : Operand<i64> {
 class M1Mov<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 0, x6, 0, (outs GR:$r1), (ins GR:$r3, ldxmov:$sym),
                   mnemonic, "$r1 = [$r3], $sym"> {
+  let SchedRW = [WriteLoad];
   bits<7> r1;
   let hint = 0;
   let Inst{12-6} = r1;
@@ -1048,6 +1081,7 @@ class M1Mov<bits<6> x6, string mnemonic>
 class M1_16<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 0, x6, 1, (outs GR:$r1), (ins GR:$r3, ldhint:$hint),
                   mnemonic, "$r1, ar.csd = [$r3]"> {
+  let SchedRW = [WriteLoad];
   bits<7> r1;
   let Inst{12-6} = r1;
 }
@@ -1057,6 +1091,7 @@ class M2<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 1, x6, 0, (outs GR:$r1, GR:$wb),
                   (ins GR:$r3, GR:$r2, ldhint:$hint), mnemonic,
                   "$r1 = [$r3], $r2"> {
+  let SchedRW = [WriteLoad, WritePostInc];
   bits<7> r1;
   bits<7> r2;
   let Inst{19-13} = r2;
@@ -1069,6 +1104,7 @@ class M3<bits<6> x6, string mnemonic>
     : MMemImmInst<5, x6, (outs GR:$r1, GR:$wb),
                   (ins GR:$r3, simm9:$imm, ldhint:$hint), mnemonic,
                   "$r1 = [$r3], $imm"> {
+  let SchedRW = [WriteLoad, WritePostInc];
   bits<7> r1;
   let Inst{19-13} = imm{6-0};
   let Inst{12-6} = r1;
@@ -1078,12 +1114,14 @@ class M3<bits<6> x6, string mnemonic>
 class M4<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 0, x6, 0, (outs), (ins GR:$r3, GR:$r2, sthint:$hint),
                   mnemonic, "[$r3] = $r2"> {
+  let SchedRW = [WriteStore];
   bits<7> r2;
   let Inst{19-13} = r2;
 }
 class M4_16<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 0, x6, 1, (outs), (ins GR:$r3, GR:$r2, sthint:$hint),
                   mnemonic, "[$r3] = $r2, ar.csd"> {
+  let SchedRW = [WriteStore];
   bits<7> r2;
   let Inst{19-13} = r2;
 }
@@ -1093,6 +1131,7 @@ class M5<bits<6> x6, string mnemonic>
     : MMemImmInst<5, x6, (outs GR:$wb),
                   (ins GR:$r3, GR:$r2, simm9:$imm, sthint:$hint), mnemonic,
                   "[$r3] = $r2, $imm"> {
+  let SchedRW = [WriteStore];
   bits<7> r2;
   let Inst{19-13} = r2;
   let Inst{12-6} = imm{6-0};
@@ -1102,6 +1141,7 @@ class M5<bits<6> x6, string mnemonic>
 class M6<bits<6> x6, string mnemonic>
     : MMemRegInst<6, 0, x6, 0, (outs FR:$f1), (ins GR:$r3, ldhint:$hint),
                   mnemonic, "$f1 = [$r3]"> {
+  let SchedRW = [WriteFLoad];
   bits<7> f1;
   let Inst{12-6} = f1;
 }
@@ -1111,6 +1151,7 @@ class M7<bits<6> x6, string mnemonic>
     : MMemRegInst<6, 1, x6, 0, (outs FR:$f1, GR:$wb),
                   (ins GR:$r3, GR:$r2, ldhint:$hint), mnemonic,
                   "$f1 = [$r3], $r2"> {
+  let SchedRW = [WriteFLoad, WritePostInc];
   bits<7> f1;
   bits<7> r2;
   let Inst{19-13} = r2;
@@ -1123,6 +1164,7 @@ class M8<bits<6> x6, string mnemonic>
     : MMemImmInst<7, x6, (outs FR:$f1, GR:$wb),
                   (ins GR:$r3, simm9:$imm, ldhint:$hint), mnemonic,
                   "$f1 = [$r3], $imm"> {
+  let SchedRW = [WriteFLoad, WritePostInc];
   bits<7> f1;
   let Inst{19-13} = imm{6-0};
   let Inst{12-6} = f1;
@@ -1132,6 +1174,7 @@ class M8<bits<6> x6, string mnemonic>
 class M9<bits<6> x6, string mnemonic>
     : MMemRegInst<6, 0, x6, 0, (outs), (ins GR:$r3, FR:$f2, sthint:$hint),
                   mnemonic, "[$r3] = $f2"> {
+  let SchedRW = [WriteFStore];
   bits<7> f2;
   let Inst{19-13} = f2;
 }
@@ -1141,6 +1184,7 @@ class M10<bits<6> x6, string mnemonic>
     : MMemImmInst<7, x6, (outs GR:$wb),
                   (ins GR:$r3, FR:$f2, simm9:$imm, sthint:$hint), mnemonic,
                   "[$r3] = $f2, $imm"> {
+  let SchedRW = [WriteFStore];
   bits<7> f2;
   let Inst{19-13} = f2;
   let Inst{12-6} = imm{6-0};
@@ -1150,6 +1194,7 @@ class M10<bits<6> x6, string mnemonic>
 class M11<bits<6> x6, string mnemonic>
     : MMemRegInst<6, 0, x6, 1, (outs FR:$f1, FR:$f2),
                   (ins GR:$r3, ldhint:$hint), mnemonic, "$f1, $f2 = [$r3]"> {
+  let SchedRW = [WriteFLoad, WriteFLoad2];
   bits<7> f1;
   bits<7> f2;
   let Inst{19-13} = f2;
@@ -1161,6 +1206,7 @@ class M12<bits<6> x6, string mnemonic, int size>
     : MMemRegInst<6, 1, x6, 1, (outs FR:$f1, FR:$f2, GR:$wb),
                   (ins GR:$r3, ldhint:$hint), mnemonic,
                   "$f1, $f2 = [$r3], "#size> {
+  let SchedRW = [WriteFLoad, WriteFLoad2, WritePostInc];
   bits<7> f1;
   bits<7> f2;
   let Inst{19-13} = f2;
@@ -1171,13 +1217,16 @@ class M12<bits<6> x6, string mnemonic, int size>
 // M13: line prefetch.
 class M13<bits<6> x6, string mnemonic>
     : MMemRegInst<6, 0, x6, 0, (outs), (ins GR:$r3, lfhint:$hint), mnemonic,
-                  "[$r3]">;
+                  "[$r3]"> {
+  let SchedRW = [WritePrefetch];
+}
 
 // M14: line prefetch, incrementing the base by a register.
 class M14<bits<6> x6, string mnemonic>
     : MMemRegInst<6, 1, x6, 0, (outs GR:$wb),
                   (ins GR:$r3, GR:$r2, lfhint:$hint), mnemonic,
                   "[$r3], $r2"> {
+  let SchedRW = [WritePrefetch];
   bits<7> r2;
   let Inst{19-13} = r2;
   let Constraints = "$wb = $r3";
@@ -1188,6 +1237,7 @@ class M15<bits<6> x6, string mnemonic>
     : MMemImmInst<7, x6, (outs GR:$wb),
                   (ins GR:$r3, simm9:$imm, lfhint:$hint), mnemonic,
                   "[$r3], $imm"> {
+  let SchedRW = [WritePrefetch];
   let Inst{19-13} = imm{6-0};
 }
 
@@ -1197,6 +1247,7 @@ class M16<bits<6> x6, string mnemonic, string implicit = "">
     : MMemRegInst<4, 0, x6, 1, (outs GR:$r1),
                   (ins GR:$r3, GR:$r2, ldhint:$hint), mnemonic,
                   "$r1 = [$r3], $r2"#implicit> {
+  let SchedRW = [WriteSem];
   bits<7> r1;
   bits<7> r2;
   let Inst{19-13} = r2;
@@ -1208,6 +1259,7 @@ class M17<bits<6> x6, string mnemonic>
     : MMemRegInst<4, 0, x6, 1, (outs GR:$r1),
                   (ins GR:$r3, inc3:$inc, ldhint:$hint), mnemonic,
                   "$r1 = [$r3], $inc"> {
+  let SchedRW = [WriteSem];
   bits<7> r1;
   bits<3> inc;
   let Inst{15-13} = inc;
@@ -1217,6 +1269,7 @@ class M17<bits<6> x6, string mnemonic>
 // M18: move a GR to an FR (setf); M19: move an FR to a GR (getf).
 class M18<bits<6> x6, string mnemonic>
     : MInst<(outs FR:$f1), (ins GR:$r2), mnemonic, "$f1 = $r2"> {
+  let SchedRW = [WriteSetF];
   bits<7> f1;
   bits<7> r2;
   let Opcode = 6;
@@ -1228,6 +1281,7 @@ class M18<bits<6> x6, string mnemonic>
 }
 class M19<bits<6> x6, string mnemonic>
     : MInst<(outs GR:$r1), (ins FR:$f2), mnemonic, "$r1 = $f2"> {
+  let SchedRW = [WriteGetF];
   bits<7> r1;
   bits<7> f2;
   let Opcode = 4;
@@ -1243,6 +1297,7 @@ class M19<bits<6> x6, string mnemonic>
 class MChkSInst<bits<3> x3, RegisterClass rc, string mnemonic>
     : MInst<(outs), (ins rc:$r2, target25m:$target), mnemonic,
             "$r2, $target"> {
+  let SchedRW = [WriteChk];
   bits<7> r2;
   bits<21> target;
   let Opcode = 1;
@@ -1259,6 +1314,7 @@ class M21<string mnemonic> : MChkSInst<3, FR, mnemonic>;
 class MChkAInst<bits<3> x3, RegisterClass rc, string mnemonic>
     : MInst<(outs), (ins rc:$r1, target25:$target), mnemonic,
             "$r1, $target"> {
+  let SchedRW = [WriteChk];
   bits<7> r1;
   bits<21> target;
   let Opcode = 0;
@@ -1324,6 +1380,7 @@ class M28<bit x, string mnemonic>
 // M29: move to an application register.
 class M29<string mnemonic>
     : MSys1Inst<0x2a, (outs AR:$ar3), (ins GR:$r2), mnemonic, "$ar3 = $r2"> {
+  let SchedRW = [WriteToAR];
   bits<7> ar3;
   bits<7> r2;
   let Inst{26-20} = ar3;
@@ -1334,6 +1391,7 @@ class M29<string mnemonic>
 class M30<string mnemonic>
     : MSys0Inst<8, 2, (outs AR:$ar3), (ins simm8:$imm), mnemonic,
                 "$ar3 = $imm"> {
+  let SchedRW = [WriteToAR];
   bits<7> ar3;
   bits<8> imm;
   let Inst{36} = imm{7};
@@ -1344,6 +1402,7 @@ class M30<string mnemonic>
 // M31: move from an application register.
 class M31<string mnemonic>
     : MSys1Inst<0x22, (outs GR:$r1), (ins AR:$ar3), mnemonic, "$r1 = $ar3"> {
+  let SchedRW = [WriteFromAR];
   bits<7> r1;
   bits<7> ar3;
   let Inst{26-20} = ar3;
@@ -1375,6 +1434,7 @@ class M34<string mnemonic>
     : MInst<(outs GR:$r1),
             (ins uimm7:$inputs, uimm7:$locals, uimm7:$outputs, uimm7:$rotating),
             mnemonic, "$r1 = ar.pfs, $inputs, $locals, $outputs, $rotating"> {
+  let SchedRW = [WriteAlloc];
   bits<7> r1;
   let Opcode = 1;
   let Inst{35-33} = 6;
@@ -1404,6 +1464,7 @@ class M37<bits<4> x4, string mnemonic>
   let Inst{25-6} = imm{19-0};
 }
 class M48<bit y, string mnemonic> : M37<1, mnemonic> {
+  let SchedRW = [WriteNop];
   let Inst{26} = y;
 }
 // hint.m has a 19-bit immediate, two bits fewer than the other units. The
@@ -1412,6 +1473,7 @@ class M48<bit y, string mnemonic> : M37<1, mnemonic> {
 // GNU as implements.
 class M48Hint<string mnemonic>
     : MSys0Inst<1, 0, (outs), (ins uimm19:$imm), mnemonic, "$imm"> {
+  let SchedRW = [WriteNop];
   bits<19> imm;
   let Inst{36} = imm{18};
   let Inst{26} = 1;
@@ -1521,6 +1583,7 @@ class M47<string mnemonic>
 
 class FInst<dag outs, dag ins, string mnemonic, string operands>
     : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteFMisc];
   let Unit = UnitF;
   let DecoderNamespace = "F";
 }
@@ -1542,6 +1605,7 @@ class FSFInst<dag oops, dag iops, string mnemonic, string operands>
 class F1<bits<4> op, bit x, string mnemonic, RegisterClass Addend = FR>
     : FSFInst<(outs FR:$f1), (ins FR:$f3, FR:$f4, Addend:$f2), mnemonic,
               "$f1 = $f3, $f4, $f2"> {
+  let SchedRW = [WriteFMA];
   bits<7> f1;
   bits<7> f2;
   bits<7> f3;
@@ -1571,6 +1635,7 @@ class FOpEInst<bit x, string mnemonic>
   let Inst{12-6} = f1;
 }
 class F2<bits<2> x2, string mnemonic> : FOpEInst<1, mnemonic> {
+  let SchedRW = [WriteXMA];
   let Inst{35-34} = x2;
 }
 class F3<string mnemonic> : FOpEInst<0, mnemonic>;
@@ -1579,6 +1644,7 @@ class F3<string mnemonic> : FOpEInst<0, mnemonic>;
 class F4<bit rb, bit ra, bit ta, string mnemonic>
     : FSFInst<(outs PR:$p1, PR:$p2), (ins FR:$f2, FR:$f3), mnemonic,
               "$p1, $p2 = $f2, $f3"> {
+  let SchedRW = [WriteFCmp, WriteFPred2];
   bits<6> p1;
   bits<6> p2;
   bits<7> f2;
@@ -1598,6 +1664,7 @@ class F4<bit rb, bit ra, bit ta, string mnemonic>
 class F5<bit ta, string mnemonic>
     : FInst<(outs PR:$p1, PR:$p2), (ins FR:$f2, uimm9:$fclass), mnemonic,
             "$p1, $p2 = $f2, $fclass"> {
+  let SchedRW = [WriteFCmp, WriteFPred2];
   bits<6> p1;
   bits<6> p2;
   bits<7> f2;
@@ -1617,6 +1684,7 @@ class F5<bit ta, string mnemonic>
 class F6<bits<4> op, string mnemonic>
     : FSFInst<(outs FR:$f1, PR:$p2), (ins FR:$f2, FR:$f3), mnemonic,
               "$f1, $p2 = $f2, $f3"> {
+  let SchedRW = [WriteFRecip, WriteFRecipPred];
   bits<7> f1;
   bits<6> p2;
   bits<7> f2;
@@ -1632,6 +1700,7 @@ class F6<bits<4> op, string mnemonic>
 class F7<bits<4> op, string mnemonic>
     : FSFInst<(outs FR:$f1, PR:$p2), (ins FR:$f3), mnemonic,
               "$f1, $p2 = $f3"> {
+  let SchedRW = [WriteFRecip, WriteFRecipPred];
   bits<7> f1;
   bits<6> p2;
   bits<7> f3;
@@ -1677,6 +1746,7 @@ class F9<bits<4> op, bits<6> x6, string mnemonic>
 // to floating-point, which raises no exceptions.
 class F10<bits<4> op, bits<6> x6, string mnemonic>
     : FSFInst<(outs FR:$f1), (ins FR:$f2), mnemonic, "$f1 = $f2"> {
+  let SchedRW = [WriteFCvt];
   bits<7> f1;
   bits<7> f2;
   let Opcode = op;
@@ -1687,6 +1757,7 @@ class F10<bits<4> op, bits<6> x6, string mnemonic>
 }
 class F11<string mnemonic>
     : FInst<(outs FR:$f1), (ins FR:$f2), mnemonic, "$f1 = $f2"> {
+  let SchedRW = [WriteFCvt];
   bits<7> f1;
   bits<7> f2;
   let Opcode = 0;
@@ -1700,6 +1771,7 @@ class F11<string mnemonic>
 class F12<string mnemonic>
     : FSFInst<(outs), (ins uimm7:$amask, uimm7:$omask), mnemonic,
               "$amask, $omask"> {
+  let SchedRW = [WriteSys];
   bits<7> amask;
   bits<7> omask;
   let Opcode = 0;
@@ -1709,6 +1781,7 @@ class F12<string mnemonic>
   let Inst{19-13} = amask;
 }
 class F13<string mnemonic> : FSFInst<(outs), (ins), mnemonic, ""> {
+  let SchedRW = [WriteSys];
   let Opcode = 0;
   let Inst{33} = 0;
   let Inst{32-27} = 0x05;
@@ -1717,6 +1790,7 @@ class F13<string mnemonic> : FSFInst<(outs), (ins), mnemonic, ""> {
 // F14: check the flags of a status field and branch to recovery code.
 class F14<string mnemonic>
     : FSFInst<(outs), (ins target25f:$target), mnemonic, "$target"> {
+  let SchedRW = [WriteChk];
   bits<21> target;
   let Opcode = 0;
   let Inst{36} = target{20};
@@ -1728,6 +1802,7 @@ class F14<string mnemonic>
 // F15: break; F16: nop and hint.
 class F15<bits<6> x6, string mnemonic>
     : FInst<(outs), (ins uimm21:$imm), mnemonic, "$imm"> {
+  let SchedRW = [WriteSys];
   bits<21> imm;
   let Opcode = 0;
   let Inst{36} = imm{20};
@@ -1736,6 +1811,7 @@ class F15<bits<6> x6, string mnemonic>
   let Inst{25-6} = imm{19-0};
 }
 class F16<bit y, string mnemonic> : F15<1, mnemonic> {
+  let SchedRW = [WriteNop];
   let Inst{26} = y;
 }
 
@@ -1747,11 +1823,13 @@ class F16<bit y, string mnemonic> : F15<1, mnemonic> {
 // qualifying predicate, so the base class has none.
 class BInst<dag outs, dag ins, string mnemonic, string operands>
     : IA64Inst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteBr];
   let Unit = UnitB;
   let DecoderNamespace = "B";
 }
 class BQPInst<dag outs, dag ins, string mnemonic, string operands>
     : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteBr];
   let Unit = UnitB;
   let DecoderNamespace = "B";
 }
@@ -1908,6 +1986,7 @@ class B9<bits<4> op, bits<6> x6, string mnemonic>
 // Inst, so it covers only the X slot; the unit implies the second slot.
 class XInst<dag outs, dag ins, string mnemonic, string operands>
     : IA64QPInst<outs, ins, mnemonic, operands, []> {
+  let SchedRW = [WriteSys];
   let Unit = UnitX;
   let DecoderNamespace = "X";
 }
@@ -1926,12 +2005,14 @@ class X1<string mnemonic> : XMiscInst<0, mnemonic> {
   let Inst{26} = 0;
 }
 class X5<bit y, string mnemonic> : XMiscInst<1, mnemonic> {
+  let SchedRW = [WriteNop];
   let Inst{26} = y;
 }
 
 // X2: move long immediate. The L slot holds imm{62-22}.
 class X2<string mnemonic>
     : XInst<(outs GR:$r1), (ins imm64:$imm), mnemonic, "$r1 = $imm"> {
+  let SchedRW = [WriteMovL];
   bits<7> r1;
   bits<64> imm;
   let Opcode = 6;
@@ -1949,6 +2030,7 @@ class X2<string mnemonic>
 class X3<bits<3> btype, string mnemonic>
     : XInst<(outs), !con((ins target64:$target), BranchCompleters), mnemonic,
             "$target">, BranchFields {
+  let SchedRW = [WriteBr];
   bits<60> target;
   let Opcode = 12;
   let Inst{36} = target{59};
@@ -1966,6 +2048,7 @@ class X3<bits<3> btype, string mnemonic>
 class X4<string mnemonic>
     : XInst<(outs BR:$b1), !con((ins target64:$target), BranchCompleters),
             mnemonic, "$b1 = $target">, BranchFields {
+  let SchedRW = [WriteBr];
   bits<3> b1;
   bits<60> target;
   let Opcode = 13;
