@@ -431,6 +431,18 @@ public:
   void addSymbols(ThunkSection &isec) override;
 };
 
+// An out-of-range IA-64 branch goes through a brl, which reaches any address
+// and clobbers no registers.
+class IA64Thunk final : public Thunk {
+public:
+  IA64Thunk(Ctx &ctx, Symbol &dest, int64_t addend) : Thunk(ctx, dest, addend) {
+    alignment = 16;
+  }
+  uint32_t size() override { return 16; }
+  void writeTo(uint8_t *buf) override;
+  void addSymbols(ThunkSection &isec) override;
+};
+
 // MIPS LA25 thunk
 class MipsThunk final : public Thunk {
 public:
@@ -1591,6 +1603,24 @@ void HexagonThunk::addSymbols(ThunkSection &isec) {
       STT_FUNC, 0, isec);
 }
 
+void IA64Thunk::writeTo(uint8_t *buf) {
+  static const uint8_t brl[] = {
+      0x05, 0x00, 0x00, 0x00, 0x01, 0x00, // [MLX] nop.m 0
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //       brl.sptk.many dest;;
+      0x08, 0x00, 0x00, 0xc0,
+  };
+  memcpy(buf, brl, sizeof(brl));
+  uint64_t s = destination.isInPlt(ctx) ? destination.getPltVA(ctx)
+                                        : destination.getVA(ctx, addend);
+  uint64_t p = getThunkTargetSym()->getVA(ctx);
+  ctx.target->relocateNoSym(buf, R_IA64_PCREL60B, s - p);
+}
+
+void IA64Thunk::addSymbols(ThunkSection &isec) {
+  addSymbol(saver().save("__ia64_thunk_" + destination.getName()), STT_FUNC, 0,
+            isec);
+}
+
 Thunk::Thunk(Ctx &ctx, Symbol &d, int64_t a)
     : ctx(ctx), destination(d), addend(a), offset(0) {
   destination.thunkAccessed = true;
@@ -1853,9 +1883,12 @@ std::unique_ptr<Thunk> elf::addThunk(Ctx &ctx, const InputSection &isec,
     return addThunkPPC64(ctx, rel.type, s, a);
   case EM_HEXAGON:
     return addThunkHexagon(ctx, isec, rel, s);
+  case EM_IA_64:
+    return std::make_unique<IA64Thunk>(ctx, s, a);
   default:
     llvm_unreachable(
-        "add Thunk only supported for ARM, AVR, Hexagon, Mips and PowerPC");
+        "add Thunk only supported for ARM, AVR, Hexagon, IA-64, Mips and "
+        "PowerPC");
   }
 }
 

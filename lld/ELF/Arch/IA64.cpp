@@ -54,6 +54,11 @@ public:
                        unsigned shard);
   void scanSection(InputSectionBase &sec, unsigned shard) override;
   void finalizeRelocScan() override;
+  bool needsThunk(RelExpr expr, RelType type, const InputFile *file,
+                  uint64_t branchAddr, const Symbol &s,
+                  int64_t a) const override;
+  uint32_t getThunkSectionSpacing() const override;
+  bool inBranchRange(RelType type, uint64_t src, uint64_t dst) const override;
   void relocate(uint8_t *loc, const Relocation &rel,
                 uint64_t val) const override;
 
@@ -87,6 +92,7 @@ IA64::IA64(Ctx &ctx) : TargetInfo(ctx) {
   defaultCommonPageSize = 0x10000;
   defaultMaxPageSize = 0x10000;
   defaultImageBase = 0x4000000000000000;
+  needsThunks = true;
   // All-zero bytes are break 0 in every slot, wherever in a bundle they fall.
   trapInstr = {0, 0, 0, 0};
 }
@@ -715,6 +721,33 @@ void IA64::writePlt(uint8_t *buf, const Symbol &sym,
   uint64_t disp = ctx.in.plt->getVA() - (pltEntryAddr + importStubSize);
   setFields(lazy, 2, pcrel21bMask, pcrel21b(disp));
 }
+
+//===----------------------------------------------------------------------===//
+// Range extension
+//===----------------------------------------------------------------------===//
+
+// An IP-relative branch reaches +/-16 MiB. Farther targets go through a
+// thunk, a long branch with unlimited range.
+bool IA64::inBranchRange(RelType type, uint64_t src, uint64_t dst) const {
+  if (type != R_IA64_PCREL21B)
+    return true;
+  return isInt<25>(int64_t(dst - (src & ~uint64_t(3))));
+}
+
+bool IA64::needsThunk(RelExpr expr, RelType type, const InputFile *file,
+                      uint64_t branchAddr, const Symbol &s, int64_t a) const {
+  if (type != R_IA64_PCREL21B)
+    return false;
+  // A call of an undefined weak symbol goes nowhere.
+  if (s.isUndefined() && !s.isInPlt(ctx))
+    return false;
+  uint64_t dst = expr == R_PLT_PC ? s.getPltVA(ctx) : s.getVA(ctx, a);
+  return !inBranchRange(type, branchAddr, dst);
+}
+
+// Leave room for the thunks themselves and for the branch not being at the
+// very start of its section.
+uint32_t IA64::getThunkSectionSpacing() const { return 0x1000000 - 0x40000; }
 
 //===----------------------------------------------------------------------===//
 // Applying relocations

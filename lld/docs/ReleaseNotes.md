@@ -29,6 +29,9 @@ from the [LLVM releases web site](https://llvm.org/releases/).
 
 ### ELF Improvements
 
+* Added support for IA-64 (`elf64_ia64`): static and dynamic links, function
+  descriptors, TLS, and thunks for calls out of reach of `br.call`.
+
 ### Breaking changes
 
 ### COFF Improvements
