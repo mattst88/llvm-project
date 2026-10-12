@@ -67,6 +67,24 @@ struct IA64IncomingValueHandler : public CallLowering::IncomingValueHandler {
     IncomingValueHandler::assignValueToReg(ValVReg, PhysReg, VA);
   }
 
+  /// A floating-point argument there was no floating-point register left
+  /// for, which is its bits in the slot.
+  unsigned assignCustomValue(CallLowering::ArgInfo &Arg,
+                             ArrayRef<CCValAssign> VAs,
+                             std::function<void()> *Thunk = nullptr) override {
+    const CCValAssign &VA = VAs[0];
+    if (!VA.isRegLoc() || VA.getLocInfo() != CCValAssign::BCvt)
+      return 0;
+    markPhysRegUsed(VA.getLocReg());
+    if (VA.getValVT() == MVT::f32)
+      MIRBuilder.buildTrunc(
+          Arg.Regs[0],
+          MIRBuilder.buildCopy(LLT::scalar(64), Register(VA.getLocReg())));
+    else
+      MIRBuilder.buildCopy(Arg.Regs[0], Register(VA.getLocReg()));
+    return 1;
+  }
+
   virtual void markPhysRegUsed(MCRegister PhysReg) {
     MIRBuilder.getMRI()->addLiveIn(PhysReg);
     MIRBuilder.getMBB().addLiveIn(PhysReg);
@@ -111,22 +129,47 @@ struct IA64OutgoingValueHandler : public CallLowering::OutgoingValueHandler {
         .getReg(0);
   }
 
+  /// The 64-bit slot value for this argument. An FP value passed in a slot
+  /// is its bit pattern; a float occupies the low half of the slot.
+  Register toSlot(Register ValVReg, const CCValAssign &VA) {
+    if (VA.getLocInfo() != CCValAssign::BCvt)
+      return extendRegister(ValVReg, VA);
+    if (MRI.getType(ValVReg).getSizeInBits() == 64)
+      return ValVReg;
+    return MIRBuilder.buildAnyExt(LLT::scalar(64), ValVReg).getReg(0);
+  }
+
   void assignValueToAddress(Register ValVReg, Register Addr, LLT MemTy,
                             const MachinePointerInfo &MPO,
                             const CCValAssign &VA) override {
     // Slots are 8 bytes at a multiple of 8 from sp, which the pointer info
     // alone does not convey.
     MachineFunction &MF = MIRBuilder.getMF();
-    MIRBuilder.buildStore(extendRegister(ValVReg, VA), Addr,
+    Register Slot = toSlot(ValVReg, VA);
+    if (VA.getLocInfo() == CCValAssign::BCvt)
+      MemTy = MRI.getType(Slot);
+    MIRBuilder.buildStore(Slot, Addr,
                           *MF.getMachineMemOperand(MPO,
                                                    MachineMemOperand::MOStore,
                                                    MemTy, Align(8)));
   }
 
+  /// A floating-point argument there was no floating-point register left
+  /// for, which is its bits in the slot.
+  unsigned assignCustomValue(CallLowering::ArgInfo &Arg,
+                             ArrayRef<CCValAssign> VAs,
+                             std::function<void()> *Thunk = nullptr) override {
+    const CCValAssign &VA = VAs[0];
+    if (!VA.isRegLoc() || VA.getLocInfo() != CCValAssign::BCvt)
+      return 0;
+    assignValueToReg(Arg.Regs[0], VA.getLocReg(), VA);
+    return 1;
+  }
+
   void assignValueToReg(Register ValVReg, Register PhysReg,
                         const CCValAssign &VA,
                         ISD::ArgFlagsTy Flags = {}) override {
-    Register ExtReg = extendRegister(ValVReg, VA);
+    Register ExtReg = toSlot(ValVReg, VA);
     if (!IsCall) {
       MIRBuilder.buildCopy(PhysReg, ExtReg);
       MIB.addUse(PhysReg, RegState::Implicit);
@@ -146,6 +189,10 @@ struct IA64OutgoingValueHandler : public CallLowering::OutgoingValueHandler {
 };
 
 } // end anonymous namespace
+
+/// The argument registers of the first eight slots, as the callee sees them.
+static const MCPhysReg Slots[] = {IA64::R32, IA64::R33, IA64::R34, IA64::R35,
+                                  IA64::R36, IA64::R37, IA64::R38, IA64::R39};
 
 IA64CallLowering::IA64CallLowering(const IA64TargetLowering &TLI)
     : CallLowering(&TLI) {}
@@ -188,6 +235,34 @@ static bool areSupported(ArrayRef<CallLowering::ArgInfo> Args) {
     return Arg.Ty->isIntegerTy() || Arg.Ty->isPointerTy() ||
            Arg.Ty->isFloatTy() || Arg.Ty->isDoubleTy();
   });
+}
+
+/// A floating-point argument of a call that says its callee takes a variable
+/// number of them is in a floating-point register and in its slot too, since
+/// the callee may or may not have named it. The second of the two places is
+/// taken out of the list, which is to have one place for each value, and put
+/// in \p SlotCopies. Whether what is left can be done here is the answer.
+static bool takeSlotCopies(SmallVectorImpl<CCValAssign> &ArgLocs,
+                           SmallVectorImpl<CCValAssign> &SlotCopies) {
+  for (unsigned I = 0; I != ArgLocs.size();) {
+    const CCValAssign &VA = ArgLocs[I];
+    if (!VA.needsCustom()) {
+      ++I;
+      continue;
+    }
+    // Extended precision is two slots, and a member of an aggregate may be
+    // half of one.
+    if (!VA.isRegLoc() || VA.getLocInfo() != CCValAssign::BCvt ||
+        VA.getValVT() == MVT::f80)
+      return false;
+    if (I != 0 && ArgLocs[I - 1].getValNo() == VA.getValNo()) {
+      SlotCopies.push_back(VA);
+      ArgLocs.erase(ArgLocs.begin() + I);
+      continue;
+    }
+    ++I;
+  }
+  return true;
 }
 
 bool IA64CallLowering::canLowerReturn(MachineFunction &MF,
@@ -249,9 +324,6 @@ bool IA64CallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
                                             const Function &F,
                                             ArrayRef<ArrayRef<Register>> VRegs,
                                             FunctionLoweringInfo &FLI) const {
-  if (F.isVarArg())
-    return false;
-
   MachineFunction &MF = MIRBuilder.getMF();
   MachineRegisterInfo &MRI = MF.getRegInfo();
   const DataLayout &DL = F.getDataLayout();
@@ -284,12 +356,54 @@ bool IA64CallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(F.getCallingConv(), F.isVarArg(), MF, ArgLocs, F.getContext());
   IncomingValueAssigner Assigner(CC_IA64);
+  // In a varargs function these are named arguments, read from the FP
+  // register and not also from the GR slot.
+  SmallVector<CCValAssign, 8> SlotCopies;
   if (!determineAssignments(Assigner, SplitArgs, CCInfo) ||
-      any_of(ArgLocs, [](const CCValAssign &VA) { return VA.needsCustom(); }))
+      !takeSlotCopies(ArgLocs, SlotCopies))
     return false;
   IA64IncomingValueHandler Handler(MIRBuilder, MRI);
   if (!handleAssignments(Handler, SplitArgs, CCInfo, ArgLocs, MIRBuilder))
     return false;
+
+  // va_arg reads variadic arguments from consecutive slots in memory, so the
+  // ones that came in registers are stored just below the stack ones. The
+  // last two fit in the caller's scratch area and the rest go at the top of
+  // this frame. An unused argument register may have its NaT bit set, on
+  // which an ordinary store faults, so st8.spill is used.
+  if (F.isVarArg()) {
+    MachineFrameInfo &MFI = MF.getFrameInfo();
+    LLT P0 = LLT::pointer(0, 64);
+    unsigned First = CCInfo.getFirstUnallocated(Slots);
+    auto SlotOffset = [](unsigned Slot) { return -8 * int64_t(8 - Slot); };
+    // The slots are a single mutable object: va_arg walks from slot to
+    // slot, and a load folded to an offset from the first slot must alias
+    // the spill of the slot it reads.
+    int VarArgsFI =
+        First != 8
+            ? MFI.CreateFixedObject(8 * (8 - First), SlotOffset(First), false)
+            : MFI.CreateFixedObject(8, CCInfo.getStackSize(), true);
+    for (unsigned Slot = First; Slot != 8; ++Slot) {
+      int64_t Offset = 8 * int64_t(Slot - First);
+      Handler.markPhysRegUsed(Slots[Slot]);
+      auto Base = MIRBuilder.buildFrameIndex(P0, VarArgsFI);
+      auto Addr = MIRBuilder.buildPtrAdd(
+          P0, Base, MIRBuilder.buildConstant(LLT::scalar(64), Offset));
+      auto Value = MIRBuilder.buildCopy(LLT::scalar(64), Register(Slots[Slot]));
+      MRI.setRegClass(Addr.getReg(0), &IA64::GRRegClass);
+      MRI.setRegClass(Value.getReg(0), &IA64::GRRegClass);
+      MIRBuilder.buildInstr(IA64::ST8_SPILL)
+          .addUse(Addr.getReg(0))
+          .addUse(Value.getReg(0))
+          .addImm(0)
+          .addReg(IA64::P0)
+          .addMemOperand(MF.getMachineMemOperand(
+              MachinePointerInfo::getFixedStack(MF, VarArgsFI, Offset),
+              MachineMemOperand::MOStore, LLT::scalar(64), Align(8)));
+    }
+    MF.getInfo<IA64MachineFunctionInfo>()->setSpillsVarArgs(First != 8);
+    MF.getInfo<IA64MachineFunctionInfo>()->setVarArgsFrameIndex(VarArgsFI);
+  }
 
   // A function returning in memory returns the sret address in r8, so keep
   // it.
@@ -331,8 +445,7 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   // A call that has to be one in place of a return is not made one here,
   // and one that may unwind needs the global pointer put back where it
   // lands.
-  if (Info.IsVarArg || Info.IsMustTailCall ||
-      (Info.CB && !isa<CallInst>(Info.CB)))
+  if (Info.IsMustTailCall || (Info.CB && !isa<CallInst>(Info.CB)))
     return false;
   if (!Info.Callee.isReg() && !Info.Callee.isGlobal() &&
       !Info.Callee.isSymbol())
@@ -351,8 +464,9 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(Info.CallConv, Info.IsVarArg, MF, ArgLocs, F.getContext());
   OutgoingValueAssigner ArgAssigner(CC_IA64);
+  SmallVector<CCValAssign, 8> SlotCopies;
   if (!determineAssignments(ArgAssigner, OutArgs, CCInfo) ||
-      any_of(ArgLocs, [](const CCValAssign &VA) { return VA.needsCustom(); }))
+      !takeSlotCopies(ArgLocs, SlotCopies))
     return false;
   unsigned NumBytes =
       IA64FrameLowering::ScratchAreaSize + CCInfo.getStackSize();
@@ -423,6 +537,9 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   IA64OutgoingValueHandler ArgHandler(MIRBuilder, MRI, MIB, /*IsCall=*/true);
   if (!handleAssignments(ArgHandler, OutArgs, CCInfo, ArgLocs, MIRBuilder))
     return false;
+  for (const CCValAssign &VA : SlotCopies)
+    ArgHandler.assignValueToReg(OutArgs[VA.getValNo()].Regs[0], VA.getLocReg(),
+                                VA);
   MIB.addRegMask(ReturnsTwice ? TRI->getReturnsTwiceCallPreservedMask()
                               : TRI->getCallPreservedMask(MF, Info.CallConv));
   MIRBuilder.insertInstr(MIB);

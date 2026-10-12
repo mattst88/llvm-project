@@ -6,7 +6,7 @@
 ; What GlobalISel does not do yet is SelectionDAG's, a function at a time,
 ; and it says which. Nothing is said when it was not asked for.
 
-; CHECK: warning: Instruction selection used fallback path for variadic
+; CHECK: warning: Instruction selection used fallback path for extended
 ; CHECK-NOT: warning:
 ; DAG-NOT: warning:
 
@@ -17,14 +17,9 @@ define i64 @plain(i64 %a) {
   ret i64 %a
 }
 
-declare void @llvm.va_start(ptr)
-
-define i64 @variadic(i64 %a, ...) {
-; CHECK-LABEL: variadic:
+define x86_fp80 @extended(x86_fp80 %a) {
+; CHECK-LABEL: extended:
 ; CHECK:       br.ret.sptk.many b0 ;;
-; DAG-LABEL:   variadic:
-  %ap = alloca ptr
-  call void @llvm.va_start(ptr %ap)
-  %r = va_arg ptr %ap, i64
-  ret i64 %r
+; DAG-LABEL:   extended:
+  ret x86_fp80 %a
 }

@@ -16,9 +16,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64LegalizerInfo.h"
+#include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
+#include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerHelper.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
+#include "llvm/IR/Intrinsics.h"
 
 using namespace llvm;
 using namespace TargetOpcode;
@@ -334,6 +337,9 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .lower();
 
   getActionDefinitionsBuilder({G_STACKSAVE, G_STACKRESTORE}).lower();
+
+  // va_list is a pointer to the next variadic argument.
+  getActionDefinitionsBuilder(G_VASTART).customFor({p0});
   getActionDefinitionsBuilder(G_FENCE).alwaysLegal();
   getActionDefinitionsBuilder({G_TRAP, G_DEBUGTRAP}).alwaysLegal();
   getActionDefinitionsBuilder(G_PREFETCH).legalIf(typeIs(0, p0));
@@ -353,4 +359,48 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
   getActionDefinitionsBuilder(G_ATOMIC_CMPXCHG_WITH_SUCCESS).lower();
 
   verify(*ST.getInstrInfo());
+}
+
+bool IA64LegalizerInfo::legalizeCustom(
+    LegalizerHelper &Helper, MachineInstr &MI,
+    LostDebugLocObserver &LocObserver) const {
+  MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
+  MachineFunction &MF = MIRBuilder.getMF();
+  switch (MI.getOpcode()) {
+  default:
+    return false;
+  case G_VASTART: {
+    // The va_list starts at the first variadic argument, just past the named
+    // ones.
+    int FI = MF.getInfo<IA64MachineFunctionInfo>()->getVarArgsFrameIndex();
+    MachineMemOperand *MMO = *MI.memoperands_begin();
+    LLT P0 = LLT::pointer(0, 64);
+    MIRBuilder.buildStore(MIRBuilder.buildFrameIndex(P0, FI),
+                          MI.getOperand(0).getReg(),
+                          *MF.getMachineMemOperand(MMO->getPointerInfo(),
+                                                   MachineMemOperand::MOStore,
+                                                   P0, MMO->getAlign()));
+    MI.eraseFromParent();
+    return true;
+  }
+  }
+}
+
+bool IA64LegalizerInfo::legalizeIntrinsic(LegalizerHelper &Helper,
+                                          MachineInstr &MI) const {
+  MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
+  switch (cast<GIntrinsic>(MI).getIntrinsicID()) {
+  default:
+    return true;
+  case Intrinsic::vacopy: {
+    // va_list is a single pointer.
+    LLT P0 = LLT::pointer(0, 64);
+    auto Next = MIRBuilder.buildLoad(P0, MI.getOperand(2).getReg(),
+                                     MachinePointerInfo(), Align(8));
+    MIRBuilder.buildStore(Next, MI.getOperand(1).getReg(), MachinePointerInfo(),
+                          Align(8));
+    MI.eraseFromParent();
+    return true;
+  }
+  }
 }

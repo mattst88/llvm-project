@@ -22,6 +22,11 @@ class IA64Subtarget;
 class IA64LegalizerInfo : public LegalizerInfo {
 public:
   IA64LegalizerInfo(const IA64Subtarget &ST);
+
+  bool legalizeCustom(LegalizerHelper &Helper, MachineInstr &MI,
+                      LostDebugLocObserver &LocObserver) const override;
+  bool legalizeIntrinsic(LegalizerHelper &Helper,
+                         MachineInstr &MI) const override;
 };
 
 } // end namespace llvm
