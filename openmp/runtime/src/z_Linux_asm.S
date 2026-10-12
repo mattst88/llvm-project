@@ -2471,6 +2471,177 @@ __kmp_invoke_microtask:
 
 #endif /* KMP_ARCH_S390X */
 
+#if KMP_ARCH_IA64
+
+//------------------------------------------------------------------------
+//
+// typedef void (*microtask_t)(int *gtid, int *tid, ...);
+//
+// int __kmp_invoke_microtask(microtask_t pkfn, int gtid, int tid, int argc,
+//                            void *p_argv[]
+// #if OMPT_SUPPORT
+//                            ,
+//                            void **exit_frame_ptr
+// #endif
+//                            ) {
+// #if OMPT_SUPPORT
+//   *exit_frame_ptr = OMPT_GET_FRAME_ADDRESS(0);
+// #endif
+//
+//   (*pkfn)(&gtid, &tid, argv[0], ...);
+//
+//   return 1;
+// }
+//
+// Parameters:
+//   in0: pkfn
+//   in1: gtid
+//   in2: tid
+//   in3: argc
+//   in4: p_argv
+//   in5: exit_frame_ptr
+//
+// Locals:
+//   loc0: ar.pfs of the caller
+//   loc1: return address
+//   loc2: stack pointer on entry
+//   loc3: global pointer on entry
+//   __gtid, __tid: gtid and tid, in the scratch area above the stack pointer
+//     on entry, so that their addresses can be passed to pkfn
+//
+// Temp. registers:
+//
+//  r14: number of pkfn parameters passed in memory, then the stack size
+//  r15: argv slot
+//  r16: number of remaining pkfn parameters
+//  r17: stack parameter slot
+//  r18: used to fetch argv slots and the entry point of pkfn
+//  p6-p11: argc > 0 through argc > 5
+//
+// return: r8 (always 1/TRUE)
+//
+
+// -- Begin __kmp_invoke_microtask
+// mark_begin;
+	.text
+	.global	__kmp_invoke_microtask
+	.align	32
+	.proc	__kmp_invoke_microtask
+__kmp_invoke_microtask:
+	.regstk	6, 4, 8, 0
+	.prologue
+	.save	ar.pfs, loc0
+	alloc	loc0 = ar.pfs, 6, 4, 8, 0
+	.vframe	loc2
+	mov	loc2 = sp
+	.save	rp, loc1
+	mov	loc1 = rp
+	.body
+	mov	loc3 = gp
+
+	// Only the low 32 bits of an int argument are defined; sign-extend argc.
+
+	sxt4	in3 = in3
+	;;
+
+	// Compute the dynamic stack size:
+	//
+	// - 16 bytes of scratch area, which every callee may use
+	// - 8 bytes for each argument that cannot be passed to the 'pkfn'
+	//   function by register. Given that there are 8 of such registers
+	//   (out0-out7) and two + 'argc' arguments (consider &gtid and &tid),
+	//   that is max(0, argc - 6)*8 bytes
+	//
+	// The total is rounded up to the 16-byte stack alignment.
+
+	adds	r14 = -6, in3
+	adds	r16 = -6, in3
+	;;
+	cmp.lt	p6, p0 = r14, r0
+	;;
+(p6)	mov	r14 = r0
+	;;
+	shladd	r14 = r14, 3, r0
+	;;
+	adds	r14 = 31, r14
+	;;
+	and	r14 = -16, r14
+
+#if OMPT_SUPPORT
+	// Save frame pointer into exit_frame
+	st8	[in5] = sp
+#endif
+
+	// Store gtid and tid in the caller's 16-byte scratch area
+
+	adds	r15 = 8, sp
+	mov	out0 = sp		// gtid
+	st4	[sp] = in1
+	;;
+	mov	out1 = r15		// tid
+	st4	[r15] = in2
+	sub	sp = sp, r14
+	;;
+
+	// Prepare arguments for the pkfn function (first 6 using out2-out7)
+
+	mov	r15 = in4		// argv
+	cmp.lt	p6, p0 = 0, in3
+	cmp.lt	p7, p0 = 1, in3
+	cmp.lt	p8, p0 = 2, in3
+	cmp.lt	p9, p0 = 3, in3
+	cmp.lt	p10, p0 = 4, in3
+	cmp.lt	p11, p0 = 5, in3
+	;;
+(p6)	ld8	out2 = [r15], 8		// argv[0]
+	adds	r17 = 16, sp
+	;;
+(p7)	ld8	out3 = [r15], 8		// argv[1]
+	;;
+(p8)	ld8	out4 = [r15], 8		// argv[2]
+	;;
+(p9)	ld8	out5 = [r15], 8		// argv[3]
+	;;
+(p10)	ld8	out6 = [r15], 8		// argv[4]
+	;;
+(p11)	ld8	out7 = [r15], 8		// argv[5]
+	;;
+1:
+	cmp.lt	p6, p0 = 0, r16
+	;;
+(p6)	ld8	r18 = [r15], 8		// argv[6+n]
+(p6)	adds	r16 = -1, r16
+	;;
+(p6)	st8	[r17] = r18, 8		// parm[6+n]
+(p6)	br.cond.sptk	1b
+	;;
+
+	// pkfn is the address of a function descriptor
+
+	ld8	r18 = [in0], 8
+	;;
+	ld8	gp = [in0]
+	mov	b6 = r18
+	;;
+	br.call.sptk.many	rp = b6	// Call pkfn
+	;;
+
+	// Restore stack and return
+
+	mov	gp = loc3
+	mov	r8 = 1
+	mov	ar.pfs = loc0
+	mov	rp = loc1
+	;;
+	.restore	sp
+	mov	sp = loc2
+	br.ret.sptk.many	rp
+	.endp	__kmp_invoke_microtask
+
+// -- End  __kmp_invoke_microtask
+
+#endif /* KMP_ARCH_IA64 */
+
 #if KMP_ARCH_ARM || KMP_ARCH_MIPS || KMP_ARCH_PPC || KMP_ARCH_AARCH64_32 || KMP_ARCH_SPARC32
 #ifndef KMP_PREFIX_UNDERSCORE
 # define KMP_PREFIX_UNDERSCORE(x) x
