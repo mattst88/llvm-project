@@ -51,6 +51,20 @@ public:
     return TyWidth <= 64 ? TTI::PSK_FastHardware : TTI::PSK_Software;
   }
 
+  // The cost of materializing a constant, and the cost of a constant operand
+  // to an instruction, which is free if the instruction has an immediate
+  // form. A constant costing more than an instruction is worth hoisting into
+  // a register for all its uses.
+  InstructionCost getIntImmCost(const APInt &Imm, Type *Ty,
+                                TTI::TargetCostKind CostKind) const override;
+  InstructionCost getIntImmCostInst(unsigned Opcode, unsigned Idx,
+                                    const APInt &Imm, Type *Ty,
+                                    TTI::TargetCostKind CostKind,
+                                    Instruction *Inst = nullptr) const override;
+  InstructionCost
+  getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
+                      Type *Ty, TTI::TargetCostKind CostKind) const override;
+
   bool supportsTailCallFor(const CallBase *CB) const override {
     return TLI->supportsTailCallFor(CB);
   }
