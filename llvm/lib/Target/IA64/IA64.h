@@ -31,6 +31,7 @@ FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
 FunctionPass *createIA64ExpandBranchesPass();
 FunctionPass *createIA64IfConversionPass();
 FunctionPass *createIA64InsertStopsPass();
+FunctionPass *createIA64LocalDynamicTLSPass();
 InstructionSelector *
 createIA64InstructionSelector(const IA64TargetMachine &TM,
                               const IA64Subtarget &STI,
@@ -39,6 +40,7 @@ createIA64InstructionSelector(const IA64TargetMachine &TM,
 void initializeIA64ExpandBranchesPass(PassRegistry &);
 void initializeIA64IfConversionPass(PassRegistry &);
 void initializeIA64InsertStopsPass(PassRegistry &);
+void initializeIA64LocalDynamicTLSPass(PassRegistry &);
 
 } // namespace llvm
 

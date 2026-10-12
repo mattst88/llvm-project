@@ -32,6 +32,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64ExpandBranchesPass(PR);
   initializeIA64IfConversionPass(PR);
   initializeIA64InsertStopsPass(PR);
+  initializeIA64LocalDynamicTLSPass(PR);
 }
 
 // Code addresses data relative to GP and other code relative to IP, so it is
@@ -104,6 +105,7 @@ public:
   bool addLegalizeMachineIR() override;
   bool addRegBankSelect() override;
   bool addGlobalInstructionSelect() override;
+  void addMachineSSAOptimization() override;
   bool addILPOpts() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
@@ -139,6 +141,13 @@ bool IA64PassConfig::addRegBankSelect() {
 bool IA64PassConfig::addGlobalInstructionSelect() {
   addPass(new InstructionSelectLegacy(getOptLevel()));
   return false;
+}
+
+// Removing redundant __tls_get_addr calls leaves dead instructions, which
+// later passes remove.
+void IA64PassConfig::addMachineSSAOptimization() {
+  addPass(createIA64LocalDynamicTLSPass());
+  TargetPassConfig::addMachineSSAOptimization();
 }
 
 bool IA64PassConfig::addILPOpts() {

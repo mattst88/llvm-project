@@ -27,6 +27,7 @@ add_llvm_target(IA64CodeGen
   IA64ExpandBranches.cpp
   IA64IfConversion.cpp
   IA64InsertStops.cpp
+  IA64LocalDynamicTLS.cpp
   IA64InstrInfo.cpp
   IA64ISelDAGToDAG.cpp
   IA64ISelLowering.cpp
