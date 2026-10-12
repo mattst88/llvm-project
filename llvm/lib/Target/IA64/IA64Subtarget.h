@@ -13,6 +13,7 @@
 #ifndef LLVM_LIB_TARGET_IA64_IA64SUBTARGET_H
 #define LLVM_LIB_TARGET_IA64_IA64SUBTARGET_H
 
+#include "GISel/IA64RegisterBankInfo.h"
 #include "IA64FrameLowering.h"
 #include "IA64ISelLowering.h"
 #include "IA64InstrInfo.h"
@@ -40,6 +41,7 @@ class IA64Subtarget : public IA64GenSubtargetInfo {
   IA64TargetLowering TLInfo;
   IA64FrameLowering FrameLowering;
   IA64SelectionDAGInfo TSInfo;
+  IA64RegisterBankInfo RegBankInfo;
 
   IA64Subtarget &initializeSubtargetDependencies(StringRef CPU,
                                                  StringRef TuneCPU,
@@ -64,6 +66,10 @@ public:
   }
   const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
+  }
+
+  const RegisterBankInfo *getRegBankInfo() const override {
+    return &RegBankInfo;
   }
 
   bool hasConstantGP() const { return HasConstantGP; }

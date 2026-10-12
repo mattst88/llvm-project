@@ -9,6 +9,7 @@ tablegen(LLVM IA64GenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM IA64GenDisassemblerTables.inc -gen-disassembler)
 tablegen(LLVM IA64GenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM IA64GenMCCodeEmitter.inc -gen-emitter)
+tablegen(LLVM IA64GenRegisterBank.inc -gen-register-bank)
 tablegen(LLVM IA64GenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM IA64GenSDNodeInfo.inc -gen-sd-node-info)
 tablegen(LLVM IA64GenSubtargetInfo.inc -gen-subtarget)
@@ -16,6 +17,7 @@ tablegen(LLVM IA64GenSubtargetInfo.inc -gen-subtarget)
 add_public_tablegen_target(IA64CommonTableGen)
 
 add_llvm_target(IA64CodeGen
+  GISel/IA64RegisterBankInfo.cpp
   IA64AsmPrinter.cpp
   IA64FrameLowering.cpp
   IA64ExpandBranches.cpp
@@ -39,6 +41,7 @@ add_llvm_target(IA64CodeGen
   CodeGen
   CodeGenTypes
   Core
+  GlobalISel
   MC
   SelectionDAG
   Support

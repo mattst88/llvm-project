@@ -10,6 +10,7 @@ include "llvm/Target/Target.td"
 
 include "IA64Features.td"
 include "IA64RegisterInfo.td"
+include "GISel/IA64RegisterBanks.td"
 include "IA64CallingConv.td"
 include "IA64InstrInfo.td"
 include "IA64Patterns.td"

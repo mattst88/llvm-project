@@ -14,6 +14,7 @@
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/PassRegistry.h"
 
@@ -23,6 +24,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   RegisterTargetMachine<IA64TargetMachine> X(getTheIA64Target());
 
   PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeGlobalISel(PR);
   initializeIA64ExpandBranchesPass(PR);
   initializeIA64IfConversionPass(PR);
   initializeIA64InsertStopsPass(PR);

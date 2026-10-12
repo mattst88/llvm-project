@@ -1,0 +1,204 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=reg-bank-select %s -o - \
+# RUN:   | FileCheck %s
+
+# Arithmetic says which bank it is in. A load, a store, a phi and a select do
+# not, and take the bank of the values around them.
+
+---
+name:            arith
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $f8, $f9
+    ; CHECK-LABEL: name: arith
+    ; CHECK: %{{[0-9]+}}:gpr(s64) = G_ADD
+    ; CHECK: %{{[0-9]+}}:fpr(s64) = G_FADD
+    %0:_(s64) = COPY $r32
+    %1:_(s64) = COPY $r33
+    %2:_(s64) = G_ADD %0, %1
+    %3:_(s64) = COPY $f8
+    %4:_(s64) = COPY $f9
+    %5:_(s64) = G_FADD %3, %4
+    $r8 = COPY %2(s64)
+    $f8 = COPY %5(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $f8
+...
+---
+# A float is in the same registers as a double, and so is an extended value.
+name:            sizes
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $f8
+    ; CHECK-LABEL: name: sizes
+    ; CHECK: %{{[0-9]+}}:fpr(s32) = G_LOAD
+    ; CHECK: %{{[0-9]+}}:fpr(s80) = G_FPEXT
+    ; CHECK: %{{[0-9]+}}:fpr(s80) = G_LOAD
+    ; CHECK: %{{[0-9]+}}:fpr(s80) = G_FADD
+    %0:_(p0) = COPY $r32
+    %1:_(s32) = G_LOAD %0(p0) :: (load (s32))
+    %2:_(s80) = G_FPEXT %1(s32)
+    %3:_(s80) = G_LOAD %0(p0) :: (load (s80), align 16)
+    %4:_(s80) = G_FADD %2, %3
+    $f8 = COPY %4(s80)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...
+---
+# The bank of a load is that of what reads the value.
+name:            load_from_use
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $f8
+    ; CHECK-LABEL: name: load_from_use
+    ; CHECK: %{{[0-9]+}}:fpr(s64) = G_LOAD
+    ; CHECK: %{{[0-9]+}}:gpr(s64) = G_LOAD
+    %0:_(p0) = COPY $r32
+    %1:_(s64) = G_LOAD %0(p0) :: (load (s64))
+    %2:_(s64) = COPY $f8
+    %3:_(s64) = G_FADD %1, %2
+    %4:_(s64) = G_LOAD %0(p0) :: (load (s64))
+    $f8 = COPY %3(s64)
+    $r8 = COPY %4(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $f8
+...
+---
+# A load of four bytes that are extended is of an integer, whatever reads it.
+name:            load_extending
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    ; CHECK-LABEL: name: load_extending
+    ; CHECK: %[[V:[0-9]+]]:gpr(s64) = G_ZEXTLOAD
+    ; CHECK: $f8 = COPY %[[V]](s64)
+    %0:_(p0) = COPY $r32
+    %1:_(s64) = G_ZEXTLOAD %0(p0) :: (load (s32))
+    $f8 = COPY %1(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...
+---
+# The bank of a store is that of what the value came from.
+name:            store_from_def
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $f8
+    ; CHECK-LABEL: name: store_from_def
+    ; CHECK: %[[I:[0-9]+]]:gpr(s64) = COPY $r33
+    ; CHECK: %[[F:[0-9]+]]:fpr(s64) = COPY $f8
+    ; CHECK: G_STORE %[[I]](s64)
+    ; CHECK: G_STORE %[[F]](s64)
+    %0:_(p0) = COPY $r32
+    %1:_(s64) = COPY $r33
+    %2:_(s64) = COPY $f8
+    G_STORE %1(s64), %0(p0) :: (store (s64))
+    G_STORE %2(s64), %0(p0) :: (store (s64))
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# A compare of floating-point values answers in a general register, and a
+# conversion has one end in each bank.
+name:            two_banks
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $f8
+    ; CHECK-LABEL: name: two_banks
+    ; CHECK: %[[I:[0-9]+]]:gpr(s64) = COPY $r32
+    ; CHECK: %[[F:[0-9]+]]:fpr(s64) = COPY $f8
+    ; CHECK: %[[C:[0-9]+]]:fpr(s64) = G_SITOFP %[[I]](s64)
+    ; CHECK: %{{[0-9]+}}:gpr(s64) = G_FCMP floatpred(olt), %[[F]](s64), %[[C]]{{$}}
+    ; CHECK: %{{[0-9]+}}:gpr(s64) = G_FPTOSI %[[F]](s64)
+    %0:_(s64) = COPY $r32
+    %1:_(s64) = COPY $f8
+    %2:_(s64) = G_SITOFP %0(s64)
+    %3:_(s64) = G_FCMP floatpred(olt), %1(s64), %2
+    %4:_(s64) = G_FPTOSI %1(s64)
+    %5:_(s64) = G_ADD %3, %4
+    $r8 = COPY %5(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# One value of the phi is of a floating-point add, so the phi and the load
+# that says nothing are in the floating-point bank too.
+name:            phi_from_both_ends
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $f8
+    ; CHECK-LABEL: name: phi_from_both_ends
+    ; CHECK: %{{[0-9]+}}:fpr(s64) = G_LOAD
+    ; CHECK: %{{[0-9]+}}:fpr(s64) = G_PHI
+    ; CHECK: %{{[0-9]+}}:gpr(s64) = G_PHI
+    %0:_(s64) = COPY $r32
+    %2:_(p0) = COPY $r33
+    %3:_(s64) = COPY $f8
+    G_BRCOND %0(s64), %bb.1
+    G_BR %bb.2
+
+  bb.1:
+    %4:_(s64) = G_LOAD %2(p0) :: (load (s64))
+    %7:_(s64) = G_LOAD %2(p0) :: (load (s64))
+    G_BR %bb.3
+
+  bb.2:
+    %5:_(s64) = G_FADD %3, %3
+
+  bb.3:
+    %6:_(s64) = G_PHI %4(s64), %bb.1, %5(s64), %bb.2
+    %8:_(s64) = G_PHI %7(s64), %bb.1, %0(s64), %bb.2
+    G_STORE %6(s64), %2(p0) :: (store (s64))
+    $r8 = COPY %8(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The condition of a select is an integer; what it chooses between is not
+# here.
+name:            select
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $f8
+    ; CHECK-LABEL: name: select
+    ; CHECK: %[[C:[0-9]+]]:gpr(s64) = COPY $r32
+    ; CHECK: %[[L:[0-9]+]]:fpr(s64) = G_LOAD
+    ; CHECK: %{{[0-9]+}}:fpr(s64) = G_SELECT %[[C]](s64), %[[L]], %{{[0-9]+}}
+    %0:_(s64) = COPY $r32
+    %1:_(p0) = COPY $r33
+    %2:_(s64) = COPY $f8
+    %3:_(s64) = G_LOAD %1(p0) :: (load (s64))
+    %4:_(s64) = G_SELECT %0(s64), %3, %2
+    G_STORE %4(s64), %1(p0) :: (store (s64))
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# What keeps a constant from being folded is the constant, in its bank.
+name:            barrier
+legalized:       true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    ; CHECK-LABEL: name: barrier
+    ; CHECK: %[[K:[0-9]+]]:gpr(s64) = G_CONSTANT i64 5
+    ; CHECK: %{{[0-9]+}}:gpr(s64) = G_CONSTANT_FOLD_BARRIER %[[K]]
+    ; CHECK: %[[F:[0-9]+]]:fpr(s64) = G_FCONSTANT double 1.000000e+00
+    ; CHECK: %[[B:[0-9]+]]:fpr(s64) = G_CONSTANT_FOLD_BARRIER %[[F]]
+    ; CHECK: $f8 = COPY %[[B]](s64)
+    %0:_(s64) = G_CONSTANT i64 5
+    %1:_(s64) = G_CONSTANT_FOLD_BARRIER %0
+    %2:_(s64) = G_FCONSTANT double 1.0
+    %3:_(s64) = G_CONSTANT_FOLD_BARRIER %2
+    $r8 = COPY %1(s64)
+    $f8 = COPY %3(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $f8
+...
