@@ -1,0 +1,29 @@
+//===-- IA64LegalizerInfo.h -------------------------------------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file declares the targeting of the LegalizerInfo class for IA64.
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef LLVM_LIB_TARGET_IA64_GISEL_IA64LEGALIZERINFO_H
+#define LLVM_LIB_TARGET_IA64_GISEL_IA64LEGALIZERINFO_H
+
+#include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
+
+namespace llvm {
+
+class IA64Subtarget;
+
+class IA64LegalizerInfo : public LegalizerInfo {
+public:
+  IA64LegalizerInfo(const IA64Subtarget &ST);
+};
+
+} // end namespace llvm
+
+#endif // LLVM_LIB_TARGET_IA64_GISEL_IA64LEGALIZERINFO_H

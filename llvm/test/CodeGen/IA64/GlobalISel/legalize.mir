@@ -1,0 +1,197 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=legalizer \
+# RUN:   -global-isel-abort=1 %s -o - | FileCheck %s
+
+---
+# Arithmetic is on 64 bits, and the sign of a narrower result is extended
+# from where it is in the register.
+name:            add_narrow
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33
+    ; CHECK-LABEL: name: add_narrow
+    ; CHECK: [[A:%[0-9]+]]:_(s64) = COPY $r32
+    ; CHECK: [[B:%[0-9]+]]:_(s64) = COPY $r33
+    ; CHECK: [[S:%[0-9]+]]:_(s64) = G_ADD [[A]], [[B]]
+    ; CHECK: G_SEXT_INREG [[S]], 32
+    %0:_(s64) = COPY $r32
+    %1:_(s64) = COPY $r33
+    %2:_(s32) = G_TRUNC %0
+    %3:_(s32) = G_TRUNC %1
+    %4:_(s32) = G_ADD %2, %3
+    %5:_(s64) = G_SEXT %4
+    $r8 = COPY %5(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A sum of two registers has a carry, which is a compare.
+name:            add_wide
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35
+    ; CHECK-LABEL: name: add_wide
+    ; CHECK: [[LO:%[0-9]+]]:_(s64) = G_ADD
+    ; CHECK: [[C:%[0-9]+]]:_(s64) = G_ICMP intpred(ult), [[LO]](s64),
+    ; CHECK: [[HI:%[0-9]+]]:_(s64) = G_ADD
+    ; CHECK: G_ADD [[HI]], [[C]]
+    %0:_(s64) = COPY $r32
+    %1:_(s64) = COPY $r33
+    %2:_(s64) = COPY $r34
+    %3:_(s64) = COPY $r35
+    %4:_(s128) = G_MERGE_VALUES %0, %1
+    %5:_(s128) = G_MERGE_VALUES %2, %3
+    %6:_(s128) = G_ADD %4, %5
+    %7:_(s64), %8:_(s64) = G_UNMERGE_VALUES %6
+    $r8 = COPY %7(s64)
+    $r9 = COPY %8(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...
+---
+# A load that extends the sign is left for the selector.
+name:            sextload
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    ; CHECK-LABEL: name: sextload
+    ; CHECK: G_SEXTLOAD %{{[0-9]+}}(p0) :: (load (s16))
+    %0:_(p0) = COPY $r32
+    %1:_(s64) = G_SEXTLOAD %0(p0) :: (load (s16))
+    $r8 = COPY %1(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A load that is not aligned is split into ones that are.
+name:            load_unaligned
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    ; CHECK-LABEL: name: load_unaligned
+    ; CHECK: [[P:%[0-9]+]]:_(p0) = COPY $r32
+    ; CHECK: [[LO:%[0-9]+]]:_(s64) = G_ZEXTLOAD [[P]](p0) :: (load (s8))
+    ; CHECK: [[P1:%[0-9]+]]:_(p0) = nuw inbounds G_PTR_ADD [[P]],
+    ; CHECK: [[HI:%[0-9]+]]:_(s64) = G_ZEXTLOAD [[P1]](p0) :: (load (s8) from unknown-address + 1)
+    ; CHECK: [[SH:%[0-9]+]]:_(s64) = G_SHL [[HI]],
+    ; CHECK: G_OR [[SH]], [[LO]]
+    %0:_(p0) = COPY $r32
+    %1:_(s64) = G_ZEXTLOAD %0(p0) :: (load (s16), align 1)
+    $r8 = COPY %1(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# So is a store, and of a float it stores the bits.
+name:            store_unaligned_float
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $f8
+    ; CHECK-LABEL: name: store_unaligned_float
+    ; CHECK: [[F:%[0-9]+]]:_(s32) = COPY $f8
+    ; CHECK: [[X:%[0-9]+]]:_(s64) = G_ANYEXT [[F]](s32)
+    ; CHECK: G_STORE [[X]](s64), %{{[0-9]+}}(p0) :: (store (s16))
+    ; CHECK: G_STORE %{{[0-9]+}}(s64), %{{[0-9]+}}(p0) :: (store (s16) into unknown-address + 2)
+    %0:_(p0) = COPY $r32
+    %1:_(s32) = COPY $f8
+    G_STORE %1(s32), %0(p0) :: (store (s32), align 2)
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# All nine bytes of a value of 65 bits are loaded.
+name:            load_odd
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    ; CHECK-LABEL: name: load_odd
+    ; CHECK: G_LOAD %{{[0-9]+}}(p0) :: (load (s64), align 16)
+    ; CHECK: G_LOAD %{{[0-9]+}}(p0) :: (load (s8) from unknown-address + 8, align 8)
+    %0:_(p0) = COPY $r32
+    %1:_(s65) = G_LOAD %0(p0) :: (load (s65), align 16)
+    %2:_(s128) = G_ZEXT %1
+    %7:_(s64), %8:_(s64) = G_UNMERGE_VALUES %2
+    $r8 = COPY %7(s64)
+    $r9 = COPY %8(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...
+---
+# A compare answers in a register, whatever it compares.
+name:            compare
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33, $f8, $f9
+    ; CHECK-LABEL: name: compare
+    ; CHECK: [[I:%[0-9]+]]:_(s64) = G_ICMP intpred(slt), %{{[0-9]+}}(s64), %{{[0-9]+}}
+    ; CHECK: [[F:%[0-9]+]]:_(s64) = G_FCMP floatpred(olt), %{{[0-9]+}}(s80), %{{[0-9]+}}
+    ; CHECK: G_AND [[I]], [[F]]
+    %0:_(s64) = COPY $r32
+    %1:_(s64) = COPY $r33
+    %2:_(s80) = COPY $f8
+    %3:_(s80) = COPY $f9
+    %4:_(s1) = G_ICMP intpred(slt), %0, %1
+    %5:_(s1) = G_FCMP floatpred(olt), %2, %3
+    %6:_(s1) = G_AND %4, %5
+    %7:_(s64) = G_ZEXT %6
+    $r8 = COPY %7(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A constant at extended precision is loaded.
+name:            fconstant
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    ; CHECK-LABEL: name: fconstant
+    ; CHECK: G_FCONSTANT double 2.500000e+00
+    ; CHECK: [[P:%[0-9]+]]:_(p0) = G_CONSTANT_POOL %const.0
+    ; CHECK: G_LOAD [[P]](p0) :: (load (s80) from constant-pool, align 16)
+    %0:_(s64) = G_FCONSTANT double 2.5
+    %1:_(s80) = G_FCONSTANT x86_fp80 0xK4000C000000000000000
+    $f8 = COPY %0(s64)
+    $f9 = COPY %1(s80)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8, implicit $f9
+...
+---
+# The sign is extended from any bit of a register.
+name:            sext_inreg
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    ; CHECK-LABEL: name: sext_inreg
+    ; CHECK: G_SEXT_INREG %{{[0-9]+}}, 13
+    ; CHECK: G_SEXT_INREG %{{[0-9]+}}, 8
+    %0:_(s64) = COPY $r32
+    %1:_(s64) = G_SEXT_INREG %0, 13
+    %2:_(s32) = G_TRUNC %0
+    %3:_(s32) = G_SEXT_INREG %2, 8
+    %4:_(s64) = G_ZEXT %3
+    %5:_(s64) = G_ADD %1, %4
+    $r8 = COPY %5(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The zeros below the lowest bit that is set are counted as the bits that
+# are set in a mask of them, and the bytes of half a register are reversed
+# with the rest and shifted down.
+name:            bits
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32
+    ; CHECK-LABEL: name: bits
+    ; CHECK: [[M:%[0-9]+]]:_(s64) = G_AND
+    ; CHECK: G_CTPOP [[M]](s64)
+    ; CHECK: [[B:%[0-9]+]]:_(s64) = G_BSWAP
+    ; CHECK: G_LSHR [[B]],
+    %0:_(s64) = COPY $r32
+    %1:_(s64) = G_CTTZ %0
+    %2:_(s32) = G_TRUNC %0
+    %3:_(s32) = G_BSWAP %2
+    %4:_(s64) = G_ZEXT %3
+    %5:_(s64) = G_ADD %1, %4
+    $r8 = COPY %5(s64)
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

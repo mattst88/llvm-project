@@ -33,4 +33,4 @@ IA64Subtarget::IA64Subtarget(const Triple &TT, StringRef CPU, StringRef TuneCPU,
     : IA64GenSubtargetInfo(TT, CPU, TuneCPU.empty() ? CPU : TuneCPU, FS),
       InstrInfo(initializeSubtargetDependencies(CPU, TuneCPU, FS)),
       TLInfo(static_cast<const IA64TargetMachine &>(TM), *this),
-      FrameLowering(*this) {}
+      FrameLowering(*this), Legalizer(*this) {}
