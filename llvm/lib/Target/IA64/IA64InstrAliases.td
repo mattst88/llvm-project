@@ -42,6 +42,9 @@ def : IA64Alias<"add", "$r1 = $imm, $r3",
 // A move to a BR may omit the branch target address hint.
 def : IA64Alias<"mov", "$b1 = $r2", (MOV_BR BR:$b1, GR:$r2, 0, qp:$qp), 1>;
 
+// A move to pr with no mask writes all predicates.
+def : IA64Alias<"mov", "pr = $r2", (MOV_PR GR:$r2, -2, qp:$qp)>;
+
 //===----------------------------------------------------------------------===//
 // Integer compare
 //===----------------------------------------------------------------------===//

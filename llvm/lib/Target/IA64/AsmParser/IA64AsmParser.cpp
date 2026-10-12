@@ -1244,6 +1244,24 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
     }
   }
 
+  // A compare or test may name only one target predicate; the other is then
+  // p0.
+  unsigned First = 2 + Completers.size();
+  if (Operands.size() > First + 1 &&
+      (Name.starts_with("cmp.") || Name.starts_with("cmp4.") ||
+       Name.starts_with("tbit.") || Name.starts_with("tnat.") ||
+       Name.starts_with("tf.") || Name.starts_with("fcmp.") ||
+       Name.starts_with("fclass."))) {
+    auto &Target = static_cast<IA64Operand &>(*Operands[First]);
+    auto &Next = static_cast<IA64Operand &>(*Operands[First + 1]);
+    if (Target.isReg() && Target.getReg() >= IA64::P0 &&
+        Target.getReg() <= IA64::P63 && Next.isToken() &&
+        Next.getToken() == "=")
+      Operands.insert(Operands.begin() + First + 1,
+                      IA64Operand::createReg(IA64::P0, Target.getEndLoc(),
+                                             Target.getEndLoc()));
+  }
+
   // A shift by a constant is a pseudo-op for dep.z or extr of the remaining
   // bits.
   StringRef Field = StringSwitch<StringRef>(Name)
