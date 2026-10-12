@@ -370,6 +370,8 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::SPONENTRY, MVT::i64, Custom);
   // Its operand is an i32, so it must be lowered before type legalization.
   setOperationAction(ISD::EH_DWARF_CFA, MVT::i32, Custom);
+  setOperationAction(ISD::INIT_TRAMPOLINE, MVT::Other, Custom);
+  setOperationAction(ISD::ADJUST_TRAMPOLINE, MVT::i64, Custom);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Custom);
   setOperationAction(ISD::GET_DYNAMIC_AREA_OFFSET, MVT::i64, Custom);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
@@ -533,6 +535,12 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerSPONENTRY(Op, DAG);
   case ISD::EH_DWARF_CFA:
     return LowerEH_DWARF_CFA(Op, DAG);
+  case ISD::INIT_TRAMPOLINE:
+    return LowerINIT_TRAMPOLINE(Op, DAG);
+  case ISD::ADJUST_TRAMPOLINE:
+    // The trampoline is a function descriptor; its address is the function
+    // pointer.
+    return Op.getOperand(0);
   case ISD::DYNAMIC_STACKALLOC:
     return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::GET_DYNAMIC_AREA_OFFSET:
@@ -894,6 +902,37 @@ SDValue IA64TargetLowering::LowerEH_DWARF_CFA(SDValue Op,
                   DAG.getConstant(16, DL, MVT::i64));
   return DAG.getNode(ISD::ADD, DL, MVT::i64,
                      DAG.getNode(IA64ISD::FRAMEADDR, DL, MVT::i64), Offset);
+}
+
+// A trampoline is four doublewords. The first two are a function descriptor
+// whose entry point is libgcc's __ia64_trampoline and whose GP is the address
+// of the other two: the target's function descriptor address and the static
+// chain. __ia64_trampoline loads them via GP, puts the chain in r15 and
+// branches to the function.
+SDValue IA64TargetLowering::LowerINIT_TRAMPOLINE(SDValue Op,
+                                                 SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue Chain = Op.getOperand(0);
+  SDValue Tramp = Op.getOperand(1);
+  const Value *TrampV = cast<SrcValueSDNode>(Op.getOperand(4))->getValue();
+
+  // This is the code address, not a function descriptor.
+  SDValue Entry = loadLinkageTableEntry(
+      DAG.getTargetExternalSymbol("__ia64_trampoline", MVT::i64, IA64::S_LTOFF),
+      DL, DAG);
+  SDValue Words[] = {
+      Entry,
+      DAG.getMemBasePlusOffset(Tramp, TypeSize::getFixed(16), DL),
+      Op.getOperand(2),
+      Op.getOperand(3),
+  };
+  SDValue Stores[4];
+  for (unsigned I = 0; I != 4; ++I)
+    Stores[I] = DAG.getStore(
+        Chain, DL, Words[I],
+        DAG.getMemBasePlusOffset(Tramp, TypeSize::getFixed(8 * I), DL),
+        MachinePointerInfo(TrampV, 8 * I), Align(8));
+  return DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
 }
 
 // SP moves down by the size, which is already a multiple of 16. The outgoing

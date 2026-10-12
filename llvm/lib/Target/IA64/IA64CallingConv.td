@@ -14,6 +14,10 @@
 // callee sees as its first input registers.
 let Entry = 1 in
 def CC_IA64 : CallingConv<[
+  // The static chain takes no slot. It goes in r15, where libgcc's
+  // __ia64_trampoline puts it.
+  CCIfNest<CCAssignToReg<[R15]>>,
+
   // Homogeneous floating-point aggregates (HFAs).
   CCIfByVal<CCCustom<"CC_IA64_ByVal">>,
   CCIfConsecutiveRegs<CCCustom<"CC_IA64_HFA">>,

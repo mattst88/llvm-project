@@ -346,6 +346,7 @@ def : Pat<(store (f80 FR:$f2), GR:$r3), (STFE GR:$r3, FR:$f2, 0)>;
 def : Pat<(IA64ltoff tglobaladdr:$sym), (ADDL tglobaladdr:$sym, R1)>;
 def : Pat<(IA64ltoff tjumptable:$sym), (ADDL tjumptable:$sym, R1)>;
 def : Pat<(IA64ltoff tblockaddress:$sym), (ADDL tblockaddress:$sym, R1)>;
+def : Pat<(IA64ltoff texternalsym:$sym), (ADDL texternalsym:$sym, R1)>;
 
 // addl r1 = @tprel(sym), r3
 // addl r1 = @gprel(sym), gp
