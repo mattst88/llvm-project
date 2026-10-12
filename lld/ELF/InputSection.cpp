@@ -775,6 +775,7 @@ static int64_t getTlsTpOffset(Ctx &ctx, const Symbol &s) {
     // Variant 1.
   case EM_ARM:
   case EM_AARCH64:
+  case EM_IA_64:
     return s.getVA(ctx, 0) + ctx.arg.wordsize * 2 +
            ((tls->p_vaddr - ctx.arg.wordsize * 2) & (tls->p_align - 1));
   case EM_MIPS:
@@ -1050,6 +1051,11 @@ uint64_t InputSectionBase::getRelocTargetVA(Ctx &ctx, const Relocation &r,
            ctx.sym.ia64Gp->getVA(ctx);
   case RE_IA64_FDESC:
     return ctx.in.ia64Opd->getEntryVA(*r.sym, a);
+  case RE_IA64_TLSGD_GOT_GPREL:
+    return ctx.in.got->getGlobalDynAddr(*r.sym) + a -
+           ctx.sym.ia64Gp->getVA(ctx);
+  case RE_IA64_TLSLD_GOT_GPREL:
+    return ctx.in.got->getTlsIndexVA() + a - ctx.sym.ia64Gp->getVA(ctx);
   case RE_IA64_SEGREL: {
     // Offset from the start of the target's PT_LOAD segment. An undefined
     // symbol resolves to 0, as an absolute reference would.

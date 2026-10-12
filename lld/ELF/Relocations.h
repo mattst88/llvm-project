@@ -123,6 +123,8 @@ enum RelExpr {
   RE_IA64_FDESC,
   RE_IA64_LTOFF,
   RE_IA64_LTOFF_FDESC,
+  RE_IA64_TLSGD_GOT_GPREL,
+  RE_IA64_TLSLD_GOT_GPREL,
 };
 
 // Architecture-neutral representation of relocation.

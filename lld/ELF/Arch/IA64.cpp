@@ -73,6 +73,9 @@ IA64::IA64(Ctx &ctx) : TargetInfo(ctx) {
   pltRel = R_IA64_IPLTLSB;
   relativeRel = R_IA64_REL64LSB;
   symbolicRel = R_IA64_DIR64LSB;
+  tlsGotRel = R_IA64_TPREL64LSB;
+  tlsModuleIndexRel = R_IA64_DTPMOD64LSB;
+  tlsOffsetRel = R_IA64_DTPREL64LSB;
   gotEntrySize = 8;
   // An import stub loads a function descriptor. The descriptors are preceded
   // by three words reserved for the dynamic loader, occupying two entries.
@@ -259,6 +262,9 @@ RelExpr IA64::getRelExpr(RelType type, const Symbol &s,
   case R_IA64_SEGREL32LSB:
   case R_IA64_SEGREL64LSB:
     return RE_IA64_SEGREL;
+  case R_IA64_DTPREL32LSB:
+  case R_IA64_DTPREL64LSB:
+    return R_DTPREL;
   default:
     Err(ctx) << getErrorLoc(ctx, loc) << "unknown relocation (" << type.v
              << ") against symbol " << &s;
@@ -283,6 +289,9 @@ int64_t IA64::getImplicitAddend(const uint8_t *buf, RelType type) const {
     return 0;
   case R_IA64_DIR64LSB:
   case R_IA64_REL64LSB:
+  case R_IA64_TPREL64LSB:
+  case R_IA64_DTPMOD64LSB:
+  case R_IA64_DTPREL64LSB:
     return read64le(buf);
   default:
     InternalErr(ctx, buf) << "cannot read addend for relocation " << type;
@@ -524,6 +533,61 @@ void IA64::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
       scanIplt(rs, sec, type, offset, sym, addend);
       continue;
 
+    // TLS relocations. No TLS relaxation is done: the instruction sequences of
+    // the access models are not marked by relocations, so they cannot be
+    // located.
+    case R_IA64_TPREL14:
+    case R_IA64_TPREL22:
+    case R_IA64_TPREL64I:
+    case R_IA64_TPREL64LSB:
+      if (rs.checkTlsLe(offset, sym, type))
+        continue;
+      expr = R_TPREL;
+      break;
+    case R_IA64_LTOFF_TPREL22:
+      sym.setFlags(NEEDS_TLSIE);
+      sec.addReloc({RE_IA64_GOT_GPREL, type, offset, addend, &sym});
+      continue;
+    case R_IA64_LTOFF_DTPMOD22:
+      // All of this module's own variables are in the one TLS block, so they
+      // share the entry that holds its module index.
+      if (sym.isPreemptible) {
+        sym.setFlags(NEEDS_TLSGD);
+        sec.addReloc({RE_IA64_TLSGD_GOT_GPREL, type, offset, addend, &sym});
+      } else {
+        ctx.needsTlsLd.store(true, std::memory_order_relaxed);
+        sec.addReloc({RE_IA64_TLSLD_GOT_GPREL, type, offset, addend, &sym});
+      }
+      continue;
+    case R_IA64_LTOFF_DTPREL22:
+      // The DTP offset is the second word of the general dynamic GOT pair.
+      sym.setFlags(NEEDS_TLSGD);
+      sec.addReloc({RE_IA64_TLSGD_GOT_GPREL, type, offset, addend + 8, &sym});
+      continue;
+    case R_IA64_DTPREL14:
+    case R_IA64_DTPREL22:
+    case R_IA64_DTPREL64I:
+    case R_IA64_DTPREL32LSB:
+    case R_IA64_DTPREL64LSB:
+      sec.addReloc({R_DTPREL, type, offset, addend, &sym});
+      continue;
+    case R_IA64_DTPMOD64LSB:
+      // A word holding the index of the module a variable is in. The
+      // executable is module 1; any other index is assigned by the dynamic
+      // loader.
+      if (!ctx.arg.shared && !sym.isPreemptible) {
+        sec.addReloc({R_ADDEND, type, offset, 1, &sym});
+      } else if (!(sec.flags & SHF_WRITE) && ctx.arg.zText) {
+        reportNotWritable(ctx, sec, type, offset, sym);
+      } else {
+        std::lock_guard<std::mutex> lock(ctx.relocMutex);
+        if (sym.isPreemptible)
+          ctx.in.relaDyn->addSymbolReloc(type, sec, offset, sym);
+        else
+          ctx.in.relaDyn->addReloc({type, &sec, offset});
+      }
+      continue;
+
     default:
       Err(ctx) << getErrorLoc(ctx, sec.content().data() + offset)
                << "unknown relocation (" << type.v << ") against symbol "
@@ -667,6 +731,8 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
     break;
 
   case R_IA64_IMM14:
+  case R_IA64_TPREL14:
+  case R_IA64_DTPREL14:
     checkInt(ctx, loc, val, 14, rel);
     setFields(bundle, slot, imm14Mask, imm14(val));
     break;
@@ -675,6 +741,11 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_LTOFF22:
   case R_IA64_LTOFF22X:
   case R_IA64_LTOFF_FPTR22:
+  case R_IA64_TPREL22:
+  case R_IA64_DTPREL22:
+  case R_IA64_LTOFF_TPREL22:
+  case R_IA64_LTOFF_DTPMOD22:
+  case R_IA64_LTOFF_DTPREL22:
     checkInt(ctx, loc, val, 22, rel);
     setImm22(bundle, slot, val);
     break;
@@ -683,6 +754,8 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_LTOFF64I:
   case R_IA64_LTOFF_FPTR64I:
   case R_IA64_FPTR64I:
+  case R_IA64_TPREL64I:
+  case R_IA64_DTPREL64I:
     setImm64(bundle, val);
     break;
 
@@ -728,6 +801,7 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_SECREL32LSB:
   case R_IA64_LTV32LSB:
   case R_IA64_LTOFF_FPTR32LSB:
+  case R_IA64_DTPREL32LSB:
     checkIntUInt(ctx, loc, val, 32, rel);
     write32le(loc, val);
     break;
@@ -744,6 +818,9 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_IA64_REL64LSB:
   case R_IA64_LTV64LSB:
   case R_IA64_LTOFF_FPTR64LSB:
+  case R_IA64_TPREL64LSB:
+  case R_IA64_DTPMOD64LSB:
+  case R_IA64_DTPREL64LSB:
     write64le(loc, val);
     break;
 
