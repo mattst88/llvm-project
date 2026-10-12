@@ -90,6 +90,7 @@ public:
 
   void addIRPasses() override;
   bool addInstSelector() override;
+  bool addILPOpts() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
   void addPreEmitPass2() override;
@@ -104,6 +105,11 @@ void IA64PassConfig::addIRPasses() {
 bool IA64PassConfig::addInstSelector() {
   addPass(createIA64ISelDag(getIA64TargetMachine(), getOptLevel()));
   return false;
+}
+
+bool IA64PassConfig::addILPOpts() {
+  addPass(&MachineCombinerID);
+  return true;
 }
 
 void IA64PassConfig::addPreSched2() {

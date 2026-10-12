@@ -121,6 +121,11 @@ public:
   bool
   reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
 
+  bool useMachineCombiner() const override { return true; }
+  bool isAssociativeAndCommutative(const MachineInstr &Inst,
+                                   bool Invert) const override;
+  std::optional<unsigned> getInverseOpcode(unsigned Opcode) const override;
+
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
   // Bundles are emitted whole, when full or ended, not as each instruction
   // is encoded, so the bytes emitted for an instruction do not reflect its

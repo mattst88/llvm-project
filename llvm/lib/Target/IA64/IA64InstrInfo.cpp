@@ -739,6 +739,45 @@ bool IA64InstrInfo::reverseBranchCondition(
   return false;
 }
 
+// Summing four values takes three adds, either chained or as two in parallel
+// followed by a third. The machine combiner reassociates the chain into the
+// parallel form when that shortens the critical path, which on a six-issue
+// machine it usually does. FP add is not associative, and is also an fma
+// with a constant register.
+//
+// sub is the inverse of add and is reassociated as one: a chain of
+// subtractions is summed and subtracted once.
+bool IA64InstrInfo::isAssociativeAndCommutative(const MachineInstr &Inst,
+                                                bool Invert) const {
+  unsigned Opcode = Inst.getOpcode();
+  if (Invert) {
+    std::optional<unsigned> Inverse = getInverseOpcode(Opcode);
+    if (!Inverse)
+      return false;
+    Opcode = *Inverse;
+  }
+  switch (Opcode) {
+  default:
+    return false;
+  case IA64::ADD:
+  case IA64::AND:
+  case IA64::OR:
+  case IA64::XOR:
+    return Inst.getOperand(3).getReg() == IA64::P0;
+  }
+}
+
+std::optional<unsigned> IA64InstrInfo::getInverseOpcode(unsigned Opcode) const {
+  switch (Opcode) {
+  default:
+    return std::nullopt;
+  case IA64::ADD:
+    return IA64::SUB;
+  case IA64::SUB:
+    return IA64::ADD;
+  }
+}
+
 // An instruction's size is unknown until the assembler bundles it, three to
 // a 16-byte bundle if the templates and stops allow. This returns the upper
 // bound, a whole bundle, for branch relaxation, where overestimating a
