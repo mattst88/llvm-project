@@ -946,6 +946,7 @@ set(hexagon_SOURCES
 
 # long double is the 80-bit extended format, and __float128 the quadruple one.
 set(ia64_SOURCES
+  ia64/divxf3.S
   ${GENERIC_SOURCES}
   ${GENERIC_TF_SOURCES}
   ${x86_80_BIT_SOURCES}
