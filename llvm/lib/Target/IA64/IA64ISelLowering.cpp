@@ -358,6 +358,9 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   setOperationAction(ISD::RETURNADDR, MVT::i64, Custom);
   setOperationAction(ISD::FRAMEADDR, MVT::i64, Custom);
+  setOperationAction(ISD::SPONENTRY, MVT::i64, Custom);
+  // Its operand is an i32, so it must be lowered before type legalization.
+  setOperationAction(ISD::EH_DWARF_CFA, MVT::i32, Custom);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Custom);
   setOperationAction(ISD::GET_DYNAMIC_AREA_OFFSET, MVT::i64, Custom);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
@@ -451,6 +454,10 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerRETURNADDR(Op, DAG);
   case ISD::FRAMEADDR:
     return LowerFRAMEADDR(Op, DAG);
+  case ISD::SPONENTRY:
+    return LowerSPONENTRY(Op, DAG);
+  case ISD::EH_DWARF_CFA:
+    return LowerEH_DWARF_CFA(Op, DAG);
   case ISD::DYNAMIC_STACKALLOC:
     return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::GET_DYNAMIC_AREA_OFFSET:
@@ -791,6 +798,27 @@ SDValue IA64TargetLowering::LowerFRAMEADDR(SDValue Op,
     return DAG.getConstant(0, DL, MVT::i64);
   DAG.getMachineFunction().getFrameInfo().setFrameAddressIsTaken(true);
   return DAG.getNode(IA64ISD::FRAMEADDR, DL, MVT::i64);
+}
+
+// SP on entry is the frame address.
+SDValue IA64TargetLowering::LowerSPONENTRY(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  DAG.getMachineFunction().getFrameInfo().setFrameAddressIsTaken(true);
+  return DAG.getNode(IA64ISD::FRAMEADDR, SDLoc(Op), MVT::i64);
+}
+
+// The CFA is the start of the stack arguments, past the 16-byte scratch area
+// at the caller's SP. This matches GCC's __builtin_dwarf_cfa.
+SDValue IA64TargetLowering::LowerEH_DWARF_CFA(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  DAG.getMachineFunction().getFrameInfo().setFrameAddressIsTaken(true);
+  SDValue Offset =
+      DAG.getNode(ISD::ADD, DL, MVT::i64,
+                  DAG.getSExtOrTrunc(Op.getOperand(0), DL, MVT::i64),
+                  DAG.getConstant(16, DL, MVT::i64));
+  return DAG.getNode(ISD::ADD, DL, MVT::i64,
+                     DAG.getNode(IA64ISD::FRAMEADDR, DL, MVT::i64), Offset);
 }
 
 // SP moves down by the size, which is already a multiple of 16. The outgoing

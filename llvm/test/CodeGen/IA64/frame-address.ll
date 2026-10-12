@@ -78,3 +78,38 @@ define ptr @frame_address_caller() {
   %r = call ptr @llvm.frameaddress(i32 1)
   ret ptr %r
 }
+
+declare ptr @llvm.sponentry.p0()
+declare ptr @llvm.eh.dwarf.cfa(i32)
+
+; The stack pointer on entry is the same address.
+define ptr @sp_on_entry() {
+; CHECK-LABEL: sp_on_entry:
+; CHECK:       .vframe r33
+; CHECK-NEXT:  mov r33 = r12 ;;
+; CHECK-NEXT:  .body
+; CHECK-NEXT:  mov r8 = r33
+  %r = call ptr @llvm.sponentry.p0()
+  ret ptr %r
+}
+
+; The canonical frame address is past the scratch area of sixteen bytes that
+; the caller left there, where the arguments in memory begin. The operand,
+; which is an i32, is added to it.
+define ptr @dwarf_cfa() {
+; CHECK-LABEL: dwarf_cfa:
+; CHECK:       .vframe r33
+; CHECK-NEXT:  mov r33 = r12 ;;
+; CHECK:       adds r8 = 16, r{{[0-9]+}}
+; CHECK-NEXT:  .restore sp
+  %r = call ptr @llvm.eh.dwarf.cfa(i32 0)
+  ret ptr %r
+}
+
+define ptr @dwarf_cfa_offset(i64, i64, i64, i64, i64, i64, i64, i64, i64 %a) {
+; CHECK-LABEL: dwarf_cfa_offset:
+; CHECK:       adds r8 = 24, r{{[0-9]+}}
+; CHECK-NEXT:  .restore sp
+  %r = call ptr @llvm.eh.dwarf.cfa(i32 8)
+  ret ptr %r
+}
