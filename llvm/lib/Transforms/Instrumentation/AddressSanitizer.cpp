@@ -112,6 +112,13 @@ static const uint64_t kMIPS64_ShadowOffset64 = 1ULL << 37;
 static const uint64_t kAArch64_ShadowOffset64 = 1ULL << 36;
 static const uint64_t kLoongArch64_ShadowOffset64 = 1ULL << 46;
 static const uint64_t kRISCV64_ShadowOffset64 = kDynamicShadowSentinel;
+// IA-64 selects one of eight regions with the top three address bits, so no
+// linear mapping can cover the user regions.  The shadow of each region's low
+// 2^kIA64_RegionWindowBits bytes is laid out in region 0 instead, indexed by
+// the region number.
+static const uint64_t kIA64_ShadowOffset64 = 0;
+static const unsigned kIA64_RegionShift = 61;
+static const unsigned kIA64_RegionWindowBits = 40;
 static const uint64_t kFreeBSD_ShadowOffset32 = 1ULL << 30;
 static const uint64_t kFreeBSD_ShadowOffset64 = 1ULL << 46;
 static const uint64_t kFreeBSDAArch64_ShadowOffset64 = 1ULL << 47;
@@ -483,6 +490,7 @@ struct ShadowMapping {
   uint64_t Offset;
   bool OrShadowOffset;
   bool InGlobal;
+  bool FoldRegions;
 };
 
 } // end anonymous namespace
@@ -509,6 +517,7 @@ static ShadowMapping getShadowMapping(const Triple &TargetTriple, int LongSize,
                    TargetTriple.getArch() == Triple::aarch64_be;
   bool IsLoongArch64 = TargetTriple.isLoongArch64();
   bool IsRISCV64 = TargetTriple.getArch() == Triple::riscv64;
+  bool IsIA64 = TargetTriple.getArch() == Triple::ia64;
   bool IsWindows = TargetTriple.isOSWindows();
   bool IsFuchsia = TargetTriple.isOSFuchsia();
   bool IsAMDGPU = TargetTriple.isAMDGPU();
@@ -586,6 +595,8 @@ static ShadowMapping getShadowMapping(const Triple &TargetTriple, int LongSize,
       Mapping.Offset = kLoongArch64_ShadowOffset64;
     else if (IsRISCV64)
       Mapping.Offset = kRISCV64_ShadowOffset64;
+    else if (IsIA64)
+      Mapping.Offset = kIA64_ShadowOffset64;
     else if (IsAMDGPU)
       Mapping.Offset = (kSmallX86_64ShadowOffsetBase &
                         (kSmallX86_64ShadowOffsetAlignMask << Mapping.Scale));
@@ -618,6 +629,7 @@ static ShadowMapping getShadowMapping(const Triple &TargetTriple, int LongSize,
                            !(Mapping.Offset & (Mapping.Offset - 1)) &&
                            Mapping.Offset != kDynamicShadowSentinel;
   Mapping.InGlobal = ClWithIfunc && IsAndroid && IsArmOrThumb;
+  Mapping.FoldRegions = IsIA64 && !IsKasan;
 
   return Mapping;
 }
@@ -1423,8 +1435,18 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &IRB) {
     Shadow = IRB.CreateAnd(Shadow,
                            ConstantInt::get(IntptrTy, ~(uint64_t(0x0f) << 56)));
   }
-  // Shadow >> scale
-  Shadow = IRB.CreateLShr(Shadow, Mapping.Scale);
+  if (Mapping.FoldRegions) {
+    // (region << (window - scale)) | ((Shadow & (2^window - 1)) >> scale)
+    Value *Region = IRB.CreateShl(IRB.CreateLShr(Shadow, kIA64_RegionShift),
+                                  kIA64_RegionWindowBits - Mapping.Scale);
+    Value *Window = IRB.CreateAnd(
+        Shadow,
+        ConstantInt::get(IntptrTy, (1ULL << kIA64_RegionWindowBits) - 1));
+    Shadow = IRB.CreateOr(Region, IRB.CreateLShr(Window, Mapping.Scale));
+  } else {
+    // Shadow >> scale
+    Shadow = IRB.CreateLShr(Shadow, Mapping.Scale);
+  }
   if (Mapping.Offset == 0) return Shadow;
   // (Shadow >> scale) | offset
   Value *ShadowBase;
