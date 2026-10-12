@@ -100,6 +100,13 @@ def SETCCfs : IA64Pseudo<(outs GR:$r1), (ins i64imm:$cc, FR:$lhs, FR:$rhs),
                          "#SETCCfs", []>;
 }
 
+// 1 if the value is in one of the classes in the 9-bit fclass mask, else 0;
+// or, with $none set, the inverse.
+let Defs = [P6, P7], hasSideEffects = 0, SchedRW = [WriteFSelect] in
+def SETFCLASS : IA64Pseudo<(outs GR:$r1),
+                           (ins FR:$f2, i64imm:$fclass, i64imm:$none),
+                           "#SETFCLASS", []>;
+
 // Select: $r1 is tied to $false and overwritten with $true under the
 // predicate.
 let Constraints = "$false = $r1" in {

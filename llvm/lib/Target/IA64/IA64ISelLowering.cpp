@@ -326,6 +326,11 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
                        ISD::STRICT_LROUND, ISD::STRICT_LLROUND})
     setOperationAction(Opc, MVT::f80, LibCall);
 
+  // fclass tests the FP class directly, which depends on more than the bits
+  // a GR would hold.
+  for (MVT VT : {MVT::f32, MVT::f64, MVT::f80})
+    setOperationAction(ISD::IS_FPCLASS, VT, Custom);
+
   // The bits of a single-precision value are half a general register.
   setOperationAction(ISD::BITCAST, MVT::i32, Custom);
 
@@ -450,6 +455,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::GET_DYNAMIC_AREA_OFFSET:
     return LowerGET_DYNAMIC_AREA_OFFSET(Op, DAG);
+  case ISD::IS_FPCLASS:
+    return LowerIS_FPCLASS(Op, DAG);
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -820,6 +827,65 @@ SDValue
 IA64TargetLowering::LowerGET_DYNAMIC_AREA_OFFSET(SDValue Op,
                                                  SelectionDAG &DAG) const {
   return DAG.getNode(IA64ISD::DYNAREAOFFSET, SDLoc(Op), MVT::i64);
+}
+
+// fclass takes a 9-bit class mask: three NaN kinds, and four classes that
+// match only together with the selected sign bits. A class set that differs
+// between signs therefore needs one test per sign, and the complement set is
+// used where it needs fewer tests. A denormal is unnormalized in a register,
+// whatever its precision.
+static void getClassTests(unsigned Mask, SmallVectorImpl<unsigned> &Tests) {
+  enum {
+    Pos = 1,
+    Neg = 2,
+    Zero = 4,
+    Unorm = 8,
+    Norm = 16,
+    Inf = 32,
+    SNaN = 64,
+    QNaN = 128
+  };
+  unsigned NaNs = (Mask & fcSNan ? SNaN : 0) | (Mask & fcQNan ? QNaN : 0);
+  unsigned OfPos =
+      (Mask & fcPosZero ? Zero : 0) | (Mask & fcPosSubnormal ? Unorm : 0) |
+      (Mask & fcPosNormal ? Norm : 0) | (Mask & fcPosInf ? Inf : 0);
+  unsigned OfNeg =
+      (Mask & fcNegZero ? Zero : 0) | (Mask & fcNegSubnormal ? Unorm : 0) |
+      (Mask & fcNegNormal ? Norm : 0) | (Mask & fcNegInf ? Inf : 0);
+  if (OfPos == OfNeg) {
+    Tests.push_back(NaNs | (OfPos ? Pos | Neg | OfPos : 0));
+    return;
+  }
+  if (OfPos)
+    Tests.push_back(NaNs | Pos | OfPos);
+  if (OfNeg)
+    Tests.push_back((OfPos ? 0 : NaNs) | Neg | OfNeg);
+}
+
+SDValue IA64TargetLowering::LowerIS_FPCLASS(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  EVT VT = Op.getValueType();
+  unsigned Mask = Op.getConstantOperandVal(1) & fcAllFlags;
+  if (Mask == 0 || Mask == fcAllFlags)
+    return DAG.getConstant(Mask != 0, DL, VT);
+
+  SmallVector<unsigned, 2> Tests, Others;
+  getClassTests(Mask, Tests);
+  getClassTests(~Mask & fcAllFlags, Others);
+  // Testing the complement: the value must fail every test, so AND them.
+  bool None = Others.size() < Tests.size();
+  SDValue Res;
+  for (unsigned Test : None ? Others : Tests) {
+    SDValue Is(DAG.getMachineNode(IA64::SETFCLASS, DL, MVT::i64,
+                                  Op.getOperand(0),
+                                  DAG.getTargetConstant(Test, DL, MVT::i64),
+                                  DAG.getTargetConstant(None, DL, MVT::i64)),
+               0);
+    Res = Res ? DAG.getNode(None ? ISD::AND : ISD::OR, DL, MVT::i64, Res, Is)
+              : Is;
+  }
+  return DAG.getZExtOrTrunc(Res, DL, VT);
 }
 
 // Jump table entries are table-relative offsets, which need no dynamic

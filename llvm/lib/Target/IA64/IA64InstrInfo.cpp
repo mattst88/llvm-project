@@ -564,6 +564,28 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         .addReg(Dst, RegState::Implicit);
     break;
   }
+  case IA64::SETFCLASS: {
+    // The same, using the predicate for "in the class" or for "not in the
+    // class".
+    Register Dst = MI.getOperand(0).getReg();
+    bool None = MI.getOperand(3).getImm();
+    BuildMI(MBB, MI, DL, get(IA64::FCLASS_M))
+        .addReg(None ? IA64::P7 : IA64::P6, RegState::Define)
+        .addReg(None ? IA64::P6 : IA64::P7, RegState::Define)
+        .addReg(MI.getOperand(1).getReg())
+        .addImm(MI.getOperand(2).getImm())
+        .addReg(IA64::P0);
+    BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
+        .addImm(0)
+        .addReg(IA64::R0)
+        .addReg(IA64::P0);
+    BuildMI(MBB, MI, DL, get(IA64::ADDL), Dst)
+        .addImm(1)
+        .addReg(IA64::R0)
+        .addReg(IA64::P6)
+        .addReg(Dst, RegState::Implicit);
+    break;
+  }
   case IA64::SELECT:
   case IA64::SELECTi:
   case IA64::SELECTf:
