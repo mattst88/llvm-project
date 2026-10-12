@@ -286,6 +286,7 @@ IA64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_ATOMIC_CMPXCHG:
   case G_ATOMICRMW_XCHG:
   case G_ATOMICRMW_ADD:
+  case G_ATOMICRMW_SUB:
   case G_DYN_STACKALLOC:
   case G_STACKSAVE:
   case G_STACKRESTORE:

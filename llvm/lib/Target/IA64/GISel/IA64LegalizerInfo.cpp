@@ -408,6 +408,19 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .clampScalar(0, s64, s64);
   getActionDefinitionsBuilder(G_ATOMIC_CMPXCHG_WITH_SUCCESS).lower();
 
+  // xchg handles the same sizes, and fetchadd adds one of a few immediates to
+  // 4 or 8 bytes. Other atomicrmw operations were already expanded to
+  // cmpxchg loops by AtomicExpand.
+  getActionDefinitionsBuilder(G_ATOMICRMW_XCHG)
+      .legalForTypesWithMemDesc({{s64, p0, s8, 8},
+                                 {s64, p0, s16, 16},
+                                 {s64, p0, s32, 32},
+                                 {s64, p0, s64, 64}})
+      .clampScalar(0, s64, s64);
+  getActionDefinitionsBuilder({G_ATOMICRMW_ADD, G_ATOMICRMW_SUB})
+      .legalForTypesWithMemDesc({{s64, p0, s32, 32}, {s64, p0, s64, 64}})
+      .clampScalar(0, s64, s64);
+
   verify(*ST.getInstrInfo());
 }
 

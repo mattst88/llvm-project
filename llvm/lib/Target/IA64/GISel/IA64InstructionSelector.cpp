@@ -70,6 +70,7 @@ private:
   bool selectCopy(MachineInstr &I, MachineRegisterInfo &MRI) const;
   bool selectPHI(MachineInstr &I, MachineRegisterInfo &MRI) const;
   bool selectLoadStore(MachineInstr &I, MachineRegisterInfo &MRI) const;
+  bool selectAtomic(MachineInstr &I, MachineRegisterInfo &MRI) const;
   bool selectExtension(MachineInstr &I, MachineRegisterInfo &MRI) const;
   bool selectShift(MachineInstr &I, MachineRegisterInfo &MRI) const;
   bool selectICmp(MachineInstr &I, MachineRegisterInfo &MRI) const;
@@ -291,8 +292,8 @@ bool IA64InstructionSelector::selectByPattern(MachineInstr &I,
 bool IA64InstructionSelector::selectLoadStore(MachineInstr &I,
                                               MachineRegisterInfo &MRI) const {
   auto &Access = cast<GLoadStore>(I);
-  if (Access.isAtomic())
-    return selectByPattern(I, MRI);
+  if (Access.isAtomic() && isa<GStore>(I))
+    return selectAtomic(I, MRI);
 
   bool IsLoad = isa<GAnyLoad>(I);
   Register Value = I.getOperand(0).getReg();
@@ -300,8 +301,9 @@ bool IA64InstructionSelector::selectLoadStore(MachineInstr &I,
   uint64_t Bits = Access.getMemSizeInBits().getValue();
   unsigned Opcode, Extend = 0;
   if (isFloatingPoint(Value, MRI)) {
-    if (I.getOpcode() != TargetOpcode::G_LOAD &&
-        I.getOpcode() != TargetOpcode::G_STORE)
+    if ((I.getOpcode() != TargetOpcode::G_LOAD &&
+         I.getOpcode() != TargetOpcode::G_STORE) ||
+        Access.isAtomic())
       return false;
     switch (MRI.getType(Value).getSizeInBits()) {
     case 32:
@@ -351,6 +353,13 @@ bool IA64InstructionSelector::selectLoadStore(MachineInstr &I,
     return true;
   }
 
+  // Atomic loads use acquire semantics.
+  if (Access.isAtomic()) {
+    static const unsigned Opcodes[] = {IA64::LD1_ACQ, IA64::LD2_ACQ,
+                                       IA64::LD4_ACQ, IA64::LD8_ACQ};
+    Opcode = Opcodes[Log2_64(Bits / 8)];
+  }
+
   // No load sign-extends.
   bool SignExtends = I.getOpcode() == TargetOpcode::G_SEXTLOAD;
   if (SignExtends && !Extend)
@@ -364,6 +373,116 @@ bool IA64InstructionSelector::selectLoadStore(MachineInstr &I,
       .cloneMemRefs(I);
   if (SignExtends)
     emit(I, Extend, Value).addReg(Loaded).addReg(IA64::P0);
+  I.eraseFromParent();
+  return true;
+}
+
+// ld.acq orders the accesses after it and st.rel the ones before it. xchg
+// and cmpxchg have acquire semantics; fetchadd also has a .rel form. An
+// operation that needs both acquire and release gets an mf before it, and a
+// seq_cst store gets an mf after it.
+bool IA64InstructionSelector::selectAtomic(MachineInstr &I,
+                                           MachineRegisterInfo &MRI) const {
+  const MachineMemOperand &MMO = **I.memoperands_begin();
+  AtomicOrdering Ordering = MMO.getMergedOrdering();
+  uint64_t Size = MMO.getSize().getValue();
+  if (!isPowerOf2_64(Size) || Size > 8)
+    return false;
+  bool Release = isReleaseOrStronger(Ordering);
+
+  if (I.getOpcode() == TargetOpcode::G_STORE) {
+    static const unsigned Opcodes[] = {IA64::ST1_REL, IA64::ST2_REL,
+                                       IA64::ST4_REL, IA64::ST8_REL};
+    // There is no FP st.rel, so store the bits from a GR.
+    Register Value = I.getOperand(0).getReg();
+    if (isFloatingPoint(Value, MRI)) {
+      if (Size != 4 && Size != 8)
+        return false;
+      Register Bits = MRI.createVirtualRegister(&IA64::GRRegClass);
+      emit(I, Size == 4 ? IA64::GETF_S : IA64::GETF_D, Bits)
+          .addReg(Value)
+          .addReg(IA64::P0);
+      Value = Bits;
+    }
+    emit(I, Opcodes[Log2_64(Size)])
+        .addReg(I.getOperand(1).getReg())
+        .addReg(Value)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .cloneMemRefs(I);
+    if (Ordering == AtomicOrdering::SequentiallyConsistent)
+      emit(I, IA64::MF).addReg(IA64::P0);
+    I.eraseFromParent();
+    return true;
+  }
+
+  Register Dst = I.getOperand(0).getReg();
+  Register Address = I.getOperand(1).getReg();
+  switch (I.getOpcode()) {
+  case TargetOpcode::G_ATOMIC_CMPXCHG: {
+    // cmpxchg compares all 64 bits of ar.ccv with the zero-extended value
+    // read, so zero-extend the expected value.
+    static const unsigned Extends[] = {IA64::ZXT1, IA64::ZXT2, IA64::ZXT4};
+    Register Compared = I.getOperand(2).getReg();
+    if (Size < 8) {
+      Register Narrow = Compared;
+      Compared = MRI.createVirtualRegister(&IA64::GRRegClass);
+      emit(I, Extends[Log2_64(Size)], Compared).addReg(Narrow).addReg(IA64::P0);
+    }
+    if (Release)
+      emit(I, IA64::MF).addReg(IA64::P0);
+    emit(I, IA64::CMPXCHG, Dst)
+        .addReg(Address)
+        .addReg(Compared)
+        .addReg(I.getOperand(3).getReg())
+        .addImm(Size)
+        .cloneMemRefs(I);
+    break;
+  }
+  case TargetOpcode::G_ATOMICRMW_XCHG: {
+    static const unsigned Opcodes[] = {IA64::XCHG1, IA64::XCHG2, IA64::XCHG4,
+                                       IA64::XCHG8};
+    if (Release)
+      emit(I, IA64::MF).addReg(IA64::P0);
+    emit(I, Opcodes[Log2_64(Size)], Dst)
+        .addReg(Address)
+        .addReg(I.getOperand(2).getReg())
+        .addImm(0)
+        .addReg(IA64::P0)
+        .cloneMemRefs(I);
+    break;
+  }
+  case TargetOpcode::G_ATOMICRMW_ADD:
+  case TargetOpcode::G_ATOMICRMW_SUB: {
+    auto C = getIConstantVRegValWithLookThrough(I.getOperand(2).getReg(), MRI);
+    if (!C || Size < 4)
+      return false;
+    int64_t Inc = C->Value.getSExtValue();
+    if (Size == 4)
+      Inc = SignExtend64<32>(Inc);
+    if (I.getOpcode() == TargetOpcode::G_ATOMICRMW_SUB)
+      Inc = -uint64_t(Inc);
+    if (!IA64TargetLowering::isFetchAddIncrement(Inc))
+      return false;
+    bool UseRel = Release && !isAcquireOrStronger(Ordering);
+    unsigned Opcode;
+    if (Size == 4)
+      Opcode = UseRel ? IA64::FETCHADD4_REL : IA64::FETCHADD4_ACQ;
+    else
+      Opcode = UseRel ? IA64::FETCHADD8_REL : IA64::FETCHADD8_ACQ;
+    if (Release && !UseRel)
+      emit(I, IA64::MF).addReg(IA64::P0);
+    emit(I, Opcode, Dst)
+        .addReg(Address)
+        .addImm(Inc)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .cloneMemRefs(I);
+    break;
+  }
+  default:
+    return false;
+  }
   I.eraseFromParent();
   return true;
 }
@@ -800,6 +919,22 @@ bool IA64InstructionSelector::selectInstruction(
     I.eraseFromParent();
     return true;
   }
+  case TargetOpcode::G_ATOMIC_CMPXCHG:
+  case TargetOpcode::G_ATOMICRMW_XCHG:
+  case TargetOpcode::G_ATOMICRMW_ADD:
+  case TargetOpcode::G_ATOMICRMW_SUB:
+    return selectAtomic(I, MRI);
+
+  // Atomic loads and stores already carry the ordering they need, so only a
+  // cross-thread seq_cst fence emits an mf.
+  case TargetOpcode::G_FENCE:
+    if (I.getOperand(0).getImm() ==
+            int64_t(AtomicOrdering::SequentiallyConsistent) &&
+        I.getOperand(1).getImm() != SyncScope::SingleThread)
+      emit(I, IA64::MF).addReg(IA64::P0);
+    I.eraseFromParent();
+    return true;
+
   // The lfetch hint is the number of cache levels the line need not be
   // kept in (3 - locality), and .excl is for a prefetch for write.
   case TargetOpcode::G_PREFETCH:
