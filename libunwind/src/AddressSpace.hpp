@@ -155,6 +155,17 @@ struct UnwindInfoSections {
   uintptr_t       arm_section;
   size_t          arm_section_length;
 #endif
+#if defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+  // The unwind table. Each entry gives a function's address relative to
+  // dso_base (the base of the code segment) and its unwind information
+  // relative to the segment that contains it, which is the one holding the
+  // table (ia64_unwind_info_base). ia64_gp is the GP of the code, used to
+  // locate its personality routine.
+  uintptr_t       ia64_unwind_section;
+  size_t          ia64_unwind_section_length;
+  uintptr_t       ia64_unwind_info_base;
+  uintptr_t       ia64_gp;
+#endif
 };
 
 
@@ -448,10 +459,38 @@ static bool checkForUnwindInfoSegment(const Elf_Phdr *phdr, size_t image_base,
     return true;
   }
   return false;
+#elif defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+  if (phdr->p_type == PT_IA_64_UNWIND) {
+    cbdata->sects->ia64_unwind_section = image_base + phdr->p_vaddr;
+    cbdata->sects->ia64_unwind_section_length = phdr->p_memsz;
+    return true;
+  }
+  return false;
 #else
 #error Need one of _LIBUNWIND_SUPPORT_DWARF_INDEX or _LIBUNWIND_ARM_EHABI
 #endif
 }
+
+#if defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+/// Returns the GP of a loaded object: its DT_PLTGOT, as relocated by the
+/// dynamic loader. An object with no dynamic section is the statically linked
+/// program itself, which contains this code, so its GP is the current r1.
+static uintptr_t findGlobalPointer(struct dl_phdr_info *pinfo) {
+  for (Elf_Half i = 0; i < pinfo->dlpi_phnum; ++i) {
+    const Elf_Phdr *phdr = &pinfo->dlpi_phdr[i];
+    if (phdr->p_type != PT_DYNAMIC)
+      continue;
+    for (const ElfW(Dyn) *dyn = reinterpret_cast<const ElfW(Dyn) *>(
+             pinfo->dlpi_addr + phdr->p_vaddr);
+         dyn->d_tag != DT_NULL; ++dyn)
+      if (dyn->d_tag == DT_PLTGOT)
+        return dyn->d_un.d_ptr;
+  }
+  uintptr_t gp;
+  __asm__("mov %0 = r1" : "=r"(gp));
+  return gp;
+}
+#endif
 
 static int findUnwindSectionsByPhdr(struct dl_phdr_info *pinfo,
                                     size_t pinfo_size, void *data) {
@@ -494,6 +533,18 @@ static int findUnwindSectionsByPhdr(struct dl_phdr_info *pinfo,
   if (!found_unwind)
     return 0;
 
+#if defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+  cbdata->sects->ia64_gp = findGlobalPointer(pinfo);
+  cbdata->sects->ia64_unwind_info_base = cbdata->sects->dso_base;
+  for (Elf_Half i = 0; i < pinfo->dlpi_phnum; ++i) {
+    const Elf_Phdr *phdr = &pinfo->dlpi_phdr[i];
+    uintptr_t begin = image_base + phdr->p_vaddr;
+    if (phdr->p_type == PT_LOAD &&
+        cbdata->sects->ia64_unwind_section >= begin &&
+        cbdata->sects->ia64_unwind_section < begin + phdr->p_memsz)
+      cbdata->sects->ia64_unwind_info_base = begin;
+  }
+#endif
 #if defined(_LIBUNWIND_USE_FRAME_HEADER_CACHE)
   TheFrameHeaderCache.add(cbdata->sects);
 #endif
@@ -694,7 +745,13 @@ LocalAddressSpace::findFunctionName(typename R::link_hardened_reg_arg_t addr,
   if (dladdr((void *)addr, &dyldInfo)) {
     if (dyldInfo.dli_sname != NULL) {
       snprintf(buf, bufLen, "%s", dyldInfo.dli_sname);
+#if defined(__ia64__)
+      // A function's address is that of its function descriptor, whose first
+      // word is the entry point.
+      *offset = addr - *reinterpret_cast<const pint_t *>(dyldInfo.dli_saddr);
+#else
       *offset = (addr - (pint_t) dyldInfo.dli_saddr);
+#endif
       return true;
     }
   }

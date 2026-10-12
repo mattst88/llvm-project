@@ -50,14 +50,15 @@
 
 #include "AddressSpace.hpp"
 #include "CompactUnwinder.hpp"
-#include "config.h"
 #include "DwarfInstructions.hpp"
 #include "EHHeaderParser.hpp"
+#include "IA64UnwindInfo.hpp"
+#include "RWMutex.hpp"
+#include "Registers.hpp"
+#include "Unwind-EHABI.h"
+#include "config.h"
 #include "libunwind.h"
 #include "libunwind_ext.h"
-#include "Registers.hpp"
-#include "RWMutex.hpp"
-#include "Unwind-EHABI.h"
 
 #if defined(_LIBUNWIND_SUPPORT_SEH_UNWIND)
 // Provide a definition for the DISPATCHER_CONTEXT struct for old (Win7 and
@@ -1369,11 +1370,22 @@ private:
 
 #endif // defined(_LIBUNWIND_SUPPORT_TBTAB_UNWIND)
 
+#if defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+  bool getInfoFromIA64UnwindTable(pint_t pc, const UnwindInfoSections &sects);
+  int stepWithIA64UnwindInfo();
+  bool getIA64GR(uint64_t num, uint64_t &value);
+#endif
+
   A               &_addressSpace;
   R                _registers;
   unw_proc_info_t  _info;
   bool             _unwindInfoMissing;
   bool             _isSignalFrame;
+#if defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+  // Instruction slots executed in the function so far; the unwind descriptors
+  // measure time in slots.
+  int32_t _ia64Slot = 0;
+#endif
 #if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
     defined(_LIBUNWIND_CHECK_HAIKU_SIGRETURN)
   bool             _isSigReturn = false;
@@ -2975,6 +2987,12 @@ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
       return;
 #endif
 
+#if defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+    if (sects.ia64_unwind_section != 0 &&
+        this->getInfoFromIA64UnwindTable(pc, sects))
+      return;
+#endif
+
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
     // If there is dwarf unwind info, look there next.
     if (sects.dwarf_section != 0) {
@@ -3417,6 +3435,219 @@ int UnwindCursor<A, R>::stepThroughSigReturn() {
 }
 #endif // defined(_LIBUNWIND_CHECK_HAIKU_SIGRETURN)
 
+#if defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+/// Looks up \p pc in its image's unwind table, which is sorted by function
+/// address.
+template <typename A, typename R>
+bool UnwindCursor<A, R>::getInfoFromIA64UnwindTable(
+    pint_t pc, const UnwindInfoSections &sects) {
+  struct Entry {
+    uint64_t start;
+    uint64_t end;
+    uint64_t info;
+  };
+  pint_t offset = pc - sects.dso_base;
+  size_t low = 0;
+  size_t high = sects.ia64_unwind_section_length / sizeof(Entry);
+  pint_t entry = 0;
+  while (low < high) {
+    size_t mid = low + (high - low) / 2;
+    pint_t candidate = sects.ia64_unwind_section + mid * sizeof(Entry);
+    if (offset < _addressSpace.get64(candidate)) {
+      high = mid;
+    } else if (offset >= _addressSpace.get64(candidate + 8)) {
+      low = mid + 1;
+    } else {
+      entry = candidate;
+      break;
+    }
+  }
+  if (entry == 0)
+    return false;
+
+  // The unwind info block is a header and the descriptors, followed, if a
+  // header flag says so, by the GP-relative offset of the personality
+  // routine's address and then the LSDA.
+  pint_t start = sects.dso_base + _addressSpace.get64(entry);
+  pint_t info = sects.ia64_unwind_info_base + _addressSpace.get64(entry + 16);
+  uint64_t header = _addressSpace.get64(info);
+  if ((header >> 48) != 1)
+    return false;
+  pint_t descriptors = info + 8;
+  pint_t descriptorsEnd = descriptors + 8 * (header & 0xffffffff);
+
+  memset(static_cast<void *>(&_info), 0, sizeof(_info));
+  _info.start_ip = start;
+  _info.end_ip = sects.dso_base + _addressSpace.get64(entry + 8);
+  _info.unwind_info = descriptors;
+  _info.unwind_info_size = static_cast<uint32_t>(descriptorsEnd - descriptors);
+  if (header & (3ULL << 32)) {
+    _info.handler = _addressSpace.get64(sects.ia64_gp +
+                                        _addressSpace.get64(descriptorsEnd));
+    _info.lsda = descriptorsEnd + 8;
+  }
+
+  // An instruction address is a bundle address with the slot number (0-2) in
+  // the low bits. A return address has no slot; for one, the caller passes the
+  // last byte of the preceding bundle, which holds the call.
+  unsigned slot = pc & 15;
+  _ia64Slot =
+      static_cast<int32_t>(3 * ((pc - start) / 16) + (slot < 2 ? slot : 2));
+  // Code addresses its data through the GP, and a landing pad expects the
+  // function's GP in r1. Keep it only in the register: unw_set_reg() uses the
+  // gp field of unw_proc_info_t as the SP adjustment.
+  _registers.setRegister(UNW_IA64_GP, sects.ia64_gp);
+  return true;
+}
+
+/// Reads general register \p num of the frame. Only callee-saved registers
+/// and the frame's own stacked registers are known.
+template <typename A, typename R>
+bool UnwindCursor<A, R>::getIA64GR(uint64_t num, uint64_t &value) {
+  if (!_registers.validRegister(static_cast<int>(num)))
+    return false;
+  value = _registers.getRegister(static_cast<int>(num));
+  return true;
+}
+
+/// Restores the registers to their values at the call to this frame's
+/// function.
+template <typename A, typename R>
+int UnwindCursor<A, R>::stepWithIA64UnwindInfo() {
+  typedef IA64UnwindInfo<A> Info;
+  typename Info::State state;
+  pint_t descriptors = static_cast<pint_t>(_info.unwind_info);
+  if (!Info::parse(_addressSpace, descriptors,
+                   descriptors + _info.unwind_info_size, _ia64Slot,
+                   _registers.getRegister(UNW_IA64_PR), state))
+    return UNW_EBADFRAME;
+
+  // The caller's SP (psp) is SP plus the frame size, unless the frame is
+  // variable-sized, in which case psp was saved somewhere.
+  uint64_t sp = _registers.getSP();
+  uint64_t psp;
+  const typename Info::Save &pspSave = state.reg[Info::kPSP];
+  switch (pspSave.where) {
+  case Info::kNowhere:
+    psp = sp + static_cast<uint64_t>(pspSave.value);
+    break;
+  case Info::kGR:
+    if (!getIA64GR(static_cast<uint64_t>(pspSave.value), psp))
+      return UNW_EBADFRAME;
+    break;
+  case Info::kSPRel:
+    psp = _addressSpace.get64(sp + static_cast<uint64_t>(pspSave.value));
+    break;
+  default:
+    return UNW_EBADFRAME;
+  }
+
+  // Read everything before writing anything, since a register may be saved
+  // in another register that is also restored.
+  bool bad = false;
+  auto address = [&](const typename Info::Save &save) -> pint_t {
+    return (save.where == Info::kSPRel ? sp : psp) +
+           static_cast<uint64_t>(save.value);
+  };
+  auto restore = [&](int reg, int num) -> uint64_t {
+    const typename Info::Save &save = state.reg[reg];
+    uint64_t value = 0;
+    switch (save.where) {
+    case Info::kNowhere:
+      return _registers.getRegister(num);
+    case Info::kGR:
+      if (!getIA64GR(static_cast<uint64_t>(save.value), value))
+        bad = true;
+      return value;
+    case Info::kBR:
+      if (save.value > 5)
+        bad = true;
+      else
+        value =
+            _registers.getRegister(UNW_IA64_B0 + static_cast<int>(save.value));
+      return value;
+    case Info::kSPRel:
+    case Info::kPSPRel:
+      return _addressSpace.get64(address(save));
+    default:
+      bad = true;
+      return 0;
+    }
+  };
+
+  uint64_t rp = restore(Info::kRP, UNW_IA64_B0);
+  uint64_t pfs = restore(Info::kPFS, UNW_IA64_AR_PFS);
+  uint64_t pr = restore(Info::kPR, UNW_IA64_PR);
+  uint64_t unat = restore(Info::kUNAT, UNW_IA64_AR_UNAT);
+  uint64_t lc = restore(Info::kLC, UNW_IA64_AR_LC);
+  uint64_t fpsr = restore(Info::kFPSR, UNW_IA64_AR_FPSR);
+  uint64_t gr[4];
+  for (int i = 0; i != 4; ++i)
+    gr[i] = restore(Info::kR4 + i, UNW_IA64_R4 + i);
+  uint64_t br[5];
+  for (int i = 0; i != 5; ++i)
+    br[i] = restore(Info::kB1 + i, UNW_IA64_B1 + i);
+  uint8_t fr[R::NumFR][16];
+  for (int i = 0; i != R::NumFR; ++i) {
+    const typename Info::Save &save = state.reg[Info::kF2 + i];
+    _registers.getFRImage(i, fr[i]);
+    switch (save.where) {
+    case Info::kNowhere:
+      break;
+    case Info::kFR: {
+      int from = R::frIndex(UNW_IA64_F0 + static_cast<int>(save.value));
+      if (from < 0)
+        bad = true;
+      else
+        _registers.getFRImage(from, fr[i]);
+      break;
+    }
+    case Info::kSPRel:
+    case Info::kPSPRel:
+      memcpy(fr[i], reinterpret_cast<const void *>(address(save)), 16);
+      break;
+    default:
+      bad = true;
+      break;
+    }
+  }
+  if (bad)
+    return UNW_EBADFRAME;
+
+  _LIBUNWIND_TRACE_UNWINDING(
+      "slot=%d sp=0x%" PRIx64 " psp=0x%" PRIx64 " bsp=0x%" PRIx64
+      " rp=0x%" PRIx64 " pfs=0x%" PRIx64,
+      _ia64Slot, sp, psp, _registers.getRegister(UNW_IA64_AR_BSP), rp, pfs);
+
+  // The outermost frame has no return address.
+  if (rp == 0)
+    return UNW_STEP_END;
+
+  // The caller's register frame precedes this one in the backing store by
+  // its locals (sol); its outputs are the first registers of this frame.
+  uint64_t bsp = R::rseSkip(_registers.getRegister(UNW_IA64_AR_BSP),
+                            -static_cast<int64_t>(R::sizeOfLocals(pfs)));
+  _registers.setRegister(UNW_IA64_AR_PFS, pfs);
+  _registers.setRegister(UNW_IA64_AR_BSP, bsp);
+  _registers.setRegister(UNW_IA64_PR, pr);
+  _registers.setRegister(UNW_IA64_AR_UNAT, unat);
+  _registers.setRegister(UNW_IA64_AR_LC, lc);
+  _registers.setRegister(UNW_IA64_AR_FPSR, fpsr);
+  for (int i = 0; i != 4; ++i)
+    _registers.setRegister(UNW_IA64_R4 + i, gr[i]);
+  for (int i = 0; i != 5; ++i)
+    _registers.setRegister(UNW_IA64_B1 + i, br[i]);
+  for (int i = 0; i != R::NumFR; ++i)
+    _registers.setFRImage(i, fr[i]);
+  _registers.setSP(psp);
+  _registers.setIP(rp);
+  // The call wrote the return link, and where the caller came from is known
+  // only if it saved that.
+  _registers.setRegister(UNW_IA64_B0, 0);
+  return UNW_STEP_SUCCESS;
+}
+#endif // defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+
 template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
   (void)stage2;
   // Bottom of stack is defined when unwind info cannot be found.
@@ -3442,11 +3673,14 @@ template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
     result = this->stepWithDwarfFDE(stage2);
 #elif defined(_LIBUNWIND_ARM_EHABI)
     result = this->stepWithEHABI();
+#elif defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)
+    result = this->stepWithIA64UnwindInfo();
 #else
-  #error Need _LIBUNWIND_SUPPORT_COMPACT_UNWIND or \
+#error Need _LIBUNWIND_SUPPORT_COMPACT_UNWIND or \
               _LIBUNWIND_SUPPORT_SEH_UNWIND or \
               _LIBUNWIND_SUPPORT_DWARF_UNWIND or \
-              _LIBUNWIND_ARM_EHABI
+              _LIBUNWIND_ARM_EHABI or \
+              _LIBUNWIND_SUPPORT_IA64_UNWIND
 #endif
   }
 
