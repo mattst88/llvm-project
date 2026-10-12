@@ -16,6 +16,7 @@
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
 
@@ -51,6 +52,7 @@ public:
   // Compare instruction forms, by the kind of compare operands.
   enum CompareForm { Register, Immediate, FloatingPoint };
   bool selectMinMax(SDNode *Node);
+  bool selectBitField(SDNode *Node);
   CompareForm selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                             const SDLoc &DL, SmallVectorImpl<SDValue> &Ops);
 
@@ -245,6 +247,177 @@ bool IA64DAGToDAGISel::SelectInlineAsmMemoryOperand(
   return false;
 }
 
+// Whether Value is a shift by a constant, and the shift amount.
+static bool isShiftBy(SDValue Value, unsigned Opcode, unsigned &Amount) {
+  if (Value.getOpcode() != Opcode)
+    return false;
+  const auto *Count = dyn_cast<ConstantSDNode>(Value.getOperand(1));
+  if (!Count || Count->getZExtValue() > 63)
+    return false;
+  Amount = Count->getZExtValue();
+  return true;
+}
+
+// Whether Value is an AND with a constant mask.
+static bool isMaskedBy(SDValue Value, uint64_t &Mask) {
+  if (Value.getOpcode() != ISD::AND)
+    return false;
+  const auto *Constant = dyn_cast<ConstantSDNode>(Value.getOperand(1));
+  if (!Constant)
+    return false;
+  Mask = Constant->getZExtValue();
+  return true;
+}
+
+// Select bit-field instructions: extr/extr.u extract a field to the low bits,
+// sign- or zero-extended; dep.z deposits the low bits as a field into zero;
+// dep deposits them into another register. Shift-and-mask sequences with a
+// contiguous mask map to these and need no mask constant in a register.
+bool IA64DAGToDAGISel::selectBitField(SDNode *Node) {
+  if (Node->getValueType(0) != MVT::i64)
+    return false;
+
+  SDLoc DL(Node);
+  SDValue P0 = CurDAG->getRegister(IA64::P0, MVT::i1);
+  auto Field = [&](unsigned Opcode, SDValue Source, unsigned Pos,
+                   unsigned Len) {
+    CurDAG->SelectNodeTo(Node, Opcode, MVT::i64,
+                         {Source, CurDAG->getTargetConstant(Pos, DL, MVT::i64),
+                          CurDAG->getTargetConstant(Len, DL, MVT::i64), P0});
+    return true;
+  };
+  // Set or clear every bit of a field.
+  auto Fill = [&](bool Ones, SDValue Source, uint64_t Bits) {
+    CurDAG->SelectNodeTo(
+        Node, IA64::DEPi, MVT::i64,
+        {CurDAG->getSignedTargetConstant(Ones ? -1 : 0, DL, MVT::i64), Source,
+         CurDAG->getTargetConstant(llvm::countr_zero(Bits), DL, MVT::i64),
+         CurDAG->getTargetConstant(llvm::popcount(Bits), DL, MVT::i64), P0});
+    return true;
+  };
+
+  SDValue N0 = Node->getOperand(0);
+  unsigned Amount, Inner;
+  uint64_t Mask;
+  switch (Node->getOpcode()) {
+  default:
+    return false;
+  case ISD::AND: {
+    if (!isMaskedBy(SDValue(Node, 0), Mask))
+      return false;
+    if (isMask_64(Mask)) {
+      // The low bits of a right shift are a field of the shifted value.
+      unsigned Len = llvm::countr_one(Mask);
+      if (isShiftBy(N0, ISD::SRL, Amount))
+        return Field(IA64::EXTR_U, N0.getOperand(0), Amount,
+                     std::min(Len, 64 - Amount));
+      // 8, 16 and 32 bits have dedicated zero-extend instructions, and a
+      // small mask fits an immediate.
+      if (isInt<8>(Mask) || Len == 8 || Len == 16 || Len == 32)
+        return false;
+      return Field(IA64::EXTR_U, N0, 0, Len);
+    }
+    // A contiguous run kept from a left shift, starting at the shift amount,
+    // is a dep.z at that position.
+    if (isShiftBy(N0, ISD::SHL, Amount)) {
+      uint64_t Kept = Mask & (~0ULL << Amount);
+      if (isShiftedMask_64(Kept) && unsigned(llvm::countr_zero(Kept)) == Amount)
+        return Field(IA64::DEP_Z, N0.getOperand(0), Amount,
+                     llvm::popcount(Kept));
+    }
+    if (isInt<8>(Mask) || !isShiftedMask_64(~Mask))
+      return false;
+    return Fill(false, N0, ~Mask);
+  }
+  case ISD::SHL: {
+    // A masked value shifted left, when the mask is a contiguous low run or
+    // covers every bit the shift keeps.
+    if (!isShiftBy(SDValue(Node, 0), ISD::SHL, Amount) || !isMaskedBy(N0, Mask))
+      return false;
+    uint64_t Kept = Mask << Amount;
+    if (!isShiftedMask_64(Kept) || unsigned(llvm::countr_zero(Kept)) != Amount)
+      return false;
+    return Field(IA64::DEP_Z, N0.getOperand(0), Amount, llvm::popcount(Kept));
+  }
+  case ISD::SRL: {
+    if (!isShiftBy(SDValue(Node, 0), ISD::SRL, Amount))
+      return false;
+    // A left shift followed by a larger right shift is a zero-extended field.
+    if (isShiftBy(N0, ISD::SHL, Inner) && Inner <= Amount)
+      return Field(IA64::EXTR_U, N0.getOperand(0), Amount - Inner, 64 - Amount);
+    if (isMaskedBy(N0, Mask) && isMask_64(Mask >> Amount))
+      return Field(IA64::EXTR_U, N0.getOperand(0), Amount,
+                   llvm::countr_one(Mask >> Amount));
+    return false;
+  }
+  case ISD::SRA: {
+    // The same shifts with an arithmetic right shift give a sign-extended
+    // field.
+    if (!isShiftBy(SDValue(Node, 0), ISD::SRA, Amount))
+      return false;
+    if (isShiftBy(N0, ISD::SHL, Inner) && Inner <= Amount)
+      return Field(IA64::EXTR, N0.getOperand(0), Amount - Inner, 64 - Amount);
+    if (N0.getOpcode() == ISD::SIGN_EXTEND_INREG) {
+      unsigned Width =
+          cast<VTSDNode>(N0.getOperand(1))->getVT().getSizeInBits();
+      if (Amount < Width)
+        return Field(IA64::EXTR, N0.getOperand(0), Amount, Width - Amount);
+    }
+    return false;
+  }
+  case ISD::SIGN_EXTEND_INREG: {
+    unsigned Width =
+        cast<VTSDNode>(Node->getOperand(1))->getVT().getSizeInBits();
+    if ((isShiftBy(N0, ISD::SRL, Amount) || isShiftBy(N0, ISD::SRA, Amount)) &&
+        Amount + Width <= 64)
+      return Field(IA64::EXTR, N0.getOperand(0), Amount, Width);
+    return false;
+  }
+  case ISD::OR: {
+    SDValue N1 = Node->getOperand(1);
+    if (const auto *Constant = dyn_cast<ConstantSDNode>(N1)) {
+      uint64_t Bits = Constant->getZExtValue();
+      if (isInt<8>(Bits) || !isShiftedMask_64(Bits))
+        return false;
+      return Fill(true, N0, Bits);
+    }
+    // A register with a contiguous run of up to 16 bits cleared, ORed with a
+    // value that is zero outside that run, is a dep of the value.
+    for (bool Swap : {false, true}) {
+      SDValue Into = Swap ? N1 : N0;
+      SDValue Value = Swap ? N0 : N1;
+      if (!isMaskedBy(Into, Mask) || !isShiftedMask_64(~Mask))
+        continue;
+      uint64_t Bits = ~Mask;
+      unsigned Pos = llvm::countr_zero(Bits);
+      unsigned Len = llvm::popcount(Bits);
+      if (Len > 16 || !CurDAG->MaskedValueIsZero(Value, APInt(64, Mask)))
+        continue;
+      // dep takes the value from the low bits of its source register, and
+      // only as many bits as the field is wide.
+      uint64_t Covers;
+      if (isMaskedBy(Value, Covers) && (Covers & Bits) == Bits)
+        Value = Value.getOperand(0);
+      if (Pos != 0) {
+        if (!isShiftBy(Value, ISD::SHL, Amount) || Amount != Pos)
+          continue;
+        Value = Value.getOperand(0);
+      }
+      if (isMaskedBy(Value, Covers) &&
+          (Covers & maskTrailingOnes<uint64_t>(Len)) ==
+              maskTrailingOnes<uint64_t>(Len))
+        Value = Value.getOperand(0);
+      CurDAG->SelectNodeTo(Node, IA64::DEP, MVT::i64,
+                           {Value, Into.getOperand(0),
+                            CurDAG->getTargetConstant(Pos, DL, MVT::i64),
+                            CurDAG->getTargetConstant(Len, DL, MVT::i64), P0});
+      return true;
+    }
+    return false;
+  }
+  }
+}
+
 void IA64DAGToDAGISel::Select(SDNode *Node) {
   if (Node->isMachineOpcode()) {
     Node->setNodeId(-1);
@@ -262,6 +435,15 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   SDLoc DL(Node);
   switch (Node->getOpcode()) {
   default:
+    break;
+  case ISD::AND:
+  case ISD::OR:
+  case ISD::SHL:
+  case ISD::SRL:
+  case ISD::SRA:
+  case ISD::SIGN_EXTEND_INREG:
+    if (selectBitField(Node))
+      return;
     break;
   case ISD::FrameIndex: {
     // A frame index is sp plus an offset, resolved once the frame is laid
