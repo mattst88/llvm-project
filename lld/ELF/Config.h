@@ -72,6 +72,8 @@ class MemtagAndroidNote;
 class MemtagGlobalDescriptors;
 class MipsGotSection;
 class PPC64LongBranchTargetSection;
+class IA64OpdSection;
+class IA64LtoffSection;
 class PackageMetadataNote;
 class PltSection;
 class RelocationBaseSection;
@@ -632,6 +634,8 @@ struct InStruct {
   std::unique_ptr<SyntheticSection> armCmseSGSection;
   std::unique_ptr<ARMExidxSyntheticSection> armExidx;
   std::unique_ptr<PPC64LongBranchTargetSection> ppc64LongBranchTarget;
+  std::unique_ptr<IA64OpdSection> ia64Opd;
+  std::unique_ptr<IA64LtoffSection> ia64Ltoff;
   std::unique_ptr<SyntheticSection> mipsAbiFlags;
   std::unique_ptr<MipsGotSection> mipsGot;
   std::unique_ptr<SyntheticSection> mipsOptions;
@@ -704,6 +708,10 @@ struct Ctx : CommonLinkerContext {
 
     // __global_pointer$ for RISC-V.
     Defined *riscvGlobalPointer;
+
+    // __gp for IA-64: the module's gp value, the base of all linkage table
+    // offsets.
+    Defined *ia64Gp;
 
     // __rel{,a}_iplt_{start,end} symbols.
     Defined *relaIpltStart;

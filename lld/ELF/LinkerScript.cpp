@@ -163,6 +163,13 @@ StringRef LinkerScript::getOutputSectionName(const InputSectionBase *s) const {
       }
     }
 
+  // Per-function unwind table and unwind info sections are named after the
+  // function's section. Merge each kind into one output section.
+  if (ctx.arg.emachine == EM_IA_64)
+    for (StringRef v : {".IA_64.unwind_info", ".IA_64.unwind"})
+      if (isSectionPrefix(v, s->name))
+        return v;
+
   for (StringRef v : {".data.rel.ro", ".data",       ".rodata",
                       ".bss.rel.ro",  ".bss",        ".ldata",
                       ".lrodata",     ".lbss",       ".gcc_except_table",

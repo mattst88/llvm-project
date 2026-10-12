@@ -1768,6 +1768,8 @@ static uint16_t getBitcodeMachineKind(Ctx &ctx, StringRef path,
     return EM_AVR;
   case Triple::hexagon:
     return EM_HEXAGON;
+  case Triple::ia64:
+    return EM_IA_64;
   case Triple::loongarch32:
   case Triple::loongarch64:
     return EM_LOONGARCH;

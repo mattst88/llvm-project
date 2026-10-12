@@ -179,6 +179,7 @@ static std::tuple<ELFKind, uint16_t, uint8_t> parseEmulation(Ctx &ctx,
           .Case("elf64loongarch", {ELF64LEKind, EM_LOONGARCH})
           .Case("elf64_s390", {ELF64BEKind, EM_S390})
           .Case("hexagonelf", {ELF32LEKind, EM_HEXAGON})
+          .Case("elf64_ia64", {ELF64LEKind, EM_IA_64})
           .Default({ELFNoneKind, EM_NONE});
 
   if (ret.first == ELFNoneKind)
@@ -1346,8 +1347,8 @@ static SmallVector<StringRef, 0> getSymbolOrderingFile(Ctx &ctx,
 static bool getIsRela(Ctx &ctx, opt::InputArgList &args) {
   // The psABI specifies the default relocation entry format.
   bool rela =
-      is_contained({EM_AARCH64, EM_AMDGPU, EM_HEXAGON, EM_LOONGARCH, EM_PPC,
-                    EM_PPC64, EM_RISCV, EM_S390, EM_SPARCV9, EM_X86_64},
+      is_contained({EM_AARCH64, EM_AMDGPU, EM_HEXAGON, EM_IA_64, EM_LOONGARCH,
+                    EM_PPC, EM_PPC64, EM_RISCV, EM_S390, EM_SPARCV9, EM_X86_64},
                    ctx.arg.emachine);
   // If -z rel or -z rela is specified, use the last option.
   for (auto *arg : args.filtered(OPT_z)) {
@@ -2076,6 +2077,17 @@ static void setConfigs(Ctx &ctx, opt::InputArgList &args) {
   ctx.arg.writeAddends = args.hasFlag(OPT_apply_dynamic_relocs,
                                       OPT_no_apply_dynamic_relocs, false) ||
                          !ctx.arg.isRela;
+  if (m == EM_IA_64) {
+    // The IA-64 dynamic loader applies R_IA64_REL64LSB by adding the load
+    // address to the word at the relocated address and ignores r_addend, so
+    // addends must be written to the section.
+    ctx.arg.writeAddends = true;
+    // An unwind table entry holds the segment-relative offset of the unwind
+    // info, which the unwinder adds to the base of the code's segment, so
+    // code and unwind info must share a segment.
+    if (!args.hasArg(OPT_rosegment))
+      ctx.arg.singleRoRx = true;
+  }
   // Validation of dynamic relocation addends is on by default for assertions
   // builds and disabled otherwise. This check is enabled when writeAddends is
   // true.

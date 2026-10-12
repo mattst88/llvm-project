@@ -504,6 +504,9 @@ GotSection::GotSection(Ctx &ctx)
     : SyntheticSection(ctx, ".got", SHT_PROGBITS, SHF_ALLOC | SHF_WRITE,
                        ctx.target->gotEntrySize) {
   numEntries = ctx.target->gotHeaderEntriesNum;
+  // Every reference to the IA-64 linkage table is an offset from gp.
+  if (ctx.arg.emachine == EM_IA_64)
+    flags |= SHF_IA_64_SHORT;
 }
 
 void GotSection::addEntry(const Symbol &sym) {
@@ -1039,7 +1042,12 @@ void MipsGotSection::writeTo(uint8_t *buf) {
 GotPltSection::GotPltSection(Ctx &ctx)
     : SyntheticSection(ctx, ".got.plt", SHT_PROGBITS, SHF_ALLOC | SHF_WRITE,
                        ctx.target->gotPltEntrySize) {
-  if (ctx.arg.emachine == EM_PPC) {
+  if (ctx.arg.emachine == EM_IA_64) {
+    // Holds the function descriptors that PLT stubs load. It is addressed
+    // gp-relative, so it belongs in the short data area.
+    name = ".IA_64.pltoff";
+    flags |= SHF_IA_64_SHORT;
+  } else if (ctx.arg.emachine == EM_PPC) {
     name = ".plt";
   } else if (ctx.arg.emachine == EM_PPC64) {
     type = SHT_NOBITS;
@@ -1070,7 +1078,11 @@ void GotPltSection::writeTo(uint8_t *buf) {
 bool GotPltSection::isNeeded() const {
   // We need to emit GOTPLT even if it's empty if there's a relocation relative
   // to it.
-  return !entries.empty() || hasGotPltOffRel;
+  if (!entries.empty() || hasGotPltOffRel)
+    return true;
+  // DT_IA_64_PLT_RESERVE points at the header, and every module with a
+  // dynamic section has that tag.
+  return ctx.arg.emachine == EM_IA_64 && ctx.hasDynsym;
 }
 
 static StringRef getIgotPltName(Ctx &ctx) {
@@ -1329,8 +1341,21 @@ DynamicSection<ELFT>::computeContents() {
     default:
       addInSec(DT_PLTGOT, *ctx.in.gotPlt);
       break;
+    case EM_IA_64:
+      // DT_PLTGOT has a different meaning on IA-64; it is added below.
+      break;
     }
     addInt(DT_PLTREL, ctx.arg.isRela ? DT_RELA : DT_REL);
+  }
+
+  // On IA-64 DT_PLTGOT is the module's gp, which the dynamic loader stores in
+  // every function descriptor it creates for the module, with or without lazy
+  // binding. DT_IA_64_PLT_RESERVE points at the three words the PLT header
+  // reads, which the dynamic loader fills with its handle for the module, its
+  // resolver, and its gp. It uses them for any lazy binding, PLT or not.
+  if (ctx.arg.emachine == EM_IA_64) {
+    addInt(DT_PLTGOT, ctx.sym.ia64Gp->getVA(ctx));
+    addInSec(DT_IA_64_PLT_RESERVE, *ctx.in.gotPlt);
   }
 
   if (ctx.arg.zMarkPlt && ctx.in.plt->isNeeded()) {
@@ -4237,6 +4262,108 @@ bool PPC64LongBranchTargetSection::isNeeded() const {
   // creation. Because of this, if we don't create any long-branch thunks we end
   // up with an empty .branch_lt section in the binary.
   return !finalized || !entries.empty();
+}
+
+bool elf::isIA64DynamicFdesc(Ctx &ctx, const Symbol &sym) {
+  return sym.isPreemptible || (sym.isExported && ctx.hasDynsym);
+}
+
+// Two references name the same address, and so share an entry, when they are
+// to the same place in the same section: a local symbol and its section's
+// symbol with an addend are interchangeable in what an assembler emits.
+static std::pair<const void *, uint64_t> ia64EntryKey(const Symbol &sym,
+                                                      int64_t addend) {
+  if (auto *d = dyn_cast<Defined>(&sym); d && !sym.isPreemptible) {
+    if (!d->section)
+      return {nullptr, d->value + addend};
+    if (auto *isec = dyn_cast<InputSection>(d->section))
+      return {isec->repl, d->value + addend};
+    return {d->section, d->value + addend};
+  }
+  return {&sym, addend};
+}
+
+IA64OpdSection::IA64OpdSection(Ctx &ctx)
+    : SyntheticSection(ctx, ".opd", SHT_PROGBITS,
+                       ctx.arg.isPic ? SHF_ALLOC | SHF_WRITE : SHF_ALLOC, 16) {}
+
+void IA64OpdSection::addEntry(Symbol &sym, int64_t addend) {
+  auto res =
+      entryIndex.try_emplace(ia64EntryKey(sym, addend), entryIndex.size());
+  if (!res.second)
+    return;
+  uint64_t off = res.first->second * 16;
+  Symbol &gp = *ctx.sym.ia64Gp;
+  if (ctx.arg.isPic) {
+    RelType rel = ctx.target->relativeRel;
+    ctx.in.relaDyn->addRelativeReloc(rel, *this, off, sym, addend,
+                                     ctx.target->symbolicRel, R_ABS);
+    ctx.in.relaDyn->addRelativeReloc(rel, *this, off + 8, gp, 0,
+                                     ctx.target->symbolicRel, R_ABS);
+  } else {
+    addReloc({R_ABS, ctx.target->symbolicRel, off, addend, &sym});
+    addReloc({R_ABS, ctx.target->symbolicRel, off + 8, 0, &gp});
+  }
+}
+
+uint64_t IA64OpdSection::getEntryVA(const Symbol &sym, int64_t addend) const {
+  auto it = entryIndex.find(ia64EntryKey(sym, addend));
+  assert(it != entryIndex.end());
+  return getVA() + it->second * 16;
+}
+
+void IA64OpdSection::writeTo(uint8_t *buf) {
+  ctx.target->relocateAlloc(*this, buf);
+}
+
+IA64LtoffSection::IA64LtoffSection(Ctx &ctx)
+    : SyntheticSection(ctx, ".got", SHT_PROGBITS,
+                       SHF_ALLOC | SHF_WRITE | SHF_IA_64_SHORT, 8) {}
+
+void IA64LtoffSection::addEntry(Symbol &sym, int64_t addend, bool fdesc) {
+  auto [p, v] = ia64EntryKey(sym, addend);
+  auto res = entryIndex.try_emplace({p, v, unsigned(fdesc)}, entryIndex.size());
+  if (!res.second)
+    return;
+  uint64_t off = res.first->second * 8;
+  RelType word = ctx.target->symbolicRel;
+  bool absolute = isAbsolute(sym);
+  if (fdesc) {
+    if (isIA64DynamicFdesc(ctx, sym)) {
+      ctx.in.relaDyn->addSymbolReloc(R_IA64_FPTR64LSB, *this, off, sym);
+      return;
+    }
+    // An undefined weak function has a null address.
+    if (sym.isUndefined())
+      return;
+    ctx.in.ia64Opd->addEntry(sym, addend);
+    if (ctx.arg.isPic)
+      ctx.in.relaDyn->addRelativeReloc(ctx.target->relativeRel, *this, off, sym,
+                                       addend, word, RE_IA64_FDESC);
+    else
+      addReloc({RE_IA64_FDESC, word, off, addend, &sym});
+    return;
+  }
+  if (sym.isPreemptible)
+    ctx.in.relaDyn->addSymbolReloc(ctx.target->gotRel, *this, off, sym, addend,
+                                   word);
+  else if (ctx.arg.isPic && !absolute)
+    ctx.in.relaDyn->addRelativeReloc(ctx.target->relativeRel, *this, off, sym,
+                                     addend, word, R_ABS);
+  else
+    addReloc({R_ABS, word, off, addend, &sym});
+}
+
+uint64_t IA64LtoffSection::getEntryVA(const Symbol &sym, int64_t addend,
+                                      bool fdesc) const {
+  auto [p, v] = ia64EntryKey(sym, addend);
+  auto it = entryIndex.find({p, v, unsigned(fdesc)});
+  assert(it != entryIndex.end());
+  return getVA() + it->second * 8;
+}
+
+void IA64LtoffSection::writeTo(uint8_t *buf) {
+  ctx.target->relocateAlloc(*this, buf);
 }
 
 static uint8_t getAbiVersion(Ctx &ctx) {

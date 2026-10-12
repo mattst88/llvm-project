@@ -1275,6 +1275,46 @@ private:
   bool finalized = false;
 };
 
+// IA-64 function descriptors: a function's entry point and the gp of its
+// defining module. A function's address is the address of its descriptor. This
+// section holds descriptors for address-taken functions defined in this module
+// whose descriptor no other module can need; the dynamic loader creates the
+// others.
+class IA64OpdSection final : public SyntheticSection {
+public:
+  IA64OpdSection(Ctx &);
+  void addEntry(Symbol &sym, int64_t addend);
+  uint64_t getEntryVA(const Symbol &sym, int64_t addend) const;
+  size_t getSize() const override { return entryIndex.size() * 16; }
+  void writeTo(uint8_t *buf) override;
+  bool isNeeded() const override { return !entryIndex.empty(); }
+
+private:
+  llvm::DenseMap<std::pair<const void *, uint64_t>, uint32_t> entryIndex;
+};
+
+// The part of the IA-64 linkage table referenced by @ltoff operands: one word
+// per address loaded gp-relative, holding either a symbol address plus addend
+// or a function descriptor address. It is placed next to GotSection, which
+// holds the TLS entries.
+class IA64LtoffSection final : public SyntheticSection {
+public:
+  IA64LtoffSection(Ctx &);
+  void addEntry(Symbol &sym, int64_t addend, bool fdesc);
+  uint64_t getEntryVA(const Symbol &sym, int64_t addend, bool fdesc) const;
+  size_t getSize() const override { return entryIndex.size() * 8; }
+  void writeTo(uint8_t *buf) override;
+  bool isNeeded() const override { return !entryIndex.empty(); }
+
+private:
+  llvm::DenseMap<std::tuple<const void *, uint64_t, unsigned>, uint32_t>
+      entryIndex;
+};
+
+// Whether the function descriptor of the IA-64 function \p sym must be
+// created by the dynamic loader so that every module sees the same address.
+bool isIA64DynamicFdesc(Ctx &, const Symbol &sym);
+
 // See the following link for the Android-specific loader code that operates on
 // this section:
 // https://cs.android.com/android/platform/superproject/+/master:bionic/libc/bionic/libc_init_static.cpp;drc=9425b16978f9c5aa8f2c50c873db470819480d1d;l=192

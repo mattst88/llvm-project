@@ -945,6 +945,13 @@ uint64_t InputSectionBase::getRelocTargetVA(Ctx &ctx, const Relocation &r,
         dest = p;
       else if (ctx.arg.emachine == EM_RISCV)
         dest = getRISCVUndefinedRelativeWeakVA(r.type, p) + a;
+      else if (ctx.arg.emachine == EM_IA_64 &&
+               is_contained({R_IA64_PCREL21B, R_IA64_PCREL21BI, R_IA64_PCREL21M,
+                             R_IA64_PCREL21F, R_IA64_PCREL60B},
+                            r.type))
+        // An IA-64 branch to an undefined weak function targets its own
+        // bundle, which is always in range.
+        dest = p & ~uint64_t(3);
       else
         dest = r.sym->getVA(ctx, a);
     } else {
@@ -1031,6 +1038,30 @@ uint64_t InputSectionBase::getRelocTargetVA(Ctx &ctx, const Relocation &r,
     return ctx.in.got->getTlsIndexOff() + a;
   case R_TLSLD_PC:
     return ctx.in.got->getTlsIndexVA() + a - p;
+  case RE_IA64_GPREL:
+    return r.sym->getVA(ctx, a) - ctx.sym.ia64Gp->getVA(ctx);
+  case RE_IA64_GOT_GPREL:
+    return r.sym->getGotVA(ctx) + a - ctx.sym.ia64Gp->getVA(ctx);
+  case RE_IA64_LTOFF:
+    return ctx.in.ia64Ltoff->getEntryVA(*r.sym, a, false) -
+           ctx.sym.ia64Gp->getVA(ctx);
+  case RE_IA64_LTOFF_FDESC:
+    return ctx.in.ia64Ltoff->getEntryVA(*r.sym, a, true) -
+           ctx.sym.ia64Gp->getVA(ctx);
+  case RE_IA64_FDESC:
+    return ctx.in.ia64Opd->getEntryVA(*r.sym, a);
+  case RE_IA64_SEGREL: {
+    // Offset from the start of the target's PT_LOAD segment. An undefined
+    // symbol resolves to 0, as an absolute reference would.
+    const OutputSection *os = r.sym->getOutputSection();
+    if (!os || !os->ptLoad)
+      return r.sym->isUndefined() ? 0 : r.sym->getVA(ctx, a);
+    return r.sym->getVA(ctx, a) - os->ptLoad->firstSec->addr;
+  }
+  case RE_IA64_SECREL: {
+    const OutputSection *os = r.sym->getOutputSection();
+    return r.sym->getVA(ctx, a) - (os ? os->addr : 0);
+  }
   default:
     llvm_unreachable("invalid expression");
   }
@@ -1103,7 +1134,8 @@ void InputSection::relocateNonAlloc(Ctx &ctx, uint8_t *buf,
       return;
     }
 
-    if (tombstone && (expr == R_ABS || expr == R_DTPREL)) {
+    if (tombstone &&
+        (expr == R_ABS || expr == R_DTPREL || expr == RE_IA64_SECREL)) {
       // Resolve relocations in .debug_* referencing (discarded symbols or ICF
       // folded section symbols) to a tombstone value. Resolving to addend is
       // unsatisfactory because the result address range may collide with a
@@ -1164,6 +1196,15 @@ void InputSection::relocateNonAlloc(Ctx &ctx, uint8_t *buf,
     if (expr == R_SIZE) {
       target.relocateNoSym(bufLoc, type,
                            SignExtend64<bits>(sym.getSize() + addend));
+      continue;
+    }
+
+    // IA-64 debug sections refer to each other by offset from the start of
+    // the section.
+    if (expr == RE_IA64_SECREL) {
+      const OutputSection *os = sym.getOutputSection();
+      target.relocateNoSym(bufLoc, type,
+                           sym.getVA(ctx, addend) - (os ? os->addr : 0));
       continue;
     }
 

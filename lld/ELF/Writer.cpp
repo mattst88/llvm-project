@@ -172,6 +172,17 @@ void elf::addReservedSymbols(Ctx &ctx) {
     addOptionalRegular(ctx, "_SDA_BASE_", nullptr, 0, STV_HIDDEN);
   } else if (ctx.arg.emachine == EM_PPC64) {
     addPPC64SaveRestore(ctx);
+  } else if (ctx.arg.emachine == EM_IA_64) {
+    // __gp is this module's gp value. Unless a linker script defines it, it
+    // is placed after section layout.
+    Symbol *s = ctx.symtab->find("__gp");
+    if (!s || !s->isDefined()) {
+      s = ctx.symtab->addSymbol(Defined{ctx, ctx.internalFile, "__gp",
+                                        STB_GLOBAL, STV_HIDDEN, STT_NOTYPE, 0,
+                                        0, ctx.out.elfHeader.get()});
+      s->isUsedInRegularObj = true;
+    }
+    ctx.sym.ia64Gp = cast<Defined>(s);
   }
 
   // The Power Architecture 64-bit v2 ABI defines a TableOfContents (TOC) which
@@ -570,6 +581,12 @@ static bool isRelroSection(Ctx &ctx, const OutputSection *sec) {
   if (!(flags & SHF_ALLOC) || !(flags & SHF_WRITE))
     return false;
 
+  // IA-64 addresses the linkage table and short data gp-relative with an
+  // immediate offset, so they must be contiguous. That includes .sbss, and
+  // SHT_NOBITS sections cannot precede the end of RELRO.
+  if (ctx.arg.emachine == EM_IA_64 && (flags & SHF_IA_64_SHORT))
+    return false;
+
   // Once initialized, TLS data segments are used as data templates
   // for a thread-local storage. For each new thread, runtime
   // allocates memory for a TLS and copy templates there. No thread
@@ -760,6 +777,15 @@ unsigned elf::getSectionRank(Ctx &ctx, OutputSection &osec) {
       rank |= 2;
   }
 
+  if (ctx.arg.emachine == EM_IA_64 && isWrite && !isExec &&
+      !(osec.flags & SHF_TLS)) {
+    // Keep gp-relative data contiguous: short PROGBITS sections sort after
+    // other PROGBITS data, and .sbss before other NOBITS data.
+    bool isShort = osec.flags & SHF_IA_64_SHORT;
+    if (isShort != (osec.type == SHT_NOBITS))
+      rank |= 1;
+  }
+
   if (ctx.arg.emachine == EM_MIPS) {
     if (osec.name != ".got")
       rank |= 1;
@@ -853,6 +879,25 @@ template <class ELFT> void Writer<ELFT>::setReservedSymbolSections() {
       sec = ctx.in.mipsGot ? cast<InputSection>(ctx.in.mipsGot.get())
                            : cast<InputSection>(ctx.in.got.get());
     ctx.sym.globalOffsetTable->section = sec;
+  }
+
+  // IA-64's gp defaults to the start of the short data area, or of the data
+  // segment if there is none.
+  if (Defined *gp = ctx.sym.ia64Gp;
+      gp && !gp->scriptDefined && gp->file == ctx.internalFile) {
+    OutputSection *base = nullptr;
+    for (OutputSection *osec : ctx.outputSections) {
+      if (!(osec->flags & SHF_ALLOC))
+        continue;
+      if (osec->flags & SHF_IA_64_SHORT) {
+        base = osec;
+        break;
+      }
+      if (!base && (osec->flags & SHF_WRITE) && !(osec->flags & SHF_TLS))
+        base = osec;
+    }
+    if (base)
+      gp->section = base;
   }
 
   // .rela_iplt_{start,end} mark the start and the end of the section containing
@@ -1627,6 +1672,21 @@ template <class ELFT> void Writer<ELFT>::finalizeAddressDependentContent() {
     if (errCount(ctx))
       break;
   }
+  // An IA-64 instruction reaches 2 MiB either side of gp. Once the data
+  // addressed from gp is longer than that, point gp into it.
+  if (Defined *gp = ctx.sym.ia64Gp;
+      gp && !gp->scriptDefined && gp->file == ctx.internalFile) {
+    uint64_t begin = UINT64_MAX, end = 0;
+    for (OutputSection *osec : ctx.outputSections) {
+      if ((osec->flags & (SHF_ALLOC | SHF_IA_64_SHORT)) !=
+          (SHF_ALLOC | SHF_IA_64_SHORT))
+        continue;
+      begin = std::min(begin, osec->addr);
+      end = std::max(end, osec->addr + osec->size);
+    }
+    gp->value = begin < end && end - begin > 0x200000 ? 0x200000 : 0;
+  }
+
   if (!ctx.arg.relocatable)
     ctx.target->finalizeRelax(pass);
 
@@ -2090,6 +2150,9 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
     }
     if (ctx.arg.emachine == EM_RISCV)
       addPhdrForSection(SHT_RISCV_ATTRIBUTES, PT_RISCV_ATTRIBUTES, PF_R);
+    // The unwinder finds a module's unwind table through its own segment.
+    if (ctx.arg.emachine == EM_IA_64)
+      addPhdrForSection(SHT_IA_64_UNWIND, PT_IA_64_UNWIND, PF_R);
     ctx.out.programHeaders->size = sizeof(Elf_Phdr) * ctx.phdrs.size();
 
     // Find the TLS segment. This happens before the section layout loop so that
