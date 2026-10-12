@@ -529,3 +529,41 @@ ProgramHeaders:
   - Type:     PT_DYNAMIC
     FirstSec: .dynamic
     LastSec:  .dynamic
+
+## Case 9: Test that IA-64 machine-specific tags can be dumped.
+# RUN: yaml2obj --docnum=9 %s -o %t.ia64
+# RUN: llvm-readobj --dynamic-table %t.ia64 | FileCheck %s --check-prefix=LLVM-IA64
+# RUN: llvm-readelf --dynamic-table %t.ia64 | FileCheck %s --check-prefix=GNU-IA64
+
+# LLVM-IA64:      DynamicSection [ (2 entries)
+# LLVM-IA64-NEXT:   Tag                Type              Name/Value
+# LLVM-IA64-NEXT:   0x0000000070000000 IA_64_PLT_RESERVE 0x1000
+# LLVM-IA64-NEXT:   0x0000000000000000 NULL              0x0
+# LLVM-IA64-NEXT: ]
+
+# GNU-IA64:      Dynamic section at offset {{.*}} contains 2 entries:
+# GNU-IA64-NEXT:   Tag                Type                Name/Value
+# GNU-IA64-NEXT:   0x0000000070000000 (IA_64_PLT_RESERVE) 0x1000
+# GNU-IA64-NEXT:   0x0000000000000000 (NULL)              0x0
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS64
+  Data:    ELFDATA2LSB
+  Type:    ET_EXEC
+  Machine: EM_IA_64
+Sections:
+  - Name: .dynamic
+    Type: SHT_DYNAMIC
+    Entries:
+      - Tag:   DT_IA_64_PLT_RESERVE
+        Value: 0x1000
+      - Tag:   DT_NULL
+        Value: 0
+ProgramHeaders:
+  - Type:     PT_LOAD
+    FirstSec: .dynamic
+    LastSec:  .dynamic
+  - Type:     PT_DYNAMIC
+    FirstSec: .dynamic
+    LastSec:  .dynamic

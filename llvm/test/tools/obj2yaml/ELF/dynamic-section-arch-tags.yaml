@@ -342,3 +342,24 @@ Sections:
     Entries:
       - Tag:             DT_HEXAGON_SYMSZ
         Value:           0x0000000000000001
+
+## IA-64 specific tags.
+
+# RUN: yaml2obj --docnum=8 %s -o %t8
+# RUN: obj2yaml %t8 | FileCheck %s --check-prefix=IA64
+
+# IA64:      - Tag:             DT_IA_64_PLT_RESERVE
+# IA64-NEXT:   Value:           0x1000
+
+--- !ELF
+FileHeader:
+  Class:             ELFCLASS64
+  Data:              ELFDATA2LSB
+  Type:              ET_REL
+  Machine:           EM_IA_64
+Sections:
+  - Name:            .dynamic
+    Type:            SHT_DYNAMIC
+    Entries:
+      - Tag:             DT_IA_64_PLT_RESERVE
+        Value:           0x0000000000001000

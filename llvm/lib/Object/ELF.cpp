@@ -581,6 +581,14 @@ std::string ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
     }
     break;
 
+  case ELF::EM_IA_64:
+    switch (Type) {
+#define IA_64_DYNAMIC_TAG(name, value) DYNAMIC_STRINGIFY_ENUM(name, value)
+#include "llvm/BinaryFormat/DynamicTags.def"
+#undef IA_64_DYNAMIC_TAG
+    }
+    break;
+
   case ELF::EM_PPC:
     switch (Type) {
 #define PPC_DYNAMIC_TAG(name, value) DYNAMIC_STRINGIFY_ENUM(name, value)
@@ -629,6 +637,7 @@ std::string ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
 #define AARCH64_DYNAMIC_TAG(name, value)
 #define MIPS_DYNAMIC_TAG(name, value)
 #define HEXAGON_DYNAMIC_TAG(name, value)
+#define IA_64_DYNAMIC_TAG(name, value)
 #define PPC_DYNAMIC_TAG(name, value)
 #define PPC64_DYNAMIC_TAG(name, value)
 #define RISCV_DYNAMIC_TAG(name, value)
@@ -642,6 +651,7 @@ std::string ELFFile<ELFT>::getDynamicTagAsString(unsigned Arch,
 #undef AARCH64_DYNAMIC_TAG
 #undef MIPS_DYNAMIC_TAG
 #undef HEXAGON_DYNAMIC_TAG
+#undef IA_64_DYNAMIC_TAG
 #undef PPC_DYNAMIC_TAG
 #undef PPC64_DYNAMIC_TAG
 #undef RISCV_DYNAMIC_TAG
