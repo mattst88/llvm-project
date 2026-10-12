@@ -41,8 +41,10 @@ using namespace clang::interp;
 // We disable it on MSVC generally since it doesn't seem to be able
 // to handle the way we use tailcalls.
 // PPC can't tail-call external calls, which is a problem for InterpNext.
+// IA-64 can't tail-call through a pointer: the callee may use a different gp,
+// and nothing would restore the caller's.
 #if defined(_MSC_VER) || defined(__powerpc__) || !defined(MUSTTAIL) ||         \
-    defined(__i386__) || defined(__sparc__)
+    defined(__i386__) || defined(__sparc__) || defined(__ia64__)
 #undef MUSTTAIL
 #define MUSTTAIL
 #define USE_TAILCALLS 0
