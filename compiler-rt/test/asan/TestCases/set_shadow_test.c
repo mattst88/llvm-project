@@ -5,6 +5,9 @@
 // RUN: not %run %t 0xf3 2>&1 | FileCheck %s -check-prefix=XF3
 // RUN: not %run %t 0xf5 2>&1 | FileCheck %s -check-prefix=XF5
 // RUN: not %run %t 0xf8 2>&1 | FileCheck %s -check-prefix=XF8
+// The test computes the shadow address itself, and ia64 folds the address
+// first.
+// UNSUPPORTED: target=ia64{{.*}}
 
 #include <assert.h>
 #include <sanitizer/asan_interface.h>

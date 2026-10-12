@@ -6,6 +6,9 @@
 // RUN: %clangxx_asan -O2 %s -o %t && %run %t | FileCheck %s
 // RUN: %clangxx_asan -O3 %s -o %t && %run %t | FileCheck %s
 
+// ia64 has __clone2 and no clone.
+// UNSUPPORTED: target=ia64{{.*}}
+
 #include <stdio.h>
 #include <sched.h>
 #include <sys/syscall.h>

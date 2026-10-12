@@ -4,6 +4,9 @@
 // belongs to.
 // RUN: %clangxx_asan -O0 %s -o %t && %run %t 2>&1
 // UNSUPPORTED: msvc
+// The test takes a shadow address for an application address, and on ia64 the
+// shadow lies inside the window of region 0 that it describes.
+// UNSUPPORTED: target=ia64{{.*}}
 #include <assert.h>
 #include <sanitizer/asan_interface.h>
 #include <stdio.h>

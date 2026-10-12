@@ -7,6 +7,9 @@
 
 #if (__APPLE__)
 char global_alt_stack[MINSIGSTKSZ];
+#elif defined(__ia64__)
+// The kernel refuses an alternate stack of less than 131027 bytes.
+char global_alt_stack[4096 * 64];
 #else
 char global_alt_stack[4096 * 4];
 #endif

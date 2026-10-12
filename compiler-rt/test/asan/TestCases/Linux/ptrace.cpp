@@ -1,6 +1,8 @@
 // FIXME: https://code.google.com/p/address-sanitizer/issues/detail?id=316
 // XFAIL: android
 // XFAIL: target=mips{{.*}}
+// The test does not know the ia64 register sets.
+// UNSUPPORTED: target=ia64{{.*}}
 //
 // RUN: %clangxx_asan -O0 %s -o %t && %run %t
 // RUN: %clangxx_asan -DPOSITIVE -O0 %s -o %t && not %run %t 2>&1 | FileCheck %s

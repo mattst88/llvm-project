@@ -6,6 +6,10 @@
 // RUN: %clangxx_asan -fexceptions -O0 %s -o %t -pthread
 // RUN: %env_asan_opts=detect_stack_use_after_return=0 %run %t
 
+// The unwinder of libgcc copies too much when it steps out of a handler that
+// has an alternate backing store, and writes over the stack of the thread.
+// UNSUPPORTED: target=ia64{{.*}}
+
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
@@ -141,7 +145,7 @@ int main() {
   size_t const DefaultStackSize =
       (MinStackSize - 1 + PageSize) & ~(PageSize - 1);
   // The alternate stack needs a certain size, or the signal handler segfaults.
-  size_t const AltStackSize = 10 * PageSize;
+  size_t const AltStackSize = std::max<size_t>(10 * PageSize, MINSIGSTKSZ);
   size_t const MappingSize = DefaultStackSize + AltStackSize;
   // Using mmap guarantees proper alignment.
   void *const Mapping = mmap(nullptr, MappingSize,

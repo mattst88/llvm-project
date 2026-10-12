@@ -13,6 +13,12 @@
 //
 // FIXME: Windows doesn't implement mmap_limit_mb.
 // XFAIL: target={{.*windows-msvc.*}}
+//
+// The unwinder of libgcc allocates and frees register states as it steps
+// through frames, so every stack that ASan collects for an allocation puts
+// chunks in the quarantine, and 1M of small allocations already maps more
+// than the limit.
+// UNSUPPORTED: target=ia64{{.*}}
 
 #include <assert.h>
 #include <stdlib.h>

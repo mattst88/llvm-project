@@ -4,6 +4,10 @@
 // RUN: %clangxx_asan -O0 %s -o %t -fsanitize-address-use-after-return=always
 // RUN: %run %t
 
+// The unwinder of libgcc allocates memory at each frame, and each allocation
+// records a stack trace. The test takes ten minutes or more when emulated.
+// UNSUPPORTED: target=ia64{{.*}}
+
 #include <stdio.h>
 
 volatile char *g;

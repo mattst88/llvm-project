@@ -72,7 +72,13 @@ void recursive_func(uintptr_t parent_frame_address) {
 #else
   char buf[BS];
   // Check that the stack grows in the right direction, unless we use fake stack.
+#if defined(__ia64__)
+  // A call does not write to the memory stack, so a caller that keeps what it
+  // has in stacked registers has the frame address of what it calls.
+  assert(parent_frame_address >= (uintptr_t)__builtin_frame_address(0));
+#else
   assert(parent_frame_address > (uintptr_t)__builtin_frame_address(0));
+#endif
   buf[rand() % BS] = 1;
   buf[rand() % BS] = 2;
   x = buf[rand() % BS];

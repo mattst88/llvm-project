@@ -1,6 +1,8 @@
 // RUN: %clangxx_asan %s -o %t
 // RUN: not %run %t 2>&1 | FileCheck %s
 // REQUIRES: asan-64-bits
+// Every address of an ia64 region has shadow, so no pointer is wild.
+// UNSUPPORTED: target=ia64{{.*}}
 
 #include <inttypes.h>
 #include <stdarg.h>

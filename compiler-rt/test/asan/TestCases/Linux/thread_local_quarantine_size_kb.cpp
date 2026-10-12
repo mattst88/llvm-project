@@ -8,6 +8,12 @@
 // RUN: %env_asan_opts=thread_local_quarantine_size_kb=0:quarantine_size_mb=64 not %run %t 2>&1 | \
 // RUN:   FileCheck %s --check-prefix=CHECK-FOR-PARAMETER-ERROR
 
+// The unwinder of libgcc allocates and frees register states as it steps
+// through frames, so every stack that ASan collects for an allocation puts
+// chunks in the quarantine, and the heap grows by far more than the test
+// allows.
+// UNSUPPORTED: target=ia64{{.*}}
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
