@@ -54,6 +54,7 @@ public:
                        unsigned shard);
   void scanSection(InputSectionBase &sec, unsigned shard) override;
   void finalizeRelocScan() override;
+  bool relaxOnce(int pass) const override;
   bool needsThunk(RelExpr expr, RelType type, const InputFile *file,
                   uint64_t branchAddr, const Symbol &s,
                   int64_t a) const override;
@@ -63,6 +64,11 @@ public:
                 uint64_t val) const override;
 
 private:
+  // Targets relaxOnce found too far from gp to bypass their linkage table
+  // entry. Once marked far, a target stays far even if it later moves into
+  // range.
+  mutable DenseSet<std::pair<const void *, uint64_t>> farFromGp;
+
   void scanFptr(RelocScan &rs, InputSectionBase &sec, RelType type,
                 uint64_t offset, Symbol &sym, int64_t addend) const;
   void scanIplt(RelocScan &rs, InputSectionBase &sec, RelType type,
@@ -410,6 +416,14 @@ void IA64::scanIplt(RelocScan &rs, InputSectionBase &sec, RelType type,
                                            symbolicRel, R_ABS, rs.shard);
 }
 
+// Whether \p sym is at a fixed offset from gp that is known at scan time.
+static bool canRelaxLtoff(Ctx &ctx, const Symbol &sym) {
+  if (!ctx.arg.relax || sym.isPreemptible || sym.isTls())
+    return false;
+  auto *d = dyn_cast<Defined>(&sym);
+  return d && d->section && d->file && d->file->kind() == InputFile::ObjKind;
+}
+
 template <class ELFT, class RelTy>
 void IA64::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
                            unsigned shard) {
@@ -454,10 +468,13 @@ void IA64::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
     RelExpr expr;
     switch (type) {
     case R_IA64_NONE:
-    // Marks the load of what an R_IA64_LTOFF22X fetched the address of, for
-    // a linker that turns the pair into an add to gp. This one leaves both
-    // as they are.
+      continue;
+    // Marks the load through the address computed at an R_IA64_LTOFF22X. If
+    // that add is relaxed to compute the target address itself, the load
+    // becomes a move.
     case R_IA64_LDXMOV:
+      if (canRelaxLtoff(ctx, sym))
+        sec.addReloc({RE_IA64_GPREL, type, offset, addend, &sym});
       continue;
 
     // Absolute relocations:
@@ -508,10 +525,19 @@ void IA64::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
       expr = RE_IA64_SECREL;
       break;
 
-    // Linkage table entries. Each is found again, and made, once the scan is
-    // over: see finalizeRelocScan.
-    case R_IA64_LTOFF22:
+    // Linkage table entries. They are collected and created after the scan:
+    // see finalizeRelocScan.
+    // An R_IA64_LTOFF22X is on an add of the entry's gp offset, and loads
+    // through the result are marked with R_IA64_LDXMOV. If the symbol itself
+    // is within gp range, the add can compute its address and the entry is
+    // not needed. relaxOnce decides once addresses are assigned.
     case R_IA64_LTOFF22X:
+      if (canRelaxLtoff(ctx, sym)) {
+        sec.addReloc({RE_IA64_RELAX_LTOFF, type, offset, addend, &sym});
+        continue;
+      }
+      [[fallthrough]];
+    case R_IA64_LTOFF22:
     case R_IA64_LTOFF64I:
       sec.addReloc({RE_IA64_LTOFF, type, offset, addend, &sym});
       continue;
@@ -620,6 +646,8 @@ void IA64::finalizeRelocScan() {
       for (const Relocation &r : sec->relocs()) {
         if (r.expr == RE_IA64_LTOFF)
           ctx.in.ia64Ltoff->addEntry(*r.sym, r.addend, false);
+        else if (r.expr == RE_IA64_RELAX_LTOFF)
+          ctx.in.ia64Ltoff->hasDeferredEntries = true;
         else if (r.expr == RE_IA64_LTOFF_FDESC)
           ctx.in.ia64Ltoff->addEntry(*r.sym, r.addend, true);
         else if (r.expr == RE_IA64_FDESC)
@@ -627,6 +655,39 @@ void IA64::finalizeRelocScan() {
       }
     }
   }
+}
+
+// Give a linkage table entry to each R_IA64_LTOFF22X target that is too far
+// from gp for the add to reach, and leave the loads through those entries
+// unchanged. Entries are never removed, so this converges.
+bool IA64::relaxOnce(int pass) const {
+  uint64_t gp = ctx.sym.ia64Gp->getVA(ctx);
+  SmallVector<InputSection *, 0> storage;
+  bool changed = false;
+  for (OutputSection *osec : ctx.outputSections) {
+    if (!(osec->flags & SHF_ALLOC))
+      continue;
+    for (InputSection *sec : getInputSections(*osec, storage)) {
+      for (Relocation &rel : sec->relocs()) {
+        bool isLoad = rel.type == R_IA64_LDXMOV;
+        if (!isLoad && rel.expr != RE_IA64_RELAX_LTOFF)
+          continue;
+        auto key = IA64LtoffSection::getKey(*rel.sym, rel.addend);
+        if (isInt<22>(rel.sym->getVA(ctx, rel.addend) - gp) &&
+            !farFromGp.contains(key))
+          continue;
+        farFromGp.insert(key);
+        if (isLoad) {
+          rel.type = R_IA64_NONE;
+        } else {
+          ctx.in.ia64Ltoff->addEntry(*rel.sym, rel.addend, false);
+          rel.expr = RE_IA64_LTOFF;
+        }
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }
 
 //===----------------------------------------------------------------------===//
@@ -760,8 +821,28 @@ void IA64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
 
   switch (rel.type) {
   case R_IA64_NONE:
-  case R_IA64_LDXMOV:
     break;
+
+  // The preceding add computed the address this load was to fetch, so turn
+  // the load into a move, or a nop if the destination is the source register.
+  case R_IA64_LDXMOV: {
+    uint64_t insn = readSlot(bundle, slot);
+    // ld8 r1 = [r3], with any hint.
+    if ((insn & 0x1ffc8000000) != 0x080c0000000) {
+      Err(ctx) << getErrorLoc(ctx, loc)
+               << "R_IA64_LDXMOV is not on a load of 8 bytes";
+      break;
+    }
+    uint64_t qp = insn & 0x3f, r1 = (insn >> 6) & 0x7f,
+             r3 = (insn >> 20) & 0x7f;
+    if (r1 == r3)
+      insn = uint64_t(1) << 27; // nop.m 0
+    else
+      // (qp) adds r1 = 0, r3
+      insn = uint64_t(8) << 37 | uint64_t(2) << 34 | r3 << 20 | r1 << 6 | qp;
+    writeSlot(bundle, slot, insn);
+    break;
+  }
 
   case R_IA64_IMM14:
   case R_IA64_TPREL14:

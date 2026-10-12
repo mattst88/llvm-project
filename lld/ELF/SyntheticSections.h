@@ -1304,7 +1304,17 @@ public:
   uint64_t getEntryVA(const Symbol &sym, int64_t addend, bool fdesc) const;
   size_t getSize() const override { return entryIndex.size() * 8; }
   void writeTo(uint8_t *buf) override;
-  bool isNeeded() const override { return !entryIndex.empty(); }
+  bool isNeeded() const override {
+    return !entryIndex.empty() || hasDeferredEntries;
+  }
+
+  // The key identifying the target of \p sym plus \p addend. References with
+  // the same key share an entry.
+  static std::pair<const void *, uint64_t> getKey(const Symbol &sym,
+                                                  int64_t addend);
+
+  // Set if relaxOnce may add entries after removeUnusedSyntheticSections.
+  bool hasDeferredEntries = false;
 
 private:
   llvm::DenseMap<std::tuple<const void *, uint64_t, unsigned>, uint32_t>

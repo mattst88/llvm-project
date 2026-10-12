@@ -1568,6 +1568,23 @@ template <class ELFT> void Writer<ELFT>::finalizeAddressDependentContent() {
   if (ctx.arg.branchToBranch)
     ctx.target->relaxCFIJumpTables();
 
+  // IA-64 gp-relative immediates reach +/-2 MiB. If the short data area is
+  // larger than that, move gp 2 MiB past its start.
+  const auto placeIA64Gp = [this] {
+    Defined *gp = ctx.sym.ia64Gp;
+    if (!gp || gp->scriptDefined || gp->file != ctx.internalFile)
+      return;
+    uint64_t begin = UINT64_MAX, end = 0;
+    for (OutputSection *osec : ctx.outputSections) {
+      if ((osec->flags & (SHF_ALLOC | SHF_IA_64_SHORT)) !=
+          (SHF_ALLOC | SHF_IA_64_SHORT))
+        continue;
+      begin = std::min(begin, osec->addr);
+      end = std::max(end, osec->addr + osec->size);
+    }
+    gp->value = begin < end && end - begin > 0x200000 ? 0x200000 : 0;
+  };
+
   // Iterate until a fixed point is reached, skipping relocatable links since
   // the final addresses are unavailable.
   uint32_t pass = 0, assignPasses = 0;
@@ -1575,6 +1592,12 @@ template <class ELFT> void Writer<ELFT>::finalizeAddressDependentContent() {
     bool changed = ctx.target->needsThunks
                        ? tc.createThunks(pass, ctx.outputSections)
                        : ctx.target->relaxOnce(pass);
+    // IA-64 relaxes a linkage table load into an add to gp, which depends on
+    // where gp is placed.
+    if (ctx.arg.emachine == EM_IA_64) {
+      placeIA64Gp();
+      changed |= ctx.target->relaxOnce(pass);
+    }
     bool spilled = ctx.script->spillSections();
     changed |= spilled;
     ++pass;
@@ -1672,20 +1695,7 @@ template <class ELFT> void Writer<ELFT>::finalizeAddressDependentContent() {
     if (errCount(ctx))
       break;
   }
-  // An IA-64 instruction reaches 2 MiB either side of gp. Once the data
-  // addressed from gp is longer than that, point gp into it.
-  if (Defined *gp = ctx.sym.ia64Gp;
-      gp && !gp->scriptDefined && gp->file == ctx.internalFile) {
-    uint64_t begin = UINT64_MAX, end = 0;
-    for (OutputSection *osec : ctx.outputSections) {
-      if ((osec->flags & (SHF_ALLOC | SHF_IA_64_SHORT)) !=
-          (SHF_ALLOC | SHF_IA_64_SHORT))
-        continue;
-      begin = std::min(begin, osec->addr);
-      end = std::max(end, osec->addr + osec->size);
-    }
-    gp->value = begin < end && end - begin > 0x200000 ? 0x200000 : 0;
-  }
+  placeIA64Gp();
 
   if (!ctx.arg.relocatable)
     ctx.target->finalizeRelax(pass);
@@ -1821,6 +1831,9 @@ static bool mayGrowLate(Ctx &ctx, SyntheticSection *sec) {
     return true;
   if (sec != ctx.in.relaDyn.get())
     return false;
+  // IA-64's relaxOnce may add linkage table entries that need them too.
+  if (ctx.arg.isPic && ctx.in.ia64Ltoff && ctx.in.ia64Ltoff->hasDeferredEntries)
+    return true;
   // Relocations may move here from .relr.auth.dyn.
   if (ctx.in.relrAuthDyn && ctx.in.relrAuthDyn->isNeeded())
     return true;

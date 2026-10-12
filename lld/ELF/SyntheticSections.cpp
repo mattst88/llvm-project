@@ -4357,6 +4357,11 @@ void IA64LtoffSection::addEntry(Symbol &sym, int64_t addend, bool fdesc) {
     addReloc({R_ABS, word, off, addend, &sym});
 }
 
+std::pair<const void *, uint64_t> IA64LtoffSection::getKey(const Symbol &sym,
+                                                           int64_t addend) {
+  return ia64EntryKey(sym, addend);
+}
+
 uint64_t IA64LtoffSection::getEntryVA(const Symbol &sym, int64_t addend,
                                       bool fdesc) const {
   auto [p, v] = ia64EntryKey(sym, addend);
