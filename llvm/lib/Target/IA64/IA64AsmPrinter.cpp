@@ -25,8 +25,10 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/IR/EHPersonalities.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstBuilder.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -116,6 +118,7 @@ private:
 
   MCOperand lowerOperand(const MachineOperand &MO) const;
   void emitUnwindDirectives(const MachineInstr &MI);
+  void emitProfilerCall();
 
   // The physical register that r120, the first output register as codegen
   // numbers it, maps to in this function.
@@ -302,6 +305,61 @@ bool IA64AsmPrinter::doInitialization(Module &M) {
   return Changed;
 }
 
+// The profiler hook is called before the function does anything, and it
+// preserves everything the function was entered with: the arguments, the
+// frame, gp and b0. It is passed what it cannot find itself, in a frame with
+// the eight argument registers as inputs and four outputs: ar.pfs, gp, b0,
+// and the address of a counter, which is no longer read. The call sequence is
+// its own prologue region, since the call clobbers b0.
+void IA64AsmPrinter::emitProfilerCall() {
+  Attribute Attr =
+      MF->getFunction().getFnAttribute("ia64-instrument-function-entry");
+  if (!Attr.isValid())
+    return;
+  IA64TargetStreamer &TS = getTargetStreamer();
+  const MCRegister Out = IA64::R40;
+  TS.emitPrologue();
+  TS.emitSave(IA64TargetStreamer::UR_PFS, Out - IA64::R0);
+  EmitToStreamer(*OutStreamer, MCInstBuilder(IA64::ALLOC)
+                                   .addReg(Out)
+                                   .addImm(8)
+                                   .addImm(0)
+                                   .addImm(4)
+                                   .addImm(0)
+                                   .addReg(IA64::P0));
+  // The call allocates a frame like the alloc does, so they need a stop
+  // between them.
+  MCInst Counter = MCInstBuilder(IA64::ADDS)
+                       .addReg(Out + 3)
+                       .addImm(0)
+                       .addReg(IA64::R0)
+                       .addReg(IA64::P0);
+  Counter.setFlags(IA64II::StopAfter);
+  EmitToStreamer(*OutStreamer, Counter);
+  TS.emitSave(IA64TargetStreamer::UR_RP, Out + 2 - IA64::R0);
+  EmitToStreamer(*OutStreamer, MCInstBuilder(IA64::MOV_FROM_BR)
+                                   .addReg(Out + 2)
+                                   .addReg(IA64::B0)
+                                   .addReg(IA64::P0));
+  TS.emitBody();
+  EmitToStreamer(*OutStreamer, MCInstBuilder(IA64::ADDS)
+                                   .addReg(Out + 1)
+                                   .addImm(0)
+                                   .addReg(IA64::R1)
+                                   .addReg(IA64::P0));
+  MCInst Call = MCInstBuilder(IA64::BR_CALL)
+                    .addReg(IA64::B0)
+                    .addExpr(MCSymbolRefExpr::create(
+                        OutContext.getOrCreateSymbol(Attr.getValueAsString()),
+                        OutContext))
+                    .addImm(IA64II::WhetherSPTK)
+                    .addImm(1)
+                    .addImm(0)
+                    .addReg(IA64::P0);
+  Call.setFlags(IA64II::StopAfter);
+  EmitToStreamer(*OutStreamer, Call);
+}
+
 // Callee-saved registers are saved at function entry, in the prologue
 // region. The rest is a body region, where the unwinder undoes the frame
 // using the prologue's unwind directives.
@@ -313,6 +371,7 @@ void IA64AsmPrinter::emitFunctionBodyStart() {
   for (const MachineInstr &MI : MF->front())
     if (MI.getFlag(MachineInstr::FrameSetup) && !MI.isMetaInstruction())
       ++PrologueLeft;
+  emitProfilerCall();
   getTargetStreamer().emitPrologue();
   if (!PrologueLeft)
     getTargetStreamer().emitBody();

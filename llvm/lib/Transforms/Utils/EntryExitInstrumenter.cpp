@@ -71,6 +71,13 @@ static void insertCall(Function &CurFn, StringRef Func,
       // `emitPrologue`. Add custom attribute to denote this.
       CurFn.addFnAttr(
           llvm::Attribute::get(C, "systemz-instrument-function-entry", Func));
+    } else if (TargetTriple.getArch() == Triple::ia64 &&
+               Func != "__cyg_profile_func_enter_bare") {
+      // On IA-64 `_mcount` is called before the frame is set up, with
+      // arguments describing the function's entry state, so the backend emits
+      // the call. `__cyg_profile_func_enter_bare` is called normally.
+      CurFn.addFnAttr(
+          llvm::Attribute::get(C, "ia64-instrument-function-entry", Func));
     } else {
       FunctionCallee Fn = M.getOrInsertFunction(Func, Type::getVoidTy(C));
       CallInst *Call = CallInst::Create(Fn, "", InsertionPt);
