@@ -179,7 +179,7 @@ uint64_t Symbol::getGotPltOffset(Ctx &ctx) const {
   if (isInIplt)
     return getPltIdx(ctx) * ctx.target->gotEntrySize;
   return (getPltIdx(ctx) + ctx.target->gotPltHeaderEntriesNum) *
-         ctx.target->gotEntrySize;
+         ctx.target->gotPltEntrySize;
 }
 
 uint64_t Symbol::getPltOffset(Ctx &ctx) const {

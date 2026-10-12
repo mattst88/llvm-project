@@ -1038,7 +1038,7 @@ void MipsGotSection::writeTo(uint8_t *buf) {
 // consistent across both 64-bit PowerPC ABIs as well as the 32-bit PowerPC ABI.
 GotPltSection::GotPltSection(Ctx &ctx)
     : SyntheticSection(ctx, ".got.plt", SHT_PROGBITS, SHF_ALLOC | SHF_WRITE,
-                       ctx.target->gotEntrySize) {
+                       ctx.target->gotPltEntrySize) {
   if (ctx.arg.emachine == EM_PPC) {
     name = ".plt";
   } else if (ctx.arg.emachine == EM_PPC64) {
@@ -1055,15 +1055,15 @@ void GotPltSection::addEntry(Symbol &sym) {
 
 size_t GotPltSection::getSize() const {
   return (ctx.target->gotPltHeaderEntriesNum + entries.size()) *
-         ctx.target->gotEntrySize;
+         ctx.target->gotPltEntrySize;
 }
 
 void GotPltSection::writeTo(uint8_t *buf) {
   ctx.target->writeGotPltHeader(buf);
-  buf += ctx.target->gotPltHeaderEntriesNum * ctx.target->gotEntrySize;
+  buf += ctx.target->gotPltHeaderEntriesNum * ctx.target->gotPltEntrySize;
   for (const Symbol *b : entries) {
     ctx.target->writeGotPlt(buf, *b);
-    buf += ctx.target->gotEntrySize;
+    buf += ctx.target->gotPltEntrySize;
   }
 }
 

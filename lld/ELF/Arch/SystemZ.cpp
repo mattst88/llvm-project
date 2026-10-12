@@ -64,6 +64,7 @@ SystemZ::SystemZ(Ctx &ctx) : TargetInfo(ctx) {
   gotHeaderEntriesNum = 3;
   gotPltHeaderEntriesNum = 0;
   gotEntrySize = 8;
+  gotPltEntrySize = 8;
   pltHeaderSize = 32;
   pltEntrySize = 32;
   ipltEntrySize = 32;

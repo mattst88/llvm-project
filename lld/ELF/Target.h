@@ -169,6 +169,10 @@ public:
   // to support lazy loading.
   unsigned gotPltHeaderEntriesNum = 3;
 
+  // The size of the .got.plt entry the dynamic loader writes for each PLT
+  // entry. Not a single word on every target.
+  unsigned gotPltEntrySize = ctx.arg.wordsize;
+
   // On PPC ELF V2 abi, the first entry in the .got is the .TOC.
   unsigned gotHeaderEntriesNum = 0;
 

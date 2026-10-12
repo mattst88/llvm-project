@@ -93,6 +93,7 @@ X86_64::X86_64(Ctx &ctx) : TargetInfo(ctx) {
   tlsOffsetRel = R_X86_64_DTPOFF64;
   gotBaseSymInGotPlt = true;
   gotEntrySize = 8;
+  gotPltEntrySize = 8;
   pltHeaderSize = 16;
   pltEntrySize = 16;
   ipltEntrySize = 16;
