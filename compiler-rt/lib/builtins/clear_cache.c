@@ -221,6 +221,16 @@ void __clear_cache(void *start, void *end) {
 
   // Instruction sync barrier ensures subsequent fetches see the new code.
   __asm__ volatile("isync");
+#elif defined(__ia64__)
+  // fc.i makes the I-cache coherent with the D-cache for one line of at least
+  // 32 bytes. sync.i waits for the flushes to complete, and srlz.i serializes
+  // instruction fetch.
+  const uintptr_t line_size = 32;
+  const uintptr_t end_addr = (uintptr_t)end;
+  for (uintptr_t addr = (uintptr_t)start & ~(line_size - 1); addr < end_addr;
+       addr += line_size)
+    __asm__ volatile("fc.i %0" : : "r"(addr));
+  __asm__ volatile(";; sync.i ;; srlz.i ;;");
 #else
 #if __APPLE__
   // On Darwin, sys_icache_invalidate() provides this functionality
