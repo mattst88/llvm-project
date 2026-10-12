@@ -617,10 +617,10 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   LLT P0 = LLT::pointer(0, 64);
   LLT S64 = LLT::scalar(64);
 
-  // A call that has to be one in place of a return is not made one here,
-  // and one that may unwind needs the global pointer put back where it
-  // lands.
-  if (Info.IsMustTailCall || (Info.CB && !isa<CallInst>(Info.CB)))
+  // A call that has to be one in place of a return is not made one here.
+  // One that may unwind is a call like another: the instruction selector
+  // puts the global pointer back where it lands.
+  if (Info.IsMustTailCall || (Info.CB && isa<CallBrInst>(Info.CB)))
     return false;
   if (!Info.Callee.isReg() && !Info.Callee.isGlobal() &&
       !Info.Callee.isSymbol())

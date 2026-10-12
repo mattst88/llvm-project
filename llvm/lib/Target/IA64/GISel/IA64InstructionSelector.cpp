@@ -59,6 +59,9 @@ public:
   IA64InstructionSelector(const IA64TargetMachine &TM, const IA64Subtarget &STI,
                           const IA64RegisterBankInfo &RBI);
 
+  void setupMF(MachineFunction &MF, GISelValueTracking *VT,
+               CodeGenCoverage *CoverageInfo, ProfileSummaryInfo *PSI,
+               BlockFrequencyInfo *BFI) override;
   bool select(MachineInstr &I) override;
   static const char *getName() { return DEBUG_TYPE; }
 
@@ -979,6 +982,39 @@ bool IA64InstructionSelector::selectInstruction(
 
   default:
     return selectByPattern(I, MRI);
+  }
+}
+
+// A call that throws does not return normally, and gp holds whatever the
+// throwing function had there. A landing pad must restore its own function's
+// GP first, as the code after a call does.
+void IA64InstructionSelector::setupMF(MachineFunction &MF,
+                                      GISelValueTracking *VT,
+                                      CodeGenCoverage *CoverageInfo,
+                                      ProfileSummaryInfo *PSI,
+                                      BlockFrequencyInfo *BFI) {
+  InstructionSelector::setupMF(MF, VT, CoverageInfo, PSI, BFI);
+  if (none_of(MF, [](const MachineBasicBlock &MBB) { return MBB.isEHPad(); }))
+    return;
+
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  Register GPReg = MRI.getLiveInVirtReg(IA64::R1);
+  if (!GPReg) {
+    MachineBasicBlock &Entry = MF.front();
+    GPReg = MF.addLiveIn(IA64::R1, &IA64::GRSaveRegClass);
+    if (!Entry.isLiveIn(IA64::R1))
+      Entry.addLiveIn(IA64::R1);
+    BuildMI(Entry, Entry.begin(), DebugLoc(), TII.get(TargetOpcode::COPY),
+            GPReg)
+        .addReg(IA64::R1);
+  }
+
+  for (MachineBasicBlock &MBB : MF) {
+    if (!MBB.isEHPad())
+      continue;
+    BuildMI(MBB, MBB.SkipPHIsLabelsAndDebug(MBB.begin()), DebugLoc(),
+            TII.get(TargetOpcode::COPY), IA64::R1)
+        .addReg(GPReg);
   }
 }
 
