@@ -79,7 +79,9 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .legalFor({{s64, s64}})
       .scalarize(0)
       .clampScalar(1, s64, s64)
-      .widenScalarToNextMultipleOf(0, 64)
+      // Shifts are narrowed by halving, which reaches 64 bits only from a
+      // power-of-two width; a 192-bit shift would not.
+      .widenScalarToNextPow2(0, 64)
       .clampScalar(0, s64, s64);
   getActionDefinitionsBuilder({G_FSHL, G_FSHR, G_ROTL, G_ROTR}).lower();
 
