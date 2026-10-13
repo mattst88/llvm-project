@@ -56,6 +56,7 @@ private:
   llvm::ArrayType *getMembersType(QualType Ty, const Type *Base) const;
   llvm::ArrayType *getHomogeneousType(QualType Ty) const;
   llvm::ArrayType *getSingleMemberType(QualType Ty) const;
+  bool isSingleComplexFloat(QualType Ty) const;
   bool isFloatVectorWord(QualType Ty) const;
   llvm::Type *getSignificandsType(unsigned Words) const;
 };
@@ -197,6 +198,19 @@ llvm::ArrayType *IA64ABIInfo::getSingleMemberType(QualType Ty) const {
   return nullptr;
 }
 
+// The exception: an aggregate that is one single-precision complex value
+// plus zero-sized members. GCC passes its eight bytes as the significand of
+// one FP register, and counts two registers for it.
+bool IA64ABIInfo::isSingleComplexFloat(QualType Ty) const {
+  Members M;
+  if (!isOfOneFloatType(Ty, M, /*AsPassed=*/true) || !M.Base)
+    return false;
+  if (getContext().getTypeAlign(Ty) < getContext().getTypeAlign(M.Base))
+    return false;
+  return M.HasComplex && M.Base->isSpecificBuiltinType(BuiltinType::Float) &&
+         getContext().getTypeSize(Ty) == 64 && !getHomogeneousType(Ty);
+}
+
 // A vector of two floats, or a struct that is one plus zero-sized members.
 // GCC treats it as a register-sized floating-point value, though not one
 // arithmetic is done on, and passes it as the significand of an FP register.
@@ -297,6 +311,8 @@ ABIArgInfo IA64ABIInfo::classifyArgumentType(QualType Ty,
 
   if (isFloatVectorWord(Ty))
     return ABIArgInfo::getDirect(getSignificandsType(1));
+  if (isSingleComplexFloat(Ty))
+    return ABIArgInfo::getDirectInReg(getSignificandsType(1));
 
   llvm::ArrayType *Members = getHomogeneousType(Ty);
   if (!Members)

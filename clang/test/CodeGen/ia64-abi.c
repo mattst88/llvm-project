@@ -207,6 +207,26 @@ struct single_complex { struct none n; _Complex double z; };
 void pass_single_complex(struct single_complex s) {}
 // CHECK-LABEL: define dso_local void @pass_single_complex([2 x double] %s.coerce)
 
+// One that is a single-precision complex value is its eight bytes as the
+// significand of a floating-point register, and GCC counts a second
+// register for it, which the back end is told by its being in a register.
+// It is returned as words like the others.
+struct single_complex_float { struct none n; _Complex float z; };
+struct single_complex_float pass_single_complex_float(struct single_complex_float s) {
+// CHECK-LABEL: define dso_local i64 @pass_single_complex_float(<2 x float> inreg %s.coerce)
+  return s;
+}
+void call_single_complex_float(struct single_complex_float s) {
+// CHECK-LABEL: define dso_local void @call_single_complex_float(<2 x float> inreg %s.coerce)
+// CHECK:       call i64 @pass_single_complex_float(<2 x float> inreg %{{.*}})
+  pass_single_complex_float(s);
+}
+
+// With no such member it is homogeneous.
+struct complex_float { _Complex float z; };
+void pass_complex_float(struct complex_float s) {}
+// CHECK-LABEL: define dso_local void @pass_complex_float([2 x float] %s.coerce)
+
 // Nor is one that is aligned to less than the value is.
 struct __attribute__((packed)) not_single_packed { float a; struct none n; };
 void pass_not_single_packed(struct not_single_packed s) {}
