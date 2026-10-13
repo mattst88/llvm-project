@@ -141,6 +141,10 @@ private:
   using Base = ELFLinkGraphBuilder<ELFT>;
   using Base::G;
 
+  // The local symbol that branches to this object's copy of a COMDAT
+  // function are retargeted to.
+  DenseMap<Symbol *, Symbol *> OwnDefinitions;
+
   Error addRelocations() override {
     LLVM_DEBUG(dbgs() << "Processing relocations:\n");
 
@@ -318,6 +322,25 @@ private:
       return make_error<JITLinkError>(
           "In " + G->getName() + ": Unsupported ia64 relocation type " +
           object::getELFRelocationTypeName(ELF::EM_IA_64, ELFReloc));
+    }
+
+    // A COMDAT function is identical in every object that has it and all but
+    // one copy are discarded, so the name may resolve to the kept copy in
+    // another graph with a different GP. A compiler that assumes its own
+    // definition is the callee does not restore GP after the call, so
+    // branches keep using this object's copy. Taken addresses still refer to
+    // the kept copy.
+    if ((Kind == ia64::PCRel21B || Kind == ia64::PCRel60B) &&
+        GraphSymbol->isDefined() &&
+        GraphSymbol->getLinkage() == Linkage::Weak &&
+        (*ObjSymbol)->st_shndx < ELF::SHN_LORESERVE &&
+        (Base::Sections[(*ObjSymbol)->st_shndx].sh_flags & ELF::SHF_GROUP)) {
+      Symbol *&Own = OwnDefinitions[GraphSymbol];
+      if (!Own)
+        Own = &G->addAnonymousSymbol(GraphSymbol->getBlock(),
+                                     GraphSymbol->getOffset(),
+                                     GraphSymbol->getSize(), true, false);
+      GraphSymbol = Own;
     }
 
     auto FixupAddress = orc::ExecutorAddr(FixupSect.sh_addr) + Rel.r_offset;
