@@ -270,6 +270,11 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
     setOperationAction({ISD::FP16_TO_FP, ISD::FP_TO_FP16,
                         ISD::STRICT_FP16_TO_FP, ISD::STRICT_FP_TO_FP16},
                        VT, Expand);
+    // Likewise bf16, which is the upper half of a float and is shifted into
+    // and out of one in a GR.
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::bf16, Expand);
+    setTruncStoreAction(VT, MVT::bf16, Expand);
+    setOperationAction({ISD::BF16_TO_FP, ISD::FP_TO_BF16}, VT, Custom);
   }
 
   // An f80 store writes the significand exactly as it is in the register, so
@@ -445,6 +450,72 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return DAG.getNode(
         IA64ISD::SETF_S, SDLoc(Op), MVT::f32,
         DAG.getNode(ISD::ANY_EXTEND, SDLoc(Op), MVT::i64, Op.getOperand(0)));
+  case ISD::BF16_TO_FP: {
+    // A bf16 is the upper 16 bits of a float.
+    SDLoc DL(Op);
+    SDValue Bits = DAG.getAnyExtOrTrunc(Op.getOperand(0), DL, MVT::i64);
+    Bits = DAG.getNode(ISD::SHL, DL, MVT::i64, Bits,
+                       DAG.getShiftAmountConstant(16, MVT::i64, DL));
+    SDValue Res = DAG.getNode(IA64ISD::SETF_S, DL, MVT::f32, Bits);
+    if (Op.getValueType() != MVT::f32)
+      Res = DAG.getNode(ISD::FP_EXTEND, DL, Op.getValueType(), Res);
+    return Res;
+  }
+  case ISD::FP_TO_BF16: {
+    // Take the upper 16 bits of the float, rounding to nearest-even by
+    // adding 0x7fff, plus one if the upper half is odd. A NaN is not rounded,
+    // since it could turn into a number; it is quieted instead.
+    SDLoc DL(Op);
+    SDValue Src = Op.getOperand(0);
+    // Rounding a wider value to float first would round twice, so round to
+    // odd instead: if the float is inexact, take whichever of the two floats
+    // bracketing the value is odd, which the second rounding then treats as
+    // it would the exact value.
+    SDValue Wide;
+    if (Src.getValueType() != MVT::f32) {
+      Wide = Src;
+      Src = DAG.getNode(ISD::FP_ROUND, DL, MVT::f32, Wide,
+                        DAG.getIntPtrConstant(0, DL, /*isTarget=*/true));
+    }
+    SDValue Bits = DAG.getNode(IA64ISD::GETF_S, DL, MVT::i64, Src);
+    if (Wide) {
+      EVT WideVT = Wide.getValueType();
+      EVT CCVT =
+          getSetCCResultType(DAG.getDataLayout(), *DAG.getContext(), WideVT);
+      SDValue Back = DAG.getNode(ISD::FP_EXTEND, DL, WideVT, Src);
+      SDValue Keep = DAG.getSetCC(DL, CCVT, Wide, Back, ISD::SETUEQ);
+      SDValue Below =
+          DAG.getSetCC(DL, CCVT, DAG.getNode(ISD::FABS, DL, WideVT, Wide),
+                       DAG.getNode(ISD::FABS, DL, WideVT, Back), ISD::SETOGT);
+      // The odd one of the two bracketing floats: the float or the next one
+      // if the float is nearer zero than the value, else the float or the
+      // previous one.
+      SDValue Next = DAG.getNode(
+          ISD::SUB, DL, MVT::i64, Bits,
+          DAG.getSelect(DL, MVT::i64, Below, DAG.getConstant(0, DL, MVT::i64),
+                        DAG.getConstant(1, DL, MVT::i64)));
+      Next = DAG.getNode(ISD::OR, DL, MVT::i64, Next,
+                         DAG.getConstant(1, DL, MVT::i64));
+      Bits = DAG.getSelect(DL, MVT::i64, Keep, Bits, Next);
+    }
+    SDValue IsNaN = DAG.getSetCC(
+        DL,
+        getSetCCResultType(DAG.getDataLayout(), *DAG.getContext(), MVT::f32),
+        Src, Src, ISD::SETUO);
+    SDValue NaN = DAG.getNode(ISD::OR, DL, MVT::i64, Bits,
+                              DAG.getConstant(0x400000, DL, MVT::i64));
+    SDValue Sixteen = DAG.getShiftAmountConstant(16, MVT::i64, DL);
+    SDValue Odd = DAG.getNode(ISD::AND, DL, MVT::i64,
+                              DAG.getNode(ISD::SRL, DL, MVT::i64, Bits, Sixteen),
+                              DAG.getConstant(1, DL, MVT::i64));
+    SDValue Rounded = DAG.getNode(
+        ISD::ADD, DL, MVT::i64, Bits,
+        DAG.getNode(ISD::ADD, DL, MVT::i64, Odd,
+                    DAG.getConstant(0x7fff, DL, MVT::i64)));
+    SDValue Res = DAG.getSelect(DL, MVT::i64, IsNaN, NaN, Rounded);
+    Res = DAG.getNode(ISD::SRL, DL, MVT::i64, Res, Sixteen);
+    return DAG.getAnyExtOrTrunc(Res, DL, Op.getValueType());
+  }
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
   case ISD::GET_ROUNDING:
