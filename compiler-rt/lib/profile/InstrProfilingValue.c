@@ -241,6 +241,17 @@ instrumentTargetValueImpl(uint64_t TargetValue, void *Data,
 COMPILER_RT_VISIBILITY void
 __llvm_profile_instrument_target(uint64_t TargetValue, void *Data,
                                  uint32_t CounterIndex) {
+#if defined(__ia64__)
+  /* The target of an indirect call is the address of a function descriptor,
+   * and a function has more than one of them: a virtual table holds its own.
+   * Record the entry point that the descriptor names, which is what the
+   * profile gives as the address of the function. The sites of indirect calls
+   * come first among the value sites of a function. */
+  __llvm_profile_data *PData = (__llvm_profile_data *)Data;
+  if (PData && TargetValue &&
+      CounterIndex < PData->NumValueSites[IPVK_IndirectCallTarget])
+    TargetValue = *(const uint64_t *)(uintptr_t)TargetValue;
+#endif
   instrumentTargetValueImpl(TargetValue, Data, CounterIndex, 1);
 }
 COMPILER_RT_VISIBILITY void

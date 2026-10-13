@@ -242,6 +242,29 @@ static int writeValueProfData(ProfDataWriter *Writer,
   return 0;
 }
 
+#if defined(__ia64__)
+/* The address of a function in its data record is the address of a function
+ * descriptor, and the targets of indirect calls are recorded as entry points,
+ * because a function has more than one descriptor. Write each record with the
+ * entry point that its descriptor names. */
+static int writeDataWithEntryPoints(ProfDataWriter *Writer,
+                                    const __llvm_profile_data *DataBegin,
+                                    const __llvm_profile_data *DataEnd) {
+  const __llvm_profile_data *DI;
+  for (DI = DataBegin; DI < DataEnd; DI++) {
+    char Record[sizeof(__llvm_profile_data)];
+    ProfDataIOVec IOVec[] = {{Record, sizeof(Record), 1, 0}};
+    memcpy(Record, DI, sizeof(Record));
+    if (DI->FunctionPointer)
+      memcpy(Record + offsetof(__llvm_profile_data, FunctionPointer),
+             DI->FunctionPointer, sizeof(DI->FunctionPointer));
+    if (Writer->Write(Writer, IOVec, 1))
+      return -1;
+  }
+  return 0;
+}
+#endif
+
 COMPILER_RT_VISIBILITY int lprofWriteData(ProfDataWriter *Writer,
                                           VPDataReaderType *VPDataReader,
                                           int SkipNameDataWrite) {
@@ -362,8 +385,14 @@ COMPILER_RT_VISIBILITY int lprofWriteDataImpl(
     return -1;
 
   /* Write the profile data. */
+  uint64_t DataBytesToWrite = DataSectionSize;
+#if defined(__ia64__)
+  if (writeDataWithEntryPoints(Writer, DataBegin, DataEnd))
+    return -1;
+  DataBytesToWrite = 0;
+#endif
   ProfDataIOVec IOVecData[] = {
-      {DataBegin, sizeof(uint8_t), DataSectionSize, 0},
+      {DataBegin, sizeof(uint8_t), DataBytesToWrite, 0},
       {NULL, sizeof(uint8_t), PaddingBytesBeforeCounters, 1},
       {CountersBegin, sizeof(uint8_t), CountersSectionSize, 0},
       {NULL, sizeof(uint8_t), PaddingBytesAfterCounters, 1},
