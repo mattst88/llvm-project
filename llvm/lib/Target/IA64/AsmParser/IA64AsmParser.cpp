@@ -89,6 +89,7 @@ class IA64AsmParser : public MCTargetAsmParser {
                         SMLoc NameLoc, OperandVector &Operands) override;
 
   ParseStatus parseDirective(AsmToken DirectiveID) override;
+  ParseStatus parseTargetDirective(AsmToken DirectiveID);
 
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op,
                                       unsigned Kind) override;
@@ -1724,6 +1725,18 @@ ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
 }
 
 ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
+  ParseStatus Status = parseTargetDirective(DirectiveID);
+  // A parse that stops at a lexer error token (an unterminated string, for
+  // example) fails silently, since the error belongs to the lexer. It is
+  // reported when the token is consumed, and a failed directive must have
+  // reported an error.
+  if (Status.isFailure() && !getParser().hasPendingError() &&
+      getTok().is(AsmToken::Error))
+    Lex();
+  return Status;
+}
+
+ParseStatus IA64AsmParser::parseTargetDirective(AsmToken DirectiveID) {
   StringRef Name = DirectiveID.getString();
 
   noteSectionAgain();
