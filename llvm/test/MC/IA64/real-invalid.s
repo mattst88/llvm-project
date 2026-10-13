@@ -20,5 +20,10 @@
 // GNU as takes the digits of this for ten.
 // CHECK: :[[#@LINE+1]]:8: error: expected a floating-point number
 	real4 0x10
+// What follows "0e" is a number and nothing else.
+// CHECK: :[[#@LINE+1]]:11: error: unexpected token
+	real4 0e1x
+// CHECK: :[[#@LINE+1]]:11: error: unexpected token
+	real4 0e 1
 // CHECK: :[[#@LINE+1]]:2: error: unknown directive
 	.real4 1.0

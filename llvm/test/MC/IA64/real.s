@@ -2,6 +2,7 @@
 // RUN: llvm-objdump -s -j .data %t | FileCheck %s
 // RUN: llvm-mc -triple ia64 %s | llvm-mc -triple ia64 -filetype=obj -o %t.2
 // RUN: cmp %t %t.2
+// RUN: llvm-objdump -s -j .zeroe %t | FileCheck %s --check-prefix=ZEROE
 
 // real4 and real8 write a number in single and in double precision, aligned
 // to its size. real10 writes the ten bytes of the 80-bit extended format, and
@@ -56,3 +57,16 @@
 // CHECK-NEXT: 00b0 ffffffff ffffffff ffff0000 00000000
 // CHECK-NEXT: 00c0 01000000 9ec97f7f 01000000 00000000
 // CHECK-NEXT: 00d0 9de518ec a740f2ed 0500
+
+// GNU as has a "0e" that a number starts with say that it is a floating-point
+// one, and be no part of it: "0e1" is 1. After a sign it is what it is
+// anywhere else, zero times a power of ten.
+	.section .zeroe,"aw",@progbits
+	real4 0e0, 0e1, 0E-1, 0e+1.5e2, -0e1, 0e
+	real8 0e.5
+	.data
+	.xreal4 .zeroe, 0e-2.5, +0e1
+
+// ZEROE:      0000 00000000 0000803f 000080bf 00001643
+// ZEROE-NEXT: 0010 00000080 00000000 00000000 0000e03f
+// ZEROE-NEXT: 0020 000020c0 00000000

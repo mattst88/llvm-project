@@ -1349,19 +1349,54 @@ bool IA64AsmParser::parseRealValues(unsigned Size, bool Aligned) {
     Out.emitValueToAlignment(Align(Size == 10 ? 16 : Size));
   return getParser().parseMany([&]() -> bool {
     bool Negative = parseOptionalToken(AsmToken::Minus);
-    if (!Negative)
-      parseOptionalToken(AsmToken::Plus);
+    bool Signed = Negative || parseOptionalToken(AsmToken::Plus);
     const AsmToken &Tok = getParser().getTok();
     SMLoc Loc = Tok.getLoc();
     APFloat Value(Semantics);
+    StringRef Written = Tok.getString();
+    StringRef Number = Written;
+    // The lexer does not handle "0e1": it stops at the 'e'. In GNU as, a
+    // leading "0e" marks a floating-point number and is not part of it, so
+    // "0e1" is 1; after a sign, "0e1" is the usual zero.
+    bool ZeroE = Tok.is(AsmToken::Integer) && Written == "0" &&
+                 (*Tok.getEndLoc().getPointer() | 0x20) == 'e';
+    if (ZeroE) {
+      const char *P = Loc.getPointer();
+      auto Digits = [&] {
+        while (isDigit(*P))
+          ++P;
+      };
+      auto Sign = [&] {
+        if (*P == '+' || *P == '-')
+          ++P;
+      };
+      if (!Signed) {
+        P += 2;
+        Sign();
+      }
+      Digits();
+      if (*P == '.') {
+        ++P;
+        Digits();
+      }
+      if ((*P | 0x20) == 'e') {
+        ++P;
+        Sign();
+        Digits();
+      }
+      Written = StringRef(Loc.getPointer(), P - Loc.getPointer());
+      Number = Signed ? Written : Written.substr(2);
+      if (Number.empty())
+        Number = "0";
+    }
     // A whole number is a decimal one. GNU as reads the digits of "0x10" as
     // ten.
     if (Tok.is(AsmToken::Integer) && !all_of(Tok.getString(), isDigit))
       return Error(Loc, "expected a floating-point number");
     if (Tok.is(AsmToken::Integer) || Tok.is(AsmToken::Real) ||
         Tok.is(AsmToken::BigNum)) {
-      Expected<APFloat::opStatus> Status = Value.convertFromString(
-          Tok.getString(), APFloat::rmNearestTiesToEven);
+      Expected<APFloat::opStatus> Status =
+          Value.convertFromString(Number, APFloat::rmNearestTiesToEven);
       if (!Status) {
         consumeError(Status.takeError());
         return Error(Loc, "invalid floating-point number");
@@ -1384,8 +1419,15 @@ bool IA64AsmParser::parseRealValues(unsigned Size, bool Aligned) {
     }
     // Print the number as written.
     if (ElsewhereText)
-      addElsewhereText((Negative ? "-" : "") + Tok.getString());
+      addElsewhereText((Negative ? "-" : Signed ? "+" : "") + Written);
+    const char *End = Written.end();
     Lex();
+    // Skip the tokens the lexer made of the rest of a "0e1".
+    while (ZeroE && getTok().getLoc().getPointer() < End) {
+      if (getTok().getEndLoc().getPointer() > End)
+        return Error(SMLoc::getFromPointer(End), "unexpected token");
+      Lex();
+    }
     if (ElsewhereText)
       return false;
     if (Negative)
