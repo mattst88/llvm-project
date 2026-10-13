@@ -132,6 +132,17 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       // s80 accesses that may be under-aligned go through an aligned stack
       // slot.
       .customIf([=](const LegalityQuery &Q) { return Q.Types[0] == s80; })
+      // Vectors with non-byte-sized elements are bit-packed in memory and
+      // are accessed as a single integer.
+      .bitcastIf(
+          [=](const LegalityQuery &Q) {
+            return Q.Types[0].isFixedVector() &&
+                   !Q.Types[0].getElementType().isByteSized();
+          },
+          [=](const LegalityQuery &Q) {
+            return std::make_pair(0,
+                                  LLT::scalar(Q.Types[0].getSizeInBits()));
+          })
       .scalarize(0)
       .lowerIf([=](const LegalityQuery &Q) {
         return Q.Types[0].getScalarSizeInBits() > 64 && Q.Types[0] != s80 &&
