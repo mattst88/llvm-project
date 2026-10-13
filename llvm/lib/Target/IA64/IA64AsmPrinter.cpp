@@ -625,6 +625,11 @@ void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     }
     return;
   }
+  // The "patchable-function" attribute wants a two-byte first instruction
+  // that a short jump can replace, and IA-64 has none.
+  if (MI->getOpcode() == TargetOpcode::PATCHABLE_OP)
+    reportFatalUsageError("the \"patchable-function\" attribute is not "
+                          "supported on IA-64");
   if (MI->getOpcode() == IA64::BRUNCOND || MI->getOpcode() == IA64::BRLONG) {
     // An unconditional branch: "br.cond.sptk.few" under p0, or "brl" if that
     // is out of range.
