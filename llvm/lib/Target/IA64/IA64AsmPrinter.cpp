@@ -300,7 +300,23 @@ void IA64AsmPrinter::emitFunctionEntryLabel() {
 // emitted yet. The table and the function size both need the end address of
 // the last bundle, and GNU as places a label after an instruction inside that
 // instruction's bundle unless the bundle has been closed.
+//
+// Debug info is emitted after this from the DBG_VALUE locations, and numbers
+// registers by name. Until here an output register is named by its position
+// among the outputs (r120 up), which is what tells when a call clobbers its
+// value; rename it to its register in this frame before its DWARF number is
+// requested.
 void IA64AsmPrinter::emitFunctionBodyEnd() {
+  if (FirstOutput != IA64::R120)
+    for (MachineBasicBlock &MBB : *MF)
+      for (MachineInstr &MI : MBB) {
+        if (!MI.isDebugValue())
+          continue;
+        for (MachineOperand &MO : MI.debug_operands())
+          if (MO.isReg() && MO.getReg() >= IA64::R120 &&
+              MO.getReg() <= IA64::R127)
+            MO.setReg(FirstOutput + (MO.getReg() - IA64::R120));
+      }
   if (hasHandlerData(*MF))
     OutStreamer->emitValueToAlignment(Align(16));
   else
