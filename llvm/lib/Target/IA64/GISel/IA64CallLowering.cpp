@@ -401,10 +401,14 @@ static bool areSupported(ArrayRef<CallLowering::ArgInfo> Args) {
       return false;
     if (Arg.Ty->isX86_FP80Ty())
       return true;
-    // A vector is its elements, each passed as one of them would be.
+    // A vector is passed as its individual elements, except <2 x float>,
+    // which is passed as the significand of an FP register.
     const Type *Ty = Arg.Ty;
-    if (const auto *VTy = dyn_cast<FixedVectorType>(Ty))
+    if (const auto *VTy = dyn_cast<FixedVectorType>(Ty)) {
       Ty = VTy->getElementType();
+      if (Ty->isFloatTy() && VTy->getNumElements() == 2)
+        return false;
+    }
     return Ty->isIntegerTy() || Ty->isPointerTy() || Ty->isFloatTy() ||
            Ty->isDoubleTy();
   });

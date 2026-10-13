@@ -22,6 +22,10 @@ def CC_IA64 : CallingConv<[
   CCIfByVal<CCCustom<"CC_IA64_ByVal">>,
   CCIfConsecutiveRegs<CCCustom<"CC_IA64_HFA">>,
 
+  // <2 x float> goes in an FR, as the register's significand.
+  CCIf<"isSignificandType(OrigTy)",
+       CCIfType<[i64], CCCustom<"CC_IA64_Significand">>>,
+
   // An unnamed (varargs) FP argument is passed as its bits in the GR slot,
   // since the callee reads it from memory.
   CCIfArgVarArg<CCIfType<[f32, f64], CCBitConvertToType<i64>>>,
@@ -50,6 +54,8 @@ def CC_IA64 : CallingConv<[
 // results, or HFAs of up to eight elements, in f8-f15.
 let Entry = 1 in
 def RetCC_IA64 : CallingConv<[
+  CCIf<"isSignificandType(OrigTy)",
+       CCIfType<[i64], CCCustom<"RetCC_IA64_Significand">>>,
   CCIfType<[i64], CCAssignToReg<[R8, R9, R10, R11]>>,
   CCIfType<[f32, f64, f80],
            CCAssignToReg<[F8, F9, F10, F11, F12, F13, F14, F15]>>

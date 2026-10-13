@@ -47,22 +47,26 @@ define <4 x i8> @narrow(<4 x i8> %a) {
   ret <4 x i8> %a
 }
 
-define <2 x float> @floats(<2 x float> %a, <2 x double> %b) {
+define <4 x float> @floats(<4 x float> %a, <2 x double> %b) {
   ; CHECK-LABEL: name: floats
   ; CHECK: bb.1 (%ir-block.0):
-  ; CHECK-NEXT:   liveins: $f8, $f9, $f10, $f11
+  ; CHECK-NEXT:   liveins: $f8, $f9, $f10, $f11, $f12, $f13
   ; CHECK-NEXT: {{  $}}
   ; CHECK-NEXT:   [[COPY:%[0-9]+]]:_(s32) = COPY $f8
   ; CHECK-NEXT:   [[COPY1:%[0-9]+]]:_(s32) = COPY $f9
-  ; CHECK-NEXT:   [[BUILD_VECTOR:%[0-9]+]]:_(<2 x s32>) = G_BUILD_VECTOR [[COPY]](s32), [[COPY1]](s32)
-  ; CHECK-NEXT:   [[COPY2:%[0-9]+]]:_(s64) = COPY $f10
-  ; CHECK-NEXT:   [[COPY3:%[0-9]+]]:_(s64) = COPY $f11
-  ; CHECK-NEXT:   [[BUILD_VECTOR1:%[0-9]+]]:_(<2 x s64>) = G_BUILD_VECTOR [[COPY2]](s64), [[COPY3]](s64)
-  ; CHECK-NEXT:   [[UV:%[0-9]+]]:_(s32), [[UV1:%[0-9]+]]:_(s32) = G_UNMERGE_VALUES [[BUILD_VECTOR]](<2 x s32>)
+  ; CHECK-NEXT:   [[COPY2:%[0-9]+]]:_(s32) = COPY $f10
+  ; CHECK-NEXT:   [[COPY3:%[0-9]+]]:_(s32) = COPY $f11
+  ; CHECK-NEXT:   [[BUILD_VECTOR:%[0-9]+]]:_(<4 x s32>) = G_BUILD_VECTOR [[COPY]](s32), [[COPY1]](s32), [[COPY2]](s32), [[COPY3]](s32)
+  ; CHECK-NEXT:   [[COPY4:%[0-9]+]]:_(s64) = COPY $f12
+  ; CHECK-NEXT:   [[COPY5:%[0-9]+]]:_(s64) = COPY $f13
+  ; CHECK-NEXT:   [[BUILD_VECTOR1:%[0-9]+]]:_(<2 x s64>) = G_BUILD_VECTOR [[COPY4]](s64), [[COPY5]](s64)
+  ; CHECK-NEXT:   [[UV:%[0-9]+]]:_(s32), [[UV1:%[0-9]+]]:_(s32), [[UV2:%[0-9]+]]:_(s32), [[UV3:%[0-9]+]]:_(s32) = G_UNMERGE_VALUES [[BUILD_VECTOR]](<4 x s32>)
   ; CHECK-NEXT:   $f8 = COPY [[UV]](s32)
   ; CHECK-NEXT:   $f9 = COPY [[UV1]](s32)
-  ; CHECK-NEXT:   BR_RET $b0, 0, 1, 0, $p0, implicit $f8, implicit $f9
-  ret <2 x float> %a
+  ; CHECK-NEXT:   $f10 = COPY [[UV2]](s32)
+  ; CHECK-NEXT:   $f11 = COPY [[UV3]](s32)
+  ; CHECK-NEXT:   BR_RET $b0, 0, 1, 0, $p0, implicit $f8, implicit $f9, implicit $f10, implicit $f11
+  ret <4 x float> %a
 }
 
 declare <2 x i64> @take(<2 x double>, <2 x i64>)

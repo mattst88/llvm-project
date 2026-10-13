@@ -26,7 +26,9 @@
 ; CHECK-NEXT: fcmp.unord p6, p7 = f9, f9 ;;
 ; CHECK-NEXT: (p6) mov r9 = r0
 ; CHECK-NEXT: br.ret.sptk.many b0 ;;
-define <2 x i32> @each(<2 x float> %a) {
+define <2 x i32> @each(float %x, float %y) {
+  %v = insertelement <2 x float> poison, float %x, i32 0
+  %a = insertelement <2 x float> %v, float %y, i32 1
   %r = call <2 x i32> @llvm.fptosi.sat.v2i32.v2f32(<2 x float> %a)
   ret <2 x i32> %r
 }

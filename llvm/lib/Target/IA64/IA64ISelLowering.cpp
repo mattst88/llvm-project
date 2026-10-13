@@ -239,6 +239,60 @@ static bool CC_IA64_HFA(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
   return true;
 }
 
+// GCC passes <2 x float> in an FP register because it is an 8-byte FP mode,
+// though no arithmetic is done on it there: its 8 bytes are the register's
+// significand, as for an integer operand of a multiply.
+static bool isSignificandType(const Type *Ty) {
+  const auto *VTy = dyn_cast_or_null<FixedVectorType>(Ty);
+  return VTy && VTy->getNumElements() == 2 &&
+         VTy->getElementType()->isFloatTy();
+}
+
+static bool isSignificandLoc(const CCValAssign &VA) {
+  return VA.isRegLoc() && VA.needsCustom() && VA.getValVT() == MVT::i64 &&
+         VA.getLocVT() == MVT::f64;
+}
+
+// A named argument goes in the next of f8-f15 while its slot is a register
+// and an FP register remains, and in the slot otherwise. The front end marks
+// inreg the case GCC counts two FP registers for: an aggregate whose only
+// non-empty member is a float _Complex.
+static bool CC_IA64_Significand(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                                CCValAssign::LocInfo &LocInfo,
+                                ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  if (ArgFlags.isVarArg())
+    return false;
+  MCRegister Slot = State.AllocateReg(Slots);
+  if (!Slot)
+    return false;
+  MCRegister Reg = State.AllocateReg(FRs);
+  if (ArgFlags.isInReg())
+    State.AllocateReg(FRs);
+  if (!Reg) {
+    State.addLoc(CCValAssign::getReg(ValNo, ValVT, Slot, LocVT, LocInfo));
+    return true;
+  }
+  State.addLoc(
+      CCValAssign::getCustomReg(ValNo, ValVT, Reg, MVT::f64, LocInfo));
+  // As for any FP-register argument, a varargs callee may not name it and
+  // look in the slot.
+  if (State.isVarArg())
+    State.addLoc(CCValAssign::getCustomReg(ValNo, ValVT, Slot, LocVT, LocInfo));
+  return true;
+}
+
+// FP vectors are returned in f8 onward, 8 bytes per register.
+static bool RetCC_IA64_Significand(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                                   CCValAssign::LocInfo &LocInfo,
+                                   ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  MCRegister Reg = State.AllocateReg(FRs);
+  if (!Reg)
+    return false;
+  State.addLoc(
+      CCValAssign::getCustomReg(ValNo, ValVT, Reg, MVT::f64, LocInfo));
+  return true;
+}
+
 #define GET_CALLING_CONV_IMPL
 #include "IA64GenCallingConv.inc"
 
@@ -1142,6 +1196,38 @@ IA64TargetLowering::getExceptionSelectorRegister(ExceptionHandling,
   return IA64::R16;
 }
 
+/// getf.sig and setf.sig: move \p Val between the significand of an FR and
+/// a GR.
+static SDValue getSignificand(SelectionDAG &DAG, const SDLoc &DL, SDValue Val) {
+  return SDValue(DAG.getMachineNode(IA64::GETF_SIG, DL, MVT::i64, Val,
+                                    DAG.getRegister(IA64::P0, MVT::i1)),
+                 0);
+}
+
+static SDValue setSignificand(SelectionDAG &DAG, const SDLoc &DL, SDValue Val) {
+  return SDValue(DAG.getMachineNode(IA64::SETF_SIG, DL, MVT::f64, Val,
+                                    DAG.getRegister(IA64::P0, MVT::i1)),
+                 0);
+}
+
+// <2 x float> is passed and returned as a single i64, in whichever register
+// the convention assigns.
+MVT IA64TargetLowering::getRegisterTypeForCallingConv(LLVMContext &Context,
+                                                      CallingConv::ID CC,
+                                                      EVT VT) const {
+  if (VT == MVT::v2f32)
+    return MVT::i64;
+  return TargetLowering::getRegisterTypeForCallingConv(Context, CC, VT);
+}
+
+unsigned IA64TargetLowering::getNumRegistersForCallingConv(LLVMContext &Context,
+                                                           CallingConv::ID CC,
+                                                           EVT VT) const {
+  if (VT == MVT::v2f32)
+    return 1;
+  return TargetLowering::getNumRegistersForCallingConv(Context, CC, VT);
+}
+
 SDValue IA64TargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
@@ -1193,6 +1279,12 @@ SDValue IA64TargetLowering::LowerFormalArguments(
         Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
       InVals.push_back(Addr);
       I += NumRegs + HasMem - 1;
+      continue;
+    }
+    if (isSignificandLoc(VA)) {
+      Register VReg = MF.addLiveIn(VA.getLocReg(), &IA64::FRRegClass);
+      InVals.push_back(getSignificand(
+          DAG, DL, DAG.getCopyFromReg(Chain, DL, VReg, MVT::f64)));
       continue;
     }
     if (VA.needsCustom()) {
@@ -1461,6 +1553,10 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
       ++I;
       continue;
     }
+    if (isSignificandLoc(VA)) {
+      OutVals.push_back(setSignificand(DAG, DL, Val));
+      continue;
+    }
     if (VA.getLocInfo() == CCValAssign::BCvt) {
       if (Val.getValueType() == MVT::f32)
         Val = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64,
@@ -1606,7 +1702,9 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   for (const CCValAssign &VA : RVLocs) {
     Chain = DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), Glue)
                 .getValue(1);
-    InVals.push_back(Chain.getValue(0));
+    InVals.push_back(isSignificandLoc(VA)
+                         ? getSignificand(DAG, DL, Chain.getValue(0))
+                         : Chain.getValue(0));
     Glue = Chain.getValue(2);
   }
   if (GPAfter)
@@ -1680,7 +1778,10 @@ IA64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
     const CCValAssign &VA = RVLocs[I];
     assert(VA.isRegLoc() && "a result that is not in a register");
-    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[I], Glue);
+    SDValue Val = OutVals[I];
+    if (isSignificandLoc(VA))
+      Val = setSignificand(DAG, DL, Val);
+    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), Val, Glue);
     Glue = Chain.getValue(1);
     RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
   }

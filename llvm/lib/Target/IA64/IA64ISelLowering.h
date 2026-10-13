@@ -138,6 +138,12 @@ public:
       Type *Ty, CallingConv::ID CallConv, bool IsVarArg,
       const DataLayout &DL) const override;
 
+  MVT getRegisterTypeForCallingConv(LLVMContext &Context, CallingConv::ID CC,
+                                    EVT VT) const override;
+  unsigned getNumRegistersForCallingConv(LLVMContext &Context,
+                                         CallingConv::ID CC,
+                                         EVT VT) const override;
+
 private:
   const IA64Subtarget &Subtarget;
 
