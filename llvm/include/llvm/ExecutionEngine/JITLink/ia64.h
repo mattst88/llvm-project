@@ -209,6 +209,28 @@ enum EdgeKind_ia64 : Edge::Kind {
   ///
   SegRel32,
 
+  /// A displacement from the start of the target's section, used by debug
+  /// info to refer to other sections.
+  ///
+  /// Fixup expression:
+  ///   Fixup <- Target - SectionStart + Addend : int64
+  ///
+  /// Errors:
+  ///   - The target must be defined in the graph.
+  ///
+  SecRel64,
+
+  /// The 32-bit form of SecRel64.
+  ///
+  /// Fixup expression:
+  ///   Fixup <- Target - SectionStart + Addend : uint32
+  ///
+  /// Errors:
+  ///   - The target must be defined in the graph.
+  ///   - The result must be an in-range uint32.
+  ///
+  SecRel32,
+
   /// An in-place function descriptor: the function address followed by the
   /// GP to enter it with. Used in virtual tables.
   ///
@@ -446,6 +468,7 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
   case GPRel64:
   case GlobalPointer64:
   case SegRel64:
+  case SecRel64:
     if (auto Err = CheckWord(8))
       return Err;
     break;
@@ -453,6 +476,7 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
   case Delta32:
   case GPRel32:
   case SegRel32:
+  case SecRel32:
     if (auto Err = CheckWord(4))
       return Err;
     break;
@@ -497,6 +521,25 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
     break;
   case SegRel32: {
     uint64_t Value = Target - SegmentBase.getValue();
+    if (!isUInt<32>(Value))
+      return makeTargetOutOfRangeError(G, B, E);
+    endian::write32le(FixupPtr, static_cast<uint32_t>(Value));
+    break;
+  }
+  case SecRel64:
+  case SecRel32: {
+    if (!E.getTarget().isDefined())
+      return make_error<JITLinkError>(
+          "In graph " + G.getName() + ", section " + B.getSection().getName() +
+          ": the target of " + getEdgeKindName(E.getKind()) + " at " +
+          formatv("{0:x}", FixupAddress.getValue()) +
+          " is not defined in the graph");
+    uint64_t Value =
+        Target - SectionRange(E.getTarget().getSection()).getStart().getValue();
+    if (E.getKind() == SecRel64) {
+      endian::write64le(FixupPtr, Value);
+      break;
+    }
     if (!isUInt<32>(Value))
       return makeTargetOutOfRangeError(G, B, E);
     endian::write32le(FixupPtr, static_cast<uint32_t>(Value));

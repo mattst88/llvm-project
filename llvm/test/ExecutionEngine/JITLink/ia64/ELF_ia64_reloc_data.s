@@ -156,3 +156,33 @@ iplt:
 	.type	iplt_ext,@object
 iplt_ext:
 	data16	@iplt(ext)
+
+# What is relative to a section is relative to the start of the section that
+# the target is in. The debugging information of an object refers to its
+# other sections so.
+# jitlink-check: *{8}secrel64 = secrel64 - section_addr(ELF_ia64_reloc_data.s.tmp.o, .data)
+	.globl	secrel64
+	.type	secrel64,@object
+secrel64:
+	data8	@secrel(secrel64)
+
+# jitlink-check: *{4}secrel32 = secrel64 + 4 - section_addr(ELF_ia64_reloc_data.s.tmp.o, .data)
+	.globl	secrel32
+	.type	secrel32,@object
+secrel32:
+	data4	@secrel(secrel64 + 4)
+	data4	0
+
+# jitlink-check: *{8}secrel_text = hidden_code - main_code
+	.globl	secrel_text
+	.type	secrel_text,@object
+secrel_text:
+	data8	@secrel(hidden_fn)
+
+# A section that is not loaded can have such words too, as those of gcc's
+# debugging information do.
+	.section	.debug_info,"",@progbits
+	data4.ua	@secrel(.Labbrev)
+	.section	.debug_abbrev,"",@progbits
+.Labbrev:
+	data1	0

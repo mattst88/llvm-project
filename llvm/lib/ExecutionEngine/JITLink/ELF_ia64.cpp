@@ -243,6 +243,12 @@ private:
     case ELF::R_IA64_SEGREL32LSB:
       Kind = ia64::SegRel32;
       break;
+    case ELF::R_IA64_SECREL64LSB:
+      Kind = ia64::SecRel64;
+      break;
+    case ELF::R_IA64_SECREL32LSB:
+      Kind = ia64::SecRel32;
+      break;
     case ELF::R_IA64_FPTR64LSB:
       Kind = ia64::RequestDescriptor64;
       break;

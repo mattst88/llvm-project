@@ -119,6 +119,10 @@ const char *getEdgeKindName(Edge::Kind K) {
     return "SegRel64";
   case SegRel32:
     return "SegRel32";
+  case SecRel64:
+    return "SecRel64";
+  case SecRel32:
+    return "SecRel32";
   case FunctionDescriptor:
     return "FunctionDescriptor";
   case RequestDescriptor64:
