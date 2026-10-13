@@ -1,5 +1,6 @@
 add_lldb_library(lldbSymbol NO_PLUGIN_DEPENDENCIES
   ArmUnwindInfo.cpp
+  IA64UnwindInfo.cpp
   Block.cpp
   CompactUnwindInfo.cpp
   CompileUnit.cpp
