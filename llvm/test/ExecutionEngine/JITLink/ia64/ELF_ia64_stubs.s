@@ -11,6 +11,7 @@
 	.proc	main
 main:
 	.globl	main_code
+	.type	main_code,@object
 main_code:
 # jitlink-check: (*{8}(main_code + 8))[55:36] = (stub_addr(ELF_ia64_stubs.s.tmp.o, ext) - main_code)[23:4]
 # jitlink-check: (*{8}(main_code + 8))[59:59] = (stub_addr(ELF_ia64_stubs.s.tmp.o, ext) - main_code)[24:24]

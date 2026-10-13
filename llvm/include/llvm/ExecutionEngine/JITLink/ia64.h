@@ -684,6 +684,14 @@ inline Symbol &createAnonymousPointerJumpStub(LinkGraph &G,
   return G.addAnonymousSymbol(B, 0, StubEntrySize, true, false);
 }
 
+/// Target flags for IA-64 graph symbols.
+enum TargetFlags_ia64 : TargetFlagsType {
+  NoTargetFlags = 0,
+  /// The symbol is exported via a function descriptor even though it is not
+  /// of function type.
+  DescriptorFlag = 1 << 0,
+};
+
 /// Function descriptor builder.
 ///
 /// A function's address, both within a program and as seen from another
@@ -699,8 +707,8 @@ public:
   void exportDescriptors(LinkGraph &G) {
     std::vector<Symbol *> Functions;
     for (auto *Sym : G.defined_symbols())
-      if (Sym->isCallable() && Sym->hasName() &&
-          Sym->getScope() != Scope::Local)
+      if ((Sym->isCallable() || (Sym->getTargetFlags() & DescriptorFlag)) &&
+          Sym->hasName() && Sym->getScope() != Scope::Local)
         Functions.push_back(Sym);
     for (auto *Sym : Functions) {
       Symbol &Code = G.addAnonymousSymbol(Sym->getBlock(), Sym->getOffset(),

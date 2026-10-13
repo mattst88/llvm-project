@@ -145,8 +145,37 @@ private:
   // function are retargeted to.
   DenseMap<Symbol *, Symbol *> OwnDefinitions;
 
+  // Treat untyped global labels in code as functions, since hand-written
+  // assembly often omits the type. Another graph knows a symbol by a single
+  // address, which for a function must be its descriptor: both a call through
+  // a stub and @fptr treat it as one.
+  Error markUntypedCodeLabels() {
+    if (!Base::SymTabSec)
+      return Error::success();
+    auto Symbols = Base::Obj.symbols(Base::SymTabSec);
+    if (!Symbols)
+      return Symbols.takeError();
+    for (ELFSymbolIndex I = 0; I != Symbols->size(); ++I) {
+      const auto &Sym = (*Symbols)[I];
+      if (Sym.getType() != ELF::STT_NOTYPE ||
+          (Sym.getBinding() != ELF::STB_GLOBAL &&
+           Sym.getBinding() != ELF::STB_WEAK) ||
+          Sym.st_shndx == ELF::SHN_UNDEF || Sym.st_shndx >= ELF::SHN_LORESERVE)
+        continue;
+      if (!(Base::Sections[Sym.st_shndx].sh_flags & ELF::SHF_EXECINSTR))
+        continue;
+      if (Symbol *GraphSym = Base::getGraphSymbol(I))
+        if (GraphSym->isDefined())
+          GraphSym->setTargetFlags(ia64::DescriptorFlag);
+    }
+    return Error::success();
+  }
+
   Error addRelocations() override {
     LLVM_DEBUG(dbgs() << "Processing relocations:\n");
+
+    if (Error Err = markUntypedCodeLabels())
+      return Err;
 
     using Self = ELFLinkGraphBuilder_ia64;
     for (const auto &RelSect : Base::Sections) {

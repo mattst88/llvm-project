@@ -34,6 +34,7 @@ unused:
 	.proc	main
 main:
 	.globl	main_code
+	.type	main_code,@object
 main_code:
 	nop.m	0
 	nop.m	0
@@ -48,6 +49,7 @@ main_code:
 	.proc	second
 second:
 	.globl	second_code
+	.type	second_code,@object
 second_code:
 	nop.m	0
 	nop.m	0
@@ -77,6 +79,7 @@ second_code:
 
 	.section	.IA_64.unwind_info.text.second,"a",@progbits
 	.globl	second_info
+	.type	second_info,@object
 second_info:
 	data8	0x1000000000000001
 	data8	0
@@ -88,6 +91,7 @@ unused_info:
 
 	.section	.IA_64.unwind_info.text.main,"a",@progbits
 	.globl	main_info
+	.type	main_info,@object
 main_info:
 	data8	0x1000000000000001
 	data8	0

@@ -11,6 +11,7 @@
 	.proc	main
 main:
 	.globl	main_code
+	.type	main_code,@object
 main_code:
 	nop.m	0
 	nop.m	0
@@ -22,6 +23,7 @@ main_code:
 	.proc	hidden_fn
 hidden_fn:
 	.globl	hidden_code
+	.type	hidden_code,@object
 hidden_code:
 	nop.m	0
 	nop.m	0
@@ -31,27 +33,32 @@ hidden_code:
 
 	.data
 	.globl	var
+	.type	var,@object
 var:
 	data8	0x1234
 
 # jitlink-check: *{8}abs64 = var + 8
 	.globl	abs64
+	.type	abs64,@object
 abs64:
 	data8	var + 8
 
 # jitlink-check: *{4}abs32 = ext + 4
 	.globl	abs32
+	.type	abs32,@object
 abs32:
 	data4	ext + 4
 	data4	0
 
 # jitlink-check: *{8}rel64 = var - rel64
 	.globl	rel64
+	.type	rel64,@object
 rel64:
 	data8	@pcrel(var)
 
 # jitlink-check: *{4}rel32 = (var - rel32) & 0xffffffff
 	.globl	rel32
+	.type	rel32,@object
 rel32:
 	data4	@pcrel(var)
 	data4	0
@@ -59,11 +66,13 @@ rel32:
 # The global pointer is at the linkage table.
 # jitlink-check: *{8}gprel64 = var - section_addr(ELF_ia64_reloc_data.s.tmp.o, $__GOT)
 	.globl	gprel64
+	.type	gprel64,@object
 gprel64:
 	data8	@gprel(var)
 
 # jitlink-check: *{4}gprel32 = (var - section_addr(ELF_ia64_reloc_data.s.tmp.o, $__GOT)) & 0xffffffff
 	.globl	gprel32
+	.type	gprel32,@object
 gprel32:
 	data4	@gprel(var)
 	data4	0
@@ -71,17 +80,21 @@ gprel32:
 # What is relative to the segment is relative to one place for the graph.
 # jitlink-check: (*{8}segrel_a) - (*{8}segrel_b) = main_code - var
 	.globl	segrel_a
+	.type	segrel_a,@object
 segrel_a:
 	data8	@segrel(main)
 	.globl	segrel_b
+	.type	segrel_b,@object
 segrel_b:
 	data8	@segrel(var)
 
 # jitlink-check: (*{4}segrel32_a) - (*{4}segrel32_b) = main_code - var
 	.globl	segrel32_a
+	.type	segrel32_a,@object
 segrel32_a:
 	data4	@segrel(main)
 	.globl	segrel32_b
+	.type	segrel32_b,@object
 segrel32_b:
 	data4	@segrel(var)
 	data8	0
@@ -89,6 +102,7 @@ segrel32_b:
 # A plain word for a function is the address of its code.
 # jitlink-check: *{8}code_addr = main_code
 	.globl	code_addr
+	.type	code_addr,@object
 code_addr:
 	data8	main
 
@@ -98,6 +112,7 @@ code_addr:
 # jitlink-check: *{8}main = main_code
 # jitlink-check: *{8}(main + 8) = section_addr(ELF_ia64_reloc_data.s.tmp.o, $__GOT)
 	.globl	fptr
+	.type	fptr,@object
 fptr:
 	data8	@fptr(main)
 
@@ -105,12 +120,14 @@ fptr:
 # jitlink-check: *{8}(*{8}fptr_hidden) = hidden_code
 # jitlink-check: *{8}((*{8}fptr_hidden) + 8) = section_addr(ELF_ia64_reloc_data.s.tmp.o, $__GOT)
 	.globl	fptr_hidden
+	.type	fptr_hidden,@object
 fptr_hidden:
 	data8	@fptr(hidden_fn)
 
 # A function of another graph is known by its descriptor already.
 # jitlink-check: *{8}fptr_ext = ext
 	.globl	fptr_ext
+	.type	fptr_ext,@object
 fptr_ext:
 	data8	@fptr(ext)
 
@@ -118,6 +135,7 @@ fptr_ext:
 # pointer.
 # jitlink-check: *{8}(section_addr(ELF_ia64_reloc_data.s.tmp.o, $__GOT) + *{8}ltoff_fptr) = main
 	.globl	ltoff_fptr
+	.type	ltoff_fptr,@object
 ltoff_fptr:
 	data8	@ltoff(@fptr(main))
 
@@ -127,6 +145,7 @@ ltoff_fptr:
 # jitlink-check: *{8}iplt = main_code
 # jitlink-check: *{8}(iplt + 8) = section_addr(ELF_ia64_reloc_data.s.tmp.o, $__GOT)
 	.globl	iplt
+	.type	iplt,@object
 iplt:
 	data16	@iplt(main)
 
@@ -134,5 +153,6 @@ iplt:
 # jitlink-check: *{8}(iplt_ext + 8) = section_addr(ELF_ia64_reloc_data.s.tmp.o, $__GOT)
 # jitlink-check: *{8}(got_addr(ELF_ia64_reloc_data.s.tmp.o, ext)) = ext
 	.globl	iplt_ext
+	.type	iplt_ext,@object
 iplt_ext:
 	data16	@iplt(ext)

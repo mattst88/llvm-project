@@ -12,6 +12,7 @@
 	.proc	main
 main:
 	.globl	main_code
+	.type	main_code,@object
 main_code:
 	nop.m	0
 	nop.m	0
@@ -23,6 +24,7 @@ main_code:
 	.proc	local_fn
 local_fn:
 	.globl	local_code
+	.type	local_code,@object
 local_code:
 	nop.m	0
 	nop.m	0
@@ -37,6 +39,7 @@ local_code:
 # jitlink-check: (*{8}pltoff22)[31:27] = (*{8}pltoff64)[20:16]
 # jitlink-check: (*{8}pltoff22)[41:41] = (*{8}pltoff64)[21:21]
 	.globl	pltoff22
+	.type	pltoff22,@object
 pltoff22:
 	addl	r14 = @pltoff(local_fn), r1
 	nop.m	0
@@ -54,17 +57,21 @@ pltoff22:
 # jitlink-check: (*{8}(pltoff64i + 8))[42:36] = (*{8}pltoff64_ext)[6:0]
 # jitlink-check: (*{8}(pltoff64i + 8))[59:59] = (*{8}pltoff64_ext)[63:63]
 	.globl	pltoff64i
+	.type	pltoff64i,@object
 pltoff64i:
 	nop.m	0
 	movl	r14 = @pltoff(ext) ;;
 
 	.data
 	.globl	pltoff64
+	.type	pltoff64,@object
 pltoff64:
 	data8	@pltoff(local_fn)
 	.globl	pltoff64_global
+	.type	pltoff64_global,@object
 pltoff64_global:
 	data8	@pltoff(main)
 	.globl	pltoff64_ext
+	.type	pltoff64_ext,@object
 pltoff64_ext:
 	data8	@pltoff(ext)

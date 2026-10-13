@@ -33,6 +33,7 @@ main:
 	.proc	inl
 inl:
 	.globl	a_inl
+	.type	a_inl,@object
 a_inl:
 	nop.m	0
 	nop.m	0
@@ -47,6 +48,7 @@ a_inl:
 	.proc	b_fn
 b_fn:
 	.globl	b_call
+	.type	b_call,@object
 b_call:
 # jitlink-check: (*{8}(b_call + 8))[55:36] = (b_inl - b_call)[23:4]
 # jitlink-check: (*{8}(b_call + 8))[59:59] = (b_inl - b_call)[24:24]
@@ -65,6 +67,7 @@ b_call:
 	.proc	inl
 inl:
 	.globl	b_inl
+	.type	b_inl,@object
 b_inl:
 	nop.m	0
 	nop.m	0

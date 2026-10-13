@@ -13,6 +13,7 @@
 	.proc	main
 main:
 	.globl	main_code
+	.type	main_code,@object
 main_code:
 	nop.m	0
 	nop.m	0
@@ -26,6 +27,7 @@ main_code:
 # jitlink-check: (*{8}imm14)[37:32] = tiny[12:7]
 # jitlink-check: (*{8}imm14)[41:41] = 0
 	.globl	imm14
+	.type	imm14,@object
 imm14:
 	adds	r14 = tiny, r15
 	nop.m	0
@@ -38,6 +40,7 @@ imm14:
 # jitlink-check: (*{8}imm22)[31:27] = small[20:16]
 # jitlink-check: (*{8}imm22)[41:41] = 0
 	.globl	imm22
+	.type	imm22,@object
 imm22:
 	addl	r14 = small, r0
 	nop.m	0
@@ -54,6 +57,7 @@ imm22:
 # jitlink-check: (*{8}(imm64 + 8))[44:44] = var[21:21]
 # jitlink-check: (*{8}(imm64 + 8))[59:59] = var[63:63]
 	.globl	imm64
+	.type	imm64,@object
 imm64:
 	nop.m	0
 	movl	r14 = var ;;
@@ -64,6 +68,7 @@ imm64:
 # jitlink-check: (*{8}gprel22)[31:27] = (far - section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT))[20:16]
 # jitlink-check: (*{8}gprel22)[41:41] = (far - section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT))[21:21]
 	.globl	gprel22
+	.type	gprel22,@object
 gprel22:
 	addl	r14 = @gprel(far), r1
 	nop.m	0
@@ -77,6 +82,7 @@ gprel22:
 # jitlink-check: (*{8}(gprel64 + 8))[44:44] = (far - section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT))[21:21]
 # jitlink-check: (*{8}(gprel64 + 8))[59:59] = (far - section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT))[63:63]
 	.globl	gprel64
+	.type	gprel64,@object
 gprel64:
 	nop.m	0
 	movl	r14 = @gprel(far) ;;
@@ -85,6 +91,7 @@ gprel64:
 # address. The table is short, so the seven low bits are the offset.
 # jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}ltoff22)[24:18]) = var
 	.globl	ltoff22
+	.type	ltoff22,@object
 ltoff22:
 	addl	r14 = @ltoff(var), r1
 	nop.m	0
@@ -93,6 +100,7 @@ ltoff22:
 # An entry for a place in something is an entry of its own.
 # jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}ltoff22_addend)[24:18]) = var + 8
 	.globl	ltoff22_addend
+	.type	ltoff22_addend,@object
 ltoff22_addend:
 	addl	r14 = @ltoff(var + 8), r1
 	nop.m	0
@@ -100,6 +108,7 @@ ltoff22_addend:
 
 # jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}(ltoff64 + 8))[42:36]) = var
 	.globl	ltoff64
+	.type	ltoff64,@object
 ltoff64:
 	nop.m	0
 	movl	r14 = @ltoff(var) ;;
@@ -108,6 +117,7 @@ ltoff64:
 # jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}ltoff_fptr)[24:18]) = main
 # jitlink-check: *{8}main = main_code
 	.globl	ltoff_fptr
+	.type	ltoff_fptr,@object
 ltoff_fptr:
 	addl	r14 = @ltoff(@fptr(main)), r1
 	nop.m	0
@@ -119,6 +129,7 @@ ltoff_fptr:
 # jitlink-check: (*{8}pcrel22)[31:27] = (far - pcrel22)[20:16]
 # jitlink-check: (*{8}pcrel22)[41:41] = (far - pcrel22)[21:21]
 	.globl	pcrel22
+	.type	pcrel22,@object
 pcrel22:
 	addl	r14 = @pcrel(far), r0
 	nop.m	0
@@ -132,6 +143,7 @@ pcrel22:
 # jitlink-check: (*{8}(pcrel64 + 8))[44:44] = (far - pcrel64)[21:21]
 # jitlink-check: (*{8}(pcrel64 + 8))[59:59] = (far - pcrel64)[63:63]
 	.globl	pcrel64
+	.type	pcrel64,@object
 pcrel64:
 	nop.m	0
 	movl	r14 = @pcrel(far) ;;
@@ -145,12 +157,14 @@ pcrel64:
 # jitlink-check: (*{8}(fptr64 + 8))[44:44] = (main)[21:21]
 # jitlink-check: (*{8}(fptr64 + 8))[59:59] = (main)[63:63]
 	.globl	fptr64
+	.type	fptr64,@object
 fptr64:
 	nop.m	0
 	movl	r14 = @fptr(main) ;;
 
 # jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}(ltoff_fptr64 + 8))[42:36]) = main
 	.globl	ltoff_fptr64
+	.type	ltoff_fptr64,@object
 ltoff_fptr64:
 	nop.m	0
 	movl	r14 = @ltoff(@fptr(main)) ;;
@@ -161,6 +175,7 @@ ltoff_fptr64:
 # jitlink-check: (*{8}(call + 8))[55:36] = (main_code - call)[23:4]
 # jitlink-check: (*{8}(call + 8))[59:59] = 1
 	.globl	call
+	.type	call,@object
 call:
 	nop.m	0
 	nop.m	0
@@ -171,6 +186,7 @@ call:
 # jitlink-check: (*{8}check)[37:25] = (recover - check)[23:11]
 # jitlink-check: (*{8}check)[41:41] = 0
 	.globl	check
+	.type	check,@object
 check:
 	chk.s	r14, recover
 	nop.m	0
@@ -183,11 +199,13 @@ check:
 # jitlink-check: (*{8}(long + 8))[22:0] = (recover - long)[62:40]
 # jitlink-check: (*{8}(long + 8))[59:59] = 0
 	.globl	long
+	.type	long,@object
 long:
 	nop.m	0
 	brl.sptk.many recover ;;
 
 	.globl	recover
+	.type	recover,@object
 recover:
 	nop.m	0
 	nop.m	0
@@ -195,9 +213,11 @@ recover:
 
 	.data
 	.globl	var
+	.type	var,@object
 var:
 	data8	0x1234
 	.space	0x1000
 	.globl	far
+	.type	far,@object
 far:
 	data8	0x5678

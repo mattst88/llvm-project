@@ -30,11 +30,13 @@ main:
 # jitlink-check: *{8}near_load = *{8}nothing
 # jitlink-check: *{8}(near_load + 8) = *{8}(nothing + 8)
 	.globl	near
+	.type	near,@object
 near:
 	addl	r14 = @ltoffx(var), r1
 	nop.m	0
 	nop.i	0 ;;
 	.globl	near_load
+	.type	near_load,@object
 near_load:
 	ld8.mov	r14 = [r14], var
 	nop.m	0
@@ -48,11 +50,13 @@ near_load:
 # jitlink-check: *{8}other_load = *{8}move
 # jitlink-check: *{8}(other_load + 8) = *{8}(move + 8)
 	.globl	other
+	.type	other,@object
 other:
 	addl	r14 = @ltoffx(var), r1
 	nop.m	0
 	nop.i	0 ;;
 	.globl	other_load
+	.type	other_load,@object
 other_load:
 	(p6) ld8.mov	r15 = [r14], var
 	nop.m	0
@@ -66,11 +70,13 @@ other_load:
 # jitlink-check: *{8}addend_load = *{8}nothing
 # jitlink-check: *{8}(addend_load + 8) = *{8}(nothing + 8)
 	.globl	addend
+	.type	addend,@object
 addend:
 	addl	r14 = @ltoffx(var + 8), r1
 	nop.m	0
 	nop.i	0 ;;
 	.globl	addend_load
+	.type	addend_load,@object
 addend_load:
 	ld8.mov	r14 = [r14], var + 8
 	nop.m	0
@@ -82,11 +88,13 @@ addend_load:
 # jitlink-check: *{8}far_load = *{8}load
 # jitlink-check: *{8}(far_load + 8) = *{8}(load + 8)
 	.globl	far
+	.type	far,@object
 far:
 	addl	r14 = @ltoffx(ext), r1
 	nop.m	0
 	nop.i	0 ;;
 	.globl	far_load
+	.type	far_load,@object
 far_load:
 	(p6) ld8.mov	r15 = [r14], ext
 	nop.m	0
@@ -94,16 +102,19 @@ far_load:
 
 # What the relaxed and the kept loads are to be.
 	.globl	nothing
+	.type	nothing,@object
 nothing:
 	nop.m	0
 	nop.m	0
 	nop.i	0 ;;
 	.globl	move
+	.type	move,@object
 move:
 	(p6) adds	r15 = 0, r14
 	nop.m	0
 	nop.i	0 ;;
 	.globl	load
+	.type	load,@object
 load:
 	(p6) ld8	r15 = [r14]
 	nop.m	0
@@ -122,6 +133,7 @@ load:
 
 	.data
 	.globl	var
+	.type	var,@object
 var:
 	data8	0x1234
 	data8	0x5678
