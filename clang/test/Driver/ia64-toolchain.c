@@ -46,11 +46,14 @@
 
 // A pointer to a function is to its descriptor, so the check of the type of
 // the function called has nowhere to find it, and -fsanitize=undefined does
-// without.
+// without. The type that -fsanitize=kcfi looks for is no more there.
 
 // RUN: not %clang --target=ia64-unknown-linux-gnu -fsanitize=function -### %s \
 // RUN:   2>&1 | FileCheck %s --check-prefix=FSAN
 // FSAN: unsupported option '-fsanitize=function' for target 'ia64-unknown-linux-gnu'
+// RUN: not %clang --target=ia64-unknown-linux-gnu -fsanitize=kcfi -### %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=KCFI
+// KCFI: unsupported option '-fsanitize=kcfi' for target 'ia64-unknown-linux-gnu'
 // RUN: %clang --target=ia64-unknown-linux-gnu -fsanitize=undefined -### %s \
 // RUN:   2>&1 | FileCheck %s --check-prefix=UBSAN
 // UBSAN: "-fsanitize=alignment,
