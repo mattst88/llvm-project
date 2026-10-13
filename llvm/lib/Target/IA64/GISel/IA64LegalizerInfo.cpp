@@ -497,8 +497,31 @@ bool IA64LegalizerInfo::legalizeCustom(
     const TargetMachine &TM = MF.getTarget();
     if (!GV->isThreadLocal())
       return true;
-    if (TM.useEmulatedTLS())
-      return false;
+    if (TM.useEmulatedTLS()) {
+      // Emulated TLS: call __emutls_get_address on the __emutls_v. control
+      // variable.
+      const auto *Var = cast<GlobalValue>(GV->stripPointerCastsAndAliases());
+      const GlobalVariable *Control = Var->getParent()->getNamedGlobal(
+          ("__emutls_v." + Var->getName()).str());
+      if (!Control)
+        return false;
+      MachineRegisterInfo &MRI = MF.getRegInfo();
+      LLT P0 = LLT::pointer(0, 64);
+      Type *Ptr = PointerType::getUnqual(MF.getFunction().getContext());
+      Register Dst = MI.getOperand(0).getReg();
+      int64_t Offset = Symbol.getOffset();
+      Register Base = Offset ? MRI.createGenericVirtualRegister(P0) : Dst;
+      Register Arg = MIRBuilder.buildGlobalValue(P0, Control).getReg(0);
+      if (Helper.createLibcall("__emutls_get_address", {Base, Ptr, 0},
+                               {{Arg, Ptr, 0}}, CallingConv::C,
+                               LocObserver) != LegalizerHelper::Legalized)
+        return false;
+      if (Offset)
+        MIRBuilder.buildPtrAdd(
+            Dst, Base, MIRBuilder.buildConstant(LLT::scalar(64), Offset));
+      MI.eraseFromParent();
+      return true;
+    }
     TLSModel::Model Model = TM.getTLSModel(GV);
     if (Model != TLSModel::GeneralDynamic && Model != TLSModel::LocalDynamic)
       return true;
