@@ -7,10 +7,11 @@
 // .reloc names a relocation by what follows "R_IA64_", which is the name
 // the GNU assembler has for it, or by the whole of its name. The place is
 // an address of a slot for one that is applied to an instruction, and
-// nothing is written into the place.
+// nothing is written into the place. BFD_RELOC_NONE is the only generic name.
 
 // CHECK:      .rela.text {
 // CHECK-NEXT:   0x0 R_IA64_LDXMOV sym 0x0
+// CHECK-NEXT:   0x0 R_IA64_NONE sym 0x0
 // CHECK-NEXT:   0x0 R_IA64_NONE sym 0x0
 // CHECK-NEXT:   0x1 R_IA64_LTOFF22X sym 0x8
 // CHECK-NEXT:   0x2 R_IA64_PCREL21B f 0x0
@@ -29,6 +30,7 @@
 f:
 	.reloc ., LDXMOV, sym
 	.reloc f, R_IA64_NONE, sym
+	.reloc f, BFD_RELOC_NONE, sym
 	.reloc . + 1, LTOFF22X, sym + 8
 	.reloc . + 2, R_IA64_PCREL21B, f
 	ld8 r14 = [r14]

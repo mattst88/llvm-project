@@ -49,10 +49,14 @@ public:
 
 } // end anonymous namespace
 
-// The relocation that .reloc names. The GNU assembler knows each by what
-// follows "R_IA64_" in its name, and the whole name is taken as well, as it
-// is for other processors.
+// The relocation named by .reloc. The GNU assembler names each by the part
+// after "R_IA64_"; the full name is accepted too, as on other targets.
+// BFD_RELOC_NONE is the one generic name the GNU assembler can map, and is
+// what codegen emits for a reference that keeps a section alive.
 std::optional<MCFixupKind> IA64AsmBackend::getFixupKind(StringRef Name) const {
+  if (Name == "BFD_RELOC_NONE")
+    return static_cast<MCFixupKind>(FirstLiteralRelocationKind +
+                                    ELF::R_IA64_NONE);
   std::string Whole;
   if (!Name.starts_with("R_IA64_"))
     Name = Whole = ("R_IA64_" + Name).str();
