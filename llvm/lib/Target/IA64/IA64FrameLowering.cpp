@@ -15,6 +15,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/IR/DiagnosticInfo.h"
 
 using namespace llvm;
 
@@ -30,6 +31,12 @@ IA64FrameLowering::IA64FrameLowering(const IA64Subtarget &STI)
 // incoming arguments (the caller's outputs). Using more requires an alloc,
 // which returns the caller's ar.pfs in a GR; a function that makes calls
 // keeps it there. That GR is the first local the function does not use.
+//
+// Locals are r32-r119 here, and r120-r127 stand for the outputs, whatever
+// physical registers those end up being. The register allocator does not
+// use the last locals, so the prologue saves go after the locals the body
+// uses. Only inline asm can name one of those last locals; the frame then
+// extends up to it, and the saves go in unused locals below it.
 void IA64FrameLowering::emitPrologue(MachineFunction &MF,
                                      MachineBasicBlock &MBB) const {
   const MachineRegisterInfo &MRI = MF.getRegInfo();
@@ -76,24 +83,45 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   bool SaveOthers = FI->changesPR() || FI->changesLC() || FI->getChangedBRs();
   if (Locals != Inputs || Outputs != 0 || RestorePFS || SaveUNAT ||
       SaveOthers || hasFP(MF)) {
-    Register SavedPFS = IA64::R32 + Locals++;
+    unsigned NumSaves = 1 + SaveRP + SaveUNAT + hasFP(MF) + NeedsBP +
+                        FI->changesPR() + FI->changesLC() +
+                        popcount(FI->getChangedBRs());
+    SmallVector<Register, 12> Saves;
+    unsigned Used = Locals;
+    for (; Locals != 88 && Saves.size() != NumSaves; ++Locals)
+      Saves.push_back(IA64::R32 + Locals);
+    for (unsigned I = Inputs; I != Used && Saves.size() != NumSaves; ++I)
+      if (!MRI.isPhysRegUsed(IA64::R32 + I, /*SkipRegMaskTest=*/true))
+        Saves.push_back(IA64::R32 + I);
+    // A register stack frame is limited to 96 registers, and there is no
+    // other place to keep what a call would overwrite.
+    if (Saves.size() != NumSaves) {
+      const Function &F = MF.getFunction();
+      F.getContext().diagnose(DiagnosticInfoUnsupported(
+          F, "a function that leaves no local register for what its "
+             "prologue saves is not supported on IA-64"));
+      return;
+    }
+    unsigned NextSave = 0;
+    auto TakeSave = [&] { return Saves[NextSave++]; };
+    Register SavedPFS = TakeSave();
     FI->setSavedPFS(SavedPFS);
     FI->setRestoresPFS(RestorePFS);
     if (SaveRP)
-      FI->setSavedRP(IA64::R32 + Locals++);
+      FI->setSavedRP(TakeSave());
     if (SaveUNAT)
-      FI->setSavedUNAT(IA64::R32 + Locals++);
+      FI->setSavedUNAT(TakeSave());
     if (hasFP(MF))
-      FI->setFramePointer(IA64::R32 + Locals++);
+      FI->setFramePointer(TakeSave());
     if (NeedsBP)
-      FI->setBasePointer(IA64::R32 + Locals++);
+      FI->setBasePointer(TakeSave());
     if (FI->changesPR())
-      FI->setSavedPR(IA64::R32 + Locals++);
+      FI->setSavedPR(TakeSave());
     if (FI->changesLC())
-      FI->setSavedLC(IA64::R32 + Locals++);
+      FI->setSavedLC(TakeSave());
     for (unsigned I = 0; I != 5; ++I)
       if (FI->getChangedBRs() & (1u << I))
-        FI->setSavedBR(I, IA64::R32 + Locals++);
+        FI->setSavedBR(I, TakeSave());
     // A returns_twice call's regmask preserves no locals, since the second
     // return sees them as last left. The prologue saves are never written
     // after the prologue, which is what the epilogue needs, so mark them
@@ -111,8 +139,8 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
             KeepsFrameMask = MF.allocateRegMask();
             unsigned Words = MachineOperand::getRegMaskSize(TRI.getNumRegs());
             std::copy_n(ReturnsTwiceMask, Words, KeepsFrameMask);
-            for (unsigned Reg = SavedPFS.id(); Reg != IA64::R32 + Locals; ++Reg)
-              KeepsFrameMask[Reg / 32] |= 1u << (Reg % 32);
+            for (Register Reg : Saves)
+              KeepsFrameMask[Reg.id() / 32] |= 1u << (Reg.id() % 32);
           }
           MO.setRegMask(KeepsFrameMask);
         }

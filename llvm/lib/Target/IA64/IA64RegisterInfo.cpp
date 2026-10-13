@@ -74,11 +74,12 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(IA64::AR18);
   Reserved.set(IA64::AR19);
 
-  // The last five locals are kept back so that the prologue always has
-  // somewhere to save ar.pfs, the return link and ar.unat, and to keep the
-  // stack pointer as it was on entry and as the prologue left it. What the
-  // source wrote in assembly may change the predicates, the loop count and
-  // b1 to b5 as well, and then there are seven more to save.
+  // The last five locals are reserved so the prologue always has room to
+  // save ar.pfs, b0 and ar.unat, and to hold the frame pointer and base
+  // pointer. Inline asm may also clobber the predicates, ar.lc and b1-b5,
+  // which need seven more. Inline asm can also name one of these locals
+  // itself, and then the prologue looks below it for locals the body does
+  // not use.
   unsigned FirstKept = MF.hasInlineAsm() ? IA64::R108 : IA64::R115;
   for (unsigned Reg = FirstKept; Reg <= IA64::R119; ++Reg)
     Reserved.set(Reg);
