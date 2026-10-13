@@ -10,7 +10,8 @@
 // A common symbol that does not say how it is aligned is aligned to its size,
 // as far as 16 bytes, and .tls_common makes a thread-local one. GNU as wants
 // .lcomm to say how its symbol is aligned, so none is written. .common is
-// .comm by another name. An alignment of 0 is one that was not said, which
+// .comm by another name, and .lcomm does not make an object of its symbol as
+// .local and .comm do. An alignment of 0 is one that was not said, which
 // for .lcomm is none at all.
 
 .ifndef ERR
@@ -31,14 +32,21 @@
 	.comm	z100, 100, 0
 	.tls_common	tz, 4, 0
 	.lcomm	n, 100, 0
+	.type	o, @object
+	.lcomm	o, 8, 8
 
 // ASM: .tls_common t4,4,4
-// ASM: .local m
-// ASM-NEXT: .comm m,3,8
+// ASM: .local l
+// ASM-NEXT: .comm l,24,32
+// ASM-NEXT: .lcomm m,3,8
+// ASM: .lcomm n,100,1
+// ASM: .type o,@object
+// ASM-NEXT: .lcomm o,8,8
 
 // CHECK-DAG: 0000000000000000    24 OBJECT  LOCAL  DEFAULT [[#]] l
-// CHECK-DAG: 0000000000000018     3 OBJECT  LOCAL  DEFAULT [[#]] m
-// CHECK-DAG: 000000000000001b   100 OBJECT  LOCAL  DEFAULT [[#]] n
+// CHECK-DAG: 0000000000000018     3 NOTYPE  LOCAL  DEFAULT [[#]] m
+// CHECK-DAG: 0000000000000080     8 OBJECT  LOCAL  DEFAULT [[#]] o
+// CHECK-DAG: 000000000000001b   100 NOTYPE  LOCAL  DEFAULT [[#]] n
 // CHECK-DAG: 0000000000000008     8 OBJECT  GLOBAL DEFAULT   COM z8
 // CHECK-DAG: 0000000000000010   100 OBJECT  GLOBAL DEFAULT   COM z100
 // CHECK-DAG: 0000000000000004     4 TLS     GLOBAL DEFAULT   COM tz

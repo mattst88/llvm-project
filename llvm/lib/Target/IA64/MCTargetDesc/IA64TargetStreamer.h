@@ -213,6 +213,10 @@ public:
   /// from ".comm" and ".type".
   virtual void emitTLSCommon(MCSymbol *Sym, uint64_t Size, Align Alignment);
 
+  /// Space in ".bss" for a local symbol (".lcomm"). Unlike ".local" plus
+  /// ".comm", GNU as does not mark the symbol as an object.
+  virtual void emitLocalCommon(MCSymbol *Sym, uint64_t Size, Align Alignment);
+
   /// Emit the following data into \p Section, which is not the current one,
   /// until endDataElsewhere(). This is ".xdata4" and similar: unlike a
   /// section change, it does not end the current bundle.
@@ -272,6 +276,7 @@ public:
   void emitSectionAgain() override;
   void emitData16(const MCExpr *Value, SMLoc Loc) override;
   void emitTLSCommon(MCSymbol *Sym, uint64_t Size, Align Alignment) override;
+  void emitLocalCommon(MCSymbol *Sym, uint64_t Size, Align Alignment) override;
 };
 
 } // end namespace llvm

@@ -1680,8 +1680,10 @@ bool IA64AsmParser::parseCommon(bool IsTLS, bool IsLocal) {
     getTargetStreamer().emitTLSCommon(Sym, Size, Align(Alignment));
     return false;
   }
-  if (IsLocal)
-    getStreamer().emitSymbolAttribute(Sym, MCSA_Local);
+  if (IsLocal) {
+    getTargetStreamer().emitLocalCommon(Sym, Size, Align(Alignment));
+    return false;
+  }
   getStreamer().emitCommonSymbol(Sym, Size, Align(Alignment));
   return false;
 }

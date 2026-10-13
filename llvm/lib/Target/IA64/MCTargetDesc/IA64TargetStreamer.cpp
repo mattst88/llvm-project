@@ -138,6 +138,16 @@ void IA64TargetStreamer::emitTLSCommon(MCSymbol *Sym, uint64_t Size,
   getStreamer().emitSymbolAttribute(Sym, MCSA_ELF_TypeTLS);
 }
 
+void IA64TargetStreamer::emitLocalCommon(MCSymbol *Sym, uint64_t Size,
+                                         Align Alignment) {
+  // The streamer gives every common symbol type STT_OBJECT.
+  auto *ELFSym = static_cast<MCSymbolELF *>(Sym);
+  unsigned Type = ELFSym->getType();
+  getStreamer().emitSymbolAttribute(Sym, MCSA_Local);
+  getStreamer().emitCommonSymbol(Sym, Size, Alignment);
+  ELFSym->setType(Type);
+}
+
 void IA64TargetStreamer::beginDataElsewhere(MCSection *Section) {
   getStreamer().pushSection();
   getStreamer().switchSection(Section);
@@ -373,6 +383,13 @@ void IA64TargetAsmStreamer::emitData16(const MCExpr *Value, SMLoc Loc) {
 void IA64TargetAsmStreamer::emitTLSCommon(MCSymbol *Sym, uint64_t Size,
                                           Align Alignment) {
   OS << "\t.tls_common\t";
+  Sym->print(OS, &getStreamer().getContext().getAsmInfo());
+  OS << ',' << Size << ',' << Alignment.value() << '\n';
+}
+
+void IA64TargetAsmStreamer::emitLocalCommon(MCSymbol *Sym, uint64_t Size,
+                                            Align Alignment) {
+  OS << "\t.lcomm\t";
   Sym->print(OS, &getStreamer().getContext().getAsmInfo());
   OS << ',' << Size << ',' << Alignment.value() << '\n';
 }
