@@ -96,6 +96,10 @@ protected:
 
   typedef std::shared_ptr<RegisterContextUnwind> RegisterContextLLDBSP;
 
+  /// Returns the AFA of \a reg_ctx's frame if this target's frames can differ
+  /// in the AFA alone, and LLDB_INVALID_ADDRESS otherwise.
+  lldb::addr_t GetIdentifyingAFA(const RegisterContextUnwind &reg_ctx);
+
   // Needed to retrieve the "next" frame (e.g. frame 2 needs to retrieve frame
   // 1's RegisterContextUnwind)
   // The RegisterContext for frame_num must already exist or this returns an

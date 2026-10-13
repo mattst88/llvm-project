@@ -81,14 +81,13 @@ public:
     return 0;
   }
 
-  /// Whether two frames can have the same canonical frame address and differ
-  /// in their alternate frame address.
+  /// Whether two frames can have the same CFA and differ only in their AFA.
   ///
-  /// A frame is taken to have a canonical frame address that no other has,
-  /// which holds where every call takes something from the stack. IA-64 has
-  /// a second stack, the register backing store, and a function that keeps
-  /// all it saves there takes nothing from the first: its frame is known by
-  /// where it is in the second, which is its alternate frame address.
+  /// Each frame is normally assumed to have a unique CFA, which holds as long
+  /// as every call allocates memory stack space. IA-64 has a second stack,
+  /// the register backing store, and a function that saves everything there
+  /// allocates no memory stack: its frame is identified by its position in
+  /// the backing store, which is its AFA.
   virtual bool AlternateFrameAddressIdentifiesFrame() const { return false; }
 
   /// Get \a load_addr as a callable code load address for this target

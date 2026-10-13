@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "lldb/Target/UnwindLLDB.h"
+#include "lldb/Core/Architecture.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Symbol/FuncUnwinders.h"
 #include "lldb/Symbol/Function.h"
@@ -283,8 +284,13 @@ UnwindLLDB::CursorSP UnwindLLDB::GetOneMoreFrame(ABI *abi) {
     return nullptr;
   }
   // Infinite loop where the current cursor is the same as the previous one...
+  // A recursive function that allocates no memory stack, possible on a
+  // target with a second stack, is not a loop: its frames differ in their
+  // AFA.
   if (prev_frame->start_pc == cursor_sp->start_pc &&
-      prev_frame->cfa == cursor_sp->cfa) {
+      prev_frame->cfa == cursor_sp->cfa &&
+      GetIdentifyingAFA(*prev_frame->reg_ctx_lldb_sp) ==
+          GetIdentifyingAFA(*reg_ctx_sp)) {
     LLDB_LOGF(log,
               "th%d pc of this frame is the same as the previous frame and "
               "CFAs for both frames are identical -- stopping unwind",
@@ -390,6 +396,16 @@ bool UnwindLLDB::AddOneMoreFrame(ABI *abi) {
   m_frames.pop_back();
   m_frames.push_back(new_frame);
   return true;
+}
+
+addr_t UnwindLLDB::GetIdentifyingAFA(const RegisterContextUnwind &reg_ctx) {
+  ProcessSP process_sp(m_thread.GetProcess());
+  if (!process_sp)
+    return LLDB_INVALID_ADDRESS;
+  const Architecture *arch = process_sp->GetTarget().GetArchitecturePlugin();
+  if (!arch || !arch->AlternateFrameAddressIdentifiesFrame())
+    return LLDB_INVALID_ADDRESS;
+  return reg_ctx.m_afa;
 }
 
 bool UnwindLLDB::DoGetFrameInfoAtIndex(uint32_t idx, addr_t &cfa, addr_t &pc,

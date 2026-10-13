@@ -35,9 +35,8 @@ public:
   /// the low bits, and decoding it requires the whole bundle.
   lldb::addr_t GetBytesBeforeInstruction(const Address &addr) const override;
 
-  /// A function with no frame on the memory stack has one in the register
-  /// backing store, and the plans give where the caller's starts as the
-  /// alternate frame address.
+  /// A function with no memory stack frame still has a register stack
+  /// frame, and the plans give the start of the caller's as the AFA.
   bool AlternateFrameAddressIdentifiesFrame() const override { return true; }
 
 private:
