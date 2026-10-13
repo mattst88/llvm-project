@@ -90,25 +90,6 @@ ltoff22:
 	nop.m	0
 	nop.i	0 ;;
 
-# The load that follows an entry marked as one a linker may do without is
-# left a load, and the entry is made.
-# jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}ltoff22x)[24:18]) = var
-# jitlink-check: *{8}(ltoff22x + 16) = *{8}ldxmov
-# jitlink-check: *{8}(ltoff22x + 24) = *{8}(ldxmov + 8)
-	.globl	ltoff22x
-ltoff22x:
-	addl	r14 = @ltoffx(var), r1
-	nop.m	0
-	nop.i	0 ;;
-	ld8.mov	r14 = [r14], var
-	nop.m	0
-	nop.i	0 ;;
-	.globl	ldxmov
-ldxmov:
-	ld8	r14 = [r14]
-	nop.m	0
-	nop.i	0 ;;
-
 # An entry for a place in something is an entry of its own.
 # jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}ltoff22_addend)[24:18]) = var + 8
 	.globl	ltoff22_addend

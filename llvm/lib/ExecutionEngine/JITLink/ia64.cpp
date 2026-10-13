@@ -127,6 +127,12 @@ const char *getEdgeKindName(Edge::Kind K) {
     return "RequestDescriptorImm64";
   case RequestGOTAndTransformToGPRel22:
     return "RequestGOTAndTransformToGPRel22";
+  case RequestGOTAndTransformToGPRel22Relaxable:
+    return "RequestGOTAndTransformToGPRel22Relaxable";
+  case GPRel22Relaxable:
+    return "GPRel22Relaxable";
+  case LinkageTableLoad:
+    return "LinkageTableLoad";
   case RequestGOTAndTransformToGPRel64I:
     return "RequestGOTAndTransformToGPRel64I";
   case RequestDescriptorGOTAndTransformToGPRel22:
@@ -143,6 +149,64 @@ const char *getEdgeKindName(Edge::Kind K) {
     return "RequestCallDescriptorAndTransformToGPRel64";
   }
   return getGenericEdgeKindName(K);
+}
+
+Error relaxLinkageTableLoads(LinkGraph &G, orc::ExecutorAddr GP) {
+  auto IsNear = [&](const Symbol &Target, int64_t Addend) {
+    return isInt<22>(static_cast<int64_t>(Target.getAddress().getValue() +
+                                          Addend - GP.getValue()));
+  };
+
+  for (Block *B : G.blocks())
+    for (Edge &E : B->edges()) {
+      if (E.getKind() == GPRel22Relaxable) {
+        // A linkage table entry holds one address, described by its only
+        // edge.
+        Block &Entry = E.getTarget().getBlock();
+        assert(Entry.edges_size() == 1 && "Not a linkage table entry");
+        Edge &Held = *Entry.edges().begin();
+        if (IsNear(Held.getTarget(), Held.getAddend())) {
+          E.setTarget(Held.getTarget());
+          E.setAddend(Held.getAddend());
+        }
+        E.setKind(GPRel22);
+        continue;
+      }
+
+      if (E.getKind() != LinkageTableLoad ||
+          !IsNear(E.getTarget(), E.getAddend()))
+        continue;
+
+      unsigned Slot = E.getOffset() & 3;
+      Edge::OffsetT BundleOffset = E.getOffset() - Slot;
+      uint64_t Insn = 0;
+      bool IsLoad = BundleOffset % BundleSize == 0 && Slot != 3 &&
+                    BundleOffset + BundleSize <= B->getSize();
+      if (IsLoad) {
+        Insn = readSlot(B->getContent().data() + BundleOffset, Slot);
+        // ld8 r1 = [r3], with any hint and no speculation.
+        IsLoad = (Insn & 0x1ffc8000000) == 0x080c0000000;
+      }
+      if (!IsLoad)
+        return make_error<JITLinkError>(
+            "In graph " + G.getName() + ", section " +
+            B->getSection().getName() + ": " +
+            getEdgeKindName(E.getKind()) + " at " +
+            formatv("{0:x}", (B->getAddress() + E.getOffset()).getValue()) +
+            " is not at a load of eight bytes");
+
+      // The register holds the target address rather than the entry's, so
+      // the load becomes a move, or a nop if r1 == r3.
+
+      uint64_t QP = Insn & 0x3f;
+      uint64_t R1 = (Insn >> 6) & 0x7f;
+      uint64_t R3 = (Insn >> 20) & 0x7f;
+      uint64_t Move = R1 == R3 ? uint64_t(1) << 27 // nop.m 0
+                               : uint64_t(8) << 37 | uint64_t(2) << 34 |
+                                     R3 << 20 | R1 << 6 | QP; // adds r1 = 0, r3
+      writeSlot(B->getMutableContent(G).data() + BundleOffset, Slot, Move);
+    }
+  return Error::success();
 }
 
 } // namespace llvm::jitlink::ia64

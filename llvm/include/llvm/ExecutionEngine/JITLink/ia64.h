@@ -239,6 +239,29 @@ enum EdgeKind_ia64 : Edge::Kind {
   ///
   RequestGOTAndTransformToGPRel22,
 
+  /// As above, but the ld8 that loads the entry is marked by a
+  /// LinkageTableLoad so the pair can be relaxed together.
+  ///
+  /// This is not a fixup. The linkage-table-building pass retargets the edge
+  /// at the entry and changes it to GPRel22Relaxable.
+  ///
+  RequestGOTAndTransformToGPRel22Relaxable,
+
+  /// A GPRel22 to a linkage table entry. If the entry's value is within
+  /// GPRel22 range of GP, relaxation retargets the edge at that value and
+  /// changes it to GPRel22; otherwise it is applied as a GPRel22.
+  ///
+  GPRel22Relaxable,
+
+  /// Marks the ld8 that loads the target's linkage table entry, whose address
+  /// came from a GPRel22Relaxable. If that edge was relaxed, the register
+  /// already holds the target address and relaxation turns the load into a
+  /// move.
+  ///
+  /// The fixup is a no-op.
+  ///
+  LinkageTableLoad,
+
   /// A linkage table entry for the target, addressed by a movl.
   ///
   /// This is not a fixup. It becomes a GPRel64I to the entry.
@@ -498,8 +521,11 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
     setFields(Bundle, Slot, encodeImm14(~uint64_t(0)), encodeImm14(Target));
     break;
   }
+  case LinkageTableLoad:
+    break;
   case Imm22:
-  case GPRel22: {
+  case GPRel22:
+  case GPRel22Relaxable: {
     if (auto Err = CheckBundle(false))
       return Err;
     int64_t Value = E.getKind() == Imm22 ? Target : Target - GP.getValue();
@@ -572,6 +598,12 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
 
   return Error::success();
 }
+
+/// Relax the linkage table loads marked by the object. Where the target of a
+/// GPRel22Relaxable is within GPRel22 range of \p GP, the addl computes the
+/// target address directly and the paired LinkageTableLoad ld8 becomes a
+/// move. Both edges name the same target, so they agree.
+LLVM_ABI Error relaxLinkageTableLoads(LinkGraph &G, orc::ExecutorAddr GP);
 
 LLVM_ABI extern const char NullPointerContent[PointerSize];
 LLVM_ABI extern const char NullDescriptorContent[DescriptorSize];
@@ -722,6 +754,9 @@ public:
     switch (E.getKind()) {
     case RequestGOTAndTransformToGPRel22:
       KindToSet = GPRel22;
+      break;
+    case RequestGOTAndTransformToGPRel22Relaxable:
+      KindToSet = GPRel22Relaxable;
       break;
     case RequestGOTAndTransformToGPRel64I:
       KindToSet = GPRel64I;

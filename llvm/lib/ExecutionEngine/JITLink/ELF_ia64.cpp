@@ -103,6 +103,10 @@ public:
       : JITLinker(std::move(Ctx), std::move(G), std::move(PassConfig)) {
     getPassConfig().PostAllocationPasses.push_back(
         [this](LinkGraph &G) { return defineGlobalPointer(G); });
+    // The linkage table entries' targets have addresses by now.
+    getPassConfig().PreFixupPasses.push_back([this](LinkGraph &G) {
+      return ia64::relaxLinkageTableLoads(G, GlobalPointer);
+    });
   }
 
 private:
@@ -172,9 +176,7 @@ private:
                             Block &BlockToFix) {
     uint32_t ELFReloc = Rel.getType(false);
 
-    // An ldxmov marks a load from the linkage table that a linker could
-    // make a move of, where what the entry holds is near. The load is left.
-    if (ELFReloc == ELF::R_IA64_NONE || ELFReloc == ELF::R_IA64_LDXMOV)
+    if (ELFReloc == ELF::R_IA64_NONE)
       return Error::success();
 
     uint32_t SymbolIndex = Rel.getSymbol(false);
@@ -247,8 +249,16 @@ private:
       Kind = ia64::GPRel64I;
       break;
     case ELF::R_IA64_LTOFF22:
-    case ELF::R_IA64_LTOFF22X:
       Kind = ia64::RequestGOTAndTransformToGPRel22;
+      break;
+    // An LTOFF22X marks an addl whose result is used only by a load marked
+    // by LDXMOV, so if the entry's value is within GP range the pair can
+    // bypass the entry.
+    case ELF::R_IA64_LTOFF22X:
+      Kind = ia64::RequestGOTAndTransformToGPRel22Relaxable;
+      break;
+    case ELF::R_IA64_LDXMOV:
+      Kind = ia64::LinkageTableLoad;
       break;
     case ELF::R_IA64_LTOFF64I:
       Kind = ia64::RequestGOTAndTransformToGPRel64I;
