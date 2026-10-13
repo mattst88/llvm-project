@@ -1,4 +1,7 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu < %s \
+; RUN:   | FileCheck %s --check-prefixes=CHECK,SDAG
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -global-isel -global-isel-abort=1 \
+; RUN:   -verify-machineinstrs < %s | FileCheck %s --check-prefixes=CHECK,GISEL
 
 ; A vector of two single-precision values is what GCC has in a
 ; floating-point register as the significand of what the register holds,
@@ -53,7 +56,9 @@ define void @stack(<2 x float> %v) {
 define float @stack_callee(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g, <2 x float> %v, <2 x float> %w) {
 ; CHECK-LABEL: stack_callee:
 ; CHECK:       adds [[A:r[0-9]+]] = 16, r12
-; CHECK:       ldfs f8 = {{\[}}[[A]]{{\]}}
+; SDAG:        ldfs f8 = {{\[}}[[A]]{{\]}}
+; GISEL:       ld8 [[B:r[0-9]+]] = {{\[}}[[A]]{{\]}}
+; GISEL:       setf.s f8 = [[B]]
   %r = extractelement <2 x float> %w, i32 0
   ret float %r
 }
@@ -75,4 +80,18 @@ define <2 x float> @fast(<2 x float> %v) "frame-pointer"="none" {
 ; CHECK-LABEL: fast:
 ; CHECK:       br.ret.sptk.many b0
   ret <2 x float> %v
+}
+
+declare void @named(<2 x float>, ...)
+
+; One that a callee with a variable number of arguments has named is in
+; the register and in its slot.
+define void @variadic(<2 x float> %v) {
+; CHECK-LABEL: variadic:
+; CHECK:       alloc r33 = ar.pfs, 0, 3, 1, 0
+; CHECK:       getf.sig r35 = f8
+; CHECK:       setf.sig f8 = r35
+; CHECK-NEXT:  br.call.sptk.many b0 = named
+  call void (<2 x float>, ...) @named(<2 x float> %v)
+  ret void
 }

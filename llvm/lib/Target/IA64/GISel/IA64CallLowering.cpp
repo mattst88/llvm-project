@@ -31,8 +31,16 @@ using namespace llvm;
 
 namespace {
 
-/// The arguments a function finds, which are in its input registers and
-/// above the scratch area its caller left it.
+/// Incoming arguments, which are in the input registers and above the
+/// caller's scratch area.
+/// Whether this is <2 x float>, whose 8 bytes are passed as the significand
+/// of an FP register.
+static bool isSignificandType(const Type *Ty) {
+  const auto *VTy = dyn_cast<FixedVectorType>(Ty);
+  return VTy && VTy->getNumElements() == 2 &&
+         VTy->getElementType()->isFloatTy();
+}
+
 struct IA64IncomingValueHandler : public CallLowering::IncomingValueHandler {
   IA64IncomingValueHandler(MachineIRBuilder &MIRBuilder,
                            MachineRegisterInfo &MRI)
@@ -134,6 +142,26 @@ struct IA64IncomingValueHandler : public CallLowering::IncomingValueHandler {
       markPhysRegUsed(VA.getLocReg());
       return MIRBuilder.buildCopy(S64, Register(VA.getLocReg())).getReg(0);
     };
+
+    // <2 x float> is the significand of the FP register.
+    if (isSignificandType(Arg.Ty)) {
+      if (!VA.isRegLoc() || VA.getLocVT() != MVT::f64)
+        return 0;
+      MachineRegisterInfo &MRI = *MIRBuilder.getMRI();
+      markPhysRegUsed(VA.getLocReg());
+      Register Held = MRI.createVirtualRegister(&IA64::FRRegClass);
+      MIRBuilder.buildCopy(Held, Register(VA.getLocReg()));
+      Register Bits = MRI.createVirtualRegister(&IA64::GRRegClass);
+      MRI.setType(Bits, S64);
+      MIRBuilder.buildInstr(IA64::GETF_SIG)
+          .addDef(Bits)
+          .addUse(Held)
+          .addUse(IA64::P0);
+      MIRBuilder.buildBitcast(Arg.Regs[0], Bits);
+      // In a varargs function this is a named argument; its GR slot copy is
+      // not read.
+      return VAs.size() > 1 && VAs[1].getValNo() == VA.getValNo() ? 2 : 1;
+    }
 
     // An f80 occupies two slots; store them and reload as f80.
     if (VA.getValVT() == MVT::f80) {
@@ -292,6 +320,28 @@ struct IA64OutgoingValueHandler : public CallLowering::OutgoingValueHandler {
 
     if (!VA.isRegLoc())
       return 0;
+    // <2 x float> is passed as the significand of an FP register, and also
+    // as an integer in its GR slot when the callee may be variadic.
+    if (isSignificandType(Arg.Ty)) {
+      Register Bits = MRI.createVirtualRegister(&IA64::GRRegClass);
+      MRI.setType(Bits, S64);
+      MIRBuilder.buildBitcast(Bits, Arg.Regs[0]);
+      if (VA.getLocVT() != MVT::f64) {
+        assignValueToReg(Bits, VA.getLocReg(), VA);
+        return 1;
+      }
+      Register Held = MRI.createVirtualRegister(&IA64::FRRegClass);
+      MRI.setType(Held, S64);
+      MIRBuilder.buildInstr(IA64::SETF_SIG)
+          .addDef(Held)
+          .addUse(Bits)
+          .addUse(IA64::P0);
+      assignValueToReg(Held, VA.getLocReg(), VA);
+      if (VAs.size() < 2 || VAs[1].getValNo() != VA.getValNo())
+        return 1;
+      assignValueToReg(Bits, VAs[1].getLocReg(), VAs[1]);
+      return 2;
+    }
     // Two float members of an aggregate may share one slot, so the low half
     // is deferred until it is known whether a high half follows.
     if (VA.getValVT() == MVT::f32 && VA.getLocInfo() == CCValAssign::BCvt) {
@@ -404,11 +454,8 @@ static bool areSupported(ArrayRef<CallLowering::ArgInfo> Args) {
     // A vector is passed as its individual elements, except <2 x float>,
     // which is passed as the significand of an FP register.
     const Type *Ty = Arg.Ty;
-    if (const auto *VTy = dyn_cast<FixedVectorType>(Ty)) {
+    if (const auto *VTy = dyn_cast<FixedVectorType>(Ty))
       Ty = VTy->getElementType();
-      if (Ty->isFloatTy() && VTy->getNumElements() == 2)
-        return false;
-    }
     return Ty->isIntegerTy() || Ty->isPointerTy() || Ty->isFloatTy() ||
            Ty->isDoubleTy();
   });
@@ -438,7 +485,8 @@ static void takeSlotCopies(SmallVectorImpl<CCValAssign> &ArgLocs,
 static bool hasVectorInCustomPlace(ArrayRef<CallLowering::ArgInfo> Args,
                                    ArrayRef<CCValAssign> ArgLocs) {
   return any_of(ArgLocs, [&](const CCValAssign &VA) {
-    return VA.needsCustom() && Args[VA.getValNo()].Ty->isVectorTy();
+    const Type *Ty = Args[VA.getValNo()].Ty;
+    return VA.needsCustom() && Ty->isVectorTy() && !isSignificandType(Ty);
   });
 }
 

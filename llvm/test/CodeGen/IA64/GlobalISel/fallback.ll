@@ -18,16 +18,16 @@ define dso_local i64 @plain(i64 %a) {
   ret i64 %a
 }
 
-declare void @any(<2 x float>, ...)
+declare void @any(<4 x float>, ...)
 
 ; A floating-point argument that a callee with a variable number of them
 ; has named is in two places, and the second is one where a value would be
 ; looked for and an element of a vector is not.
-define void @elements(<2 x float> %a) {
+define void @elements(<4 x float> %a) {
 ; CHECK-LABEL: elements:
 ; CHECK:       br.call.sptk.many b0 = any ;;
 ; DAG-LABEL:   elements:
-  call void (<2 x float>, ...) @any(<2 x float> %a)
+  call void (<4 x float>, ...) @any(<4 x float> %a)
   ret void
 }
 
