@@ -438,6 +438,13 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
 
   // va_list is a pointer to the next variadic argument.
   getActionDefinitionsBuilder(G_VASTART).customFor({p0});
+  // va_arg loads from the va_list pointer and advances it past the slots
+  // used. Arguments narrower than a slot occupy a full 8-byte slot.
+  getActionDefinitionsBuilder(G_VAARG)
+      .customIf([=](const LegalityQuery &Q) {
+        return Q.Types[0].isScalar() && Q.Types[0].getSizeInBits() < 64;
+      })
+      .lower();
   getActionDefinitionsBuilder(G_FENCE).alwaysLegal();
   getActionDefinitionsBuilder({G_TRAP, G_DEBUGTRAP}).alwaysLegal();
   getActionDefinitionsBuilder(G_PREFETCH).legalIf(typeIs(0, p0));
@@ -848,6 +855,16 @@ bool IA64LegalizerInfo::legalizeCustom(
         MIRBuilder.buildAnd(
             S64, MIRBuilder.buildPtrToInt(S64, MI.getOperand(1).getReg()),
             MI.getOperand(2).getReg()));
+    MI.eraseFromParent();
+    return true;
+  }
+  case G_VAARG: {
+    Register Slot = MF.getRegInfo().createGenericVirtualRegister(
+        LLT::scalar(64));
+    MIRBuilder.buildInstr(G_VAARG, {Slot}, {MI.getOperand(1).getReg()})
+        .addImm(8)
+        .cloneMemRefs(MI);
+    MIRBuilder.buildTrunc(MI.getOperand(0).getReg(), Slot);
     MI.eraseFromParent();
     return true;
   }
