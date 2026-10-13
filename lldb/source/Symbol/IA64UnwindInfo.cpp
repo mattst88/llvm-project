@@ -18,6 +18,8 @@
 #include <array>
 #include <climits>
 #include <cstring>
+#include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -61,6 +63,10 @@ enum Where : uint8_t {
 
 constexpr int32_t kNever = INT32_MAX;
 
+// Work budget for parsing one function's descriptors: each byte read costs 1,
+// each state labelled or copied costs 8.
+constexpr uint64_t kMaxWork = 1 << 27;
+
 struct Save {
   Where where;
   int32_t when; // The slot of the instruction that saves the register.
@@ -85,40 +91,56 @@ struct State {
 /// instruction slot numbers (three per bundle) from the function start.
 class Parser {
 public:
-  /// \p slots is the number of slots the function has, which its regions
-  /// are kept to. \p target is the slot whose region to stop at, and
-  /// \p reached the slot control is at: what an instruction at or after it
-  /// saves is not saved. \p times, if there is one, is given every slot at
-  /// which the state may change.
+  /// \p slots is the number of slots in the function; regions are clamped to
+  /// it. Parsing stops at the region containing slot \p target. \p reached
+  /// is the current slot: saves by instructions at or after it have not
+  /// happened. If \p times is non-null, every slot at which the state may
+  /// change is added to it. \p work is the remaining work budget for the
+  /// function, shared by every parse of its descriptors.
   Parser(llvm::ArrayRef<uint8_t> data, int32_t slots, int32_t target,
-         int32_t reached, std::set<int32_t> *times)
+         int32_t reached, std::set<int32_t> *times, uint64_t &work)
       : m_data(data), m_slots(slots), m_target(target), m_reached(reached),
-        m_times(times) {
+        m_times(times), m_work(work) {
     for (Save &s : m_curr.reg)
       s = {kNowhere, kNever, 0};
   }
 
-  bool Run(int64_t stop_label, unsigned copy_depth);
+  bool Run();
   void Finish();
   const State &GetState() const { return m_curr; }
 
 private:
   // Each prologue pushes its entry state for an epilogue to restore.
   static constexpr unsigned kMaxDepth = 8;
-  // copy_state reads the descriptors again, up to the label_state it names,
-  // which may come after a copy_state of its own.
-  static constexpr unsigned kMaxCopyDepth = 4;
+
+  // What label_state records for copy_state: the current state and, below
+  // it, the stack of states that epilogues restore.
+  using Labelled = std::vector<State>;
+  // Compilers emit a label_state for each early return. This limit is more
+  // than any function needs.
+  static constexpr size_t kMaxLabels = 4096;
 
   bool StartRegion(bool body, uint64_t rlen, unsigned mask, unsigned grsave);
   void FinishPrologue();
   bool PrologueDescriptor(uint8_t b);
-  bool BodyDescriptor(uint8_t b, int64_t stop_label, unsigned copy_depth,
-                      bool &stopped);
+  bool BodyDescriptor(uint8_t b);
   bool SpillDescriptor(uint8_t b);
   void AllocSpillArea(int64_t &offset, int size, int lo, int hi);
 
+  // The descriptors are reparsed for every slot at which the state changes,
+  // so the work is quadratic in their size in the worst case. Parsing gives
+  // up once it exceeds a budget no real function needs.
+  bool Spend(uint64_t work) {
+    if (work > m_work) {
+      m_work = 0;
+      m_overrun = true;
+      return false;
+    }
+    m_work -= work;
+    return true;
+  }
   uint8_t Get8() {
-    if (m_pos < m_data.size())
+    if (m_pos < m_data.size() && Spend(1))
       return m_data[m_pos++];
     m_overrun = true;
     return 0;
@@ -180,10 +202,12 @@ private:
   int32_t m_target;
   int32_t m_reached;
   std::set<int32_t> *m_times;
+  uint64_t &m_work;
 
   State m_curr;
   State m_stack[kMaxDepth];
   unsigned m_depth = 0;
+  std::map<uint64_t, Labelled> m_labels;
   int32_t m_region_start = 0;
   int32_t m_region_len = 0;
   // The unclamped region length from the region header; the spill mask size
@@ -416,7 +440,7 @@ bool Parser::PrologueDescriptor(uint8_t b) {
   }
   if (b == 0xb8) { // P4: spill_mask
     const uint64_t size = m_region_rlen / 4 + (m_region_rlen % 4 != 0);
-    if (size > m_data.size() - m_pos)
+    if (size > m_data.size() - m_pos || !Spend(size))
       return false;
     m_imask = m_pos;
     m_has_imask = true;
@@ -518,8 +542,7 @@ bool Parser::PrologueDescriptor(uint8_t b) {
   return false;
 }
 
-bool Parser::BodyDescriptor(uint8_t b, int64_t stop_label, unsigned copy_depth,
-                            bool &stopped) {
+bool Parser::BodyDescriptor(uint8_t b) {
   bool copy;
   uint64_t label;
   if ((b & 0xc0) == 0x80) { // B1
@@ -544,28 +567,34 @@ bool Parser::BodyDescriptor(uint8_t b, int64_t stop_label, unsigned copy_depth,
     return false;
   }
 
+  // copy_state restores the state recorded by the most recent label_state
+  // with the same label.
+  if (!Spend(8 * (m_depth + 1)))
+    return false;
   if (!copy) {
-    stopped = stop_label >= 0 && label == static_cast<uint64_t>(stop_label);
+    if (m_labels.size() == kMaxLabels && !m_labels.count(label))
+      return false;
+    Labelled &labelled = m_labels[label];
+    labelled.assign(m_stack, m_stack + m_depth);
+    labelled.push_back(m_curr);
     return true;
   }
-  // The state to copy is the one the descriptors lead to at the label.
-  if (copy_depth == kMaxCopyDepth)
+  auto it = m_labels.find(label);
+  if (it == m_labels.end())
     return false;
-  Parser labelled(m_data, m_slots, kNever, m_reached, nullptr);
-  if (!labelled.Run(static_cast<int64_t>(label), copy_depth + 1))
-    return false;
-  m_curr = labelled.m_curr;
-  m_depth = labelled.m_depth;
-  for (unsigned i = 0; i != m_depth; ++i)
-    m_stack[i] = labelled.m_stack[i];
+  const Labelled &labelled = it->second;
+  m_curr = labelled.back();
+  m_depth = labelled.size() - 1;
+  std::copy(labelled.begin(), labelled.end() - 1, m_stack);
   return true;
 }
 
-/// Reads the descriptors up to the region of the target, or up to the
-/// label_state of \p stop_label if that is not negative.
-bool Parser::Run(int64_t stop_label, unsigned copy_depth) {
+/// Parses descriptors up to the region containing the target slot.
+bool Parser::Run() {
   while (m_pos < m_data.size()) {
     uint8_t b = Get8();
+    if (m_overrun)
+      return false;
     // The descriptors are zero-padded to a multiple of 8 bytes; the padding
     // parses as zero-length regions.
     if (b < 0x80) {
@@ -588,7 +617,7 @@ bool Parser::Run(int64_t stop_label, unsigned copy_depth) {
         return false;
       }
       if (!StartRegion(body, rlen, mask, grsave))
-        return stop_label < 0;
+        return true;
       continue;
     }
     if (m_first)
@@ -598,13 +627,10 @@ bool Parser::Run(int64_t stop_label, unsigned copy_depth) {
         return false;
       continue;
     }
-    bool stopped = false;
-    if (!BodyDescriptor(b, stop_label, copy_depth, stopped))
+    if (!BodyDescriptor(b))
       return false;
-    if (stopped)
-      return true;
   }
-  if (m_overrun || stop_label >= 0)
+  if (m_overrun)
     return false;
   if (!m_first && !m_in_body)
     FinishPrologue();
@@ -1100,8 +1126,9 @@ IA64UnwindInfo::GetUnwindPlan(llvm::ArrayRef<AddressRange> ranges,
       (entry.end - entry.start) / 16 * 3, static_cast<uint64_t>(kNever / 2)));
   std::set<int32_t> times;
   times.insert(0);
-  Parser all(descriptors, slots, kNever, kNever, &times);
-  if (!all.Run(-1, 0))
+  uint64_t work = kMaxWork;
+  Parser all(descriptors, slots, kNever, kNever, &times, work);
+  if (!all.Run())
     return nullptr;
 
   auto plan_up = std::make_unique<UnwindPlan>(eRegisterKindEHFrame);
@@ -1120,8 +1147,8 @@ IA64UnwindInfo::GetUnwindPlan(llvm::ArrayRef<AddressRange> ranges,
   for (int32_t time : times) {
     if (time < 0 || (time >= slots && any))
       continue;
-    Parser parser(descriptors, slots, time, time, nullptr);
-    if (!parser.Run(-1, 0))
+    Parser parser(descriptors, slots, time, time, nullptr, work);
+    if (!parser.Run())
       return nullptr;
     parser.Finish();
     if (any && parser.GetState() == last)
