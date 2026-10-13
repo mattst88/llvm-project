@@ -303,12 +303,6 @@
 	addl r4 = @(x), r1
 
 // Data directives.
-// CHECK: :[[#@LINE+1]]:8: error: value does not fit in 1 byte
-	data1 300
-// CHECK: :[[#@LINE+1]]:8: error: value does not fit in 2 bytes
-	data2 -32769
-// CHECK: :[[#@LINE+1]]:8: error: value does not fit in 4 bytes
-	.long 0x1ffffffff
 // CHECK: :[[#@LINE+1]]:10: error: unexpected token
 	data8 1 2
 // CHECK: :[[#@LINE+1]]:10: error: expected string

@@ -55,8 +55,6 @@ f:	nop 0
 	data16 @iplt(f) + 1
 // ERR: :[[#@LINE+1]]:9: error: expected a number or '@iplt'
 	data16 @ltoff(f)
-// ERR: :[[#@LINE+1]]:9: error: value does not fit in 16 bytes
-	data16 0x10000000000000000000000000000000f
 .else
 	.data
 // ERR2-DAG: :[[#@LINE+1]]:8: error: relocation specifier is not supported here

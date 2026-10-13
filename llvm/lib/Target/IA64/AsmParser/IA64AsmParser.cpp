@@ -1265,14 +1265,22 @@ bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
     if (isa<IA64RegisterExpr>(Value))
       return Error(Loc, "a register is not a value");
     const auto *CE = dyn_cast<MCConstantExpr>(Value);
-    if (CE && !isUIntN(8 * Size, CE->getValue()) &&
-        !isIntN(8 * Size, CE->getValue()))
-      return Error(Loc, "value does not fit in " + Twine(Size) +
-                            (Size == 1 ? " byte" : " bytes"));
+    // GNU as truncates a number that does not fit, and warns unless the
+    // dropped bits are all sign bits.
+    uint64_t Bits = CE ? CE->getValue() : 0;
+    if (CE && Size < 8) {
+      uint64_t Rest = Bits >> (8 * Size);
+      uint64_t Kept = Bits & maskTrailingOnes<uint64_t>(8 * Size);
+      if (Rest && Rest != maskTrailingOnes<uint64_t>(64 - 8 * Size) &&
+          Warning(Loc, "value 0x" + Twine::utohexstr(Bits) +
+                           " truncated to 0x" + Twine::utohexstr(Kept)))
+        return true;
+      Bits = Kept;
+    }
     if (ElsewhereText) {
       addElsewhereText(*Value);
     } else if (CE) {
-      Out.emitIntValue(CE->getValue(), Size);
+      Out.emitIntValue(Bits, Size);
     } else {
       Out.emitValue(Value, Size, Loc);
     }
@@ -1294,8 +1302,10 @@ bool IA64AsmParser::parseData16(bool Aligned) {
       AsmToken::TokenKind Next = getLexer().peekTok().getKind();
       if (Next == AsmToken::Comma || Next == AsmToken::EndOfStatement) {
         APInt Value = Tok.getAPIntVal();
-        if (Value.getActiveBits() > 128)
-          return Error(Loc, "value does not fit in 16 bytes");
+        // GNU as truncates here too.
+        if (Value.getActiveBits() > 128 &&
+            Warning(Loc, "number truncated to 16 bytes"))
+          return true;
         if (ElsewhereText)
           addElsewhereText("0x" + toString(Value, 16, /*Signed=*/false));
         else
