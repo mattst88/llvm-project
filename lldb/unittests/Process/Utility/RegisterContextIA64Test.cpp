@@ -70,6 +70,30 @@ TEST(RegisterContextIA64Test, DwarfNumbering) {
   EXPECT_EQ(ec->kinds[eRegisterKindDWARF], 334u + 66);
 }
 
+TEST(RegisterContextIA64Test, UnwindPlanNumbers) {
+  RegisterContextLinux_ia64 ctx{ArchSpec("ia64-unknown-linux-gnu")};
+
+  // An unwind plan names a register by its number of eRegisterKindEHFrame,
+  // which is the DWARF one where there is one. The four that the plans need
+  // and DWARF has no number for have the numbers gdb gives them.
+  const RegisterInfo *b0 = findByName(ctx, "b0");
+  ASSERT_NE(b0, nullptr);
+  EXPECT_EQ(b0->kinds[eRegisterKindEHFrame], 320u);
+
+  const RegisterInfo *bsp = findByName(ctx, "bsp");
+  ASSERT_NE(bsp, nullptr);
+  EXPECT_EQ(bsp->kinds[eRegisterKindEHFrame], 334u + 17);
+
+  const std::pair<const char *, uint32_t> without_dwarf[] = {
+      {"pr", 330}, {"ip", 331}, {"psr", 332}, {"cfm", 333}};
+  for (const auto &[name, num] : without_dwarf) {
+    const RegisterInfo *info = findByName(ctx, name);
+    ASSERT_NE(info, nullptr) << name;
+    EXPECT_EQ(info->kinds[eRegisterKindEHFrame], num) << name;
+    EXPECT_EQ(info->kinds[eRegisterKindDWARF], LLDB_INVALID_REGNUM) << name;
+  }
+}
+
 TEST(RegisterContextIA64Test, GenericRegisters) {
   RegisterContextLinux_ia64 ctx{ArchSpec("ia64-unknown-linux-gnu")};
 

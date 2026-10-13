@@ -10,6 +10,7 @@
 
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/Value.h"
+#include "lldb/Symbol/IA64UnwindInfo.h"
 #include "lldb/Symbol/UnwindPlan.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/RegisterContext.h"
@@ -129,13 +130,12 @@ ValueObjectSP ABISysV_ia64::GetReturnValueObjectImpl(
 UnwindPlanSP ABISysV_ia64::CreateFunctionEntryUnwindPlan() {
   UnwindPlan::Row row;
 
-  // At the entry to a function nothing has been allocated on the memory
-  // stack, and the return address is in b0.
-  row.GetCFAValue().SetIsRegisterPlusOffset(LLDB_REGNUM_GENERIC_SP, 0);
-  row.SetRegisterLocationToRegister(LLDB_REGNUM_GENERIC_PC,
-                                    LLDB_REGNUM_GENERIC_RA, true);
+  // At function entry nothing is allocated on the memory stack, the return
+  // address is in b0, and ar.pfs holds the caller's CFM, which locates the
+  // caller's frame in the register backing store.
+  IA64UnwindInfo::DescribeUnsavedFrame(row);
 
-  auto plan_sp = std::make_shared<UnwindPlan>(eRegisterKindGeneric);
+  auto plan_sp = std::make_shared<UnwindPlan>(eRegisterKindEHFrame);
   plan_sp->AppendRow(std::move(row));
   plan_sp->SetSourceName("ia64 at-func-entry default");
   plan_sp->SetSourcedFromCompiler(eLazyBoolNo);
@@ -147,21 +147,18 @@ UnwindPlanSP ABISysV_ia64::CreateFunctionEntryUnwindPlan() {
 UnwindPlanSP ABISysV_ia64::CreateDefaultUnwindPlan() {
   UnwindPlan::Row row;
 
-  // There is no frame pointer to follow, and no fixed place a function keeps
-  // its return address: one that makes a call moves b0 to a stacked register
-  // of its choosing, and only the unwind table says which. Without the table
-  // the one guess to make is that of a leaf function, which leaves b0 and
-  // the stack pointer as they arrived. It is right for the innermost frame
-  // of most faults and for nothing above it, so everything else is given as
-  // unknown and the walk ends at the caller.
-  row.GetCFAValue().SetIsRegisterPlusOffset(LLDB_REGNUM_GENERIC_SP, 0);
-  row.SetRegisterLocationToRegister(LLDB_REGNUM_GENERIC_PC,
-                                    LLDB_REGNUM_GENERIC_RA, true);
-  row.SetRegisterLocationToIsCFAPlusOffset(LLDB_REGNUM_GENERIC_SP, 0, true);
+  // There is no frame pointer and no fixed return address location: a
+  // non-leaf function copies b0 to a stacked register of its choosing, and
+  // only the unwind table says which. Without the table, the only usable
+  // guess is a leaf function, which leaves b0, ar.pfs and sp unchanged; the
+  // ABI allows such a function to have no unwind table entry. That is right
+  // for the innermost frame of most faults and for nothing above it, so
+  // everything else is unknown and the walk ends at the caller.
+  IA64UnwindInfo::DescribeUnsavedFrame(row);
   // The unwinder asserts on a default plan that leaves this unset.
   row.SetUnspecifiedRegistersAreUndefined(true);
 
-  auto plan_sp = std::make_shared<UnwindPlan>(eRegisterKindGeneric);
+  auto plan_sp = std::make_shared<UnwindPlan>(eRegisterKindEHFrame);
   plan_sp->AppendRow(std::move(row));
   plan_sp->SetSourceName("ia64 default unwind plan");
   plan_sp->SetSourcedFromCompiler(eLazyBoolNo);

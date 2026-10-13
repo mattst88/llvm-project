@@ -9,6 +9,7 @@
 #include "RegisterContextLinux_ia64.h"
 #include "lldb-ia64-register-enums.h"
 
+#include "lldb/Symbol/IA64UnwindInfo.h"
 #include "lldb/lldb-defines.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -36,8 +37,12 @@ static constexpr uint32_t k_note_ip = 42;
 // application register N is 334 + N. Each predicate has its own number but
 // pr as a whole has none, and ip, cfm and psr have none. These match
 // IA64RegisterInfo.td.
-static constexpr uint32_t k_dwarf_b0 = 320;
-static constexpr uint32_t k_dwarf_ar0 = 334;
+//
+// The plans built from the unwind table still need to name those four, and
+// use eRegisterKindEHFrame numbers, which match the DWARF numbers for every
+// other register.
+static constexpr uint32_t k_dwarf_b0 = ia64_eh_frame::b0;
+static constexpr uint32_t k_dwarf_ar0 = ia64_eh_frame::ar0;
 
 namespace {
 struct ApplicationRegister {
@@ -45,18 +50,27 @@ struct ApplicationRegister {
   uint32_t LLDBNum;
   // Its application register number, or -1.
   int ARNum;
+  // Its unwind plan register number, if it has no DWARF number.
+  uint32_t EHFrameNum = LLDB_INVALID_REGNUM;
 };
 } // namespace
 
 // The registers that follow b7 in the note, in its order.
 static constexpr ApplicationRegister g_after_b7[] = {
-    {"ip", gpr_ip_ia64, -1},     {"cfm", gpr_cfm_ia64, -1},
-    {"psr", gpr_psr_ia64, -1},   {"rsc", gpr_rsc_ia64, 16},
-    {"bsp", gpr_bsp_ia64, 17},   {"bspstore", gpr_bspstore_ia64, 18},
-    {"rnat", gpr_rnat_ia64, 19}, {"ccv", gpr_ccv_ia64, 32},
-    {"unat", gpr_unat_ia64, 36}, {"fpsr", gpr_fpsr_ia64, 40},
-    {"pfs", gpr_pfs_ia64, 64},   {"lc", gpr_lc_ia64, 65},
-    {"ec", gpr_ec_ia64, 66},     {"csd", gpr_csd_ia64, 25},
+    {"ip", gpr_ip_ia64, -1, ia64_eh_frame::ip},
+    {"cfm", gpr_cfm_ia64, -1, ia64_eh_frame::cfm},
+    {"psr", gpr_psr_ia64, -1, ia64_eh_frame::psr},
+    {"rsc", gpr_rsc_ia64, 16},
+    {"bsp", gpr_bsp_ia64, 17},
+    {"bspstore", gpr_bspstore_ia64, 18},
+    {"rnat", gpr_rnat_ia64, 19},
+    {"ccv", gpr_ccv_ia64, 32},
+    {"unat", gpr_unat_ia64, 36},
+    {"fpsr", gpr_fpsr_ia64, 40},
+    {"pfs", gpr_pfs_ia64, 64},
+    {"lc", gpr_lc_ia64, 65},
+    {"ec", gpr_ec_ia64, 66},
+    {"csd", gpr_csd_ia64, 25},
     {"ssd", gpr_ssd_ia64, 26},
 };
 
@@ -72,14 +86,17 @@ static const char *GeneralRegisterName(uint32_t num) {
 
 static RegisterInfo MakeInfo(const char *name, const char *alt_name,
                              uint32_t doubleword, uint32_t dwarf,
-                             uint32_t generic, uint32_t lldb_num) {
+                             uint32_t generic, uint32_t lldb_num,
+                             uint32_t eh_frame = LLDB_INVALID_REGNUM) {
+  if (eh_frame == LLDB_INVALID_REGNUM)
+    eh_frame = dwarf;
   return {name,
           alt_name,
           8,
           doubleword * 8,
           eEncodingUint,
           eFormatHex,
-          {dwarf, dwarf, generic, LLDB_INVALID_REGNUM, lldb_num},
+          {eh_frame, dwarf, generic, LLDB_INVALID_REGNUM, lldb_num},
           nullptr,
           nullptr,
           nullptr};
@@ -122,14 +139,15 @@ RegisterContextLinux_ia64::RegisterContextLinux_ia64(
 
   m_register_infos[gpr_pr_ia64] =
       MakeInfo("pr", nullptr, k_note_pr, LLDB_INVALID_REGNUM,
-               LLDB_INVALID_REGNUM, gpr_pr_ia64);
+               LLDB_INVALID_REGNUM, gpr_pr_ia64, ia64_eh_frame::pr);
 
   for (const auto &[index, reg] : llvm::enumerate(g_after_b7)) {
     const bool is_ip = reg.LLDBNum == gpr_ip_ia64;
-    m_register_infos[reg.LLDBNum] = MakeInfo(
-        reg.Name, is_ip ? "pc" : nullptr, k_note_ip + index,
-        reg.ARNum < 0 ? LLDB_INVALID_REGNUM : k_dwarf_ar0 + reg.ARNum,
-        is_ip ? LLDB_REGNUM_GENERIC_PC : LLDB_INVALID_REGNUM, reg.LLDBNum);
+    m_register_infos[reg.LLDBNum] =
+        MakeInfo(reg.Name, is_ip ? "pc" : nullptr, k_note_ip + index,
+                 reg.ARNum < 0 ? LLDB_INVALID_REGNUM : k_dwarf_ar0 + reg.ARNum,
+                 is_ip ? LLDB_REGNUM_GENERIC_PC : LLDB_INVALID_REGNUM,
+                 reg.LLDBNum, reg.EHFrameNum);
   }
 
   // Bit N of this word says that rN, one of r0-r31, holds a NaT.
