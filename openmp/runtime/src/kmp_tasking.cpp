@@ -626,8 +626,14 @@ void __kmpc_omp_task_begin_if0(ident_t *loc_ref, kmp_int32 gtid,
 #if OMPT_SUPPORT
   if (UNLIKELY(ompt_enabled.enabled)) {
     OMPT_STORE_RETURN_ADDRESS(gtid);
-    __kmpc_omp_task_begin_if0_ompt(loc_ref, gtid, task,
-                                   OMPT_GET_FRAME_ADDRESS(1),
+#if KMP_ARCH_IA64
+    // Only the current frame has an address: the caller's stack pointer at
+    // the call.
+    void *frame_address = OMPT_GET_FRAME_ADDRESS(0);
+#else
+    void *frame_address = OMPT_GET_FRAME_ADDRESS(1);
+#endif
+    __kmpc_omp_task_begin_if0_ompt(loc_ref, gtid, task, frame_address,
                                    OMPT_LOAD_RETURN_ADDRESS(gtid));
     return;
   }

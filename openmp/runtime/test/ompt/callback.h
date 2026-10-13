@@ -243,10 +243,16 @@ static void print_ids(int level) {
 //
 // (The empty block between "#pragma omp ..." and the __asm__ statement is a
 // workaround for a bug in the Intel Compiler.)
+#if KMP_ARCH_IA64
+// The NOP instructions of IA-64 have an operand.
+#define ompt_label_nop "nop 0"
+#else
+#define ompt_label_nop "nop"
+#endif
 #define define_ompt_label(id)                                                  \
   {                                                                            \
   }                                                                            \
-  __asm__("nop");                                                              \
+  __asm__(ompt_label_nop);                                                     \
   ompt_label_##id:
 
 // This macro helps to get the address of a label that is inserted by the above
@@ -349,6 +355,15 @@ static void print_ids(int level) {
   printf("%" PRIu64 ": current_address=%p or %p\n",                            \
          ompt_get_thread_data()->value, ((char *)addr) - 12,                   \
          (char *)addr - 20)
+#elif KMP_ARCH_IA64
+// On IA-64 a call returns to the bundle that follows the one of the call, and
+// the label is at the start of a bundle. The NOP that precedes the label
+// shares the bundle of the call or has one of its own, and so does what
+// restores the global pointer after the call.
+#define print_possible_return_addresses(addr)                                  \
+  printf("%" PRIu64 ": current_address=%p or %p or %p or %p\n",                \
+         ompt_get_thread_data()->value, (char *)addr, ((char *)addr) - 16,     \
+         ((char *)addr) - 32, ((char *)addr) - 48)
 #else
 #error Unsupported target architecture, cannot determine address offset!
 #endif
@@ -368,6 +383,21 @@ static void print_ids(int level) {
 // to include or discard the new number of nibbles!
 #define FUZZY_ADDRESS_DISCARD_NIBBLES 2
 #define FUZZY_ADDRESS_DISCARD_BYTES (1 << ((FUZZY_ADDRESS_DISCARD_NIBBLES) * 4))
+#if KMP_ARCH_IA64
+// The code of IA-64 is less dense, and what a return address is compared
+// with can be three blocks after it.
+#define print_fuzzy_address_blocks(addr)                                       \
+  printf("%" PRIu64 ": fuzzy_address=0x%" PRIx64 " or 0x%" PRIx64              \
+         " or 0x%" PRIx64 " or 0x%" PRIx64 " or 0x%" PRIx64 " or 0x%" PRIx64   \
+         " (%p)\n",                                                            \
+         ompt_get_thread_data()->value,                                        \
+         ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES - 3,                   \
+         ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES - 2,                   \
+         ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES - 1,                   \
+         ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES,                       \
+         ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES + 1,                   \
+         ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES + 2, addr)
+#else
 #define print_fuzzy_address_blocks(addr)                                       \
   printf("%" PRIu64 ": fuzzy_address=0x%" PRIx64 " or 0x%" PRIx64              \
          " or 0x%" PRIx64 " or 0x%" PRIx64 " (%p)\n",                          \
@@ -376,6 +406,7 @@ static void print_ids(int level) {
          ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES,                       \
          ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES + 1,                   \
          ((uint64_t)addr) / FUZZY_ADDRESS_DISCARD_BYTES + 2, addr)
+#endif
 
 #define register_ompt_callback_t(name, type)                                   \
   do {                                                                         \

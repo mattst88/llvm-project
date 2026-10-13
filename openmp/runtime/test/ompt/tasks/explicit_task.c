@@ -1,6 +1,9 @@
 // clang-format off
 // RUN: %libomp-compile-and-run | %sort-threads | FileCheck %s
 // REQUIRES: ompt
+// The test takes the address of the frame of the caller of an outlined
+// function, and IA-64 has an address for the current frame only.
+// UNSUPPORTED: ia64-target-arch
 // UNSUPPORTED: gcc-4, gcc-5, gcc-6, gcc-7
 // clang-format on
 #define TEST_NEED_PRINT_FRAME_FROM_OUTLINED_FN

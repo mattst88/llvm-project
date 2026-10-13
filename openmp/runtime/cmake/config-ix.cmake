@@ -309,6 +309,7 @@ else()
       (LIBOMP_ARCH STREQUAL riscv64) OR
       (LIBOMP_ARCH STREQUAL loongarch64) OR
       (LIBOMP_ARCH STREQUAL s390x) OR
+      (LIBOMP_ARCH STREQUAL ia64) OR
       (LIBOMP_ARCH STREQUAL sparc) OR
       (LIBOMP_ARCH STREQUAL sparcv9))
      AND # OS supported?
