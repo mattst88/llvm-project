@@ -38,6 +38,11 @@ void TestDlsym() {
   assert(handle);
   void *foo = dlsym(handle, "foo");
   assert(foo);
+#if defined(__ia64__)
+  // The address of a function is that of its descriptor, which the dynamic
+  // linker allocates; the entry point is the first word.
+  foo = *(void **)foo;
+#endif
   Test(foo, "foo");
   dlclose(handle);
 }

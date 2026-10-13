@@ -10,6 +10,10 @@
 /// Fast unwinder does not work with Thumb code
 // UNSUPPORTED: target={{.*thumb.*}}
 
+/// IA-64 has neither a frame pointer chain nor .debug_frame; its unwind
+/// tables are not optional.
+// UNSUPPORTED: target=ia64{{.*}}
+
 /// No .eh_frame && -g => .debug_frame
 // SEC: .debug_frame
 

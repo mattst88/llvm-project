@@ -4,6 +4,9 @@
 // REQUIRES: stable-runtime
 // XFAIL: android && asan
 
+// The application has no memory below the shadow, and so no low shadow.
+// UNSUPPORTED: target=ia64{{.*}} && asan
+
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>

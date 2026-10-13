@@ -7,6 +7,10 @@
 // XFAIL: target={{(powerpc64|s390x).*}}
 // UNSUPPORTED: rtsan
 
+// The shadow of the null page is not mapped, so that the check of the store
+// faults, with a read, before the store does.
+// UNSUPPORTED: target=ia64{{.*}} && asan
+
 volatile int *null = 0;
 
 int main(int argc, char **argv) {

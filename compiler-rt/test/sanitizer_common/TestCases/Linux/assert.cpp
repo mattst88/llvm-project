@@ -7,6 +7,10 @@
 
 // UNSUPPORTED: rtsan
 
+// The handler runs on an alternate stack, and the unwinder of libgcc faults
+// when it copies the registers that are in the alternate backing store.
+// UNSUPPORTED: target=ia64{{.*}}
+
 #include <assert.h>
 #include <stdio.h>
 #include <sanitizer/asan_interface.h>

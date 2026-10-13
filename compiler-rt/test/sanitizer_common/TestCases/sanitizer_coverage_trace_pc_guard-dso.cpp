@@ -6,6 +6,8 @@
 // XFAIL: tsan,darwin
 // XFAIL: android && asan
 // UNSUPPORTED: rtsan
+// sancov does not find the coverage points of an IA-64 binary.
+// XFAIL: target=ia64{{.*}}
 
 // RUN: rm -rf %t_workdir
 // RUN: mkdir -p %t_workdir
