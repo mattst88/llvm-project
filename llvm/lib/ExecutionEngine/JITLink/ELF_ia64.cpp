@@ -49,9 +49,17 @@ Error buildTables_ELF_ia64(LinkGraph &G) {
         Descriptors.setDescriptorTarget(G, E);
         E.setKind(ia64::Pointer64);
         break;
+      case ia64::RequestDescriptorImm64:
+        Descriptors.setDescriptorTarget(G, E);
+        E.setKind(ia64::Imm64);
+        break;
       case ia64::RequestDescriptorGOTAndTransformToGPRel22:
         Descriptors.setDescriptorTarget(G, E);
         E.setKind(ia64::RequestGOTAndTransformToGPRel22);
+        break;
+      case ia64::RequestDescriptorGOTAndTransformToGPRel64I:
+        Descriptors.setDescriptorTarget(G, E);
+        E.setKind(ia64::RequestGOTAndTransformToGPRel64I);
         break;
       case ia64::RequestDescriptorGOTAndTransformToGPRel64:
         Descriptors.setDescriptorTarget(G, E);
@@ -196,8 +204,14 @@ private:
     case ELF::R_IA64_SEGREL64LSB:
       Kind = ia64::SegRel64;
       break;
+    case ELF::R_IA64_SEGREL32LSB:
+      Kind = ia64::SegRel32;
+      break;
     case ELF::R_IA64_FPTR64LSB:
       Kind = ia64::RequestDescriptor64;
+      break;
+    case ELF::R_IA64_FPTR64I:
+      Kind = ia64::RequestDescriptorImm64;
       break;
     case ELF::R_IA64_LTOFF_FPTR64LSB:
       Kind = ia64::RequestDescriptorGOTAndTransformToGPRel64;
@@ -229,6 +243,15 @@ private:
       break;
     case ELF::R_IA64_LTOFF_FPTR22:
       Kind = ia64::RequestDescriptorGOTAndTransformToGPRel22;
+      break;
+    case ELF::R_IA64_LTOFF_FPTR64I:
+      Kind = ia64::RequestDescriptorGOTAndTransformToGPRel64I;
+      break;
+    case ELF::R_IA64_PCREL22:
+      Kind = ia64::PCRel22;
+      break;
+    case ELF::R_IA64_PCREL64I:
+      Kind = ia64::PCRel64I;
       break;
     case ELF::R_IA64_PCREL21B:
     case ELF::R_IA64_PCREL21BI:

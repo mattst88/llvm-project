@@ -93,6 +93,10 @@ const char *getEdgeKindName(Edge::Kind K) {
     return "Imm22";
   case Imm64:
     return "Imm64";
+  case PCRel22:
+    return "PCRel22";
+  case PCRel64I:
+    return "PCRel64I";
   case GPRel22:
     return "GPRel22";
   case GPRel64I:
@@ -113,10 +117,14 @@ const char *getEdgeKindName(Edge::Kind K) {
     return "PCRel60B";
   case SegRel64:
     return "SegRel64";
+  case SegRel32:
+    return "SegRel32";
   case FunctionDescriptor:
     return "FunctionDescriptor";
   case RequestDescriptor64:
     return "RequestDescriptor64";
+  case RequestDescriptorImm64:
+    return "RequestDescriptorImm64";
   case RequestGOTAndTransformToGPRel22:
     return "RequestGOTAndTransformToGPRel22";
   case RequestGOTAndTransformToGPRel64I:
@@ -125,6 +133,8 @@ const char *getEdgeKindName(Edge::Kind K) {
     return "RequestDescriptorGOTAndTransformToGPRel22";
   case RequestDescriptorGOTAndTransformToGPRel64:
     return "RequestDescriptorGOTAndTransformToGPRel64";
+  case RequestDescriptorGOTAndTransformToGPRel64I:
+    return "RequestDescriptorGOTAndTransformToGPRel64I";
   }
   return getGenericEdgeKindName(K);
 }

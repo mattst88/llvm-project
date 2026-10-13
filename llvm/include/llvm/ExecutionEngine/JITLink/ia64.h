@@ -87,6 +87,23 @@ enum EdgeKind_ia64 : Edge::Kind {
   ///
   Imm64,
 
+  /// A bundle-relative displacement in the immediate of an addl.
+  ///
+  /// Fixup expression:
+  ///   Fixup <- Target - Bundle + Addend : int22
+  ///
+  /// Errors:
+  ///   - The result must be an in-range int22.
+  ///
+  PCRel22,
+
+  /// A bundle-relative displacement in the immediate of a movl.
+  ///
+  /// Fixup expression:
+  ///   Fixup <- Target - Bundle + Addend : int64
+  ///
+  PCRel64I,
+
   /// A GP-relative displacement in the immediate of an addl.
   ///
   /// Fixup expression:
@@ -182,6 +199,16 @@ enum EdgeKind_ia64 : Edge::Kind {
   ///
   SegRel64,
 
+  /// The 32-bit form of SegRel64.
+  ///
+  /// Fixup expression:
+  ///   Fixup <- Target - SegmentBase + Addend : uint32
+  ///
+  /// Errors:
+  ///   - The result must be an in-range uint32.
+  ///
+  SegRel32,
+
   /// An in-place function descriptor: the function address followed by the
   /// GP to enter it with. Used in virtual tables.
   ///
@@ -197,6 +224,13 @@ enum EdgeKind_ia64 : Edge::Kind {
   /// the descriptor and changes it to Pointer64.
   ///
   RequestDescriptor64,
+
+  /// The address of the target's function descriptor, as the immediate of a
+  /// movl.
+  ///
+  /// This is not a fixup. It becomes an Imm64 to the descriptor.
+  ///
+  RequestDescriptorImm64,
 
   /// A linkage table entry for the target, addressed GP-relative by an addl.
   ///
@@ -226,6 +260,14 @@ enum EdgeKind_ia64 : Edge::Kind {
   /// descriptor.
   ///
   RequestDescriptorGOTAndTransformToGPRel64,
+
+  /// A linkage table entry for the target's function descriptor, addressed
+  /// by a movl.
+  ///
+  /// This is not a fixup. It becomes a RequestGOTAndTransformToGPRel64I to
+  /// the descriptor.
+  ///
+  RequestDescriptorGOTAndTransformToGPRel64I,
 };
 
 /// Returns a string name for the given ia64 edge. For debugging purposes
@@ -370,6 +412,7 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
   case Pointer32:
   case Delta32:
   case GPRel32:
+  case SegRel32:
     if (auto Err = CheckWord(4))
       return Err;
     break;
@@ -412,6 +455,13 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
   case SegRel64:
     endian::write64le(FixupPtr, Target - SegmentBase.getValue());
     break;
+  case SegRel32: {
+    uint64_t Value = Target - SegmentBase.getValue();
+    if (!isUInt<32>(Value))
+      return makeTargetOutOfRangeError(G, B, E);
+    endian::write32le(FixupPtr, static_cast<uint32_t>(Value));
+    break;
+  }
   case FunctionDescriptor:
     if (E.getOffset() + DescriptorSize > B.getSize())
       return make_error<JITLinkError>(
@@ -441,11 +491,23 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
     setFields(Bundle, Slot, encodeImm22(~uint64_t(0)), encodeImm22(Value));
     break;
   }
+  case PCRel22: {
+    if (auto Err = CheckBundle(false))
+      return Err;
+    int64_t Value = Target - BundleAddress;
+    if (!isInt<22>(Value))
+      return makeTargetOutOfRangeError(G, B, E);
+    setFields(Bundle, Slot, encodeImm22(~uint64_t(0)), encodeImm22(Value));
+    break;
+  }
   case Imm64:
   case GPRel64I:
+  case PCRel64I:
     if (auto Err = CheckBundle(true))
       return Err;
-    setImm64(Bundle, E.getKind() == Imm64 ? Target : Target - GP.getValue());
+    setImm64(Bundle, E.getKind() == Imm64      ? Target
+                     : E.getKind() == GPRel64I ? Target - GP.getValue()
+                                               : Target - BundleAddress);
     break;
   case PCRel21B:
   case PCRel21M:

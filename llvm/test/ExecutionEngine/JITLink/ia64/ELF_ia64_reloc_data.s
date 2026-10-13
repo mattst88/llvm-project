@@ -77,6 +77,15 @@ segrel_a:
 segrel_b:
 	data8	@segrel(var)
 
+# jitlink-check: (*{4}segrel32_a) - (*{4}segrel32_b) = main_code - var
+	.globl	segrel32_a
+segrel32_a:
+	data4	@segrel(main)
+	.globl	segrel32_b
+segrel32_b:
+	data4	@segrel(var)
+	data8	0
+
 # A plain word for a function is the address of its code.
 # jitlink-check: *{8}code_addr = main_code
 	.globl	code_addr

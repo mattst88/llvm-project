@@ -132,6 +132,48 @@ ltoff_fptr:
 	nop.m	0
 	nop.i	0 ;;
 
+# What is addressed from the instruction is counted from its bundle.
+# jitlink-check: (*{8}pcrel22)[24:18] = (far - pcrel22)[6:0]
+# jitlink-check: (*{8}pcrel22)[40:32] = (far - pcrel22)[15:7]
+# jitlink-check: (*{8}pcrel22)[31:27] = (far - pcrel22)[20:16]
+# jitlink-check: (*{8}pcrel22)[41:41] = (far - pcrel22)[21:21]
+	.globl	pcrel22
+pcrel22:
+	addl	r14 = @pcrel(far), r0
+	nop.m	0
+	nop.i	0 ;;
+
+# jitlink-check: (*{8}pcrel64)[63:46] = (far - pcrel64)[39:22]
+# jitlink-check: (*{8}(pcrel64 + 8))[22:0] = (far - pcrel64)[62:40]
+# jitlink-check: (*{8}(pcrel64 + 8))[42:36] = (far - pcrel64)[6:0]
+# jitlink-check: (*{8}(pcrel64 + 8))[58:50] = (far - pcrel64)[15:7]
+# jitlink-check: (*{8}(pcrel64 + 8))[49:45] = (far - pcrel64)[20:16]
+# jitlink-check: (*{8}(pcrel64 + 8))[44:44] = (far - pcrel64)[21:21]
+# jitlink-check: (*{8}(pcrel64 + 8))[59:59] = (far - pcrel64)[63:63]
+	.globl	pcrel64
+pcrel64:
+	nop.m	0
+	movl	r14 = @pcrel(far) ;;
+
+# The address of a function is that of its descriptor.
+# jitlink-check: (*{8}fptr64)[63:46] = (main)[39:22]
+# jitlink-check: (*{8}(fptr64 + 8))[22:0] = (main)[62:40]
+# jitlink-check: (*{8}(fptr64 + 8))[42:36] = (main)[6:0]
+# jitlink-check: (*{8}(fptr64 + 8))[58:50] = (main)[15:7]
+# jitlink-check: (*{8}(fptr64 + 8))[49:45] = (main)[20:16]
+# jitlink-check: (*{8}(fptr64 + 8))[44:44] = (main)[21:21]
+# jitlink-check: (*{8}(fptr64 + 8))[59:59] = (main)[63:63]
+	.globl	fptr64
+fptr64:
+	nop.m	0
+	movl	r14 = @fptr(main) ;;
+
+# jitlink-check: *{8}(section_addr(ELF_ia64_reloc_insn.s.tmp.o, $__GOT) + (*{8}(ltoff_fptr64 + 8))[42:36]) = main
+	.globl	ltoff_fptr64
+ltoff_fptr64:
+	nop.m	0
+	movl	r14 = @ltoff(@fptr(main)) ;;
+
 # A branch counts bundles from its own: twenty bits at bit 13 of the
 # instruction and the sign at bit 36. A function of the graph is entered at
 # its code. This one is behind the branch.
