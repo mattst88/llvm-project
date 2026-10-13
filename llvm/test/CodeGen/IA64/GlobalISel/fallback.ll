@@ -6,7 +6,6 @@
 ; What GlobalISel does not do yet is SelectionDAG's, a function at a time,
 ; and it says which. Nothing is said when it was not asked for.
 
-; CHECK: warning: Instruction selection used fallback path for must
 ; CHECK: warning: Instruction selection used fallback path for elements
 ; CHECK: warning: Instruction selection used fallback path for bundle
 ; CHECK-NOT: warning:
@@ -17,14 +16,6 @@ define dso_local i64 @plain(i64 %a) {
 ; CHECK:       mov r8 = r32
 ; DAG-LABEL:   plain:
   ret i64 %a
-}
-
-define i64 @must(i64 %a) {
-; CHECK-LABEL: must:
-; CHECK:       br.cond.sptk.many plain ;;
-; DAG-LABEL:   must:
-  %r = musttail call i64 @plain(i64 %a)
-  ret i64 %r
 }
 
 declare void @any(<2 x float>, ...)

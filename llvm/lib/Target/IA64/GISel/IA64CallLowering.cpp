@@ -621,10 +621,9 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   LLT P0 = LLT::pointer(0, 64);
   LLT S64 = LLT::scalar(64);
 
-  // A call that has to be one in place of a return is not made one here.
-  // One that may unwind is a call like another: the instruction selector
-  // puts the global pointer back where it lands.
-  if (Info.IsMustTailCall || (Info.CB && isa<CallBrInst>(Info.CB)))
+  // Invokes are lowered like ordinary calls: the instruction selector
+  // restores the GP at the landing pad.
+  if (Info.CB && isa<CallBrInst>(Info.CB))
     return false;
   // Operand bundles are not handled here; leave them to SelectionDAG, which
   // handles or rejects them.
@@ -655,6 +654,48 @@ bool IA64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   takeSlotCopies(ArgLocs, SlotCopies);
   unsigned NumBytes =
       IA64FrameLowering::ScratchAreaSize + CCInfo.getStackSize();
+
+  // A tail call requires the callee to see the same state this function was
+  // entered with: the same GP, which holds for a DSO-local callee, and no
+  // stack arguments, so only register arguments are allowed.
+  bool TailCall =
+      Info.IsTailCall && Info.CanLowerReturn && Info.Callee.isGlobal() &&
+      Info.Callee.getOffset() == 0 &&
+      Info.Callee.getGlobal()->getValueType()->isFunctionTy() &&
+      MF.getTarget().shouldAssumeDSOLocal(Info.Callee.getGlobal()) &&
+      CCInfo.getStackSize() == 0 && SlotCopies.empty() && !F.isVarArg() &&
+      !F.hasFnAttribute("syscall-linkage") &&
+      F.getCallingConv() == Info.CallConv &&
+      !(Info.CB && Info.CB->hasFnAttr(Attribute::ReturnsTwice)) &&
+      none_of(OutArgs,
+              [](const ArgInfo &Arg) { return Arg.Flags[0].isByVal(); });
+  // Leave an unsatisfiable musttail for SelectionDAG to diagnose.
+  if (Info.IsMustTailCall && !TailCall)
+    return false;
+  if (TailCall) {
+    // The callee receives its arguments in this function's input registers,
+    // and the register frame is resized to the callee's input count.
+    auto MIB = MIRBuilder.buildInstrNoInsert(IA64::TCRETURN)
+                   .add(Info.Callee)
+                   .addImm(0);
+    IA64OutgoingValueHandler ArgHandler(MIRBuilder, MRI, MIB,
+                                        /*IsCall=*/false);
+    if (!handleAssignments(ArgHandler, OutArgs, CCInfo, ArgLocs, MIRBuilder))
+      return false;
+    ArgHandler.finish();
+    unsigned Inputs = 0;
+    for (const CCValAssign &VA : ArgLocs)
+      if (VA.isRegLoc() && VA.getLocReg() >= IA64::R32 &&
+          VA.getLocReg() <= IA64::R39)
+        Inputs = std::max(Inputs, unsigned(VA.getLocReg() - IA64::R32 + 1));
+    MIB->getOperand(1).setImm(Inputs);
+    MIRBuilder.insertInstr(MIB);
+    if (Info.CB && Info.CB->hasFnAttr(Attribute::NoMerge))
+      MIB->setFlag(MachineInstr::NoMerge);
+    MF.getFrameInfo().setHasTailCall();
+    Info.LoweredTailCall = true;
+    return true;
+  }
 
   // A function pointer is the address of its function descriptor: the entry
   // point followed by the callee's GP. Calling a non-function global treats
