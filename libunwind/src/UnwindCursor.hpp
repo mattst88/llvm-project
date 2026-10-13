@@ -1385,6 +1385,17 @@ private:
   // Instruction slots executed in the function so far; the unwind descriptors
   // measure time in slots.
   int32_t _ia64Slot = 0;
+  // The sigcontext of the last signal trampoline stepped through, or 0. The
+  // interrupted frame (with _isSignalFrame set) has all its registers there.
+  pint_t _ia64SigContext = 0;
+  // Field offsets in the Linux struct sigcontext.
+  static constexpr pint_t kIA64SigContextBSP = 72;
+  static constexpr pint_t kIA64SigContextPFS = 112;
+  static constexpr pint_t kIA64SigContextLC = 120;
+  static constexpr pint_t kIA64SigContextBR = 136;
+  static constexpr pint_t kIA64SigContextGR = 200;
+  static constexpr pint_t kIA64SigContextRBSBase = 2512;
+  static constexpr pint_t kIA64SigContextLoadRS = 2520;
 #endif
 #if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
     defined(_LIBUNWIND_CHECK_HAIKU_SIGRETURN)
@@ -2991,6 +3002,19 @@ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
     if (sects.ia64_unwind_section != 0 &&
         this->getInfoFromIA64UnwindTable(pc, sects))
       return;
+    // A leaf function with no frame and no saved registers needs no unwind
+    // table entry: it returns through b0 to a caller with the same SP. b0 is
+    // known only in a frame interrupted by a signal, or one that called a stub
+    // returning through another branch register.
+    if (sects.ia64_unwind_section != 0 &&
+        _registers.getRegister(UNW_IA64_B0) != 0) {
+      memset(static_cast<void *>(&_info), 0, sizeof(_info));
+      _info.start_ip = pc & ~static_cast<pint_t>(15);
+      _info.end_ip = _info.start_ip + 16;
+      _ia64Slot = 0;
+      _registers.setRegister(UNW_IA64_GP, sects.ia64_gp);
+      return;
+    }
 #endif
 
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
@@ -3504,6 +3528,17 @@ bool UnwindCursor<A, R>::getInfoFromIA64UnwindTable(
 /// and the frame's own stacked registers are known.
 template <typename A, typename R>
 bool UnwindCursor<A, R>::getIA64GR(uint64_t num, uint64_t &value) {
+  // In an interrupted function, scratch registers may hold live values, and
+  // the kernel saved them. In its callers they are unknown unless the callee
+  // is known to preserve them, as a syscall stub preserves the ar.pfs that
+  // the C library keeps in r11; then the kernel's saved value still applies.
+  if (_ia64SigContext != 0 &&
+      (num == 2 || num == 3 || (num >= 8 && num <= 11) ||
+       (num >= 14 && num <= 31))) {
+    value = _addressSpace.get64(_ia64SigContext + kIA64SigContextGR +
+                                8 * static_cast<pint_t>(num));
+    return true;
+  }
   if (!_registers.validRegister(static_cast<int>(num)))
     return false;
   value = _registers.getRegister(static_cast<int>(num));
@@ -3554,13 +3589,22 @@ int UnwindCursor<A, R>::stepWithIA64UnwindInfo() {
     uint64_t value = 0;
     switch (save.where) {
     case Info::kNowhere:
+      // A register an interrupted function has not saved yet still holds the
+      // caller's value; for ar.pfs that is not the function's frame marker.
+      if (_isSignalFrame && reg == Info::kPFS)
+        return _addressSpace.get64(_ia64SigContext + kIA64SigContextPFS);
       return _registers.getRegister(num);
     case Info::kGR:
       if (!getIA64GR(static_cast<uint64_t>(save.value), value))
         bad = true;
       return value;
     case Info::kBR:
-      if (save.value > 5)
+      // b6 and b7 are known only from the kernel's save area; the kernel's
+      // syscall stubs are called through b6.
+      if (_isSignalFrame && (save.value == 6 || save.value == 7))
+        value = _addressSpace.get64(_ia64SigContext + kIA64SigContextBR +
+                                    8 * static_cast<pint_t>(save.value));
+      else if (save.value > 5)
         bad = true;
       else
         value =
@@ -3623,6 +3667,60 @@ int UnwindCursor<A, R>::stepWithIA64UnwindInfo() {
   if (rp == 0)
     return UNW_STEP_END;
 
+  if (state.abi == Info::kLinuxSignalTrampoline) {
+    // The kernel's frame: three handler arguments above a scratch area, the
+    // last being the sigcontext address. The trampoline's descriptors locate
+    // the interrupted SP, IP, frame marker, predicates, ar.unat and ar.fpsr
+    // in the sigcontext; the rest is read here.
+    pint_t sc = static_cast<pint_t>(_addressSpace.get64(sp + 16 + 16));
+    uint64_t scBSP = _addressSpace.get64(sc + kIA64SigContextBSP);
+    uint64_t rbsBase = _addressSpace.get64(sc + kIA64SigContextRBSBase);
+    if (rbsBase != 0) {
+      // The handler runs on an alternate backing store. The kernel copied the
+      // dirty registers not yet written to the old store to the start of the
+      // new one, and their size in bytes to the loadrs field (upper half) of
+      // the saved ar.rsc. Copy them back below the saved ar.bsp, keeping each
+      // store's own NaT collection slots.
+      uint64_t altEnd = _registers.getRegister(UNW_IA64_AR_BSP);
+      uint64_t altStart =
+          altEnd - (_addressSpace.get64(sc + kIA64SigContextLoadRS) >> 16);
+      int64_t count = R::rseCount(altStart, altEnd);
+      uint64_t from = altStart;
+      uint64_t to = R::rseSkip(scBSP, -count);
+      for (; count > 0; --count) {
+        if ((from & 0x1f8) == 0x1f8)
+          from += 8;
+        if ((to & 0x1f8) == 0x1f8)
+          to += 8;
+        *reinterpret_cast<uint64_t *>(to) = _addressSpace.get64(from);
+        from += 8;
+        to += 8;
+      }
+    }
+    // The kernel added the interrupted frame to the backing store before
+    // saving ar.bsp, so the saved ar.bsp is past the whole frame and the saved
+    // ar.pfs is its frame marker.
+    _registers.setRegister(UNW_IA64_AR_PFS, pfs);
+    _registers.setRegister(
+        UNW_IA64_AR_BSP,
+        R::rseSkip(scBSP, -static_cast<int64_t>(R::sizeOfFrame(pfs))));
+    _registers.setRegister(UNW_IA64_PR, pr);
+    _registers.setRegister(UNW_IA64_AR_UNAT, unat);
+    _registers.setRegister(UNW_IA64_AR_FPSR, fpsr);
+    _registers.setRegister(UNW_IA64_AR_LC,
+                           _addressSpace.get64(sc + kIA64SigContextLC));
+    _registers.setSP(psp);
+    // The IP includes the slot number in its low bits and is the next
+    // instruction to execute, not a return address.
+    _registers.setIP(rp);
+    _registers.setRegister(UNW_IA64_B0,
+                           _addressSpace.get64(sc + kIA64SigContextBR));
+    _ia64SigContext = sc;
+    _isSignalFrame = true;
+    return UNW_STEP_SUCCESS;
+  }
+  _isSignalFrame = false;
+
   // The caller's register frame precedes this one in the backing store by
   // its locals (sol); its outputs are the first registers of this frame.
   uint64_t bsp = R::rseSkip(_registers.getRegister(UNW_IA64_AR_BSP),
@@ -3641,9 +3739,12 @@ int UnwindCursor<A, R>::stepWithIA64UnwindInfo() {
     _registers.setFRImage(i, fr[i]);
   _registers.setSP(psp);
   _registers.setIP(rp);
-  // The call wrote the return link, and where the caller came from is known
-  // only if it saved that.
-  _registers.setRegister(UNW_IA64_B0, 0);
+  // The call overwrote b0, so the caller's return address is known only if
+  // the caller saved it. A call that returns through another branch
+  // register, like a call to a kernel syscall stub, left b0 intact.
+  const typename Info::Save &rpSave = state.reg[Info::kRP];
+  if (rpSave.where != Info::kBR || rpSave.value == 0)
+    _registers.setRegister(UNW_IA64_B0, 0);
   return UNW_STEP_SUCCESS;
 }
 #endif // defined(_LIBUNWIND_SUPPORT_IA64_UNWIND)

@@ -5634,6 +5634,13 @@ public:
     int64_t reg = slot - ((slot + 1) >> 6) + count;
     return static_cast<uint64_t>(reg + reg / 63) << 3;
   }
+  /// Returns the number of registers in the backing store from \p from to
+  /// \p to, excluding NaT collections.
+  static int64_t rseCount(uint64_t from, uint64_t to) {
+    int64_t first = static_cast<int64_t>(from >> 3);
+    int64_t last = static_cast<int64_t>(to >> 3);
+    return (last - ((last + 1) >> 6)) - (first - ((first + 1) >> 6));
+  }
   /// The size of locals (sol, inputs included) in a frame marker.
   static unsigned sizeOfLocals(uint64_t cfm) { return (cfm >> 7) & 0x7f; }
   static unsigned sizeOfFrame(uint64_t cfm) { return cfm & 0x7f; }

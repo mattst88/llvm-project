@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 // Ensure that leaf function can be unwund.
-// REQUIRES: target={{(aarch64|loongarch64|riscv64|s390x|x86_64)-.+}}
+// REQUIRES: target={{(aarch64|ia64|loongarch64|riscv64|s390x|x86_64)-.+}}
 // UNSUPPORTED: target={{.*-windows.*}}
 
 // TODO: Figure out why this fails with Memory Sanitizer.

@@ -73,7 +73,16 @@ public:
   /// kNowhere means a fixed-size frame, and Value is its size.
   struct State {
     Save reg[kNumRegisters];
+    // For a frame of another ABI (P10 unwabi): the ABI number in the high
+    // byte and the ABI-defined context in the low byte.
+    uint16_t abi;
   };
+
+  /// The current and old unwabi markers on the Linux signal trampoline frame.
+  /// The trampoline's caller is an interrupted function, not a calling one,
+  /// and its registers are in a sigcontext.
+  static constexpr uint16_t kLinuxSignalTrampoline = (3 << 8) | 's';
+  static constexpr uint16_t kOldLinuxSignalTrampoline = (0 << 8) | 's';
 
   /// Finds where the registers are saved at slot \p target of the function
   /// whose descriptors are in [\p begin, \p end). Predicated descriptors are
@@ -90,6 +99,7 @@ private:
           reached(reached), pr(pr) {
       for (Save &s : curr.reg)
         s = {kNowhere, kNever, 0};
+      curr.abi = 0;
     }
 
     // Each prologue pushes the state it starts from, for an epilogue to pop.
@@ -460,8 +470,14 @@ bool IA64UnwindInfo<A>::Parser::prologueDescriptor(uint8_t b, pint_t &p) {
     return true;
   }
   if (b == 0xff) { // P10: unwabi, a frame of another ABI
-    p += 2;
-    return false;
+    uint8_t abi = addressSpace.get8(p++);
+    uint8_t context = addressSpace.get8(p++);
+    uint16_t marker = static_cast<uint16_t>((abi << 8) | context);
+    // The trampoline carries both markers, for unwinders that know either.
+    if (marker != kLinuxSignalTrampoline && marker != kOldLinuxSignalTrampoline)
+      return false;
+    curr.abi = kLinuxSignalTrampoline;
+    return true;
   }
   if (b >= 0xf9 && b <= 0xfc)
     return spillDescriptor(b, p);
