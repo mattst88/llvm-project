@@ -12,6 +12,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCTargetOptions.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Triple.h"
 
@@ -84,6 +85,21 @@ bool IA64MCAsmInfo::needsHashAfterName(StringRef Name) const {
       .Cases({"rr", "dbr", "ibr", "pkr", "pmc", "pmd"}, true)
       .Cases({"cpuid", "dtr", "itr", "msr"}, true)
       .Default(false);
+}
+
+// A symbol set to an absolute value is still a symbol to the linker, which
+// is asked for a linkage table entry holding the value, or similar, as with
+// the GNU assembler. An unnamed constant cannot be relocated against.
+bool IA64MCAsmInfo::evaluateAsRelocatableImpl(const MCSpecifierExpr &Expr,
+                                              MCValue &Res,
+                                              const MCAssembler *Asm) const {
+  if (!Expr.getSubExpr()->evaluateAsRelocatable(Res, Asm))
+    return false;
+  if (const auto *Ref = dyn_cast<MCSymbolRefExpr>(Expr.getSubExpr());
+      Ref && Res.isAbsolute())
+    Res = MCValue::get(&Ref->getSymbol());
+  Res.setSpecifier(Expr.getSpecifier());
+  return !Res.getSubSym();
 }
 
 void IA64MCAsmInfo::printSpecifierExpr(raw_ostream &OS,

@@ -135,11 +135,13 @@ unsigned IA64ELFObjectWriter::getRelocType(const MCFixup &Fixup,
 
 bool IA64ELFObjectWriter::needsRelocateWithSymbol(const MCValue &V,
                                                   unsigned Type) const {
-  // GNU as keeps a symbol that is in a section group and has a name to keep.
-  // The section may be discarded, and the symbol then tells what is gone.
+  // Like GNU as, keep a named symbol in a section group: the section may be
+  // discarded, and the symbol then identifies what was. An absolute symbol
+  // has no section symbol to stand in for it.
   if (const MCSymbol *Sym = V.getAddSym())
-    if (!Sym->isTemporary() && Sym->isInSection() &&
-        static_cast<const MCSectionELF &>(Sym->getSection()).getGroup())
+    if (!Sym->isInSection() ||
+        (!Sym->isTemporary() &&
+         static_cast<const MCSectionELF &>(Sym->getSection()).getGroup()))
       return true;
   // The linker creates one function descriptor per function, and TLS is laid
   // out per symbol.
