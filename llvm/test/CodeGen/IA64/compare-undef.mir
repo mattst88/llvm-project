@@ -1,0 +1,54 @@
+# RUN: llc -mtriple=ia64 -run-pass=ia64-if-conversion -verify-machineinstrs \
+# RUN:   -o - %s | FileCheck %s --check-prefix=IFCVT
+# RUN: llc -mtriple=ia64 -run-pass=ia64-expand-branches \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s --check-prefix=BRANCH
+# RUN: llc -mtriple=ia64 -run-pass=postrapseudos -verify-machineinstrs \
+# RUN:   -o - %s | FileCheck %s --check-prefix=PSEUDO
+
+# A compare of a register that has no value says that it has none, whatever
+# the compare was made from.
+
+# IFCVT-LABEL: name: branch
+# IFCVT:      $p7, $p6 = CMP_EQi 0, undef $r14, $p0
+# IFCVT-NEXT: $r8 = ADDS 0, $r16, $p6, implicit $r8
+
+# BRANCH-LABEL: name: branch
+# BRANCH:      $p7, $p6 = CMP_EQi 0, undef $r14, $p0
+# BRANCH-NEXT: BR_COND %bb.1
+
+# PSEUDO-LABEL: name: setcc
+# PSEUDO:      $p6, $p7 = CMP_LTU undef $r15, undef $r14, $p0
+# PSEUDO:      $p6, $p7 = FCMP_LT undef $f6, undef $f7, 0, $p0
+
+---
+name: branch
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r15, $r16
+
+    $r8 = ADDS 0, killed $r15, $p0
+    BRCCi %bb.1, 1, undef $r14, 0, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+
+  bb.1:
+    successors: %bb.2
+    liveins: $r16
+
+    $r8 = ADDS 0, killed $r16, $p0
+
+  bb.2:
+    liveins: $r8
+
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+name: setcc
+tracksRegLiveness: true
+body: |
+  bb.0:
+    $r8 = SETCC 8, undef $r14, undef $r15, implicit-def dead $p6, implicit-def dead $p7
+    $r9 = SETCCf 12, undef $f6, undef $f7, implicit-def dead $p6, implicit-def dead $p7, implicit $ar40
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...

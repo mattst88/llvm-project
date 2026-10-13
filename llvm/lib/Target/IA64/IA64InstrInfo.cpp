@@ -163,8 +163,17 @@ bool IA64CC::isLegalImmediate(CondCode CC, int64_t Imm) {
 void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
                                 MachineBasicBlock::iterator I,
                                 const DebugLoc &DL, IA64CC::CondCode CC,
-                                Register LHS, const MachineOperand &RHS,
+                                const MachineOperand &LHS,
+                                const MachineOperand &RHS,
                                 CompareKind Kind) const {
+  // Copy only the register and its undef flag. Kill flags are dropped, since
+  // an operand may be read more than once here.
+  auto Read = [](const MachineOperand &MO) {
+    return MachineOperand::CreateReg(MO.getReg(), /*isDef=*/false,
+                                     /*isImp=*/false, /*isKill=*/false,
+                                     /*isDead=*/false, MO.isUndef());
+  };
+  MachineOperand L = Read(LHS);
   if (IA64CC::isFloatingPoint(CC)) {
     // The encoded conditions are eq, lt, le and unord; all but unord are
     // false for unordered operands. The others swap the operands or the
@@ -211,8 +220,8 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
       BuildMI(MBB, I, DL, get(IA64::FCMP_UNORD))
           .addReg(False, RegState::Define)
           .addReg(True, RegState::Define)
-          .addReg(LHS)
-          .addReg(RHS.getReg())
+          .add(L)
+          .add(Read(RHS))
           .addImm(0)
           .addReg(IA64::P0);
       Qualifier = True;
@@ -222,16 +231,16 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
       BuildMI(MBB, I, DL, get(IA64::FCMP_LT))
           .addReg(True, RegState::Define)
           .addReg(False, RegState::Define)
-          .addReg(LHS)
-          .addReg(RHS.getReg())
+          .add(L)
+          .add(Read(RHS))
           .addImm(0)
           .addReg(IA64::P0);
     }
     BuildMI(MBB, I, DL, get(Opcode))
         .addReg(True, RegState::Define)
         .addReg(False, RegState::Define)
-        .addReg(Swap ? RHS.getReg() : LHS)
-        .addReg(Swap ? LHS : RHS.getReg())
+        .add(Swap ? Read(RHS) : L)
+        .add(Swap ? L : Read(RHS))
         .addImm(0)
         .addReg(Qualifier);
     return;
@@ -299,11 +308,11 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
   if (IsImm) {
     assert(IA64CC::isLegalImmediate(CC, RHS.getImm()) &&
            "No compare takes this constant");
-    MIB.addImm(RHS.getImm() + Adjust).addReg(LHS);
+    MIB.addImm(RHS.getImm() + Adjust).add(L);
   } else if (Swap) {
-    MIB.addReg(RHS.getReg()).addReg(LHS);
+    MIB.add(Read(RHS)).add(L);
   } else {
-    MIB.addReg(LHS).addReg(RHS.getReg());
+    MIB.add(L).add(Read(RHS));
   }
   MIB.addReg(IA64::P0);
 }
@@ -458,8 +467,7 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
       auto Read = [&](unsigned Idx) {
         const MachineOperand &MO = MI.getOperand(Idx);
         bool Kill = MO.isKill();
-        for (const MachineOperand &Later :
-             drop_begin(MI.operands(), Idx + 1))
+        for (const MachineOperand &Later : drop_begin(MI.operands(), Idx + 1))
           if (Later.isReg() && Later.getReg() && Later.readsReg() &&
               RI.regsOverlap(Later.getReg(), MO.getReg()))
             Kill = false;
@@ -544,7 +552,7 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
                        : MI.getOpcode() == IA64::SETCCfs ? SignalingCompare
                                                          : PlainCompare;
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
-                MI.getOperand(2).getReg(), MI.getOperand(3), Kind);
+                MI.getOperand(2), MI.getOperand(3), Kind);
     BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
         .addImm(0)
         .addReg(IA64::R0)
@@ -568,7 +576,7 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     auto Kept =
         RegState::Implicit | getUndefRegState(MI.getOperand(1).isUndef());
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(3).getImm()),
-                MI.getOperand(4).getReg(), MI.getOperand(5));
+                MI.getOperand(4), MI.getOperand(5));
     if (IA64::FRRegClass.contains(Dst))
       BuildMI(MBB, MI, DL, get(IA64::FMERGE_S), Dst)
           .addReg(True)

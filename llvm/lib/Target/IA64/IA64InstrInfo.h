@@ -148,8 +148,8 @@ public:
   /// Compare \p LHS with \p RHS, a register or a constant, before \p I.
   /// It leaves p6 set if \p CC holds and p7 if it does not.
   void emitCompare(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   const DebugLoc &DL, IA64CC::CondCode CC, Register LHS,
-                   const MachineOperand &RHS,
+                   const DebugLoc &DL, IA64CC::CondCode CC,
+                   const MachineOperand &LHS, const MachineOperand &RHS,
                    CompareKind Kind = PlainCompare) const;
 };
 

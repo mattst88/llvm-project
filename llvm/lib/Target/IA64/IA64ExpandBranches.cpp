@@ -212,7 +212,7 @@ static bool mergeBranches(MachineBasicBlock &MBB, const IA64InstrInfo &TII,
     Taken = MBPI.getEdgeProbability(&MBB, Target) + Taken;
 
   DebugLoc DL = First->getDebugLoc();
-  TII.emitCompare(MBB, MBB.end(), DL, PlainCC, Plain->getOperand(2).getReg(),
+  TII.emitCompare(MBB, MBB.end(), DL, PlainCC, Plain->getOperand(2),
                   Plain->getOperand(3));
   MachineInstrBuilder MIB =
       BuildMI(MBB, MBB.end(), DL, TII.get(Opcode))
@@ -307,7 +307,7 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
       const DebugLoc &DL = MI.getDebugLoc();
       MachineBasicBlock *Target = MI.getOperand(0).getMBB();
       TII.emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
-                      MI.getOperand(2).getReg(), MI.getOperand(3));
+                      MI.getOperand(2), MI.getOperand(3));
       bool Taken =
           MBPI.getEdgeProbability(&MBB, Target) >= BranchProbability(1, 2);
       BuildMI(MBB, MI, DL, TII.get(IA64::BR_COND))

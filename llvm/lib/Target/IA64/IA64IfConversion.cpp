@@ -239,8 +239,8 @@ bool IA64IfConversion::convert(MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator Branch = MBB.getFirstTerminator();
   assert(IA64InstrInfo::isConditionalBranch(*Branch) && "Not the branch");
   DebugLoc DL = Branch->getDebugLoc();
-  TII->emitCompare(MBB, Branch, DL, IA64CC::CondCode(Cond[0].getImm()),
-                   Cond[1].getReg(), Cond[2]);
+  TII->emitCompare(MBB, Branch, DL, IA64CC::CondCode(Cond[0].getImm()), Cond[1],
+                   Cond[2]);
   TII->removeBranch(MBB);
 
   // The registers live on the path that bypasses each side: the other side's
