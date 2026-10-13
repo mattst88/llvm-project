@@ -2059,6 +2059,16 @@ void Clang::AddIA64TargetArgs(const ArgList &Args,
   CmdArgs.push_back("-msmall-data-limit");
   CmdArgs.push_back(Limit);
 
+  // Vtable slots hold function descriptors filled in by the linker, not
+  // offsets.
+  if (Arg *A = Args.getLastArg(
+          options::OPT_fexperimental_relative_cxx_abi_vtables,
+          options::OPT_fno_experimental_relative_cxx_abi_vtables))
+    if (A->getOption().matches(
+            options::OPT_fexperimental_relative_cxx_abi_vtables))
+      getToolChain().getDriver().Diag(diag::err_drv_unsupported_opt_for_target)
+          << A->getAsString(Args) << getToolChain().getTripleString();
+
   // The processors have the names that their designs had before they were
   // sold, and gcc knows them by those.
   if (const Arg *A = Args.getLastArg(options::OPT_mtune_EQ)) {

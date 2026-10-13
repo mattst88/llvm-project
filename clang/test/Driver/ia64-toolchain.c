@@ -72,6 +72,18 @@
 // CFI-EACH-DAG: unsupported option '-fsanitize=cfi-vcall,cfi-nvcall,cfi-derived-cast,cfi-unrelated-cast' for target 'ia64-unknown-linux-gnu'
 // CFI-EACH-DAG: unsupported option '-fsanitize=cfi-mfcall,cfi-cast-strict' for target 'ia64-unknown-linux-gnu'
 
+// Nor can a slot of a vtable be an offset from it.
+
+// RUN: not %clang --target=ia64-unknown-linux-gnu \
+// RUN:   -fexperimental-relative-c++-abi-vtables -### %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=RELATIVE
+// RELATIVE: unsupported option '-fexperimental-relative-c++-abi-vtables' for target 'ia64-unknown-linux-gnu'
+// RUN: %clang --target=ia64-unknown-linux-gnu \
+// RUN:   -fexperimental-relative-c++-abi-vtables \
+// RUN:   -fno-experimental-relative-c++-abi-vtables -### %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=NO-RELATIVE
+// NO-RELATIVE-NOT: unsupported option
+
 // An object of eight bytes or fewer is short data, and -G and -mno-sdata
 // say otherwise.
 
