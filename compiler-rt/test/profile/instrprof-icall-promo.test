@@ -15,6 +15,11 @@ RUN: %clangxx_profuse=%t-icall2.profdata -O2 -Rpass=pgo-icall-prom  -c -o %t.2.u
 FIXME: Relies on vtable layout
 XFAIL: target={{.*msvc.*}}
 
+A virtual table of IA-64 holds function descriptors, not pointers to them, so
+that the target of a virtual call is no address that the profile has a name
+for.
+XFAIL: target=ia64{{.*}}
+
 
 # CHECK: Promote indirect call to
 
