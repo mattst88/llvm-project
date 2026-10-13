@@ -157,12 +157,20 @@ bool IA64TargetObjectFile::isShortData(const GlobalValue *GV,
 MCSection *IA64TargetObjectFile::getExplicitSectionGlobal(
     const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
   StringRef Name = GO->getSection();
-  // What is kept for being used, or with what it is associated with, has a
-  // section of its own that the common code makes.
   const auto *Var = dyn_cast<GlobalVariable>(GO);
-  if (!Var || Var->isThreadLocal() || !isShortSectionName(Name) ||
-      Retained.count(GO) || GO->getMetadata(LLVMContext::MD_associated))
+  if (!Var || Var->isThreadLocal() || !isShortSectionName(Name))
     return TargetLoweringObjectFileELF::getExplicitSectionGlobal(GO, Kind, TM);
+
+  // A used or associated (SHF_LINK_ORDER) object gets a unique section from
+  // the generic code, which is just as much short data as the section whose
+  // name it shares.
+  if (Retained.count(GO) || GO->getMetadata(LLVMContext::MD_associated)) {
+    auto *Section = static_cast<MCSectionELF *>(
+        TargetLoweringObjectFileELF::getExplicitSectionGlobal(GO, Kind, TM));
+    Section->setFlags(Section->getFlags() | ELF::SHF_WRITE |
+                      ELF::SHF_IA_64_SHORT);
+    return Section;
+  }
 
   unsigned Flags = ELF::SHF_WRITE | ELF::SHF_ALLOC | ELF::SHF_IA_64_SHORT;
   unsigned Type = isShortBSSName(Name) ? ELF::SHT_NOBITS : ELF::SHT_PROGBITS;
