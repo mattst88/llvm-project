@@ -162,6 +162,10 @@ UnwindPlanSP ABISysV_ia64::CreateDefaultUnwindPlan() {
   row.SetUnspecifiedRegistersAreUndefined(true);
   for (uint32_t r = 4; r <= 7; ++r)
     row.SetRegisterLocationToSame(ia64_eh_frame::r0 + r, false);
+  row.SetRegisterLocationToSame(ia64_eh_frame::r0 + 13, false);
+  for (uint32_t reg : {ia64_eh_frame::pr, ia64_eh_frame::unat,
+                       ia64_eh_frame::fpsr, ia64_eh_frame::lc})
+    row.SetRegisterLocationToSame(reg, false);
   for (uint32_t b = 1; b <= 5; ++b)
     row.SetRegisterLocationToSame(ia64_eh_frame::b0 + b, false);
   for (uint32_t f = 2; f <= 31; f = f == 5 ? 16 : f + 1) {
@@ -186,7 +190,14 @@ bool ABISysV_ia64::RegisterIsVolatile(const RegisterInfo *reg_info) {
   // registers are preserved too, but by renaming: the caller's r32 is a
   // different register from the callee's, so a value seen in one frame says
   // nothing about the frame above.
+  //
+  // ar.lc and ar.unat are also preserved, as are the predicates other than
+  // p6-p15 and the control bits (but not the status bits) of ar.fpsr. The
+  // caller is shown each of these registers whole, as the callee left it,
+  // which is right for the preserved part.
   llvm::StringRef name(reg_info->name);
+  if (name == "lc" || name == "unat" || name == "pr" || name == "fpsr")
+    return false;
   uint32_t num = 0;
   if (name.consume_front("r") && !name.getAsInteger(10, num))
     return !((num >= 4 && num <= 7) || num == 12 || num == 13);
