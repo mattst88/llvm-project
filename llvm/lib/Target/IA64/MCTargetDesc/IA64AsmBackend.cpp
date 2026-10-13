@@ -9,6 +9,7 @@
 #include "MCTargetDesc/IA64BaseInfo.h"
 #include "MCTargetDesc/IA64FixupKinds.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
@@ -30,6 +31,7 @@ public:
   explicit IA64AsmBackend(uint8_t OSABI)
       : MCAsmBackend(llvm::endianness::little), OSABI(OSABI) {}
 
+  std::optional<MCFixupKind> getFixupKind(StringRef Name) const override;
   MCFixupKindInfo getFixupKindInfo(MCFixupKind Kind) const override;
 
   void applyFixup(const MCFragment &F, const MCFixup &Fixup,
@@ -46,6 +48,23 @@ public:
 };
 
 } // end anonymous namespace
+
+// The relocation that .reloc names. The GNU assembler knows each by what
+// follows "R_IA64_" in its name, and the whole name is taken as well, as it
+// is for other processors.
+std::optional<MCFixupKind> IA64AsmBackend::getFixupKind(StringRef Name) const {
+  std::string Whole;
+  if (!Name.starts_with("R_IA64_"))
+    Name = Whole = ("R_IA64_" + Name).str();
+  unsigned Type = StringSwitch<unsigned>(Name)
+#define ELF_RELOC(X, Y) .Case(#X, Y)
+#include "llvm/BinaryFormat/ELFRelocs/IA64.def"
+#undef ELF_RELOC
+                      .Default(-1u);
+  if (Type == -1u)
+    return std::nullopt;
+  return static_cast<MCFixupKind>(FirstLiteralRelocationKind + Type);
+}
 
 MCFixupKindInfo IA64AsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
   // A fixup fills fields scattered over one or two slots. The offset and size
