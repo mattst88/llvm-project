@@ -6542,6 +6542,31 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         else if (const auto *FD = dyn_cast_or_null<FunctionDecl>(TargetDecl))
           CGM.addUndefinedGlobalForTailCall({FD, Loc});
       }
+      if (getTarget().getTriple().getArch() == llvm::Triple::ia64) {
+        // The callee returns to this function's caller, so it must use the
+        // same gp and stack: it must be in this linkage unit and take no
+        // arguments in memory.
+        const llvm::DataLayout &DL = CGM.getDataLayout();
+        uint64_t Slots = 0;
+        bool InMemory = false;
+        for (unsigned I = 0, E = Call->arg_size(); I != E; ++I) {
+          llvm::Type *Ty = Call->getArgOperand(I)->getType();
+          // The sret pointer does not take an argument slot.
+          if (Call->paramHasAttr(I, llvm::Attribute::StructRet))
+            continue;
+          if (Call->isByValArgument(I))
+            InMemory = true;
+          if (DL.getABITypeAlign(Ty) > llvm::Align(8))
+            Slots = llvm::alignTo(Slots, 2);
+          Slots += llvm::alignTo(DL.getTypeAllocSize(Ty).getFixedValue(), 8) / 8;
+        }
+        if (Call->isIndirectCall())
+          CGM.getDiags().Report(Loc, diag::err_ia64_impossible_musttail) << 0;
+        else if (InMemory || Slots > 8)
+          CGM.getDiags().Report(Loc, diag::err_ia64_impossible_musttail) << 2;
+        else if (const auto *FD = dyn_cast_or_null<FunctionDecl>(TargetDecl))
+          CGM.addUndefinedGlobalForTailCall({FD, Loc});
+      }
       Call->setTailCallKind(llvm::CallInst::TCK_MustTail);
     }
   }

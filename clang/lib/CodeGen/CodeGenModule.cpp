@@ -2032,6 +2032,13 @@ void CodeGenModule::Release() {
         if (!CalleeIsLocal)
           getDiags().Report(I.second, diag::err_mips_impossible_musttail) << 1;
       }
+    } else if (getTriple().getArch() == llvm::Triple::ia64) {
+      for (auto &I : MustTailCallUndefinedGlobals) {
+        StringRef MangledName = getMangledName(GlobalDecl(I.first));
+        llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
+        if (Entry && !Entry->isDSOLocal())
+          getDiags().Report(I.second, diag::err_ia64_impossible_musttail) << 1;
+      }
     }
   }
 
