@@ -1259,6 +1259,10 @@ bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
     Out.emitValueToAlignment(Align(Size));
   return getParser().parseMany([&]() -> bool {
     SMLoc Loc = getParser().getTok().getLoc();
+    // An expression would evaluate this to the bits of a double, which
+    // GNU as rejects here.
+    if (getParser().getTok().is(AsmToken::Real))
+      return Error(Loc, "a floating-point number is not a value here");
     const MCExpr *Value;
     if (getParser().parseExpression(Value))
       return true;
@@ -1314,6 +1318,8 @@ bool IA64AsmParser::parseData16(bool Aligned) {
         return false;
       }
     }
+    if (Tok.is(AsmToken::Real))
+      return Error(Loc, "a floating-point number is not a value here");
     const MCExpr *Value;
     if (getParser().parseExpression(Value))
       return true;
@@ -1389,9 +1395,11 @@ bool IA64AsmParser::parseRealValues(unsigned Size, bool Aligned) {
       if (Number.empty())
         Number = "0";
     }
-    // A whole number is a decimal one. GNU as reads the digits of "0x10" as
-    // ten.
-    if (Tok.is(AsmToken::Integer) && !all_of(Tok.getString(), isDigit))
+    // Integers are decimal. GNU as would read "0x10" as ten, and does not
+    // accept hex floats such as "0x1p3".
+    if ((Tok.is(AsmToken::Integer) && !all_of(Tok.getString(), isDigit)) ||
+        (Tok.is(AsmToken::Real) &&
+         Tok.getString().starts_with_insensitive("0x")))
       return Error(Loc, "expected a floating-point number");
     if (Tok.is(AsmToken::Integer) || Tok.is(AsmToken::Real) ||
         Tok.is(AsmToken::BigNum)) {

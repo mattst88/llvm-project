@@ -303,6 +303,12 @@
 	addl r4 = @(x), r1
 
 // Data directives.
+// CHECK: :[[#@LINE+1]]:8: error: a floating-point number is not a value here
+	data8 1.5
+// CHECK: :[[#@LINE+1]]:8: error: a floating-point number is not a value here
+	.long 1e3
+// CHECK: :[[#@LINE+1]]:9: error: a floating-point number is not a value here
+	data16 1.5
 // CHECK: :[[#@LINE+1]]:10: error: unexpected token
 	data8 1 2
 // CHECK: :[[#@LINE+1]]:10: error: expected string
