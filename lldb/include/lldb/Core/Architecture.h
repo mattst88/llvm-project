@@ -71,6 +71,16 @@ public:
   /// declaration header.
   virtual Address SkipFunctionHeader(Address addr) const { return addr; }
 
+  /// Returns the number of bytes before the instruction at \a addr that are
+  /// needed to decode it.
+  ///
+  /// This is zero on most targets. An IA-64 instruction occupies one of the
+  /// three slots of a bundle, and its type is given by the template at the
+  /// start of the bundle.
+  virtual lldb::addr_t GetBytesBeforeInstruction(const Address &addr) const {
+    return 0;
+  }
+
   /// Whether two frames can have the same canonical frame address and differ
   /// in their alternate frame address.
   ///

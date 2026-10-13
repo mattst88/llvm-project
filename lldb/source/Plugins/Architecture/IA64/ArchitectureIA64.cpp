@@ -38,6 +38,14 @@ std::unique_ptr<Architecture> ArchitectureIA64::Create(const ArchSpec &arch) {
   return std::unique_ptr<Architecture>(new ArchitectureIA64());
 }
 
+addr_t ArchitectureIA64::GetBytesBeforeInstruction(const Address &addr) const {
+  const addr_t file_addr = addr.GetFileAddress();
+  if (file_addr == LLDB_INVALID_ADDRESS)
+    return 0;
+  const addr_t slot = file_addr & 0xf;
+  return slot < 3 ? slot : 0;
+}
+
 UnwindPlanSP ArchitectureIA64::GetArchitectureUnwindPlan(
     Thread &thread, RegisterContextUnwind *regctx,
     std::shared_ptr<const UnwindPlan> current_unwindplan) {

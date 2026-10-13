@@ -1368,19 +1368,28 @@ size_t Disassembler::AppendInstructions(Target &target, Address start,
     }
   }
 
+  // The first instruction may not decode without bytes that come before it.
+  addr_t lead = 0;
+  if (Architecture *arch = target.GetArchitecturePlugin())
+    lead = arch->GetBytesBeforeInstruction(start);
+  Address read_from = start;
+  if (lead != 0 && !read_from.Slide(-static_cast<int64_t>(lead)))
+    lead = 0;
+
   addr_t byte_size = limit.value;
   if (limit.kind == Limit::Instructions)
     byte_size *= m_arch.GetMaximumOpcodeByteSize();
+  byte_size += lead;
   auto data_sp = std::make_shared<DataBufferHeap>(byte_size, '\0');
 
   Status error;
   lldb::addr_t load_addr = LLDB_INVALID_ADDRESS;
   const size_t bytes_read =
-      target.ReadMemory(start, data_sp->GetBytes(), data_sp->GetByteSize(),
+      target.ReadMemory(read_from, data_sp->GetBytes(), data_sp->GetByteSize(),
                         error, force_live_memory, &load_addr);
   const bool data_from_file = load_addr == LLDB_INVALID_ADDRESS;
 
-  if (bytes_read == 0) {
+  if (bytes_read <= lead) {
     if (error_strm_ptr) {
       if (const char *error_cstr = error.AsCString(nullptr))
         error_strm_ptr->Printf("error: %s\n", error_cstr);
@@ -1392,7 +1401,7 @@ size_t Disassembler::AppendInstructions(Target &target, Address start,
     data_sp->SetByteSize(bytes_read);
   DataExtractor data(data_sp, m_arch.GetByteOrder(),
                      m_arch.GetAddressByteSize());
-  return DecodeInstructions(start, data, 0,
+  return DecodeInstructions(start, data, lead,
                             limit.kind == Limit::Instructions ? limit.value
                                                               : UINT32_MAX,
                             /*append=*/true, data_from_file);

@@ -12,6 +12,8 @@
 # RUN:   | FileCheck --check-prefix=BYTES %s
 # RUN: %lldb -b %t -o "disassemble -s 0x10 -c 1" \
 # RUN:   | FileCheck --check-prefix=ONE %s
+# RUN: %lldb -b %t -o "disassemble -s 0x1 -c 2" -o "disassemble -s 0x11 -c 2" \
+# RUN:   -o "disassemble -b -s 0x22 -c 1" | FileCheck --check-prefix=MID %s
 
 	.text
 	.globl	main
@@ -52,3 +54,20 @@ main:
 
 # ONE:     <+16>: ld8    r8 = [r14]
 # ONE-NOT: movl
+
+# Disassembly may start at a slot that is not the first of its bundle, which
+# is where a program that stopped in the middle of a bundle is.  The bytes
+# before the slot are read for the template and are not listed.
+
+# MID-LABEL: disassemble -s 0x1 -c 2
+# MID-NOT:   alloc
+# MID:       [0x1] <+1>:  adds   r14 = 8, r32
+# MID-NEXT:  [0x2] <+2>:  add    r15 = r33, r32 ;;
+# MID-NOT:   ld8
+# MID-LABEL: disassemble -s 0x11 -c 2
+# MID-NOT:   ld8
+# MID:       [0x11] <+17>: movl   r9 = 1311768467463790320 ;;
+# MID-NEXT:  [0x20] <+32>: setf.sig f6 = r8
+# MID-LABEL: disassemble -b -s 0x22 -c 1
+# MID-NOT:   add
+# MID:       [0x22] <+34>: 20 00 e1 18 80 40 24 00 40 80 08 00 84 00 br.ret.sptk.many

@@ -31,6 +31,10 @@ public:
       Thread &thread, RegisterContextUnwind *regctx,
       std::shared_ptr<const UnwindPlan> current_unwindplan) override;
 
+  /// An instruction address is its bundle address with the slot number in
+  /// the low bits, and decoding it requires the whole bundle.
+  lldb::addr_t GetBytesBeforeInstruction(const Address &addr) const override;
+
   /// A function with no frame on the memory stack has one in the register
   /// backing store, and the plans give where the caller's starts as the
   /// alternate frame address.
