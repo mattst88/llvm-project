@@ -26,7 +26,8 @@ define x86_fp80 @inout(x86_fp80 %x) {
 
 define void @single(ptr %p, float %x) {
 ; CHECK-LABEL: single:
-; CHECK: stfs [r32] = f8
+; CHECK: fma.d f6 = f8, f1, f0 ;;
+; CHECK: stfs [r32] = f6
   call void asm sideeffect "stfs [$0]=$1", "r,f"(ptr %p, float %x)
   ret void
 }

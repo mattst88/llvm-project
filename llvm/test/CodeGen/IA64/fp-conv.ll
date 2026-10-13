@@ -110,14 +110,30 @@ define double @uitofp32(i32 %a) {
   ret double %r
 }
 
-; A register holds a value of either precision in the one format, so a
-; narrower one is a wider one already and a wider one is rounded.
+; A register holds a value of either precision in the one format, but a
+; single that is not a normal number is not one in the register, and stfd and
+; getf.d write a double from it that is another number. So a value is made
+; a normal number where it becomes a double, as GCC makes it, and a wider one
+; is rounded.
 define double @fpext(float %a) {
 ; CHECK-LABEL: fpext:
-; CHECK-NOT:   f8
-; CHECK:       br.ret.sptk.many b0 ;;
+; CHECK:       fma.d f8 = f8, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = fpext float %a to double
   ret double %r
+}
+
+; A single that is read to be a double is no different.
+define void @fpext_load(ptr %p, ptr %q) {
+; CHECK-LABEL: fpext_load:
+; CHECK:       ldfs f6 = [r32] ;;
+; CHECK-NEXT:  fma.d f6 = f6, f1, f0 ;;
+; CHECK-NEXT:  stfd [r33] = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %a = load float, ptr %p
+  %r = fpext float %a to double
+  store double %r, ptr %q
+  ret void
 }
 
 define float @fptrunc(double %a) {

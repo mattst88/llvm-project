@@ -68,12 +68,13 @@ define void @unnamed(ptr %s, double %d) {
 
 define double @named(double %a, float %b, x86_fp80 %c, ...) {
 ; CHECK-LABEL: named:
-; CHECK:         fma.d f6 = f10, f1, f0
-; CHECK-NEXT:    fma.d f7 = f8, f1, f9 ;;
+; CHECK:         fma.d f6 = f9, f1, f0
+; CHECK-NEXT:    fma.d f7 = f10, f1, f0 ;;
 ; CHECK:         st8.spill [r14] = r36
 ; CHECK:         st8.spill [r15] = r39
 ; CHECK-NOT:     r35
-; CHECK:         fma.d f8 = f7, f1, f6
+; CHECK:         fma.d f6 = f8, f1, f6 ;;
+; CHECK:         fma.d f8 = f6, f1, f7 ;;
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
   %x = fpext float %b to double

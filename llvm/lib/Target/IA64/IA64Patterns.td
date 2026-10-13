@@ -223,12 +223,11 @@ def : Pat<(f80 (any_sint_to_fp GR:$r)), (FCVT_XF (f64 (SETF_SIG GR:$r)))>;
 def : Pat<(f80 (any_uint_to_fp GR:$r)),
           (FMA (f64 (SETF_SIG GR:$r)), (f64 F1), (f64 F0), 0)>;
 
-// A narrower value is a wider one already, and a wider one is rounded to
-// make a narrower.
-def : Pat<(f64 (fpextend (f32 FR:$f))), (COPY_TO_REGCLASS FR:$f, FR)>;
-// A signaling NaN is to be a quiet one once it is wider and to have been
-// noticed, which takes an instruction that computes with it.
-def : Pat<(f64 (strict_fpextend (f32 FR:$f))),
+// A narrower value is already a valid wider one with one exception: a
+// single denormal is also unnormalized in the register, and stfd and getf.d
+// handle only double denormals. So f32 -> f64 normalizes, and narrowing
+// conversions round.
+def : Pat<(f64 (any_fpextend (f32 FR:$f))),
           (FMA_D FR:$f, (f64 F1), (f64 F0), 0)>;
 def : Pat<(f32 (any_fpround (f64 FR:$f))),
           (FMA_S FR:$f, (f64 F1), (f64 F0), 0)>;
@@ -331,11 +330,9 @@ foreach S = [["1", "8"], ["2", "16"], ["4", "32"]] in {
             (!cast<Instruction>("LD"#S[0]#"_ACQ") GR:$r3, 0)>;
 }
 
-// A floating-point load widens what it reads to the format of the register,
-// so a single is as good as a double once it is in one.
+// FP loads convert to the register format.
 def : Pat<(f32 (load GR:$r3)), (LDFS GR:$r3, 0)>;
 def : Pat<(f64 (load GR:$r3)), (LDFD GR:$r3, 0)>;
-def : Pat<(f64 (extloadf32 GR:$r3)), (LDFS GR:$r3, 0)>;
 def : Pat<(store (f32 FR:$f2), GR:$r3), (STFS GR:$r3, FR:$f2, 0)>;
 def : Pat<(store (f64 FR:$f2), GR:$r3), (STFD GR:$r3, FR:$f2, 0)>;
 def : Pat<(f80 (load GR:$r3)), (LDFE GR:$r3, 0)>;

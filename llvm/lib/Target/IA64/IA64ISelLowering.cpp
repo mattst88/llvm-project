@@ -276,6 +276,9 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // a denormal loaded as f32 or f64 must be normalized first.
   for (MVT VT : {MVT::f32, MVT::f64})
     setLoadExtAction(ISD::EXTLOAD, MVT::f80, VT, Expand);
+  // Likewise an f32 denormal, which stfd and getf.d would not recognize as
+  // the double it is.
+  setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
 
   // Loads and stores can post-increment the address register.
   for (MVT VT :
