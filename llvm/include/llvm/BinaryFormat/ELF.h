@@ -1093,6 +1093,8 @@ enum {
 // IA-64 specific e_flags
 enum : unsigned {
   EF_IA_64_MASKOS = 0x0000000f,    // OS-specific flags
+  EF_IA_64_TRAPNIL = 0x00000001,   // Dereferencing a null pointer traps
+  EF_IA_64_BE = 0x00000008,        // Data is big-endian
   EF_IA_64_ABI64 = 0x00000010,     // 64-bit ABI
   EF_IA_64_REDUCEDFP = 0x00000020, // Only the low 32 FP registers are used
   EF_IA_64_CONS_GP = 0x00000040,   // gp is constant across calls

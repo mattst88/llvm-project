@@ -88,7 +88,44 @@ IA64::IA64(Ctx &ctx) : TargetInfo(ctx) {
   trapInstr = {0, 0, 0, 0};
 }
 
-uint32_t IA64::calcEFlags() const { return EF_IA_64_ABI64; }
+// As in GNU ld, the output takes the first object's flags. Objects must agree
+// on the gp convention and on the flags that describe them to the OS; the
+// upper FP registers count as used if any object uses them.
+uint32_t IA64::calcEFlags() const {
+  // Only binary input files (from -b binary).
+  if (ctx.objectFiles.empty())
+    return EF_IA_64_ABI64;
+
+  auto getEFlags = [](const ELFFileBase *f) -> uint32_t {
+    return cast<ObjFile<ELF64LE>>(f)->getObj().getHeader().e_flags;
+  };
+  static const struct {
+    uint32_t flag;
+    const char *with, *without;
+  } exclusive[] = {
+      {EF_IA_64_TRAPNIL, "trap-on-NULL-dereference", "non-trapping"},
+      {EF_IA_64_BE, "big-endian", "little-endian"},
+      {EF_IA_64_ABI64, "64-bit", "32-bit"},
+      {EF_IA_64_CONS_GP, "constant-gp", "non-constant-gp"},
+      {EF_IA_64_NOFUNCDESC_CONS_GP, "auto-pic", "non-auto-pic"},
+  };
+  const ELFFileBase *first = ctx.objectFiles.front();
+  uint32_t target = getEFlags(first);
+  for (const ELFFileBase *f : ctx.objectFiles) {
+    uint32_t eflags = getEFlags(f);
+    if (!(eflags & EF_IA_64_REDUCEDFP))
+      target &= ~EF_IA_64_REDUCEDFP;
+    for (const auto &e : exclusive) {
+      if ((eflags & e.flag) == (target & e.flag))
+        continue;
+      bool has = eflags & e.flag;
+      Err(ctx) << f << ": cannot link " << (has ? e.with : e.without)
+               << " files with " << (has ? e.without : e.with)
+               << " files: " << first;
+    }
+  }
+  return target;
+}
 
 void IA64::initTargetSpecificSections() {
   ctx.in.ia64Opd = std::make_unique<IA64OpdSection>(ctx);

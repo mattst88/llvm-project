@@ -1,0 +1,50 @@
+# REQUIRES: ia64
+## The flags of the output are those of the first object. The objects have to
+## agree on how gp is kept, and only the low floating-point registers count as
+## the only ones used when that is so of every object.
+
+# RUN: yaml2obj %s -DFLAGS='EF_IA_64_ABI64' -o %t.o
+# RUN: yaml2obj %s -DFLAGS='EF_IA_64_ABI64, EF_IA_64_CONS_GP' -o %t.cg.o
+# RUN: yaml2obj %s -DFLAGS='EF_IA_64_ABI64, EF_IA_64_NOFUNCDESC_CONS_GP' -o %t.ap.o
+# RUN: yaml2obj %s -DFLAGS='EF_IA_64_ABI64, EF_IA_64_REDUCEDFP' -o %t.rf.o
+
+# RUN: ld.lld %t.cg.o %t.cg.o -o %t
+# RUN: llvm-readobj --file-headers %t | FileCheck %s --check-prefix=CG
+# CG:      Flags [ (0x50)
+# CG-NEXT:   EF_IA_64_ABI64 (0x10)
+# CG-NEXT:   EF_IA_64_CONS_GP (0x40)
+# CG-NEXT: ]
+
+# RUN: ld.lld %t.rf.o %t.rf.o -o %t
+# RUN: llvm-readobj --file-headers %t | FileCheck %s --check-prefix=RF
+# RF:      Flags [ (0x30)
+# RF-NEXT:   EF_IA_64_ABI64 (0x10)
+# RF-NEXT:   EF_IA_64_REDUCEDFP (0x20)
+# RF-NEXT: ]
+
+# RUN: ld.lld %t.rf.o %t.o -o %t
+# RUN: llvm-readobj --file-headers %t | FileCheck %s --check-prefix=PLAIN
+# RUN: ld.lld %t.o %t.rf.o -o %t
+# RUN: llvm-readobj --file-headers %t | FileCheck %s --check-prefix=PLAIN
+# PLAIN:      Flags [ (0x10)
+# PLAIN-NEXT:   EF_IA_64_ABI64 (0x10)
+# PLAIN-NEXT: ]
+
+# RUN: not ld.lld %t.cg.o %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=ERR1
+# ERR1: error: {{.*}}.o: cannot link non-constant-gp files with constant-gp files: {{.*}}.cg.o
+# RUN: not ld.lld %t.o %t.cg.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=ERR2
+# ERR2: error: {{.*}}.cg.o: cannot link constant-gp files with non-constant-gp files: {{.*}}.o
+# RUN: not ld.lld %t.o %t.ap.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=ERR3
+# ERR3: error: {{.*}}.ap.o: cannot link auto-pic files with non-auto-pic files: {{.*}}.o
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS64
+  Data:    ELFDATA2LSB
+  Type:    ET_REL
+  Machine: EM_IA_64
+  Flags:   [ [[FLAGS]] ]
+Sections:
+  - Name:  .text
+    Type:  SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_EXECINSTR ]
