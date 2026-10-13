@@ -751,8 +751,17 @@ bool RegisterContextUnwind::CheckIfLoopingStack() {
     addr_t next_next_frame_cfa = LLDB_INVALID_ADDRESS;
     if (next_next_frame && next_next_frame->GetCFA(next_next_frame_cfa)) {
       if (next_next_frame_cfa == m_cfa) {
-        // We have a loop in the stack unwind
-        return true;
+        // On IA-64, frames that use only the register stack share a CFA and
+        // differ only in their AFA.
+        ProcessSP process_sp = m_thread.GetProcess();
+        Architecture *arch =
+            process_sp ? process_sp->GetTarget().GetArchitecturePlugin()
+                       : nullptr;
+        if (!arch || !arch->AlternateFrameAddressIdentifiesFrame() ||
+            next_next_frame->m_afa == m_afa) {
+          // We have a loop in the stack unwind
+          return true;
+        }
       }
     }
   }

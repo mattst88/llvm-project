@@ -71,6 +71,16 @@ public:
   /// declaration header.
   virtual Address SkipFunctionHeader(Address addr) const { return addr; }
 
+  /// Whether two frames can have the same canonical frame address and differ
+  /// in their alternate frame address.
+  ///
+  /// A frame is taken to have a canonical frame address that no other has,
+  /// which holds where every call takes something from the stack. IA-64 has
+  /// a second stack, the register backing store, and a function that keeps
+  /// all it saves there takes nothing from the first: its frame is known by
+  /// where it is in the second, which is its alternate frame address.
+  virtual bool AlternateFrameAddressIdentifiesFrame() const { return false; }
+
   /// Get \a load_addr as a callable code load address for this target
   ///
   /// Take \a load_addr and potentially add any address bits that are

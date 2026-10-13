@@ -31,6 +31,11 @@ public:
       Thread &thread, RegisterContextUnwind *regctx,
       std::shared_ptr<const UnwindPlan> current_unwindplan) override;
 
+  /// A function with no frame on the memory stack has one in the register
+  /// backing store, and the plans give where the caller's starts as the
+  /// alternate frame address.
+  bool AlternateFrameAddressIdentifiesFrame() const override { return true; }
+
 private:
   static std::unique_ptr<Architecture> Create(const ArchSpec &arch);
   ArchitectureIA64() = default;
