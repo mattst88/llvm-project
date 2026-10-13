@@ -1363,15 +1363,22 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_ia64_jumpto)
   ;;
   ldf.fill f31 = [r3], 16
   ;;
+  // ld8.fill restores NaT bits from ar.unat, which jumpto() computed for the
+  // slots in this buffer.
+  add r3 = 184, r32
+  ;;
+  ld8 r3 = [r3]
+  ;;
+  mov ar.unat = r3
   ld8 r1 = [r2], 8
   ;;
-  ld8 r4 = [r2], 8
+  ld8.fill r4 = [r2], 8
   ;;
-  ld8 r5 = [r2], 8
+  ld8.fill r5 = [r2], 8
   ;;
-  ld8 r6 = [r2], 8
+  ld8.fill r6 = [r2], 8
   ;;
-  ld8 r7 = [r2], 8
+  ld8.fill r7 = [r2], 8
   ;;
   ld8 r20 = [r2], 8             // sp
   ;;

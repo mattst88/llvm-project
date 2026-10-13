@@ -1388,6 +1388,9 @@ private:
   // The sigcontext of the last signal trampoline stepped through, or 0. The
   // interrupted frame (with _isSignalFrame set) has all its registers there.
   pint_t _ia64SigContext = 0;
+  // How far the backing store, including NaT collections, is known to have
+  // been written.
+  pint_t _ia64StoreTop = 0;
   // Field offsets in the Linux struct sigcontext.
   static constexpr pint_t kIA64SigContextBSP = 72;
   static constexpr pint_t kIA64SigContextPFS = 112;
@@ -3625,9 +3628,37 @@ int UnwindCursor<A, R>::stepWithIA64UnwindInfo() {
   uint64_t unat = restore(Info::kUNAT, UNW_IA64_AR_UNAT);
   uint64_t lc = restore(Info::kLC, UNW_IA64_AR_LC);
   uint64_t fpsr = restore(Info::kFPSR, UNW_IA64_AR_FPSR);
+  // A callee-saved register may hold a NaT from a failed speculative load.
+  // If spilled to memory, its NaT bit is in the function's ar.unat at the
+  // time (the current one, unless it was saved too). If copied to a stacked
+  // register, its bit is in the NaT collection following that register in the
+  // backing store, if the store has been written that far.
+  if (_ia64StoreTop == 0)
+    _ia64StoreTop = static_cast<pint_t>(
+        R::rseSkip(_registers.getRegister(UNW_IA64_AR_BSP),
+                   R::sizeOfLocals(_registers.getRegister(UNW_IA64_AR_PFS))));
   uint64_t gr[4];
-  for (int i = 0; i != 4; ++i)
+  uint64_t nat = _registers.getNaT();
+  for (int i = 0; i != 4; ++i) {
+    const typename Info::Save &save = state.reg[Info::kR4 + i];
     gr[i] = restore(Info::kR4 + i, UNW_IA64_R4 + i);
+    uint64_t bit;
+    if (save.where == Info::kSPRel || save.where == Info::kPSPRel) {
+      bit = restore(Info::kPriUNAT, UNW_IA64_AR_UNAT) >>
+            R::unatBit(address(save));
+    } else if (save.where == Info::kGR && save.value >= 32) {
+      uint64_t slot = R::rseSkip(_registers.getRegister(UNW_IA64_AR_BSP),
+                                 static_cast<int64_t>(save.value) - 32);
+      uint64_t collection = slot | 0x1f8;
+      bit = collection < _ia64StoreTop
+                ? _addressSpace.get64(static_cast<pint_t>(collection)) >>
+                      R::unatBit(slot)
+                : 0;
+    } else {
+      continue;
+    }
+    nat = (nat & ~(UINT64_C(1) << i)) | ((bit & 1) << i);
+  }
   uint64_t br[5];
   for (int i = 0; i != 5; ++i)
     br[i] = restore(Info::kB1 + i, UNW_IA64_B1 + i);
@@ -3687,6 +3718,7 @@ int UnwindCursor<A, R>::stepWithIA64UnwindInfo() {
       int64_t count = R::rseCount(altStart, altEnd);
       uint64_t from = altStart;
       uint64_t to = R::rseSkip(scBSP, -count);
+      _ia64StoreTop = static_cast<pint_t>(to);
       for (; count > 0; --count) {
         if ((from & 0x1f8) == 0x1f8)
           from += 8;
@@ -3733,6 +3765,7 @@ int UnwindCursor<A, R>::stepWithIA64UnwindInfo() {
   _registers.setRegister(UNW_IA64_AR_FPSR, fpsr);
   for (int i = 0; i != 4; ++i)
     _registers.setRegister(UNW_IA64_R4 + i, gr[i]);
+  _registers.setNaT(nat);
   for (int i = 0; i != 5; ++i)
     _registers.setRegister(UNW_IA64_B1 + i, br[i]);
   for (int i = 0; i != R::NumFR; ++i)

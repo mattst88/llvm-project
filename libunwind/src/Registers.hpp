@@ -5641,6 +5641,11 @@ public:
     int64_t last = static_cast<int64_t>(to >> 3);
     return (last - ((last + 1) >> 6)) - (first - ((first + 1) >> 6));
   }
+  /// NaT bits of r4-r7; bit 0 is r4.
+  uint64_t getNaT() const { return _registers.__nat; }
+  void setNaT(uint64_t value) { _registers.__nat = value; }
+  /// The ar.unat bit that st8.spill and ld8.fill use for \p address.
+  static unsigned unatBit(uint64_t address) { return (address >> 3) & 0x3f; }
   /// The size of locals (sol, inputs included) in a frame marker.
   static unsigned sizeOfLocals(uint64_t cfm) { return (cfm >> 7) & 0x7f; }
   static unsigned sizeOfFrame(uint64_t cfm) { return cfm & 0x7f; }
@@ -5662,7 +5667,9 @@ private:
     uint64_t __unat;
     uint64_t __lc;
     uint64_t __fpsr;
-    uint64_t __nat;
+    uint64_t __nat; // In the context: ar.unat after unw_getcontext()'s
+                    // st8.spill of r4-r7, and in the same form jumpto()
+                    // passes for ld8.fill. In between: one bit per register.
   };
 
   ia64_thread_state_t _registers;
@@ -5685,6 +5692,12 @@ inline Registers_ia64::Registers_ia64(const void *registers) {
       ~static_cast<uintptr_t>(15);
   memcpy(_fr, reinterpret_cast<const void *>(fr), sizeof(_fr));
   _padding = 0;
+  uint64_t r4 = reinterpret_cast<uintptr_t>(registers) +
+                offsetof(ia64_thread_state_t, __r4);
+  uint64_t nat = 0;
+  for (unsigned i = 0; i != 4; ++i)
+    nat |= ((_registers.__nat >> unatBit(r4 + 8 * i)) & 1) << i;
+  _registers.__nat = nat;
   // unw_getcontext() allocates no register frame, so its BSP points at its
   // caller's output registers, past the caller's locals.
   _registers.__bsp = rseSkip(
@@ -5874,6 +5887,11 @@ inline void Registers_ia64::jumpto() {
   static_assert(offsetof(decltype(target), fr) == 208,
                 "expected the floating-point registers to be at offset 208");
   target.registers = _registers;
+  uint64_t r4 = reinterpret_cast<uintptr_t>(&target.registers.__r4[0]);
+  target.registers.__nat = 0;
+  for (unsigned i = 0; i != 4; ++i)
+    target.registers.__nat |= ((_registers.__nat >> i) & 1)
+                              << unatBit(r4 + 8 * i);
   target.bspstore = rseSkip(_registers.__bsp, sizeOfLocals(_registers.__pfs));
   target.rnatAddr = target.bspstore | 0x1f8;
   memcpy(target.fr, _fr, sizeof(_fr));
