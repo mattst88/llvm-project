@@ -59,6 +59,19 @@
 // UBSAN: "-fsanitize=alignment,
 // UBSAN-NOT: {{[=,]}}function
 
+// A vtable holds descriptors and has no type metadata, so there is nothing
+// to check a virtual call or a cast against.
+
+// RUN: not %clang --target=ia64-unknown-linux-gnu -fsanitize=cfi -flto \
+// RUN:   -fvisibility=hidden -### %s 2>&1 | FileCheck %s --check-prefix=CFI
+// CFI: unsupported option '-fsanitize=cfi' for target 'ia64-unknown-linux-gnu'
+// RUN: not %clang --target=ia64-unknown-linux-gnu -flto -fvisibility=hidden \
+// RUN:   -fsanitize=cfi-vcall,cfi-nvcall,cfi-derived-cast,cfi-unrelated-cast \
+// RUN:   -fsanitize=cfi-mfcall,cfi-cast-strict -### %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=CFI-EACH
+// CFI-EACH-DAG: unsupported option '-fsanitize=cfi-vcall,cfi-nvcall,cfi-derived-cast,cfi-unrelated-cast' for target 'ia64-unknown-linux-gnu'
+// CFI-EACH-DAG: unsupported option '-fsanitize=cfi-mfcall,cfi-cast-strict' for target 'ia64-unknown-linux-gnu'
+
 // An object of eight bytes or fewer is short data, and -G and -mno-sdata
 // say otherwise.
 

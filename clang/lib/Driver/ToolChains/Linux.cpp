@@ -1047,6 +1047,10 @@ Linux::getSupportedSanitizers(BoundArch BA,
   // signature or type hash in front of it.
   if (IsIA64)
     Res &= ~(SanitizerKind::Function | SanitizerKind::KCFI);
+  // IA-64 vtables hold function descriptors and get no type metadata, without
+  // which virtual calls go unchecked and every cast check fails.
+  if (IsIA64)
+    Res &= ~(SanitizerKind::CFI | SanitizerKind::CFICastStrict);
   return Res;
 }
 
