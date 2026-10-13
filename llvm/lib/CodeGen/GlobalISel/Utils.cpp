@@ -1647,6 +1647,7 @@ void llvm::saveUsesAndErase(MachineInstr &MI, MachineRegisterInfo &MRI,
       DeadInstChain.insert(MRI.getVRegDef(Op.getReg()));
   }
   LLVM_DEBUG(dbgs() << MI << "Is dead; erasing.\n");
+  salvageDebugInfo(MRI, MI);
   DeadInstChain.remove(&MI);
   MI.eraseFromParent();
   if (LocObserver)
