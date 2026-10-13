@@ -64,6 +64,18 @@ Error buildTables_ELF_ia64(LinkGraph &G) {
       case ia64::RequestDescriptorGOTAndTransformToGPRel64:
         Descriptors.setDescriptorTarget(G, E);
         break;
+      case ia64::RequestCallDescriptorAndTransformToGPRel22:
+        Descriptors.setCallDescriptorTarget(G, E);
+        E.setKind(ia64::GPRel22);
+        break;
+      case ia64::RequestCallDescriptorAndTransformToGPRel64I:
+        Descriptors.setCallDescriptorTarget(G, E);
+        E.setKind(ia64::GPRel64I);
+        break;
+      case ia64::RequestCallDescriptorAndTransformToGPRel64:
+        Descriptors.setCallDescriptorTarget(G, E);
+        E.setKind(ia64::GPRel64);
+        break;
       default:
         // Any other relocation against a function refers to its code.
         if (E.isRelocation())
@@ -246,6 +258,15 @@ private:
       break;
     case ELF::R_IA64_LTOFF_FPTR64I:
       Kind = ia64::RequestDescriptorGOTAndTransformToGPRel64I;
+      break;
+    case ELF::R_IA64_PLTOFF22:
+      Kind = ia64::RequestCallDescriptorAndTransformToGPRel22;
+      break;
+    case ELF::R_IA64_PLTOFF64I:
+      Kind = ia64::RequestCallDescriptorAndTransformToGPRel64I;
+      break;
+    case ELF::R_IA64_PLTOFF64LSB:
+      Kind = ia64::RequestCallDescriptorAndTransformToGPRel64;
       break;
     case ELF::R_IA64_PCREL22:
       Kind = ia64::PCRel22;

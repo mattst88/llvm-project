@@ -268,6 +268,23 @@ enum EdgeKind_ia64 : Edge::Kind {
   /// the descriptor.
   ///
   RequestDescriptorGOTAndTransformToGPRel64I,
+
+  /// A function descriptor to call the target through, addressed GP-relative
+  /// by an addl. The descriptor must be within GP range, which that of a
+  /// function in another graph is not, so for such a function it is a
+  /// descriptor for a stub.
+  ///
+  /// This is not a fixup. It becomes a GPRel22 to the descriptor.
+  ///
+  RequestCallDescriptorAndTransformToGPRel22,
+
+  /// The same, addressed by a movl. It becomes a GPRel64I.
+  ///
+  RequestCallDescriptorAndTransformToGPRel64I,
+
+  /// The same, as a 64-bit data word. It becomes a GPRel64.
+  ///
+  RequestCallDescriptorAndTransformToGPRel64,
 };
 
 /// Returns a string name for the given ia64 edge. For debugging purposes
@@ -662,6 +679,25 @@ public:
     E.setAddend(0);
   }
 
+  /// Retarget an edge that requests a descriptor to call its target through.
+  /// The descriptor is addressed GP-relative, so for a function in another
+  /// graph a local one is created here, which the stub builder turns into a
+  /// descriptor for a stub.
+  void setCallDescriptorTarget(LinkGraph &G, Edge &E) {
+    Symbol &Sym = E.getTarget();
+    if (Sym.isDefined())
+      return setDescriptorTarget(G, E);
+    auto &Entry = ImportedDescriptors[&Sym];
+    if (!Entry) {
+      auto &B = G.createContentBlock(getSection(G), NullDescriptorContent,
+                                     orc::ExecutorAddr(), DescriptorSize, 0);
+      B.addEdge(FunctionDescriptor, 0, Sym, 0);
+      Entry = &G.addAnonymousSymbol(B, 0, DescriptorSize, false, false);
+    }
+    E.setTarget(*Entry);
+    E.setAddend(0);
+  }
+
 private:
   Section &getSection(LinkGraph &G) {
     if (!DescriptorSection)
@@ -673,6 +709,7 @@ private:
   Section *DescriptorSection = nullptr;
   DenseMap<Symbol *, Symbol *> CodeOfExported;
   DenseMap<std::pair<Symbol *, int64_t>, Symbol *> LocalDescriptors;
+  DenseMap<Symbol *, Symbol *> ImportedDescriptors;
 };
 
 /// Linkage table builder.

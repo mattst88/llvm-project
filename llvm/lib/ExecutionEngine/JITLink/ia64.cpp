@@ -135,6 +135,12 @@ const char *getEdgeKindName(Edge::Kind K) {
     return "RequestDescriptorGOTAndTransformToGPRel64";
   case RequestDescriptorGOTAndTransformToGPRel64I:
     return "RequestDescriptorGOTAndTransformToGPRel64I";
+  case RequestCallDescriptorAndTransformToGPRel22:
+    return "RequestCallDescriptorAndTransformToGPRel22";
+  case RequestCallDescriptorAndTransformToGPRel64I:
+    return "RequestCallDescriptorAndTransformToGPRel64I";
+  case RequestCallDescriptorAndTransformToGPRel64:
+    return "RequestCallDescriptorAndTransformToGPRel64";
   }
   return getGenericEdgeKindName(K);
 }
