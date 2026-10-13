@@ -1764,6 +1764,12 @@ ParseStatus IA64AsmParser::parseDirective(AsmToken DirectiveID) {
 ParseStatus IA64AsmParser::parseTargetDirective(AsmToken DirectiveID) {
   StringRef Name = DirectiveID.getString();
 
+  // IA-64 unwind information is not DWARF CFI (a version 1 CIE cannot even
+  // hold b0's DWARF register number as its return address column), and
+  // GNU as has no CFI directives for this target.
+  if (Name.starts_with_insensitive(".cfi_"))
+    return Error(DirectiveID.getLoc(), "CFI is not supported for this target");
+
   noteSectionAgain();
   // Symbol attribute directives do not move the output position.
   if (!StringSwitch<bool>(Name.lower())
