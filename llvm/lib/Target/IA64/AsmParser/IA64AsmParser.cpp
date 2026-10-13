@@ -125,9 +125,10 @@ class IA64AsmParser : public MCTargetAsmParser {
 
   bool parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) override;
 
-  /// The directives that put data in the section, most of them written
-  /// without a dot. NoMatch if \p Name is not one.
-  ParseStatus parseDataDirective(StringRef Name);
+  /// Data directives, most written without a leading dot. NoMatch if
+  /// \p Name is not one.
+  /// \p Here is whether the data goes in the current section.
+  ParseStatus parseDataDirective(StringRef Name, bool Here = true);
   bool parseDataValues(unsigned Size, bool Aligned);
   bool parseDataStrings(bool ZeroTerminated);
   bool parseData16(bool Aligned);
@@ -181,6 +182,16 @@ class IA64AsmParser : public MCTargetAsmParser {
   /// directive, which no other directive may interrupt.
   unsigned Awaited = 0;
   bool AwaitedByMask = false;
+  /// Fail if a directive still awaits the instruction after it, since what
+  /// is being parsed puts something else there: data, padding or a section
+  /// change.
+  bool failIfInstructionAwaited() {
+    if (!AwaitsInstruction.isValid() || AwaitedByMask)
+      return false;
+    Awaited = 0;
+    return Error(std::exchange(AwaitsInstruction, SMLoc()),
+                 "no instruction follows for this to tell of");
+  }
   /// Whether ".handlerdata" has ended the unwind information.
   bool HandlerData = false;
   // Set when a section directive was parsed; SelectedFrom is the section
@@ -1620,7 +1631,7 @@ ParseStatus IA64AsmParser::parseCrossSectionData(StringRef Directive) {
   if (IsElsewhere && getStreamer().hasRawTextSupport()) {
     std::string Text;
     ElsewhereText = &Text;
-    ParseStatus Status = parseDataDirective(Name);
+    ParseStatus Status = parseDataDirective(Name, /*Here=*/false);
     ElsewhereText = nullptr;
     if (Status.isSuccess()) {
       std::string Quoted;
@@ -1631,7 +1642,7 @@ ParseStatus IA64AsmParser::parseCrossSectionData(StringRef Directive) {
   }
   if (IsElsewhere)
     getTargetStreamer().beginDataElsewhere(Section);
-  ParseStatus Status = parseDataDirective(Name);
+  ParseStatus Status = parseDataDirective(Name, /*Here=*/!IsElsewhere);
   assert(!Status.isNoMatch() && "not a data directive after all");
   if (IsElsewhere)
     getTargetStreamer().endDataElsewhere();
@@ -1708,11 +1719,12 @@ bool IA64AsmParser::parseDataStrings(bool ZeroTerminated) {
   });
 }
 
-ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
+ParseStatus IA64AsmParser::parseDataDirective(StringRef Name, bool Here) {
   // GNU as aligns each item to its size, unless the directive ends in ".ua"
   // or names the size in bytes. This applies to ".long", ".dc.l" and similar
   // too, which do not align on other targets.
   bool Aligned = !Name.consume_back(".ua");
+  auto Await = [&] { return Here && failIfInstructionAwaited(); };
   unsigned Size = StringSwitch<unsigned>(Name)
                       .Case("data1", 1)
                       .Cases({"data2", ".short", ".word"}, 2)
@@ -1721,11 +1733,11 @@ ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
                       .Cases({"data8", ".quad", ".dc.a"}, 8)
                       .Default(0);
   if (Size && (Aligned || (Name.starts_with("data") && Size != 1)))
-    return parseDataValues(Size, Aligned);
+    return Await() || parseDataValues(Size, Aligned);
   if (Name == "data16" || (Aligned && Name == ".octa"))
-    return parseData16(Aligned);
+    return Await() || parseData16(Aligned);
   if (Aligned && (Name == "string" || Name == "stringz"))
-    return parseDataStrings(Name == "stringz");
+    return Await() || parseDataStrings(Name == "stringz");
   unsigned RealSize = StringSwitch<unsigned>(Name)
                           .Case("real4", 4)
                           .Case("real8", 8)
@@ -1733,7 +1745,7 @@ ParseStatus IA64AsmParser::parseDataDirective(StringRef Name) {
                           .Case("real16", 16)
                           .Default(0);
   if (RealSize)
-    return parseRealValues(RealSize, Aligned);
+    return Await() || parseRealValues(RealSize, Aligned);
   return ParseStatus::NoMatch;
 }
 
@@ -1759,6 +1771,22 @@ ParseStatus IA64AsmParser::parseTargetDirective(AsmToken DirectiveID) {
            .Cases({".hidden", ".internal", ".protected", ".size"}, true)
            .Default(false))
     LabelsHere.clear();
+  // GNU as also rejects data, padding and section changes while a directive
+  // awaits its instruction.
+  if (StringSwitch<bool>(Name.lower())
+          .Cases({".text", ".data", ".bss", ".sdata", ".sbss"}, true)
+          .Cases({".section", ".pushsection", ".popsection"}, true)
+          .Cases({".previous", ".subsection"}, true)
+          .Cases({".align", ".balign", ".balignw", ".balignl"}, true)
+          .Cases({".p2align", ".p2alignw", ".p2alignl"}, true)
+          .Cases({".skip", ".space", ".zero", ".fill", ".org"}, true)
+          .Cases({".byte", ".2byte", ".4byte", ".8byte"}, true)
+          .Cases({".ascii", ".asciz", ".string"}, true)
+          .Cases({".single", ".float", ".double"}, true)
+          .Cases({".uleb128", ".sleb128"}, true)
+          .Default(false) &&
+      failIfInstructionAwaited())
+    return ParseStatus::Failure;
   if (StringSwitch<bool>(Name.lower())
           .Cases({".text", ".data", ".bss", ".sdata", ".sbss"}, true)
           .Cases({".section", ".pushsection", ".popsection"}, true)
