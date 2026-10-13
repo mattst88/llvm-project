@@ -383,7 +383,8 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       .libcallFor({{s32, s32}, {s64, s32}, {s80, s32}, {s128, s32}});
   getActionDefinitionsBuilder(
       {G_LROUND, G_LLROUND, G_INTRINSIC_LRINT, G_INTRINSIC_LLRINT})
-      .libcallFor({{s64, s32}, {s64, s64}, {s64, s80}, {s64, s128}});
+      .libcallFor({{s64, s32}, {s64, s64}, {s64, s80}, {s64, s128}})
+      .clampScalar(0, s64, s64);
   // The bits of a float or a double say what class it is of. Those of an
   // extended value say it differently, and a compare is asked instead.
   getActionDefinitionsBuilder(G_IS_FPCLASS)
