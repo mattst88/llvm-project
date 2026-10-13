@@ -273,12 +273,16 @@ struct three va_three(int n, ...) {
   return r;
 }
 
-// What has no size was not passed, however it is aligned.
+// What has no size has no slot, but one that is aligned to sixteen bytes
+// still begins at an even one, and the caller leaves an odd one unused for
+// it. The callee steps over that.
 struct __attribute__((aligned(16))) empty_aligned {};
 long va_empty_aligned(int n, ...) {
 // CHECK-LABEL: define dso_local i64 @va_empty_aligned(i32 noundef %n, ...)
 // CHECK:       %argp.cur = load ptr, ptr %ap
-// CHECK-NEXT:  %argp.next = getelementptr inbounds i8, ptr %argp.cur, i64 0
+// CHECK-NEXT:  %0 = getelementptr inbounds i8, ptr %argp.cur, i32 15
+// CHECK-NEXT:  %argp.cur.aligned = call ptr @llvm.ptrmask.p0.i64(ptr %0, i64 -16)
+// CHECK-NEXT:  %argp.next = getelementptr inbounds i8, ptr %argp.cur.aligned, i64 0
 // CHECK:       %argp.cur1 = load ptr, ptr %ap
 // CHECK-NEXT:  %argp.next2 = getelementptr inbounds i8, ptr %argp.cur1, i64 8
   va_list ap;
@@ -287,4 +291,32 @@ long va_empty_aligned(int n, ...) {
   long r = va_arg(ap, long);
   va_end(ap);
   return r;
+}
+
+void pass_empty_aligned_even(struct empty_aligned e, long a, long b,
+                             struct empty_aligned f, long c) {}
+// CHECK-LABEL: define dso_local void @pass_empty_aligned_even(i64 noundef %a, i64 noundef %b, i64 noundef %c)
+
+void pass_empty_aligned_odd(long a, struct empty_aligned e, long b) {}
+// CHECK-LABEL: define dso_local void @pass_empty_aligned_odd(i64 noundef %a, i64 %e.coerce, i64 noundef %b)
+
+// The slots that came before are counted as the back end counts them: two
+// for what is two words or aligned to sixteen bytes, at an even slot, and
+// none for where a result that is in memory is to go.
+struct big { long a[40]; };
+struct big pass_empty_aligned_after(long double x, long a,
+                                    struct empty_aligned e, long b,
+                                    struct aligned s,
+                                    struct empty_aligned f) {
+// CHECK-LABEL: define dso_local void @pass_empty_aligned_after(ptr dead_on_unwind noalias writable sret(%struct.big) align 8 %agg.result, x86_fp80 noundef %x, i64 noundef %a, i64 %e.coerce, i64 noundef %b, [2 x i128] %s.coerce)
+  struct big r = {{b}};
+  return r;
+}
+
+void call_empty_aligned(struct empty_aligned e) {
+// CHECK-LABEL: define dso_local void @call_empty_aligned()
+// CHECK:       call void @pass_empty_aligned_odd(i64 noundef 1, i64 %{{.*}}, i64 noundef 2)
+// CHECK:       call i64 (i32, ...) @va_empty_aligned(i32 noundef 1, i64 %{{.*}}, i64 noundef 2)
+  pass_empty_aligned_odd(1, e, 2);
+  va_empty_aligned(1, e, 2L);
 }

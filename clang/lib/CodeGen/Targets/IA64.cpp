@@ -44,7 +44,7 @@ public:
 private:
   ABIArgInfo classifyReturnType(QualType RetTy) const;
   ABIArgInfo classifyScalarType(QualType Ty, bool IsResult) const;
-  ABIArgInfo classifyArgumentType(QualType Ty) const;
+  ABIArgInfo classifyArgumentType(QualType Ty, unsigned &NextSlot) const;
 
   bool isInSlots(QualType Ty) const;
   llvm::Type *getSlotsType(uint64_t Bits, bool Aligned) const;
@@ -212,27 +212,46 @@ ABIArgInfo IA64ABIInfo::classifyScalarType(QualType Ty, bool IsResult) const {
                   : DefaultABIInfo::classifyArgumentType(Ty);
 }
 
-ABIArgInfo IA64ABIInfo::classifyArgumentType(QualType Ty) const {
+// NextSlot is the slot the argument would start at, and is updated to the
+// next argument's. GCC places arguments from the eighth slot on, and those
+// with no slot, in ways the type alone does not determine.
+ABIArgInfo IA64ABIInfo::classifyArgumentType(QualType Ty,
+                                             unsigned &NextSlot) const {
   Ty = useFirstFieldIfTransparentUnion(Ty);
 
-  if (!isInSlots(Ty))
+  uint64_t Bits = getContext().getTypeSize(Ty);
+  unsigned Words = llvm::alignTo(Bits, 64) / 64;
+  bool Aligned = getContext().getTypeAlign(Ty) > 64;
+
+  if (!isInSlots(Ty)) {
+    // A two-word scalar starts at an even slot.
+    NextSlot = llvm::alignTo(NextSlot, Words > 1 ? 2 : 1) + Words;
     return classifyScalarType(Ty, /*IsResult=*/false);
+  }
 
   // Types the C++ ABI does not allow to be copied bitwise are passed by the
   // address of a caller-made copy.
-  if (CGCXXABI::RecordArgABI RAA = getRecordArgABI(Ty, getCXXABI()))
+  if (CGCXXABI::RecordArgABI RAA = getRecordArgABI(Ty, getCXXABI())) {
+    ++NextSlot;
     return getNaturalAlignIndirect(Ty, getDataLayout().getAllocaAddrSpace(),
                                    RAA == CGCXXABI::RAA_DirectInMemory);
-
-  // An empty structure is no bytes in C, and has no slot. It is one byte in
-  // C++, and has one.
-  uint64_t Bits = getContext().getTypeSize(Ty);
-  if (Bits == 0)
-    return ABIArgInfo::getIgnore();
+  }
 
   // An aggregate declared 16-byte aligned starts at an even slot even if its
   // members do not require that alignment.
-  bool Aligned = getContext().getTypeAlign(Ty) > 64;
+  bool Skips = Aligned && NextSlot % 2 != 0;
+  unsigned Start = NextSlot + Skips;
+  NextSlot = Start + Words;
+
+  // An empty struct is zero bytes in C and takes no slot; in C++ it is one
+  // byte and takes one. A 16-byte-aligned one still starts at an even slot,
+  // leaving an odd slot unused before the next argument.
+  if (Bits == 0) {
+    if (Skips)
+      return ABIArgInfo::getDirect(llvm::Type::getInt64Ty(getVMContext()));
+    return ABIArgInfo::getIgnore();
+  }
+
   llvm::ArrayType *Members = getHomogeneousType(Ty);
   if (!Members)
     Members = getSingleMemberType(Ty);
@@ -294,22 +313,25 @@ void IA64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
   } else {
     FI.getReturnInfo() = classifyReturnType(FI.getReturnType());
   }
+  // The address of an indirect result takes a slot only if it is passed as
+  // an argument.
+  unsigned NextSlot =
+      FI.getReturnInfo().isIndirect() && FI.getReturnInfo().getInReg();
   for (auto &Arg : FI.arguments())
-    Arg.info = classifyArgumentType(Arg.type);
+    Arg.info = classifyArgumentType(Arg.type, NextSlot);
 }
 
-// The arguments with no names are one after another in memory, each in the
-// slots it was passed in, so one that is aligned to sixteen bytes is at an
-// address that is. One of no size was not passed, and has no address to be
-// aligned.
+// Variadic arguments are laid out consecutively in memory, each in the slots
+// it was passed in, so a 16-byte-aligned one is at a 16-byte-aligned
+// address. This holds for a zero-sized one too, for which the caller left an
+// odd slot unused.
+
 RValue IA64ABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
                               QualType Ty, AggValueSlot Slot) const {
   bool IsIndirect = isInSlots(Ty) &&
                     getRecordArgABI(Ty, getCXXABI()) != CGCXXABI::RAA_Default;
   TypeInfoChars Info = getContext().getTypeInfoInChars(Ty);
-  Info.Align = Info.Width.isZero()
-                   ? CharUnits::fromQuantity(8)
-                   : std::min(Info.Align, CharUnits::fromQuantity(16));
+  Info.Align = std::min(Info.Align, CharUnits::fromQuantity(16));
   return emitVoidPtrVAArg(CGF, VAListAddr, Ty, IsIndirect, Info,
                           CharUnits::fromQuantity(8),
                           /*AllowHigherAlign=*/true, Slot);
