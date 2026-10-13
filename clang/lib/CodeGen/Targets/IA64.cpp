@@ -56,6 +56,8 @@ private:
   llvm::ArrayType *getMembersType(QualType Ty, const Type *Base) const;
   llvm::ArrayType *getHomogeneousType(QualType Ty) const;
   llvm::ArrayType *getSingleMemberType(QualType Ty) const;
+  bool isFloatVectorWord(QualType Ty) const;
+  llvm::Type *getSignificandsType(unsigned Words) const;
 };
 
 class IA64TargetCodeGenInfo : public TargetCodeGenInfo {
@@ -195,6 +197,47 @@ llvm::ArrayType *IA64ABIInfo::getSingleMemberType(QualType Ty) const {
   return nullptr;
 }
 
+// A vector of two floats, or a struct that is one plus zero-sized members.
+// GCC treats it as a register-sized floating-point value, though not one
+// arithmetic is done on, and passes it as the significand of an FP register.
+bool IA64ABIInfo::isFloatVectorWord(QualType Ty) const {
+  if (getContext().getTypeSize(Ty) != 64)
+    return false;
+  if (const auto *VT = Ty->getAs<VectorType>())
+    return VT->getElementType()->isSpecificBuiltinType(BuiltinType::Float);
+  const RecordDecl *RD = Ty->getAsRecordDecl();
+  if (!RD || RD->isUnion() || RD->hasFlexibleArrayMember() ||
+      getContext().getTypeAlign(Ty) < 64)
+    return false;
+  unsigned NumMembers = 0;
+  if (const auto *CXXRD = dyn_cast<CXXRecordDecl>(RD)) {
+    for (const CXXBaseSpecifier &B : CXXRD->bases()) {
+      if (isEmptyRecord(getContext(), B.getType(), true))
+        continue;
+      if (!isFloatVectorWord(B.getType()))
+        return false;
+      ++NumMembers;
+    }
+  }
+  for (const FieldDecl *FD : RD->fields()) {
+    if (FD->isZeroLengthBitField() || FD->isZeroSize(getContext()) ||
+        getContext().getTypeSize(FD->getType()) == 0)
+      continue;
+    if (FD->isBitField() || !isFloatVectorWord(FD->getType()))
+      return false;
+    ++NumMembers;
+  }
+  return NumMembers == 1;
+}
+
+// The type that tells the backend to pass each word as the significand of an
+// FP register while FP argument registers remain.
+llvm::Type *IA64ABIInfo::getSignificandsType(unsigned Words) const {
+  llvm::Type *Word = llvm::FixedVectorType::get(
+      llvm::Type::getFloatTy(getVMContext()), 2);
+  return Words == 1 ? Word : llvm::ArrayType::get(Word, Words);
+}
+
 // Integers narrower than a register are extended by the receiver, not the
 // sender: the upper bits are undefined. bool is the exception and is passed
 // as a byte holding 0 or 1.
@@ -252,6 +295,9 @@ ABIArgInfo IA64ABIInfo::classifyArgumentType(QualType Ty,
     return ABIArgInfo::getIgnore();
   }
 
+  if (isFloatVectorWord(Ty))
+    return ABIArgInfo::getDirect(getSignificandsType(1));
+
   llvm::ArrayType *Members = getHomogeneousType(Ty);
   if (!Members)
     Members = getSingleMemberType(Ty);
@@ -288,6 +334,18 @@ ABIArgInfo IA64ABIInfo::classifyReturnType(QualType RetTy) const {
   uint64_t Bits = getContext().getTypeSize(RetTy);
   if (Bits == 0)
     return ABIArgInfo::getIgnore();
+
+  // A floating-point vector is returned in f8 onward, one word per register
+  // as the significand, since GCC treats it as a floating-point type that no
+  // register type matches.
+  if (const auto *VT = RetTy->getAs<VectorType>()) {
+    QualType Element = VT->getElementType();
+    if (Bits <= MaxResultBits &&
+        (Element->isSpecificBuiltinType(BuiltinType::Float) ||
+         Element->isSpecificBuiltinType(BuiltinType::Double)))
+      return ABIArgInfo::getDirect(
+          getSignificandsType(llvm::alignTo(Bits, 64) / 64));
+  }
 
   // HFAs of up to eight members are returned in f8-f15.
   if (llvm::ArrayType *Members = getHomogeneousType(RetTy))

@@ -44,6 +44,43 @@ struct aligned { __int128 a; long b; };
 void pass_aligned(struct aligned s) {}
 // CHECK-LABEL: define dso_local void @pass_aligned([2 x i128] %s.coerce)
 
+// A vector of two single-precision values is of a floating-point type that
+// fills a register to GCC, and is the significand of a floating-point
+// register, which the back end is told by its being left as it is. So is a
+// structure that is one, with or without members of no size.
+typedef float v2sf __attribute__((vector_size(8)));
+struct one_v2sf { v2sf v; };
+struct one_v2sf_empty { v2sf v; struct {} e; };
+void pass_v2sf(v2sf v, struct one_v2sf s, struct one_v2sf_empty t) {}
+// CHECK-LABEL: define dso_local void @pass_v2sf(<2 x float> noundef %v, <2 x float> %s.coerce, <2 x float> %t.coerce)
+
+// One of any other size or element is words.
+typedef double v1df __attribute__((vector_size(8)));
+typedef int v2si __attribute__((vector_size(8)));
+typedef float v4sf __attribute__((vector_size(16)));
+struct two_v2sf { v2sf v[2]; };
+void pass_other_vectors(v1df a, v2si b, v4sf c, struct two_v2sf d) {}
+// CHECK-LABEL: define dso_local void @pass_other_vectors(i64 noundef %a.coerce, i64 noundef %b.coerce, i128 noundef %c.coerce, [2 x i64] %d.coerce)
+
+// A vector of floating-point values that is a result is in f8 and the
+// registers after it, a word in each. A structure is not.
+v2sf return_v2sf(void) { return (v2sf){}; }
+// CHECK-LABEL: define dso_local <2 x float> @return_v2sf()
+v1df return_v1df(void) { return (v1df){}; }
+// CHECK-LABEL: define dso_local <2 x float> @return_v1df()
+v4sf return_v4sf(void) { return (v4sf){}; }
+// CHECK-LABEL: define dso_local [2 x <2 x float>] @return_v4sf()
+typedef double v4df __attribute__((vector_size(32)));
+v4df return_v4df(void) { return (v4df){}; }
+// CHECK-LABEL: define dso_local [4 x <2 x float>] @return_v4df()
+typedef double v8df __attribute__((vector_size(64)));
+v8df return_v8df(void) { return (v8df){}; }
+// CHECK-LABEL: define dso_local void @return_v8df(ptr dead_on_unwind noalias writable sret(<8 x double>) align 64 %agg.result)
+v2si return_v2si(void) { return (v2si){}; }
+// CHECK-LABEL: define dso_local i64 @return_v2si()
+struct one_v2sf return_one_v2sf(void) { return (struct one_v2sf){}; }
+// CHECK-LABEL: define dso_local i64 @return_one_v2sf()
+
 // An empty one has no slot.
 
 struct empty {};
