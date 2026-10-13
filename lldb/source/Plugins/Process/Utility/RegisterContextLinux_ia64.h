@@ -13,7 +13,10 @@
 #include "lldb/Target/RegisterContext.h"
 #include "lldb/lldb-private.h"
 
+#include "llvm/ADT/ArrayRef.h"
+
 #include <cstdint>
+#include <string>
 #include <vector>
 
 class RegisterContextLinux_ia64 : public lldb_private::RegisterInfoInterface {
@@ -30,7 +33,19 @@ public:
   /// \p addr in the register backing store; \p count may be negative.
   static uint64_t SkipBackingStoreRegisters(uint64_t addr, int64_t count);
 
+  /// Size of a saved FR, in memory and in the NT_FPREGSET note.
+  static constexpr uint32_t k_fpr_bytes = 16;
+
+  /// Size of the NT_FPREGSET note: f0-f127 in spill format.
+  static constexpr size_t GetFPRSize() { return 128 * k_fpr_bytes; }
+
+  /// Returns the value of the FR saved as the 16 bytes \p raw, rounded to a
+  /// double.
+  static double FloatingPointValue(llvm::ArrayRef<uint8_t> raw);
+
 private:
+  // Storage for the FR names referenced by m_register_infos.
+  std::vector<std::string> m_fpr_names;
   std::vector<lldb_private::RegisterInfo> m_register_infos;
 };
 

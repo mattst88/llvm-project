@@ -10,6 +10,7 @@
 #define LLDB_SOURCE_PLUGINS_PROCESS_ELF_CORE_REGISTERCONTEXTPOSIXCORE_IA64_H
 
 #include "Plugins/Process/Utility/RegisterInfoInterface.h"
+#include "Plugins/Process/elf-core/RegisterUtilities.h"
 #include "lldb/Target/RegisterContext.h"
 #include "lldb/Utility/DataExtractor.h"
 
@@ -23,12 +24,15 @@
 /// registers (r32 and up) are not in the note: the kernel flushes the
 /// register stack to the backing store before dumping, so they are read from
 /// the core file's memory.
+///
+/// The FRs come from the NT_FPREGSET note, in 16-byte spill format.
 class RegisterContextCorePOSIX_ia64 : public lldb_private::RegisterContext {
 public:
   RegisterContextCorePOSIX_ia64(
       lldb_private::Thread &thread,
       lldb_private::RegisterInfoInterface *register_info,
-      const lldb_private::DataExtractor &gpregset);
+      const lldb_private::DataExtractor &gpregset,
+      llvm::ArrayRef<lldb_private::CoreNote> notes);
 
   void InvalidateAllRegisters() override {}
 
@@ -50,10 +54,14 @@ private:
   bool ReadNote(uint32_t lldb_reg, uint64_t &value);
 
   std::unique_ptr<lldb_private::RegisterInfoInterface> m_register_info_up;
+  /// Reads FR \p num in 16-byte spill format.
+  bool ReadFloatingPoint(uint32_t num, uint8_t *bytes);
+
   lldb_private::DataExtractor m_gpr;
-  /// The register numbers making up the one set, which the set points at.
+  lldb_private::DataExtractor m_fpr;
+  /// Backing storage for the register numbers that m_reg_sets point into.
   std::vector<uint32_t> m_reg_nums;
-  lldb_private::RegisterSet m_reg_set;
+  std::vector<lldb_private::RegisterSet> m_reg_sets;
 };
 
 #endif // LLDB_SOURCE_PLUGINS_PROCESS_ELF_CORE_REGISTERCONTEXTPOSIXCORE_IA64_H

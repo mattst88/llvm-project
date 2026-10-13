@@ -42,6 +42,10 @@ enum : uint32_t {
   fpsr = ar0 + 40,
   pfs = ar0 + 64,
   lc = ar0 + 65,
+  // The 16-byte spill format of each FP register, which lldb exposes as a
+  // separate register from its value. No other tool numbers these; they are
+  // placed past gdb's register numbers.
+  f0_raw = 1024,
 };
 } // namespace ia64_eh_frame
 

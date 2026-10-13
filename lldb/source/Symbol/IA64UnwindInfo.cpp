@@ -11,12 +11,15 @@
 #include "lldb/Core/Section.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/Support/Endian.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
 #include <climits>
 #include <cstring>
+#include <utility>
+#include <vector>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -652,11 +655,37 @@ public:
     llvm::encodeULEB128(value, m_os);
     return *this;
   }
-  std::string Take() { return std::move(m_os.str()); }
+  /// A branch target for DW_OP_bra and DW_OP_skip.
+  using Label = size_t;
+  Label MakeLabel() {
+    m_labels.push_back(0);
+    return m_labels.size() - 1;
+  }
+  Expression &Bind(Label label) {
+    m_labels[label] = m_os.str().size();
+    return *this;
+  }
+  Expression &Branch(uint8_t op, Label label) {
+    Op(op);
+    m_branches.push_back({m_os.str().size(), label});
+    m_os << '\0' << '\0';
+    return *this;
+  }
+  std::string Take() {
+    std::string bytes = std::move(m_os.str());
+    // Branch offsets are relative to the end of the 2-byte operand.
+    for (const auto &[at, label] : m_branches) {
+      const int16_t distance = static_cast<int16_t>(m_labels[label] - (at + 2));
+      llvm::support::endian::write16le(&bytes[at], distance);
+    }
+    return bytes;
+  }
 
 private:
   std::string m_bytes;
   llvm::raw_string_ostream m_os;
+  std::vector<size_t> m_labels;
+  std::vector<std::pair<size_t, Label>> m_branches;
 };
 
 /// Pushes psp + \p offset.
@@ -690,6 +719,77 @@ bool PushSaveAddress(Expression &expr, const Save &save, const Save &psp) {
     return false;
   PushPSPRelative(expr, psp, save.value);
   return true;
+}
+
+/// Replaces the address of a 16-byte FR spill on the DWARF stack with the
+/// bits of its value as a double, rounded toward zero.
+///
+/// The spill format is a 64-bit significand with an explicit integer bit, a
+/// 17-bit exponent biased by 65535, then the sign bit. A double has the sign,
+/// an 11-bit exponent biased by 1023 and a 52-bit fraction with an implicit
+/// integer bit.
+void SavedFloatToDouble(Expression &expr) {
+  const Expression::Label loop = expr.MakeLabel();
+  const Expression::Label normal = expr.MakeLabel();
+  const Expression::Label zero = expr.MakeLabel();
+  const Expression::Label infinity = expr.MakeLabel();
+  const Expression::Label special = expr.MakeLabel();
+  const Expression::Label pack = expr.MakeLabel();
+  const Expression::Label end = expr.MakeLabel();
+  const uint64_t all_ones = 0x1ffff;
+  // The spill-format exponent that corresponds to a double exponent of zero.
+  const uint64_t rebias = 65535 - 1023;
+
+  // From here on the stack holds the sign (already at bit 63), the exponent
+  // and the significand.
+  expr.Op(DW_OP_dup).Op(DW_OP_deref);
+  expr.Op(DW_OP_swap).PlusU(8).Op(DW_OP_deref);
+  expr.Op(DW_OP_dup).ConstU(17).Op(DW_OP_shr).Op(DW_OP_lit1).Op(DW_OP_and);
+  expr.ConstU(63).Op(DW_OP_shl);
+  expr.Op(DW_OP_swap).ConstU(all_ones).Op(DW_OP_and);
+  expr.Op(DW_OP_rot).Op(DW_OP_rot);
+
+  // An all-ones exponent is an infinity or NaN, and a zero significand is
+  // zero. Also flush exponents below 64 to zero, which keeps the exponent
+  // positive during normalization below.
+  expr.Op(DW_OP_over).ConstU(all_ones).Op(DW_OP_eq).Branch(DW_OP_bra, special);
+  expr.Op(DW_OP_dup).Op(DW_OP_lit0).Op(DW_OP_eq).Branch(DW_OP_bra, zero);
+  expr.Op(DW_OP_over).ConstU(64).Op(DW_OP_lt).Branch(DW_OP_bra, zero);
+
+  // Normalize: the integer bit may be clear, e.g. for an integer written by
+  // setf.sig.
+  expr.Bind(loop);
+  expr.Op(DW_OP_dup).ConstU(63).Op(DW_OP_shr).Branch(DW_OP_bra, normal);
+  expr.Op(DW_OP_lit1).Op(DW_OP_shl);
+  expr.Op(DW_OP_swap).Op(DW_OP_lit1).Op(DW_OP_minus).Op(DW_OP_swap);
+  expr.Branch(DW_OP_skip, loop);
+
+  expr.Bind(normal);
+  expr.Op(DW_OP_over).ConstU(rebias + 1).Op(DW_OP_lt).Branch(DW_OP_bra, zero);
+  expr.Op(DW_OP_over).ConstU(rebias + 0x7ff).Op(DW_OP_ge);
+  expr.Branch(DW_OP_bra, infinity);
+  expr.Op(DW_OP_swap).ConstU(rebias).Op(DW_OP_minus).Op(DW_OP_swap);
+  expr.Branch(DW_OP_skip, pack);
+
+  expr.Bind(zero);
+  expr.Op(DW_OP_drop).Op(DW_OP_drop);
+  expr.Branch(DW_OP_skip, end);
+
+  expr.Bind(infinity);
+  expr.Op(DW_OP_drop).Op(DW_OP_drop);
+  expr.ConstU(0x7ff).ConstU(52).Op(DW_OP_shl).Op(DW_OP_or);
+  expr.Branch(DW_OP_skip, end);
+
+  // As in a double, a zero fraction is an infinity and a nonzero one a NaN.
+  expr.Bind(special);
+  expr.Op(DW_OP_swap).Op(DW_OP_drop).ConstU(0x7ff).Op(DW_OP_swap);
+
+  expr.Bind(pack);
+  expr.Op(DW_OP_lit1).Op(DW_OP_shl).ConstU(12).Op(DW_OP_shr);
+  expr.Op(DW_OP_swap).ConstU(52).Op(DW_OP_shl);
+  expr.Op(DW_OP_or).Op(DW_OP_or);
+
+  expr.Bind(end);
 }
 
 /// Pushes the value of ar.pfs at function entry, which holds the caller's
@@ -814,6 +914,40 @@ void DescribeState(const State &state, UnwindPlan::Row &row, InternFn intern) {
     if (num == LLDB_INVALID_REGNUM)
       continue;
     const Save &save = state.reg[reg];
+    if (reg >= kF2) {
+      // An FR is two lldb registers: its value as a double, under its DWARF
+      // number, and its 16-byte spill format. Memory holds the latter; the
+      // former is computed from it.
+      const uint32_t raw = num - ia64_eh_frame::f0 + ia64_eh_frame::f0_raw;
+      switch (save.where) {
+      case kFR:
+        row.SetRegisterLocationToRegister(num, ia64_eh_frame::f0 + save.value,
+                                          true);
+        row.SetRegisterLocationToRegister(
+            raw, ia64_eh_frame::f0_raw + save.value, true);
+        break;
+      case kSPRel:
+      case kPSPRel: {
+        Expression expr;
+        PushSaveAddress(expr, save, psp);
+        llvm::ArrayRef<uint8_t> bytes = intern(expr.Take());
+        loc.SetAtDWARFExpression(bytes.data(), bytes.size());
+        row.SetRegisterInfo(raw, loc);
+        Expression value;
+        PushSaveAddress(value, save, psp);
+        SavedFloatToDouble(value);
+        bytes = intern(value.Take());
+        loc.SetIsDWARFExpression(bytes.data(), bytes.size());
+        row.SetRegisterInfo(num, loc);
+        break;
+      }
+      default:
+        // Unchanged, which is the default for a preserved register that the
+        // row does not mention.
+        break;
+      }
+      continue;
+    }
     switch (save.where) {
     case kGR:
       row.SetRegisterLocationToRegister(num, ia64_eh_frame::r0 + save.value,
@@ -821,10 +955,6 @@ void DescribeState(const State &state, UnwindPlan::Row &row, InternFn intern) {
       break;
     case kBR:
       row.SetRegisterLocationToRegister(num, ia64_eh_frame::b0 + save.value,
-                                        true);
-      break;
-    case kFR:
-      row.SetRegisterLocationToRegister(num, ia64_eh_frame::f0 + save.value,
                                         true);
       break;
     case kSPRel:

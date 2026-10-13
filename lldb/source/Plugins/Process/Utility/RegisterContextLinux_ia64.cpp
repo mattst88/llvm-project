@@ -12,6 +12,10 @@
 #include "lldb/Symbol/IA64UnwindInfo.h"
 #include "lldb/lldb-defines.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Endian.h"
+
+#include <cmath>
+#include <limits>
 
 #include <array>
 #include <string>
@@ -154,10 +158,79 @@ RegisterContextLinux_ia64::RegisterContextLinux_ia64(
   m_register_infos[gpr_nat_ia64] =
       MakeInfo("nat", nullptr, k_note_nat, LLDB_INVALID_REGNUM,
                LLDB_INVALID_REGNUM, gpr_nat_ia64);
+
+  // An FR is 82 bits, saved as 16 bytes; the NT_FPREGSET note holds 128 of
+  // them. lldb has no type for this format, so each FR is exposed as two
+  // registers. fN is the value as a double, which is what variables that
+  // debug info places in the register are read from, and is exact for float
+  // and double. fN_raw is the raw bytes.
+  m_fpr_names.reserve(128 * 2);
+  const uint32_t raw_offset = (k_note_doublewords + (128 - 32)) * 8;
+  const uint32_t value_offset = raw_offset + GetFPRSize();
+  for (uint32_t i = 0; i != 128; ++i) {
+    m_fpr_names.push_back("f" + std::to_string(i));
+    m_register_infos[fpr_f0_ia64 + i] = {
+        m_fpr_names.back().c_str(),
+        nullptr,
+        8,
+        value_offset + i * 8,
+        eEncodingIEEE754,
+        eFormatFloat,
+        {ia64_eh_frame::f0 + i, ia64_eh_frame::f0 + i, LLDB_INVALID_REGNUM,
+         LLDB_INVALID_REGNUM, fpr_f0_ia64 + i},
+        nullptr,
+        nullptr,
+        nullptr};
+    m_fpr_names.push_back("f" + std::to_string(i) + "_raw");
+    m_register_infos[fpr_f0_raw_ia64 + i] = {
+        m_fpr_names.back().c_str(),
+        nullptr,
+        k_fpr_bytes,
+        raw_offset + i * k_fpr_bytes,
+        eEncodingVector,
+        eFormatHex,
+        {ia64_eh_frame::f0_raw + i, LLDB_INVALID_REGNUM, LLDB_INVALID_REGNUM,
+         LLDB_INVALID_REGNUM, fpr_f0_raw_ia64 + i},
+        nullptr,
+        nullptr,
+        nullptr};
+  }
 }
 
 size_t RegisterContextLinux_ia64::GetGPRSize() const {
   return k_note_doublewords * 8;
+}
+
+double
+RegisterContextLinux_ia64::FloatingPointValue(llvm::ArrayRef<uint8_t> raw) {
+  if (raw.size() < k_fpr_bytes)
+    return std::numeric_limits<double>::quiet_NaN();
+
+  // The spill format is a 64-bit significand with an explicit integer bit,
+  // then a 17-bit exponent biased by 65535, then the sign.
+  const uint64_t significand = llvm::support::endian::read64le(raw.data());
+  const uint32_t high = llvm::support::endian::read32le(raw.data() + 8);
+  const uint32_t exponent = high & 0x1ffff;
+  const bool negative = (high >> 17) & 1;
+
+  double value;
+  if (exponent == 0x1ffff) {
+    // An infinity has a significand of 1.0 (only the integer bit set);
+    // anything else is a NaN.
+    value = significand == UINT64_C(1) << 63
+                ? std::numeric_limits<double>::infinity()
+                : std::numeric_limits<double>::quiet_NaN();
+  } else if (exponent == 0x1fffe && significand == 0) {
+    // NaTVal, as left by a failed speculative load.
+    return std::numeric_limits<double>::quiet_NaN();
+  } else if (significand == 0) {
+    value = 0.0;
+  } else {
+    // A zero exponent denotes a double-extended denormal.
+    const int unbiased = exponent == 0 ? -16382 : int(exponent) - 65535;
+    value = std::ldexp(static_cast<double>(significand), unbiased - 63);
+  }
+  return negative ? -value : value;
 }
 
 const RegisterInfo *RegisterContextLinux_ia64::GetRegisterInfo() const {

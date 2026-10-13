@@ -44,8 +44,20 @@ enum {
   gpr_nat_ia64,
   k_last_gpr_ia64 = gpr_nat_ia64,
 
+  // Each FR appears twice: fN is its value as a double, and fN_raw its
+  // 16-byte spill format.
+  k_first_fpr_ia64,
+  fpr_f0_ia64 = k_first_fpr_ia64,
+  fpr_f127_ia64 = fpr_f0_ia64 + 127,
+  k_last_fpr_ia64 = fpr_f127_ia64,
+  k_first_fpr_raw_ia64,
+  fpr_f0_raw_ia64 = k_first_fpr_raw_ia64,
+  fpr_f127_raw_ia64 = fpr_f0_raw_ia64 + 127,
+  k_last_fpr_raw_ia64 = fpr_f127_raw_ia64,
+
   k_num_registers_ia64,
   k_num_gpr_registers_ia64 = k_last_gpr_ia64 - k_first_gpr_ia64 + 1,
+  k_num_fpr_registers_ia64 = k_last_fpr_ia64 - k_first_fpr_ia64 + 1,
 };
 
 } // namespace lldb_private

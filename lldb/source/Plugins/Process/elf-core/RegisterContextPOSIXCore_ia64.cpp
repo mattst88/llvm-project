@@ -14,23 +14,40 @@
 #include "lldb/Target/Thread.h"
 #include "lldb/Utility/RegisterValue.h"
 #include "lldb/Utility/Status.h"
+#include "llvm/BinaryFormat/ELF.h"
+
+#include <cstring>
 
 using namespace lldb;
 using namespace lldb_private;
 
 RegisterContextCorePOSIX_ia64::RegisterContextCorePOSIX_ia64(
     Thread &thread, RegisterInfoInterface *register_info,
-    const DataExtractor &gpregset)
+    const DataExtractor &gpregset, llvm::ArrayRef<CoreNote> notes)
     : RegisterContext(thread, 0), m_register_info_up(register_info) {
   m_gpr = gpregset;
 
-  // Every register described belongs to the one set, in order.
+  // The core file does not identify its OS, so the note cannot be looked up
+  // by its OS-specific description.
+  for (const CoreNote &note : notes)
+    if (note.info.n_type == llvm::ELF::NT_FPREGSET)
+      m_fpr = note.data;
+
   const uint32_t count = m_register_info_up->GetRegisterCount();
   m_reg_nums.reserve(count);
   for (uint32_t i = 0; i < count; ++i)
     m_reg_nums.push_back(i);
-  m_reg_set = {"General Purpose Registers", "gpr", m_reg_nums.size(),
-               m_reg_nums.data()};
+  m_reg_sets.push_back({"General Purpose Registers", "gpr",
+                        k_num_gpr_registers_ia64,
+                        &m_reg_nums[k_first_gpr_ia64]});
+  if (m_fpr.GetByteSize() >= RegisterContextLinux_ia64::GetFPRSize()) {
+    m_reg_sets.push_back({"Floating Point Registers", "fpr",
+                          k_num_fpr_registers_ia64,
+                          &m_reg_nums[k_first_fpr_ia64]});
+    m_reg_sets.push_back({"Floating Point Registers As Saved", "fpr_raw",
+                          k_num_fpr_registers_ia64,
+                          &m_reg_nums[k_first_fpr_raw_ia64]});
+  }
 }
 
 size_t RegisterContextCorePOSIX_ia64::GetRegisterCount() {
@@ -44,12 +61,33 @@ RegisterContextCorePOSIX_ia64::GetRegisterInfoAtIndex(size_t reg) {
   return &m_register_info_up->GetRegisterInfo()[reg];
 }
 
-size_t RegisterContextCorePOSIX_ia64::GetRegisterSetCount() { return 1; }
+size_t RegisterContextCorePOSIX_ia64::GetRegisterSetCount() {
+  return m_reg_sets.size();
+}
 
 const RegisterSet *RegisterContextCorePOSIX_ia64::GetRegisterSet(size_t set) {
-  if (set != 0)
+  if (set >= m_reg_sets.size())
     return nullptr;
-  return &m_reg_set;
+  return &m_reg_sets[set];
+}
+
+bool RegisterContextCorePOSIX_ia64::ReadFloatingPoint(uint32_t num,
+                                                      uint8_t *bytes) {
+  const uint32_t size = RegisterContextLinux_ia64::k_fpr_bytes;
+  if (m_fpr.GetByteSize() < RegisterContextLinux_ia64::GetFPRSize())
+    return false;
+  if (num < 2) {
+    // f0 is 0.0 and f1 is 1.0 regardless of the note; the kernel does not
+    // fill them in.
+    std::memset(bytes, 0, size);
+    if (num == 1) {
+      bytes[7] = 0x80;
+      bytes[8] = 0xff;
+      bytes[9] = 0xff;
+    }
+    return true;
+  }
+  return m_fpr.CopyData(num * size, size, bytes) == size;
 }
 
 bool RegisterContextCorePOSIX_ia64::ReadNote(uint32_t lldb_reg,
@@ -69,6 +107,19 @@ bool RegisterContextCorePOSIX_ia64::ReadRegister(const RegisterInfo *reg_info,
   if (!reg_info)
     return false;
   const uint32_t reg = reg_info->kinds[eRegisterKindLLDB];
+
+  if (reg >= k_first_fpr_ia64 && reg <= k_last_fpr_raw_ia64) {
+    const bool raw = reg >= k_first_fpr_raw_ia64;
+    uint8_t bytes[RegisterContextLinux_ia64::k_fpr_bytes];
+    if (!ReadFloatingPoint(
+            reg - (raw ? k_first_fpr_raw_ia64 : k_first_fpr_ia64), bytes))
+      return false;
+    if (raw)
+      value.SetBytes(bytes, sizeof(bytes), eByteOrderLittle);
+    else
+      value.SetDouble(RegisterContextLinux_ia64::FloatingPointValue(bytes));
+    return true;
+  }
 
   if (reg >= gpr_r32_ia64 && reg <= gpr_r127_ia64) {
     // The low 7 bits of cfm are the frame size (sof): only r32 to

@@ -171,10 +171,10 @@ bool ABISysV_ia64::RegisterIsVolatile(const RegisterInfo *reg_info) {
   if (!reg_info || !reg_info->name)
     return true;
 
-  // r4-r7, the stack pointer and the thread pointer are preserved, and so
-  // are b1-b5. The stacked registers are preserved too, but by renaming: a
-  // caller's r32 is another register than the callee's, so the value seen in
-  // one frame says nothing of the frame above it.
+  // r4-r7, sp, tp, b1-b5, f2-f5 and f16-f31 are preserved. The stacked
+  // registers are preserved too, but by renaming: the caller's r32 is a
+  // different register from the callee's, so a value seen in one frame says
+  // nothing about the frame above.
   llvm::StringRef name(reg_info->name);
   uint32_t num = 0;
   if (name.consume_front("r") && !name.getAsInteger(10, num))
@@ -182,6 +182,13 @@ bool ABISysV_ia64::RegisterIsVolatile(const RegisterInfo *reg_info) {
   name = reg_info->name;
   if (name.consume_front("b") && !name.getAsInteger(10, num))
     return !(num >= 1 && num <= 5);
+  // Each FR appears twice, as fN and fN_raw.
+  name = reg_info->name;
+  if (name.consume_front("f")) {
+    name.consume_back("_raw");
+    if (!name.getAsInteger(10, num))
+      return !((num >= 2 && num <= 5) || (num >= 16 && num <= 31));
+  }
   return true;
 }
 

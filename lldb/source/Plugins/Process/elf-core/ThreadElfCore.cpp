@@ -221,7 +221,7 @@ ThreadElfCore::CreateRegisterContextForFrame(StackFrame *frame) {
       break;
     case llvm::Triple::ia64:
       m_thread_reg_ctx_sp = std::make_shared<RegisterContextCorePOSIX_ia64>(
-          *this, reg_interface, m_gpregset_data);
+          *this, reg_interface, m_gpregset_data, m_notes);
       break;
     case llvm::Triple::systemz:
       m_thread_reg_ctx_sp = std::make_shared<RegisterContextCorePOSIX_s390x>(

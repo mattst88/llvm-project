@@ -12,6 +12,9 @@
 #include "Plugins/Process/Utility/lldb-ia64-register-enums.h"
 #include "lldb/Utility/ArchSpec.h"
 
+#include <cmath>
+#include <limits>
+
 using namespace lldb;
 using namespace lldb_private;
 
@@ -195,4 +198,71 @@ TEST(RegisterContextIA64Test, SkipBackingStoreRegisters) {
   EXPECT_EQ(skip(base + 8, -1), base);
   EXPECT_EQ(skip(base + 0x200, -63), base);
   EXPECT_EQ(skip(base + 0x208, -96), base + 0x208 - 98 * 8);
+}
+
+TEST(RegisterContextIA64Test, FloatingPointRegisters) {
+  RegisterContextLinux_ia64 ctx{ArchSpec("ia64-unknown-linux-gnu")};
+
+  // fN is the value, a double with the number debug information uses.
+  const RegisterInfo *f8 = findByName(ctx, "f8");
+  ASSERT_NE(f8, nullptr);
+  EXPECT_EQ(f8->byte_size, 8u);
+  EXPECT_EQ(f8->encoding, eEncodingIEEE754);
+  EXPECT_EQ(f8->kinds[eRegisterKindDWARF], 128u + 8);
+  EXPECT_EQ(f8->kinds[eRegisterKindEHFrame], 128u + 8);
+
+  // fN_raw is the 16 bytes of the NT_FPREGSET note, which debug information
+  // has no number for.
+  const RegisterInfo *f8_raw = findByName(ctx, "f8_raw");
+  ASSERT_NE(f8_raw, nullptr);
+  EXPECT_EQ(f8_raw->byte_size, 16u);
+  EXPECT_EQ(f8_raw->kinds[eRegisterKindDWARF], LLDB_INVALID_REGNUM);
+  EXPECT_NE(f8_raw->kinds[eRegisterKindEHFrame], LLDB_INVALID_REGNUM);
+  EXPECT_EQ(ctx.GetFPRSize(), 128u * 16);
+
+  // No two registers share bytes.
+  const RegisterInfo *infos = ctx.GetRegisterInfo();
+  const RegisterInfo *f127 = findByName(ctx, "f127");
+  ASSERT_NE(f127, nullptr);
+  for (uint32_t i = 0, e = ctx.GetRegisterCount(); i != e; ++i)
+    if (&infos[i] != f127) {
+      EXPECT_TRUE(infos[i].byte_offset + infos[i].byte_size <=
+                      f127->byte_offset ||
+                  infos[i].byte_offset >= f127->byte_offset + f127->byte_size)
+          << infos[i].name;
+    }
+}
+
+static double valueOf(uint64_t significand, uint32_t sign_exponent) {
+  uint8_t raw[16] = {};
+  for (int i = 0; i != 8; ++i)
+    raw[i] = significand >> (8 * i);
+  for (int i = 0; i != 4; ++i)
+    raw[8 + i] = sign_exponent >> (8 * i);
+  return RegisterContextLinux_ia64::FloatingPointValue(raw);
+}
+
+TEST(RegisterContextIA64Test, FloatingPointValue) {
+  // The exponent is biased by 65535 and the binary point of the significand
+  // is after its first bit; the sign is bit 17 of the second word.
+  EXPECT_EQ(valueOf(UINT64_C(0x8000000000000000), 0xffff), 1.0);
+  EXPECT_EQ(valueOf(UINT64_C(0xc000000000000000), 0xffff), 1.5);
+  EXPECT_EQ(valueOf(UINT64_C(0xa000000000000000), 0x30001), -5.0);
+  EXPECT_EQ(valueOf(0, 0), 0.0);
+  EXPECT_TRUE(std::signbit(valueOf(0, 0x20000)));
+
+  // What setf.sig leaves: an integer, with an exponent of 63.
+  EXPECT_EQ(valueOf(42, 0x1003e), 42.0);
+
+  EXPECT_EQ(valueOf(UINT64_C(0x8000000000000000), 0x1ffff),
+            std::numeric_limits<double>::infinity());
+  EXPECT_EQ(valueOf(UINT64_C(0x8000000000000000), 0x3ffff),
+            -std::numeric_limits<double>::infinity());
+  EXPECT_TRUE(std::isnan(valueOf(UINT64_C(0xc000000000000000), 0x1ffff)));
+  // NaTVal.
+  EXPECT_TRUE(std::isnan(valueOf(0, 0x1fffe)));
+  // Past what a double holds.
+  EXPECT_EQ(valueOf(UINT64_C(0x8000000000000000), 0xffff + 2000),
+            std::numeric_limits<double>::infinity());
+  EXPECT_EQ(valueOf(UINT64_C(0x8000000000000000), 0xffff - 2000), 0.0);
 }
