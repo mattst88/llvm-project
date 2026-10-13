@@ -2069,8 +2069,8 @@ void Clang::AddIA64TargetArgs(const ArgList &Args,
       getToolChain().getDriver().Diag(diag::err_drv_unsupported_opt_for_target)
           << A->getAsString(Args) << getToolChain().getTripleString();
 
-  // The processors have the names that their designs had before they were
-  // sold, and gcc knows them by those.
+  // Accept the code names merced and mckinley. GCC accepts both itanium2 and
+  // mckinley, but neither name for the original Itanium.
   if (const Arg *A = Args.getLastArg(options::OPT_mtune_EQ)) {
     StringRef Name = llvm::StringSwitch<StringRef>(A->getValue())
                          .Case("merced", "itanium")
