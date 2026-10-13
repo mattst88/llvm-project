@@ -19,15 +19,19 @@ using namespace clang;
 using namespace llvm::opt;
 
 // The registers that can be kept from the compiler: the static general
-// registers but the two that are constant, and the floating-point registers
-// but the two that are constant.
+// registers but the two that are constant, the floating-point registers
+// but the two that are constant, and the branch registers that a function
+// preserves. gcc takes the other branch registers as well, and a call cannot
+// do without them.
 static bool parseRegister(StringRef Name, char &Kind, unsigned &Number) {
-  if (Name.size() < 2 || (Name[0] != 'r' && Name[0] != 'f'))
+  if (Name.size() < 2 || (Name[0] != 'r' && Name[0] != 'f' && Name[0] != 'b'))
     return false;
   Kind = Name[0];
   if (!llvm::all_of(Name.substr(1), llvm::isDigit) ||
       Name.substr(1).getAsInteger(10, Number))
     return false;
+  if (Kind == 'b')
+    return Number >= 1 && Number <= 5;
   return Number >= 2 && Number <= (Kind == 'r' ? 31u : 127u);
 }
 

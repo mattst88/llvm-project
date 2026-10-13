@@ -24,6 +24,23 @@
 // RANGE:     "-target-feature" "+reserve-f127"
 // RANGE:     "-target-feature" "+reserve-r5"
 
+// The branch registers that a function preserves can be kept as well, and
+// the ones a call needs cannot.
+
+// RUN: %clang --target=ia64-unknown-linux-gnu -mfixed-range=b1-b5 -### -c %s \
+// RUN:   2>&1 | FileCheck %s --check-prefix=BRANCH
+// BRANCH: "-target-feature" "+reserve-b1"
+// BRANCH: "-target-feature" "+reserve-b2"
+// BRANCH: "-target-feature" "+reserve-b3"
+// BRANCH: "-target-feature" "+reserve-b4"
+// BRANCH: "-target-feature" "+reserve-b5"
+// RUN: not %clang --target=ia64-unknown-linux-gnu -mfixed-range=b0-b5 \
+// RUN:   -### -c %s 2>&1 | FileCheck %s --check-prefix=BRANCH0
+// BRANCH0: error: invalid value 'b0-b5' in '-mfixed-range='
+// RUN: not %clang --target=ia64-unknown-linux-gnu -mfixed-range=b5-b6 \
+// RUN:   -### -c %s 2>&1 | FileCheck %s --check-prefix=BRANCH6
+// BRANCH6: error: invalid value 'b5-b6' in '-mfixed-range='
+
 // The option is used, and is no other target's.
 
 // RUN: %clang --target=ia64-unknown-linux-gnu -mfixed-range=f12-f15 -Werror \
