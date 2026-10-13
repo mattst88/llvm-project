@@ -669,9 +669,11 @@ bool IA64AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     if (Inst.getOpcode() == IA64::LFETCH_COUNT) {
       const auto &Stride = static_cast<const IA64Operand &>(*Operands.back());
       if (Stride.isImm() && Stride.getConstant() &&
-          (*Stride.getConstant() & 63) != 0)
-        Warning(Stride.getStartLoc(),
-                "stride must be a multiple of 64; the low 6 bits are ignored");
+          (*Stride.getConstant() & 63) != 0 &&
+          Warning(
+              Stride.getStartLoc(),
+              "stride must be a multiple of 64; the low 6 bits are ignored"))
+        return true;
     }
     // "add" with an immediate and an r0-r3 base prefers addl; the matcher
     // only reaches addl for an immediate that does not fit in adds.
@@ -2066,8 +2068,8 @@ ParseStatus IA64AsmParser::parseRegStackDirective(StringRef Name) {
 ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
   SMLoc Loc = getTok().getLoc();
   if (Name.equals_insensitive(".proc")) {
-    if (!ProcEntries.empty())
-      Warning(Loc, "the previous .proc has no .endp");
+    if (!ProcEntries.empty() && Warning(Loc, "the previous .proc has no .endp"))
+      return ParseStatus::Failure;
     ProcEntries.clear();
     SmallVector<MCSymbol *, 2> Entries;
     do {
@@ -2103,9 +2105,10 @@ ParseStatus IA64AsmParser::parseProcDirective(StringRef Name) {
       MCSymbol *Sym;
       if (getParser().parseSymbol(Sym))
         return Error(SymLoc, "expected a symbol");
-      if (!is_contained(ProcEntries, Sym))
-        Warning(SymLoc, "symbol '" + Sym->getName() +
-                            "' is not an entry of the procedure");
+      if (!is_contained(ProcEntries, Sym) &&
+          Warning(SymLoc, "symbol '" + Sym->getName() +
+                              "' is not an entry of the procedure"))
+        return ParseStatus::Failure;
       if (!parseOptionalToken(AsmToken::Comma))
         break;
     }
@@ -2520,8 +2523,8 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
         return ParseStatus::Failure;
       if (Mask < 0 || Mask > 15)
         return Error(Loc, "expected a mask from 0 to 15");
-      if (Mask == 0)
-        Warning(Loc, "a mask of 0 is the same as none");
+      if (Mask == 0 && Warning(Loc, "a mask of 0 is the same as none"))
+        return ParseStatus::Failure;
       if (getParser().parseComma() || parseUnwindGR(GRSave, /*OrNumber=*/true))
         return ParseStatus::Failure;
     }
@@ -2603,9 +2606,9 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
           !MRI.getRegClass(IA64::PRRegClassID).contains(QPReg))
         return Error(Loc, "expected a predicate register");
       QP = MRI.getEncodingValue(QPReg);
-      if (QP == 0)
-        Warning(Loc,
-                "p0 is always true, as with " + StringRef(Lower).drop_back(2));
+      if (QP == 0 && Warning(Loc, "p0 is always true, as with " +
+                                      StringRef(Lower).drop_back(2)))
+        return ParseStatus::Failure;
       if (getParser().parseComma())
         return ParseStatus::Failure;
     }
@@ -2656,7 +2659,8 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
   // prologue there is no descriptor to encode them, but existing assembly
   // uses them there anyway, so they are ignored with a warning.
   if (UnwindRegion != PrologueRegion) {
-    Warning(NameLoc, Lower + " outside of a prologue is ignored");
+    if (Warning(NameLoc, Lower + " outside of a prologue is ignored"))
+      return ParseStatus::Failure;
     getParser().eatToEndOfStatement();
     return ParseStatus::Success;
   }
@@ -2693,8 +2697,9 @@ ParseStatus IA64AsmParser::parseUnwindDirective(StringRef Name, SMLoc NameLoc) {
   case VFrameSP:
     // An offset from psp cannot locate the saved sp, so GNU as treats it as
     // an offset from sp.
-    if (Lower == ".vframepsp")
-      Warning(NameLoc, ".vframepsp is taken to be .vframesp");
+    if (Lower == ".vframepsp" &&
+        Warning(NameLoc, ".vframepsp is taken to be .vframesp"))
+      return ParseStatus::Failure;
     if (parseUnwindOffset(Value, 0, 4) || parseEOL())
       return ParseStatus::Failure;
     TS.emitVFrameSP(Value);
