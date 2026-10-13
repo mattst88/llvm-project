@@ -120,6 +120,8 @@ public:
 
   lldb_private::ArchSpec GetArchitecture() override;
 
+  std::unique_ptr<lldb_private::CallFrameInfo> CreateCallFrameInfo() override;
+
   lldb_private::UUID GetUUID() override;
 
   /// Return the contents of the .gnu_debuglink section, if the object file

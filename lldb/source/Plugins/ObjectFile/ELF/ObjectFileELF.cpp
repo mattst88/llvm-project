@@ -21,6 +21,7 @@
 #include "lldb/Core/Section.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Symbol/DWARFCallFrameInfo.h"
+#include "lldb/Symbol/IA64UnwindInfo.h"
 #include "lldb/Symbol/SymbolContext.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/SectionLoadList.h"
@@ -3921,6 +3922,20 @@ void ObjectFileELF::DumpELFDynamic(lldb_private::Stream *s) {
       s->Printf(" \"%s\"", entry.name.c_str());
     s->EOL();
   }
+}
+
+std::unique_ptr<CallFrameInfo> ObjectFileELF::CreateCallFrameInfo() {
+  // IA-64 uses its own unwind format instead of .eh_frame.
+  if (!ParseHeader() || m_header.e_machine != llvm::ELF::EM_IA_64)
+    return {};
+  SectionList *sections = GetSectionList();
+  if (!sections)
+    return {};
+  SectionSP unwind_sp = sections->FindSectionByName(".IA_64.unwind");
+  SectionSP unwind_info_sp = sections->FindSectionByName(".IA_64.unwind_info");
+  if (!unwind_sp || !unwind_info_sp)
+    return {};
+  return std::make_unique<IA64UnwindInfo>(*this, unwind_sp, unwind_info_sp);
 }
 
 ArchSpec ObjectFileELF::GetArchitecture() {
