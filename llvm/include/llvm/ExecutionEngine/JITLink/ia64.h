@@ -605,6 +605,31 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E,
 /// move. Both edges name the same target, so they agree.
 LLVM_ABI Error relaxLinkageTableLoads(LinkGraph &G, orc::ExecutorAddr GP);
 
+/// The address range the graph occupies, from its lowest address.
+/// Segment-relative displacements, including those in the unwind table, are
+/// relative to its start.
+LLVM_ABI orc::ExecutorAddrRange getSegmentRange(LinkGraph &G);
+
+/// The GP of the graph: the linkage table, or the segment start if there is
+/// none.
+LLVM_ABI orc::ExecutorAddr getGlobalPointer(LinkGraph &G);
+
+/// The section that gatherUnwindTables places the graph's unwind table in.
+inline StringRef getUnwindTableSectionName() { return ".IA_64.unwind"; }
+
+/// An unwind table entry: function start, function end and unwind info
+/// address, each segment-relative.
+constexpr uint64_t UnwindTableEntrySize = 24;
+
+/// Merge the per-code-section unwind tables of the graph into one section so
+/// they form a single table in memory, and keep each table alive with the
+/// code it describes, since nothing else references it. A pre-prune pass.
+LLVM_ABI Error gatherUnwindTables(LinkGraph &G);
+
+/// Sort the unwind table entries by function address, as unwinders that
+/// search the table require. A post-fixup pass.
+LLVM_ABI Error sortUnwindTable(LinkGraph &G);
+
 LLVM_ABI extern const char NullPointerContent[PointerSize];
 LLVM_ABI extern const char NullDescriptorContent[DescriptorSize];
 

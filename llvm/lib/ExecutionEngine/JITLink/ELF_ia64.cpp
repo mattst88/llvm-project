@@ -121,19 +121,8 @@ private:
   // there is none. GP-relative references must be within 2 MiB of it or the
   // fixup fails.
   Error defineGlobalPointer(LinkGraph &G) {
-    bool Any = false;
-    for (Block *B : G.blocks())
-      if (!Any || B->getAddress() < SegmentBase) {
-        SegmentBase = B->getAddress();
-        Any = true;
-      }
-    GlobalPointer = SegmentBase;
-    if (auto *GOTSection =
-            G.findSectionByName(ia64::GOTTableManager::getSectionName())) {
-      SectionRange SR(*GOTSection);
-      if (!SR.empty())
-        GlobalPointer = SR.getStart();
-    }
+    SegmentBase = ia64::getSegmentRange(G).Start;
+    GlobalPointer = ia64::getGlobalPointer(G);
 
     // An object may reference GP by name.
     Symbol *Named = nullptr;
@@ -396,6 +385,9 @@ void link_ELF_ia64(std::unique_ptr<LinkGraph> G,
     else
       Config.PrePrunePasses.push_back(markAllSymbolsLive);
 
+    // Merge the unwind tables into one and keep them alive.
+    Config.PrePrunePasses.push_back(ia64::gatherUnwindTables);
+
     // Build the function descriptors, the linkage table and the stubs.
 
     Config.PostPrunePasses.push_back(buildTables_ELF_ia64);
@@ -404,6 +396,8 @@ void link_ELF_ia64(std::unique_ptr<LinkGraph> G,
     Config.PostAllocationPasses.push_back(
         createDefineExternalSectionStartAndEndSymbolsPass(
             identifyELFSectionStartAndEndSymbols));
+
+    Config.PostFixupPasses.push_back(ia64::sortUnwindTable);
   }
 
   if (auto Err = Ctx->modifyPassConfig(*G, Config))

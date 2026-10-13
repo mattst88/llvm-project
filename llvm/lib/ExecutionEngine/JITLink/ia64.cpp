@@ -151,6 +151,128 @@ const char *getEdgeKindName(Edge::Kind K) {
   return getGenericEdgeKindName(K);
 }
 
+orc::ExecutorAddrRange getSegmentRange(LinkGraph &G) {
+  orc::ExecutorAddrRange R;
+  bool Any = false;
+  for (Section &Sec : G.sections()) {
+    // Non-allocated sections have no address.
+    if (Sec.getMemLifetime() == orc::MemLifetime::NoAlloc)
+      continue;
+    for (Block *B : Sec.blocks()) {
+      if (!Any || B->getAddress() < R.Start)
+        R.Start = B->getAddress();
+      if (!Any || B->getAddress() + B->getSize() > R.End)
+        R.End = B->getAddress() + B->getSize();
+      Any = true;
+    }
+  }
+  return R;
+}
+
+orc::ExecutorAddr getGlobalPointer(LinkGraph &G) {
+  if (auto *GOTSection =
+          G.findSectionByName(GOTTableManager::getSectionName())) {
+    SectionRange SR(*GOTSection);
+    if (!SR.empty())
+      return SR.getStart();
+  }
+  return getSegmentRange(G).Start;
+}
+
+static bool isUnwindTableSection(StringRef Name) {
+  // Each code section may have its own table, named after it.
+  return Name == getUnwindTableSectionName() ||
+         Name.starts_with(".IA_64.unwind.");
+}
+
+Error gatherUnwindTables(LinkGraph &G) {
+  std::vector<Section *> Tables;
+  for (Section &Sec : G.sections())
+    if (isUnwindTableSection(Sec.getName()))
+      Tables.push_back(&Sec);
+  if (Tables.empty())
+    return Error::success();
+
+  Section *Gathered = G.findSectionByName(getUnwindTableSectionName());
+  if (!Gathered)
+    Gathered =
+        &G.createSection(getUnwindTableSectionName(), orc::MemProt::Read);
+
+  for (Section *Sec : Tables) {
+    for (Block *B : Sec->blocks()) {
+      if (B->getSize() % UnwindTableEntrySize != 0)
+        return make_error<JITLinkError>(
+            "In graph " + G.getName() + ", section " + Sec->getName() +
+            ": the size of an unwind table is not a multiple of that of an "
+            "entry");
+      // Keep the table alive as long as any of the code it describes is.
+      Symbol *Table = nullptr;
+      DenseSet<Block *> Seen;
+      for (Edge &E : B->edges()) {
+        Symbol &Target = E.getTarget();
+        if (!Target.isDefined())
+          continue;
+        Block &Code = Target.getBlock();
+        if ((Code.getSection().getMemProt() & orc::MemProt::Exec) ==
+                orc::MemProt::None ||
+            !Seen.insert(&Code).second)
+          continue;
+        if (!Table)
+          Table = &G.addAnonymousSymbol(*B, 0, B->getSize(), false, false);
+        Code.addEdge(Edge::KeepAlive, 0, *Table, 0);
+      }
+    }
+    G.mergeSections(*Gathered, *Sec);
+  }
+  return Error::success();
+}
+
+Error sortUnwindTable(LinkGraph &G) {
+  Section *Sec = G.findSectionByName(getUnwindTableSectionName());
+  if (!Sec || Sec->blocks().empty())
+    return Error::success();
+
+  std::vector<Block *> Blocks(Sec->blocks().begin(), Sec->blocks().end());
+  llvm::sort(Blocks, [](const Block *L, const Block *R) {
+    return L->getAddress() < R->getAddress();
+  });
+
+  struct Entry {
+    uint64_t Start, End, Info;
+  };
+  std::vector<Entry> Entries;
+  for (size_t I = 0; I != Blocks.size(); ++I) {
+    Block *B = Blocks[I];
+    if (I != 0 && Blocks[I - 1]->getAddress() + Blocks[I - 1]->getSize() !=
+                      B->getAddress())
+      return make_error<JITLinkError>(
+          "In graph " + G.getName() +
+          ": the unwind tables are not one table in memory");
+    const char *P = B->getContent().data();
+    for (size_t O = 0; O != B->getSize(); O += UnwindTableEntrySize)
+      Entries.push_back({support::endian::read64le(P + O),
+                         support::endian::read64le(P + O + 8),
+                         support::endian::read64le(P + O + 16)});
+  }
+
+  // Entries hold no position-dependent values, so they can be reordered
+  // freely within the table.
+  llvm::stable_sort(Entries, [](const Entry &L, const Entry &R) {
+    return L.Start < R.Start;
+  });
+
+  auto Next = Entries.begin();
+  for (Block *B : Blocks) {
+    char *P = B->getAlreadyMutableContent().data();
+    for (size_t O = 0; O != B->getSize(); O += UnwindTableEntrySize, ++Next) {
+      support::endian::write64le(P + O, Next->Start);
+      support::endian::write64le(P + O + 8, Next->End);
+      support::endian::write64le(P + O + 16, Next->Info);
+    }
+  }
+  return Error::success();
+}
+
 Error relaxLinkageTableLoads(LinkGraph &G, orc::ExecutorAddr GP) {
   auto IsNear = [&](const Symbol &Target, int64_t Addend) {
     return isInt<22>(static_cast<int64_t>(Target.getAddress().getValue() +

@@ -398,7 +398,9 @@ template <typename ELFT> Error ELFLinkGraphBuilder<ELFT>::graphifySections() {
                                   orc::ExecutorAddr(Sec.sh_addr),
                                   Sec.sh_addralign, 0);
 
-    if (Sec.sh_type == ELF::SHT_ARM_EXIDX) {
+    // The type is one a processor defines, and means this only for ARM.
+    if (Obj.getHeader().e_machine == ELF::EM_ARM &&
+        Sec.sh_type == ELF::SHT_ARM_EXIDX) {
       // Add live symbol to avoid dead-stripping for .ARM.exidx sections
       G->addAnonymousSymbol(*B, orc::ExecutorAddrDiff(),
                             orc::ExecutorAddrDiff(), false, true);
