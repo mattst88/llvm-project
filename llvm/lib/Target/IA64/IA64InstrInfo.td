@@ -841,8 +841,11 @@ defm FCVT_  : FToFixed<0, "f">;
 defm FPCVT_ : FToFixed<1, "fp">;
 def FCVT_XF : F11<"fcvt.xf">;
 
+// These write ar.fpsr: a status field's controls and its flags.
+let Defs = [AR40] in {
 def FSETC : F12<"fsetc">;
 def FCLRF : F13<"fclrf">;
+}
 def FCHKF : F14<"fchkf">;
 
 def BREAK_F : F15<0, "break.f">;

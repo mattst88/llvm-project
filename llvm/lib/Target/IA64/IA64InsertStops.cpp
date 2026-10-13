@@ -105,6 +105,10 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     // Whether the current group contains an alloc. No register models the
     // current frame marker, which calls and returns replace.
     bool NewFrame = false;
+    // Whether the current group may have raised an FP exception. The flags
+    // are part of ar.fpsr, but the instructions that set them only declare a
+    // read of it (for the rounding mode), so any number may share a group.
+    bool RaisedFlags = false;
 
     auto EndGroup = [&] {
       if (Last)
@@ -114,6 +118,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       OnlySet.reset();
       OnlyCleared.reset();
       NewFrame = false;
+      RaisedFlags = false;
     };
 
     for (MachineInstr &MI : MBB) {
@@ -161,11 +166,20 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
                AR == IA64::AR19;
       };
 
+      // A read of ar.fpsr, or fchkf of a status field's flags, does not see
+      // flags raised in its own group, and a write of ar.fpsr or of a status
+      // field's flags must not share a group that raised any.
+      bool ReadsFlags = MI.getOpcode() == IA64::FCHKF ||
+                        (MI.getOpcode() == IA64::MOV_FROM_AR &&
+                         MI.getOperand(1).getReg() == IA64::AR40);
+      bool UsesFPSR = MI.readsRegister(IA64::AR40, &TRI);
+      bool SetsFPSR = MI.definesRegister(IA64::AR40, &TRI);
+
       // alloc and flushrs must be first in their group. A call or return
       // must not share a group with an alloc; a tail call is exempt, though
       // it acts as both.
       if (MI.getOpcode() == IA64::ALLOC || MI.getOpcode() == IA64::FLUSHRS ||
-          ReadsRSE(MI) ||
+          ReadsRSE(MI) || (RaisedFlags && (ReadsFlags || SetsFPSR)) ||
           (NewFrame && (MI.isCall() || MI.isReturn()) &&
            MI.getOpcode() != IA64::BR_TAIL) ||
           any_of(MI.operands(), [&](const MachineOperand &MO) {
@@ -180,6 +194,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
           }))
         EndGroup();
       NewFrame |= MI.getOpcode() == IA64::ALLOC;
+      RaisedFlags |= Unit == IA64II::UnitF && UsesFPSR && !ReadsFlags;
 
       for (const MachineOperand &MO : MI.operands()) {
         if (!MO.isReg() || !MO.isDef() || !Touches(MO))

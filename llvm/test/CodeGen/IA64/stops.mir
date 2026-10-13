@@ -189,3 +189,81 @@ body: |
     $p6, $p7 = CMP_EQ $r32, $r35, $p0
     BR_RET $b0, 0, 1, 0, $p0
 ...
+---
+# A floating-point instruction may raise a flag of ar.fpsr, which a read of
+# the register after it in the group would not see. Two of them may raise
+# flags in one group.
+# CHECK-LABEL: flags_read:
+# CHECK:       fma.d f6 = f8, f9, f0
+# CHECK-NEXT:  fma.d.s1 f7 = f8, f9, f0 ;;
+# CHECK-NEXT:  mov r8 = ar.fpsr
+# CHECK-NEXT:  fma.d f8 = f6, f7, f0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: flags_read
+body: |
+  bb.0:
+    liveins: $f8, $f9
+    $f6 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $f7 = FMA_D $f8, $f9, $f0, 1, $p0, implicit $ar40
+    $r8 = MOV_FROM_AR $ar40, $p0
+    $f8 = FMA_D $f6, $f7, $f0, 0, $p0, implicit $ar40
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $f8
+...
+---
+# A write of the register is not in a group that has raised a flag either,
+# and what is written is how the instructions after it round.
+# CHECK-LABEL: flags_written:
+# CHECK:       fcmp.eq p6, p7 = f8, f9 ;;
+# CHECK-NEXT:  mov ar.fpsr = r32 ;;
+# CHECK-NEXT:  fma.d f8 = f8, f9, f0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: flags_written
+body: |
+  bb.0:
+    liveins: $r32, $f8, $f9
+    $p6, $p7 = FCMP_EQ $f8, $f9, 0, $p0, implicit $ar40
+    $ar40 = MOV_AR $r32, $p0
+    $f8 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...
+---
+# One that reads nothing of ar.fpsr raises nothing.
+# CHECK-LABEL: flags_untouched:
+# CHECK:       fmerge.s f6 = f8, f9
+# CHECK-NEXT:  mov r8 = ar.fpsr
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: flags_untouched
+body: |
+  bb.0:
+    liveins: $f8, $f9
+    $f6 = FMERGE_S $f8, $f9, $p0
+    $r8 = MOV_FROM_AR $ar40, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The instructions that set the controls of a status field or clear its
+# flags write the register, and the one that checks the flags reads them.
+# CHECK-LABEL: flags_fields:
+# CHECK:       fma.d f6 = f8, f9, f0 ;;
+# CHECK-NEXT:  fclrf ;;
+# CHECK-NEXT:  fma.d f7 = f8, f9, f0 ;;
+# CHECK-NEXT:  fchkf .LBB{{[0-9_]+}}
+# CHECK-NEXT:  fsetc 127, 64 ;;
+# CHECK-NEXT:  fma.d f8 = f6, f7, f0
+# CHECK-NEXT:  mov r8 = r0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: flags_fields
+body: |
+  bb.0:
+    liveins: $f8, $f9
+    $f6 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    FCLRF 0, $p0, implicit-def $ar40, implicit $ar40
+    $f7 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    FCHKF %bb.1, 0, $p0, implicit $ar40
+    FSETC 127, 64, 0, $p0, implicit-def $ar40, implicit $ar40
+    $f8 = FMA_D $f6, $f7, $f0, 0, $p0, implicit $ar40
+    $r8 = ADDS 0, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $f8
+  bb.1:
+    BR_RET $b0, 0, 1, 0, $p0
+...
