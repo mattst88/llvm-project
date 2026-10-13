@@ -26,6 +26,9 @@ namespace rt {
 LLVM_ABI extern const SymbolNameSpec RegisterEHFrameSectionAllocActionName;
 LLVM_ABI extern const SymbolNameSpec DeregisterEHFrameSectionAllocActionName;
 
+LLVM_ABI extern const SymbolNameSpec RegisterIA64UnwindTableAllocActionName;
+LLVM_ABI extern const SymbolNameSpec DeregisterIA64UnwindTableAllocActionName;
+
 LLVM_ABI extern const SymbolNameSpec RegisterJITLoaderGDBAllocActionName;
 LLVM_ABI extern const SymbolNameSpec DeregisterJITLoaderGDBAllocActionName;
 

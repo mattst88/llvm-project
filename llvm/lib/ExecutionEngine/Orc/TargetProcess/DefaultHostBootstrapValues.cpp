@@ -14,6 +14,7 @@
 #include "llvm/ExecutionEngine/Orc/Shared/OrcRTBridge.h"
 #include "llvm/ExecutionEngine/Orc/TargetProcess/JITLoaderGDB.h"
 #include "llvm/ExecutionEngine/Orc/TargetProcess/RegisterEHFrames.h"
+#include "llvm/ExecutionEngine/Orc/TargetProcess/RegisterIA64UnwindTables.h"
 
 #ifdef __APPLE__
 #include <dlfcn.h>
@@ -33,6 +34,13 @@ void addDefaultBootstrapValuesForHostProcess(
   BootstrapSymbols[Mangle.mangledCopy(
       rt::DeregisterEHFrameSectionAllocActionName)] =
       ExecutorAddr::fromPtr(&llvm_orc_deregisterEHFrameSectionAllocAction);
+
+  BootstrapSymbols[Mangle.mangledCopy(
+      rt::RegisterIA64UnwindTableAllocActionName)] =
+      ExecutorAddr::fromPtr(&llvm_orc_registerIA64UnwindTableAllocAction);
+  BootstrapSymbols[Mangle.mangledCopy(
+      rt::DeregisterIA64UnwindTableAllocActionName)] =
+      ExecutorAddr::fromPtr(&llvm_orc_deregisterIA64UnwindTableAllocAction);
 
   BootstrapSymbols[Mangle.mangledCopy(
       rt::RegisterJITLoaderGDBAllocActionName)] =

@@ -17,6 +17,12 @@ const SymbolNameSpec RegisterEHFrameSectionAllocActionName =
 const SymbolNameSpec DeregisterEHFrameSectionAllocActionName =
     SymbolNameSpec::c("orc_rt_ci_aa_sps_DWARFEHFrameRegistrar_deregisterSection");
 
+const SymbolNameSpec RegisterIA64UnwindTableAllocActionName = SymbolNameSpec::c(
+    "orc_rt_ci_aa_sps_IA64UnwindTableRegistrar_registerTable");
+const SymbolNameSpec DeregisterIA64UnwindTableAllocActionName =
+    SymbolNameSpec::c(
+        "orc_rt_ci_aa_sps_IA64UnwindTableRegistrar_deregisterTable");
+
 const SymbolNameSpec RegisterJITLoaderGDBAllocActionName =
     SymbolNameSpec::c("orc_rt_ci_aa_sps_GDBJITRegistrar_register");
 const SymbolNameSpec DeregisterJITLoaderGDBAllocActionName =

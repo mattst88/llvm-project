@@ -30,6 +30,7 @@
 #include "llvm/ExecutionEngine/Orc/ELFNixPlatform.h"
 #include "llvm/ExecutionEngine/Orc/EPCDynamicLibrarySearchGenerator.h"
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
+#include "llvm/ExecutionEngine/Orc/IA64UnwindTableRegistrationPlugin.h"
 #include "llvm/ExecutionEngine/Orc/IndirectionUtils.h"
 #include "llvm/ExecutionEngine/Orc/JITLinkRedirectableSymbolManager.h"
 #include "llvm/ExecutionEngine/Orc/JITLinkReentryTrampolines.h"
@@ -1461,8 +1462,12 @@ Session::Session(std::unique_ptr<ExecutorProcessControl> EPC, Error &Err)
         ObjLayer->addPlugin(ExitOnErr(EHFrameRegistrationPlugin::Create(ES)));
     }
   } else if (TT.isOSBinFormatELF()) {
-    if (!NoExec)
+    if (!NoExec) {
       ObjLayer->addPlugin(ExitOnErr(EHFrameRegistrationPlugin::Create(ES)));
+      if (TT.getArch() == Triple::ia64)
+        ObjLayer->addPlugin(
+            ExitOnErr(IA64UnwindTableRegistrationPlugin::Create(ES)));
+    }
     if (DebuggerSupport) {
       Error TargetSymErr = Error::success();
       auto Plugin =

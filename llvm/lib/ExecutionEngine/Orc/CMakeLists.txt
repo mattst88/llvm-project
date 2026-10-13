@@ -18,6 +18,7 @@ add_llvm_component_library(LLVMOrcJIT
   Core.cpp
   DebugUtils.cpp
   EHFrameRegistrationPlugin.cpp
+  IA64UnwindTableRegistrationPlugin.cpp
   EPCDynamicLibrarySearchGenerator.cpp
   EPCGenericDylibManager.cpp
   EPCGenericDylibManagerSPS.cpp

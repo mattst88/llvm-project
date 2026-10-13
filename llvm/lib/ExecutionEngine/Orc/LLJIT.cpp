@@ -16,6 +16,7 @@
 #include "llvm/ExecutionEngine/Orc/ELFNixPlatform.h"
 #include "llvm/ExecutionEngine/Orc/EPCDynamicLibrarySearchGenerator.h"
 #include "llvm/ExecutionEngine/Orc/ExecutorProcessControl.h"
+#include "llvm/ExecutionEngine/Orc/IA64UnwindTableRegistrationPlugin.h"
 #include "llvm/ExecutionEngine/Orc/MachOPlatform.h"
 #include "llvm/ExecutionEngine/Orc/ObjectLinkingLayer.h"
 #include "llvm/ExecutionEngine/Orc/ObjectTransformLayer.h"
@@ -1278,6 +1279,15 @@ Expected<JITDylibSP> setUpGenericLLVMIRPlatform(LLJIT &J) {
         LLVM_DEBUG(dbgs() << "Enabled eh-frame support.\n");
       } else
         return EHFP.takeError();
+    }
+
+    // IA-64 code has unwind tables of its own in place of eh-frames.
+    if (J.getTargetTriple().getArch() == Triple::ia64) {
+      auto &ES = J.getExecutionSession();
+      if (auto UTP = IA64UnwindTableRegistrationPlugin::Create(ES))
+        OLL->addPlugin(std::move(*UTP));
+      else
+        return UTP.takeError();
     }
   }
 

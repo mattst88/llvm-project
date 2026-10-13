@@ -23,6 +23,7 @@ add_llvm_component_library(LLVMOrcTargetProcess
   LibraryScanner.cpp
   OrcRTBootstrap.cpp
   RegisterEHFrames.cpp
+  RegisterIA64UnwindTables.cpp
   SimpleExecutorDylibManager.cpp
   SimpleExecutorMemoryManager.cpp
   SimpleRemoteEPCServer.cpp
