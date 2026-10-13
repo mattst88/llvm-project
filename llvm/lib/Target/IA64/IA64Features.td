@@ -17,11 +17,12 @@ def FeatureConstantGP
     : SubtargetFeature<"constant-gp", "HasConstantGP", "true",
                        "The global pointer is the same in every function">;
 
-// The registers that code is told to leave alone. A kernel does not save
-// most of the floating-point registers when it is entered and so must not
-// use them, and a program may keep a value of its own in a register for as
-// long as it runs. The stacked registers are not among these: they are a
-// function's own.
+// Registers reserved from code generation. A kernel does not save most of the
+// FP registers on entry and so must not use them, and a program may keep a
+// global value in a register for its whole run. Stacked registers cannot be
+// reserved, since they belong to each function. Of the branch registers,
+// only the callee-saved ones can be reserved: the compiler uses them only for
+// inline asm. Calls need the others.
 foreach I = 2...31 in
   def FeatureReserveR#I
       : SubtargetFeature<"reserve-r"#I, "UserReservedRegister[IA64::R"#I#"]",
@@ -30,6 +31,10 @@ foreach I = 2...127 in
   def FeatureReserveF#I
       : SubtargetFeature<"reserve-f"#I, "UserReservedRegister[IA64::F"#I#"]",
                          "true", "Reserve f"#I>;
+foreach I = 1...5 in
+  def FeatureReserveB#I
+      : SubtargetFeature<"reserve-b"#I, "UserReservedRegister[IA64::B"#I#"]",
+                         "true", "Reserve b"#I>;
 
 // Not user-settable. The assembler sets it for the padding before an
 // instruction that must start an instruction group, so that each bundle of
