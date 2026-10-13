@@ -1092,7 +1092,8 @@ IA64TargetLowering::LowerGET_DYNAMIC_AREA_OFFSET(SDValue Op,
 // between signs therefore needs one test per sign, and the complement set is
 // used where it needs fewer tests. A denormal is unnormalized in a register,
 // whatever its precision.
-static void getClassTests(unsigned Mask, SmallVectorImpl<unsigned> &Tests) {
+void IA64TargetLowering::getClassTests(unsigned Mask,
+                                       SmallVectorImpl<unsigned> &Tests) {
   enum {
     Pos = 1,
     Neg = 2,

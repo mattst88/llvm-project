@@ -385,8 +385,8 @@ IA64LegalizerInfo::IA64LegalizerInfo(const IA64Subtarget &ST) {
       {G_LROUND, G_LLROUND, G_INTRINSIC_LRINT, G_INTRINSIC_LLRINT})
       .libcallFor({{s64, s32}, {s64, s64}, {s64, s80}, {s64, s128}})
       .clampScalar(0, s64, s64);
-  // The bits of a float or a double say what class it is of. Those of an
-  // extended value say it differently, and a compare is asked instead.
+  // float and double are classified from their bit patterns by the generic
+  // lowering. Extended precision has a different encoding and uses fclass.
   getActionDefinitionsBuilder(G_IS_FPCLASS)
       .customIf(
           [=](const LegalityQuery &Query) { return Query.Types[1] == s80; })
@@ -602,68 +602,44 @@ bool IA64LegalizerInfo::legalizeCustom(
     return true;
   }
   case G_IS_FPCLASS: {
-    // A class that one compare tells from the rest is told by it: with
-    // itself for a NaN, and with infinity or zero for those, in magnitude
-    // where the sign is not asked about. Any other is not told here.
-    LLT S80 = LLT::scalar(80);
+    // fclass classifies an extended-precision value without raising an
+    // exception on a signaling NaN, unlike a compare. Emit one fclass per
+    // test needed, testing either the requested classes or their complement,
+    // whichever needs fewer.
+    LLT S64 = LLT::scalar(64);
+    MachineRegisterInfo &MRI = MF.getRegInfo();
     Register Dst = MI.getOperand(0).getReg();
     Register Src = MI.getOperand(1).getReg();
     unsigned Mask = MI.getOperand(2).getImm() & fcAllFlags;
-    LLVMContext &Ctx = MF.getFunction().getContext();
-    const fltSemantics &Semantics = APFloat::x87DoubleExtended();
-    auto Constant = [&](const APFloat &Value) {
-      return MIRBuilder.buildFConstant(S80, *ConstantFP::get(Ctx, Value))
-          .getReg(0);
-    };
-    auto Infinity = [&](bool Negative) {
-      return Constant(APFloat::getInf(Semantics, Negative));
-    };
-    auto Magnitude = [&] { return MIRBuilder.buildFAbs(S80, Src).getReg(0); };
-    auto Compare = [&](unsigned Class) -> bool {
-      bool Inverted = false;
-      for (unsigned Test : {Class, ~Class & unsigned(fcAllFlags)}) {
-        CmpInst::Predicate Pred;
-        Register LHS = Src, RHS;
-        switch (Test) {
-        default:
-          Inverted = true;
-          continue;
-        case fcNan:
-          Pred = CmpInst::FCMP_UNO;
-          RHS = Src;
-          break;
-        case fcInf:
-          Pred = CmpInst::FCMP_OEQ;
-          LHS = Magnitude();
-          RHS = Infinity(false);
-          break;
-        case fcInf | fcNan:
-          Pred = CmpInst::FCMP_UEQ;
-          LHS = Magnitude();
-          RHS = Infinity(false);
-          break;
-        case fcPosInf:
-        case fcNegInf:
-          Pred = CmpInst::FCMP_OEQ;
-          RHS = Infinity(Test == fcNegInf);
-          break;
-        case fcZero:
-        case fcZero | fcNan:
-          Pred = Test == fcZero ? CmpInst::FCMP_OEQ : CmpInst::FCMP_UEQ;
-          RHS = Constant(APFloat::getZero(Semantics));
-          break;
-        }
-        MIRBuilder.buildFCmp(Inverted ? CmpInst::getInversePredicate(Pred)
-                                      : Pred,
-                             Dst, LHS, RHS);
-        return true;
-      }
-      return false;
-    };
-    if (Mask == 0 || Mask == fcAllFlags)
+    if (Mask == 0 || Mask == fcAllFlags) {
       MIRBuilder.buildConstant(Dst, Mask != 0);
-    else if (!Compare(Mask))
-      return false;
+      MI.eraseFromParent();
+      return true;
+    }
+    SmallVector<unsigned, 2> Tests, Others;
+    IA64TargetLowering::getClassTests(Mask, Tests);
+    IA64TargetLowering::getClassTests(~Mask & fcAllFlags, Others);
+    bool None = Others.size() < Tests.size();
+    Register Value = MRI.createVirtualRegister(&IA64::FRRegClass);
+    MRI.setType(Value, MRI.getType(Src));
+    MIRBuilder.buildCopy(Value, Src);
+    Register Res;
+    for (unsigned Test : None ? Others : Tests) {
+      Register Is = MRI.createVirtualRegister(&IA64::GRRegClass);
+      MRI.setType(Is, S64);
+      MIRBuilder.buildInstr(IA64::SETFCLASS)
+          .addDef(Is)
+          .addUse(Value)
+          .addImm(Test)
+          .addImm(None);
+      if (!Res)
+        Res = Is;
+      else if (None)
+        Res = MIRBuilder.buildAnd(S64, Res, Is).getReg(0);
+      else
+        Res = MIRBuilder.buildOr(S64, Res, Is).getReg(0);
+    }
+    MIRBuilder.buildTrunc(Dst, Res);
     MI.eraseFromParent();
     return true;
   }

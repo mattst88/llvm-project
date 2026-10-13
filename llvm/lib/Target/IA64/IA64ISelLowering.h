@@ -144,6 +144,9 @@ public:
                                          CallingConv::ID CC,
                                          EVT VT) const override;
 
+  /// The fclass tests that together check for the classes in \p Mask.
+  static void getClassTests(unsigned Mask, SmallVectorImpl<unsigned> &Tests);
+
 private:
   const IA64Subtarget &Subtarget;
 
