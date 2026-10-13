@@ -89,6 +89,15 @@ public:
 
   // A bit-precise integer is passed as the integer of the next size up is,
   // and the widest integer there is has 128 bits.
+  // GCC and the backend treat short-data sections as writable even if their
+  // contents are constant.
+  bool isSectionAlwaysWritable(StringRef Name) const override {
+    return Name == ".sdata" || Name == ".sbss" || Name.starts_with(".sdata.") ||
+           Name.starts_with(".sbss.") ||
+           Name.starts_with(".gnu.linkonce.s.") ||
+           Name.starts_with(".gnu.linkonce.sb.");
+  }
+
   bool hasBitIntType() const override { return true; }
   size_t getMaxBitIntWidth() const override { return 128; }
 

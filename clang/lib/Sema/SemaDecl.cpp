@@ -15372,6 +15372,8 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
     if (const SectionAttr *SA = var->getAttr<SectionAttr>()) {
       if (SA->getSyntax() == AttributeCommonInfo::AS_Declspec)
         SectionFlags |= ASTContext::PSF_Implicit;
+      if (Context.getTargetInfo().isSectionAlwaysWritable(SA->getName()))
+        SectionFlags |= ASTContext::PSF_Write;
       UnifySection(SA->getName(), SectionFlags, var);
     } else if (Stack->CurrentValue) {
       if (Stack != &ConstSegStack && MSVCEnv &&

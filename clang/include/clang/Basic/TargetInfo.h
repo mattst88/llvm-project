@@ -1692,6 +1692,11 @@ public:
     return -1;
   }
 
+  /// Whether a section with this name is always writable, so that both const
+  /// and non-const objects may be placed in it with
+  /// attribute((section("foo"))).
+  virtual bool isSectionAlwaysWritable(StringRef Name) const { return false; }
+
   /// Return the section to use for C++ static initialization functions.
   virtual const char *getStaticInitSectionSpecifier() const {
     return nullptr;
