@@ -945,6 +945,51 @@ bool IA64LegalizerInfo::legalizeIntrinsic(LegalizerHelper &Helper,
     MI.eraseFromParent();
     return true;
   }
+  case Intrinsic::init_trampoline: {
+    // A trampoline is a function descriptor followed by the data its GP
+    // points to: the entry point of __ia64_trampoline and the address of
+    // word 2 as the GP, then the target's function descriptor and the static
+    // chain, which __ia64_trampoline loads through its GP.
+    MachineFunction &MF = MIRBuilder.getMF();
+    MachineRegisterInfo &MRI = MF.getRegInfo();
+    LLT S64 = LLT::scalar(64);
+    LLT P0 = LLT::pointer(0, 64);
+    Register Tramp = MI.getOperand(1).getReg();
+    Register At = MRI.createVirtualRegister(&IA64::GRRegClass);
+    MIRBuilder.buildInstr(IA64::ADDL)
+        .addDef(At)
+        .addExternalSymbol("__ia64_trampoline", IA64::S_LTOFF)
+        .addReg(IA64::R1)
+        .addReg(IA64::P0);
+    Register Entry = MRI.createVirtualRegister(&IA64::GRRegClass);
+    MRI.setType(Entry, S64);
+    MIRBuilder.buildInstr(IA64::LD8)
+        .addDef(Entry)
+        .addReg(At)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .addMemOperand(MF.getMachineMemOperand(
+            MachinePointerInfo::getGOT(MF),
+            MachineMemOperand::MOLoad | MachineMemOperand::MODereferenceable |
+                MachineMemOperand::MOInvariant,
+            S64, Align(8)));
+    auto Word = [&](unsigned I) {
+      return MIRBuilder.buildPtrAdd(P0, Tramp,
+                                    MIRBuilder.buildConstant(S64, 8 * I));
+    };
+    Register Words[] = {Entry, Word(2).getReg(0), MI.getOperand(2).getReg(),
+                        MI.getOperand(3).getReg()};
+    for (unsigned I = 0; I != 4; ++I)
+      MIRBuilder.buildStore(Words[I], I ? Word(I).getReg(0) : Tramp,
+                            MachinePointerInfo(), Align(8));
+    MI.eraseFromParent();
+    return true;
+  }
+  case Intrinsic::adjust_trampoline:
+    // The trampoline is called through its own address.
+    MIRBuilder.buildCopy(MI.getOperand(0).getReg(), MI.getOperand(2).getReg());
+    MI.eraseFromParent();
+    return true;
   case Intrinsic::thread_pointer:
     MIRBuilder.buildCopy(MI.getOperand(0).getReg(), Register(IA64::R13));
     MI.eraseFromParent();
