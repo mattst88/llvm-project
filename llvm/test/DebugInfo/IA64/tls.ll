@@ -1,6 +1,7 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu < %s | FileCheck %s --check-prefix=ASM
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -filetype=obj < %s -o %t.o
 ; RUN: llvm-readobj -r %t.o | FileCheck %s --check-prefix=RELOC
+; RUN: llvm-dwarfdump --debug-info %t.o 2>&1 | FileCheck %s --check-prefix=DWARF
 
 ; Where a thread-local variable is, for a debugger, is its offset in the
 ; thread-local storage of its module, as it is for gcc: a link editor that
@@ -15,6 +16,14 @@
 ; RELOC:      Section ({{.*}}) .rela.debug_info {
 ; RELOC:        R_IA64_DTPREL64LSB tv 0x0
 ; RELOC-NOT:    R_IA64_DIR64LSB tv
+
+; The offset is read from the object as any other word of the debugging
+; information is.
+
+; DWARF-NOT: failed to compute relocation
+; DWARF:     DW_AT_name ("tv")
+; DWARF:     DW_AT_location (DW_OP_const8u 0x0, DW_OP_GNU_push_tls_address)
+; DWARF-NOT: failed to compute relocation
 
 @tv = dso_local thread_local global i32 5, align 4, !dbg !0
 

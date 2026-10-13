@@ -447,6 +447,8 @@ static bool supportsIA64(uint64_t Type) {
   case ELF::R_IA64_DIR64LSB:
   case ELF::R_IA64_SECREL32LSB:
   case ELF::R_IA64_SECREL64LSB:
+  case ELF::R_IA64_DTPREL32LSB:
+  case ELF::R_IA64_DTPREL64LSB:
   case ELF::R_IA64_PCREL32LSB:
   case ELF::R_IA64_PCREL64LSB:
     return true;
@@ -460,9 +462,11 @@ static uint64_t resolveIA64(uint64_t Type, uint64_t Offset, uint64_t S,
   switch (Type) {
   case ELF::R_IA64_DIR32LSB:
   case ELF::R_IA64_SECREL32LSB:
+  case ELF::R_IA64_DTPREL32LSB:
     return (S + Addend) & 0xFFFFFFFF;
   case ELF::R_IA64_DIR64LSB:
   case ELF::R_IA64_SECREL64LSB:
+  case ELF::R_IA64_DTPREL64LSB:
     return S + Addend;
   case ELF::R_IA64_PCREL32LSB:
     return (S + Addend - Offset) & 0xFFFFFFFF;
