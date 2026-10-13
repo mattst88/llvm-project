@@ -32,7 +32,6 @@ using namespace lldb_private;
 // backing store in memory. They are given offsets past the end of the note
 // so that every register has a distinct offset.
 static constexpr uint32_t k_note_doublewords = 128;
-static constexpr uint32_t k_note_nat = 32;
 static constexpr uint32_t k_note_pr = 33;
 static constexpr uint32_t k_note_b0 = 34;
 static constexpr uint32_t k_note_ip = 42;
@@ -154,10 +153,23 @@ RegisterContextLinux_ia64::RegisterContextLinux_ia64(
                  reg.LLDBNum, reg.EHFrameNum);
   }
 
-  // Bit N of this word says that rN, one of r0-r31, holds a NaT.
-  m_register_infos[gpr_nat_ia64] =
-      MakeInfo("nat", nullptr, k_note_nat, LLDB_INVALID_REGNUM,
-               LLDB_INVALID_REGNUM, gpr_nat_ia64);
+  // Bit N is the NaT bit of rN. The note has a word of NaT bits for r0-r31.
+  // Those of the stacked registers are in the backing store alongside the
+  // registers; they are merged here so that one register holds all of them.
+  // It is placed after every other register.
+  m_register_infos[gpr_nat_ia64] = {
+      "nat",
+      nullptr,
+      16,
+      (k_note_doublewords + (128 - 32)) * 8 +
+          static_cast<uint32_t>(GetFPRSize()) + 128 * 8,
+      eEncodingVector,
+      eFormatHex,
+      {LLDB_INVALID_REGNUM, LLDB_INVALID_REGNUM, LLDB_INVALID_REGNUM,
+       LLDB_INVALID_REGNUM, gpr_nat_ia64},
+      nullptr,
+      nullptr,
+      nullptr};
 
   // An FR is 82 bits, saved as 16 bytes; the NT_FPREGSET note holds 128 of
   // them. lldb has no type for this format, so each FR is exposed as two

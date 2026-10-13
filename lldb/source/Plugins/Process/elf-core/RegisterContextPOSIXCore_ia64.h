@@ -54,6 +54,9 @@ private:
   bool ReadNote(uint32_t lldb_reg, uint64_t &value);
 
   std::unique_ptr<lldb_private::RegisterInfoInterface> m_register_info_up;
+  /// Reads the GR NaT bits: bit N is the NaT bit of rN.
+  bool ReadNaTBits(uint8_t *bytes);
+
   /// Reads FR \p num in 16-byte spill format.
   bool ReadFloatingPoint(uint32_t num, uint8_t *bytes);
 

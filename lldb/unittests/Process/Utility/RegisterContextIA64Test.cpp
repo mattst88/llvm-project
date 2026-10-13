@@ -151,7 +151,16 @@ TEST(RegisterContextIA64Test, NoteOffsets) {
 
   const RegisterInfo *nat = findByName(ctx, "nat");
   ASSERT_NE(nat, nullptr);
-  EXPECT_EQ(nat->byte_offset, 32u * 8);
+  // The register has a bit for each of r0-r127, of which the note has the
+  // first 32, so it is not at the place of the note's word.
+  EXPECT_EQ(nat->byte_size, 16u);
+  EXPECT_EQ(ctx.k_nat_note_offset, 32u * 8);
+  for (uint32_t i = 0, e = ctx.GetRegisterCount(); i != e; ++i)
+    if (&ctx.GetRegisterInfo()[i] != nat) {
+      const RegisterInfo &other = ctx.GetRegisterInfo()[i];
+      EXPECT_TRUE(other.byte_offset + other.byte_size <= nat->byte_offset)
+          << other.name;
+    }
 
   const RegisterInfo *pr = findByName(ctx, "pr");
   ASSERT_NE(pr, nullptr);

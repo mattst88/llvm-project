@@ -33,6 +33,10 @@ public:
   /// \p addr in the register backing store; \p count may be negative.
   static uint64_t SkipBackingStoreRegisters(uint64_t addr, int64_t count);
 
+  /// Offset in the NT_PRSTATUS note of the word holding the NaT bits of
+  /// r0-r31.
+  static constexpr uint32_t k_nat_note_offset = 32 * 8;
+
   /// Size of a saved FR, in memory and in the NT_FPREGSET note.
   static constexpr uint32_t k_fpr_bytes = 16;
 

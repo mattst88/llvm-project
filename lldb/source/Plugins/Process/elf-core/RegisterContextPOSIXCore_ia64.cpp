@@ -15,6 +15,7 @@
 #include "lldb/Utility/RegisterValue.h"
 #include "lldb/Utility/Status.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Support/Endian.h"
 
 #include <cstring>
 
@@ -102,6 +103,44 @@ bool RegisterContextCorePOSIX_ia64::ReadNote(uint32_t lldb_reg,
   return true;
 }
 
+bool RegisterContextCorePOSIX_ia64::ReadNaTBits(uint8_t *bytes) {
+  lldb::offset_t offset = RegisterContextLinux_ia64::k_nat_note_offset;
+  if (offset + 8 > m_gpr.GetByteSize())
+    return false;
+  uint64_t bits[2] = {m_gpr.GetU64(&offset), 0};
+
+  // A stacked register's NaT bit is in the backing store. Every 64th
+  // doubleword (address bits 3-8 all set) is a NaT collection holding the
+  // bits of the 63 doublewords before it, in order. The last collection is
+  // absent if the backing store ends before it; its bits are still in
+  // ar.rnat.
+  uint64_t cfm, end, rnat;
+  if (!ReadNote(gpr_cfm_ia64, cfm) || !ReadNote(gpr_bsp_ia64, end) ||
+      !ReadNote(gpr_rnat_ia64, rnat))
+    return false;
+  ProcessSP process_sp = m_thread.GetProcess();
+  if (!process_sp)
+    return false;
+  const int64_t size_of_frame = cfm & 0x7f;
+  for (int64_t i = 0; i != size_of_frame; ++i) {
+    const addr_t addr = RegisterContextLinux_ia64::SkipBackingStoreRegisters(
+        end, i - size_of_frame);
+    const addr_t collection = addr | 0x1f8;
+    uint64_t word = rnat;
+    if (collection < end) {
+      Status error;
+      word = process_sp->ReadUnsignedIntegerFromMemory(collection, 8, 0, error);
+      if (error.Fail())
+        return false;
+    }
+    if ((word >> ((addr >> 3) & 0x3f)) & 1)
+      bits[(32 + i) / 64] |= UINT64_C(1) << ((32 + i) % 64);
+  }
+  llvm::support::endian::write64le(bytes, bits[0]);
+  llvm::support::endian::write64le(bytes + 8, bits[1]);
+  return true;
+}
+
 bool RegisterContextCorePOSIX_ia64::ReadRegister(const RegisterInfo *reg_info,
                                                  RegisterValue &value) {
   if (!reg_info)
@@ -118,6 +157,14 @@ bool RegisterContextCorePOSIX_ia64::ReadRegister(const RegisterInfo *reg_info,
       value.SetBytes(bytes, sizeof(bytes), eByteOrderLittle);
     else
       value.SetDouble(RegisterContextLinux_ia64::FloatingPointValue(bytes));
+    return true;
+  }
+
+  if (reg == gpr_nat_ia64) {
+    uint8_t bytes[16];
+    if (!ReadNaTBits(bytes))
+      return false;
+    value.SetBytes(bytes, sizeof(bytes), eByteOrderLittle);
     return true;
   }
 
