@@ -1346,7 +1346,9 @@ bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
   MCStreamer &Out = getParser().getStreamer();
   if (getParser().checkForValidSection())
     return true;
-  if (Aligned && !ElsewhereText)
+  // GNU as aligns only before the first item, so an empty list adds no
+  // padding.
+  if (Aligned && !ElsewhereText && getTok().isNot(AsmToken::EndOfStatement))
     Out.emitValueToAlignment(Align(Size));
   return getParser().parseMany([&]() -> bool {
     SMLoc Loc = getParser().getTok().getLoc();
@@ -1387,7 +1389,7 @@ bool IA64AsmParser::parseData16(bool Aligned) {
   MCStreamer &Out = getParser().getStreamer();
   if (getParser().checkForValidSection())
     return true;
-  if (Aligned && !ElsewhereText)
+  if (Aligned && !ElsewhereText && getTok().isNot(AsmToken::EndOfStatement))
     Out.emitValueToAlignment(Align(16));
   return getParser().parseMany([&]() -> bool {
     const AsmToken &Tok = getParser().getTok();

@@ -76,9 +76,14 @@ lab2:
 	.hword 0x1234
 	string "abc" "def"
 	stringz "gh" "ij", "k"
+// With no item there is nothing to align.
+	data8
+	.long
+	data16
+	data1 2
 
 // MORE:      0000 01003412 61626364 65666768 696a006b
-// MORE-NEXT: 0010 00
+// MORE-NEXT: 0010 0002
 
 // The section is as aligned as its most aligned item.
 	.section .two,"a",@progbits
