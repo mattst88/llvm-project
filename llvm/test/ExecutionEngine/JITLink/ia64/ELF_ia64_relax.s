@@ -59,10 +59,10 @@ other_load:
 	nop.i	0 ;;
 
 # A place in something is as near as it is, whatever the thing.
-# jitlink-check: (*{8}addend)[24:18] = ((var + 8) - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[6:0]
-# jitlink-check: (*{8}addend)[40:32] = ((var + 8) - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[15:7]
-# jitlink-check: (*{8}addend)[31:27] = ((var + 8) - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[20:16]
-# jitlink-check: (*{8}addend)[41:41] = ((var + 8) - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[21:21]
+# jitlink-check: (*{8}addend)[24:18] = (var + 8 - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[6:0]
+# jitlink-check: (*{8}addend)[40:32] = (var + 8 - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[15:7]
+# jitlink-check: (*{8}addend)[31:27] = (var + 8 - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[20:16]
+# jitlink-check: (*{8}addend)[41:41] = (var + 8 - section_addr(ELF_ia64_relax.s.tmp.o, $__GOT))[21:21]
 # jitlink-check: *{8}addend_load = *{8}nothing
 # jitlink-check: *{8}(addend_load + 8) = *{8}(nothing + 8)
 	.globl	addend

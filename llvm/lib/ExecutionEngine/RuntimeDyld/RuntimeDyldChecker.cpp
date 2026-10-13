@@ -542,7 +542,9 @@ private:
           unexpectedToken(RemainingExpr, RemainingExpr, "expected number"), "");
     uint64_t Value;
     ValueStr.getAsInteger(0, Value);
-    return std::make_pair(EvalResult(Value), RemainingExpr);
+    // Skip whitespace, as the other operand parsers do, so that a following
+    // binary operator is found.
+    return std::make_pair(EvalResult(Value), RemainingExpr.ltrim());
   }
 
   // Evaluate an expression of the form "(<expr>)" and return a pair
