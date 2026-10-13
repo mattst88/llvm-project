@@ -70,6 +70,14 @@ MCOperand IA64AsmPrinter::lowerOperand(const MachineOperand &MO) const {
 // Each function is an assembler procedure, which gives it an unwind table
 // entry and, with GNU as, a size that includes its last bundle.
 void IA64AsmPrinter::emitFunctionEntryLabel() {
+  // Prologue data follows the label and the code follows it, so it must keep
+  // bundles 16-byte aligned.
+  const Function &F = MF->getFunction();
+  if (F.hasPrologueData() &&
+      !isAligned(Align(16), F.getDataLayout().getTypeAllocSize(
+                                F.getPrologueData()->getType())))
+    reportFatalUsageError("prologue data that is not a whole number of "
+                          "bundles is not supported on IA-64");
   getTargetStreamer().emitProc(CurrentFnSym);
   AsmPrinter::emitFunctionEntryLabel();
 }
