@@ -14,6 +14,7 @@
 #include "TargetInfo/IA64TargetInfo.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallBitVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/BinaryFormat/ELF.h"
@@ -105,8 +106,17 @@ class IA64AsmParser : public MCTargetAsmParser {
   SMLoc OpenBundle;
   void onEndOfFile() override;
   void onLabelParsed(MCSymbol *Symbol) override;
+  /// Labels at the current output position, when emitting assembly. A label
+  /// may be redefined where it already is. The object streamer detects this
+  /// itself, but the assembly streamer has no notion of position, so it is
+  /// told the label is new and prints it again.
+  SmallPtrSet<MCSymbol *, 2> LabelsHere;
   void doBeforeLabelEmit(MCSymbol *Symbol, SMLoc IDLoc) override {
     noteSectionAgain();
+    if (!getStreamer().hasRawTextSupport())
+      return;
+    if (!LabelsHere.insert(Symbol).second)
+      Symbol->setFragment(nullptr);
   }
 
   void onEmptyStatement(const AsmToken &Terminator) override;
@@ -1156,6 +1166,7 @@ bool IA64AsmParser::parseInstruction(ParseInstructionInfo &Info, StringRef Name,
                                      SMLoc NameLoc, OperandVector &Operands) {
   MCAsmParser &Parser = getParser();
   noteSectionAgain();
+  LabelsHere.clear();
   InstructionInSection = true;
 
   // "{" and "}" delimit a bundle. Whatever follows a brace on the same line
@@ -1740,6 +1751,12 @@ ParseStatus IA64AsmParser::parseTargetDirective(AsmToken DirectiveID) {
   StringRef Name = DirectiveID.getString();
 
   noteSectionAgain();
+  // Symbol attribute directives do not move the output position.
+  if (!StringSwitch<bool>(Name.lower())
+           .Cases({".global", ".globl", ".weak", ".local", ".type"}, true)
+           .Cases({".hidden", ".internal", ".protected", ".size"}, true)
+           .Default(false))
+    LabelsHere.clear();
   if (StringSwitch<bool>(Name.lower())
           .Cases({".text", ".data", ".bss", ".sdata", ".sbss"}, true)
           .Cases({".section", ".pushsection", ".popsection"}, true)
