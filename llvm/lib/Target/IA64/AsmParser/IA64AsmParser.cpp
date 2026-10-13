@@ -1706,6 +1706,13 @@ bool IA64AsmParser::parseDataStrings(bool ZeroTerminated) {
     std::string Data;
     if (getParser().parseEscapedString(Data))
       return true;
+    // Adjacent strings without a comma are concatenated.
+    while (getTok().is(AsmToken::String)) {
+      std::string More;
+      if (getParser().parseEscapedString(More))
+        return true;
+      Data += More;
+    }
     if (ElsewhereText) {
       std::string Text;
       raw_string_ostream(Text).write_escaped(Data);

@@ -70,12 +70,15 @@ lab2:
 // DC-NEXT: 0020 090a0000 00000000 00000000 00000000
 // DC-NEXT: 0030 0b000000 00000000 00000000 00000000
 
-// .hword is another .short.
+// .hword is another .short. Strings with no comma between them are one.
 	.section .more,"aw",@progbits
 	data1 1
 	.hword 0x1234
+	string "abc" "def"
+	stringz "gh" "ij", "k"
 
-// MORE: 0000 01003412
+// MORE:      0000 01003412 61626364 65666768 696a006b
+// MORE-NEXT: 0010 00
 
 // The section is as aligned as its most aligned item.
 	.section .two,"a",@progbits
