@@ -23,6 +23,7 @@ namespace lldb_private {
 
 class RegisterContextUnwind;
 class ArchitectureArm;
+class ArchitectureIA64;
 
 class UnwindLLDB : public lldb_private::Unwind {
 public:
@@ -39,6 +40,7 @@ public:
 protected:
   friend class lldb_private::RegisterContextUnwind;
   friend class lldb_private::ArchitectureArm;
+  friend class lldb_private::ArchitectureIA64;
 
   /// An UnwindPlan::Row::AbstractRegisterLocation, combined with the register
   /// context and memory for a specific stop point, is used to create a
