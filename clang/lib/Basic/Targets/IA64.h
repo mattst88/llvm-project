@@ -1,5 +1,4 @@
-//===--- IA64.h - Declare IA-64 target feature support ------------*- C++
-//-*===//
+//===--- IA64.h - Declare IA-64 target feature support ----------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -87,8 +86,6 @@ public:
     return RegNo < 4 ? 15 + RegNo : -1;
   }
 
-  // A bit-precise integer is passed as the integer of the next size up is,
-  // and the widest integer there is has 128 bits.
   // GCC and the backend treat short-data sections as writable even if their
   // contents are constant.
   bool isSectionAlwaysWritable(StringRef Name) const override {
@@ -97,6 +94,9 @@ public:
            Name.starts_with(".gnu.linkonce.s.") ||
            Name.starts_with(".gnu.linkonce.sb.");
   }
+
+  // A _BitInt is passed like the next larger standard integer type, and the
+  // widest integer type is 128 bits.
 
   bool hasBitIntType() const override { return true; }
   size_t getMaxBitIntWidth() const override { return 128; }
