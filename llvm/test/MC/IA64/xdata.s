@@ -4,6 +4,8 @@
 // RUN: llvm-objdump -d -j .text %t | FileCheck %s --check-prefix=DIS
 // RUN: llvm-readelf -S %t | FileCheck %s --check-prefix=SEC
 // RUN: llvm-mc -triple ia64 %s | FileCheck %s --check-prefix=ASM
+// RUN: llvm-mc -triple ia64 %s | llvm-mc -triple ia64 -filetype=obj -o %t.2
+// RUN: cmp %t %t.2
 
 // ".xdata4 section, values" is "data4 values" written into the section that
 // it names, and so for the other data directives. The current section stays
@@ -24,15 +26,26 @@ f:
 	nop.i 2
 	;;
 2:
-// Assembly has no way to write this but a change of section, which does end
-// the bundle.
+// Assembly says it as it was said, and not with a change of section and
+// one back, which would end the bundle. "." is the place in the section that
+// is named.
 // ASM:      nop.m 0
-// ASM-NEXT: .section __ex_table,"a",@progbits
-// ASM-NEXT: .p2align 2, 0x0
-// ASM:      data4.ua .Ltmp0-.Ltmp1
-// ASM:      .text
+// ASM-NEXT: .xdata4 "__ex_table", .Ltmp0-., .Ltmp1-.
 // ASM-NEXT: [.Ltmp0:]
 // ASM-NEXT: nop.i 1
+// ASM-NEXT: .xdata8 ".data", f
+// ASM-NEXT: nop.i 2
+// ASM:      .xdata2.ua ".data", 22136
+// ASM:      .xdata16 ".data", 0x112233445566778899AABBCCDDEEFF00
+// ASM-NEXT: .xstring ".data", "ab", "cd"
+// ASM-NEXT: .xstringz ".data", "ef\"\\\001"
+// ASM-NEXT: .xreal4 ".data", 1.0
+// ASM:      .xreal10 ".data", -1.0
+// ASM:      .xreal4.ua ".data", 1.0, inf, nan
+// ASM:      .xdata16 ".made16", @iplt(f), -1
+// ASM:      nop.m 3
+// ASM-NEXT: .p2align 3, 0x0
+// ASM-NEXT: data8.ua 4
 
 // Each directive aligns as the one it is named after, or not.
 	.xdata1 .data, 1, 2
@@ -42,18 +55,19 @@ f:
 	.xdata8.ua .data, 10
 	.xdata16 .data, 0x112233445566778899aabbccddeeff00
 	.xstring .data, "ab", "cd"
-	.xstringz .data, "ef"
+	.xstringz .data, "ef\"\\\001"
 	.xreal4 .data, 1.0
 	.xreal8 .data, 2.0
-	.xreal10 .data, 1.0
+	.xreal10 .data, -1.0
 	.xreal16 .data, 1.0
-	.xreal4.ua .data, 1.0
+	.xreal4.ua .data, 1.0, inf, nan
 	.XDATA1 .data, 3
 
 // A section that there is not yet is made, as ".section" and its name
 // make it: with no flags, or with the type and the flags that the name
 // stands for.
 	.xdata4 ".made", 5
+	.xdata16 .made16, @iplt(f), -1
 	.xdata4 .sdata.made, 1
 	.xdata4 .sbss.made, 0
 	.xdata4 .rodata.made, 1
@@ -90,11 +104,11 @@ f:
 // CHECK-NEXT: 0000 00000000 00000000 01023412 78560900
 // CHECK-NEXT: 0010 00000a00 00000000 00000000 00000000
 // CHECK-NEXT: 0020 00ffeedd ccbbaa99 88776655 44332211
-// CHECK-NEXT: 0030 61626364 65660000 0000803f 00000000
+// CHECK-NEXT: 0030 61626364 6566225c 01000000 0000803f
 // CHECK-NEXT: 0040 00000000 00000040 00000000 00000000
-// CHECK-NEXT: 0050 00000000 00000080 ff3f0000 00000000
+// CHECK-NEXT: 0050 00000000 00000080 ffbf0000 00000000
 // CHECK-NEXT: 0060 00000000 00000080 ff3f0000 00000000
-// CHECK-NEXT: 0070 0000803f 03
+// CHECK-NEXT: 0070 0000803f 0000807f ffffff7f 03
 // CHECK:      Contents of section .made:
 // CHECK-NEXT: 0000 05000000
 

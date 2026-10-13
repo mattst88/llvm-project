@@ -118,6 +118,20 @@ class IA64AsmParser : public MCTargetAsmParser {
   bool parseData16(bool Aligned);
   bool parseRealValues(unsigned Size, bool Aligned);
   ParseStatus parseCrossSectionData(StringRef Directive);
+  /// Accumulates the values of ".xdata4" and similar for printing, when
+  /// emitting assembly.
+  std::string *ElsewhereText = nullptr;
+  void addElsewhereText(const Twine &Value) {
+    if (!ElsewhereText->empty())
+      *ElsewhereText += ", ";
+    *ElsewhereText += Value.str();
+  }
+  void addElsewhereText(const MCExpr &Value) {
+    std::string Text;
+    raw_string_ostream OS(Text);
+    getContext().getAsmInfo().printExpr(OS, Value);
+    addElsewhereText(Twine(Text));
+  }
   ParseStatus parseModeDirective(StringRef Name);
   bool parseCommon(bool IsTLS, bool IsLocal);
 
@@ -1017,6 +1031,15 @@ bool IA64AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
       }
     }
   }
+  // In a ".xdata4" value being printed, "." is the position in the
+  // directive's target section, where no label can be placed.
+  if (ElsewhereText && Parser.getTok().is(AsmToken::Dot)) {
+    EndLoc = Parser.getTok().getEndLoc();
+    Parser.Lex();
+    Res = MCSymbolRefExpr::create(getContext().getOrCreateSymbol("."),
+                                  getContext());
+    return false;
+  }
   if (Parser.getTok().isNot(AsmToken::At))
     return Parser.parsePrimaryExpr(Res, EndLoc, nullptr);
 
@@ -1232,7 +1255,7 @@ bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
   MCStreamer &Out = getParser().getStreamer();
   if (getParser().checkForValidSection())
     return true;
-  if (Aligned)
+  if (Aligned && !ElsewhereText)
     Out.emitValueToAlignment(Align(Size));
   return getParser().parseMany([&]() -> bool {
     SMLoc Loc = getParser().getTok().getLoc();
@@ -1241,11 +1264,14 @@ bool IA64AsmParser::parseDataValues(unsigned Size, bool Aligned) {
       return true;
     if (isa<IA64RegisterExpr>(Value))
       return Error(Loc, "a register is not a value");
-    if (const auto *CE = dyn_cast<MCConstantExpr>(Value)) {
-      if (!isUIntN(8 * Size, CE->getValue()) &&
-          !isIntN(8 * Size, CE->getValue()))
-        return Error(Loc, "value does not fit in " + Twine(Size) +
-                              (Size == 1 ? " byte" : " bytes"));
+    const auto *CE = dyn_cast<MCConstantExpr>(Value);
+    if (CE && !isUIntN(8 * Size, CE->getValue()) &&
+        !isIntN(8 * Size, CE->getValue()))
+      return Error(Loc, "value does not fit in " + Twine(Size) +
+                            (Size == 1 ? " byte" : " bytes"));
+    if (ElsewhereText) {
+      addElsewhereText(*Value);
+    } else if (CE) {
       Out.emitIntValue(CE->getValue(), Size);
     } else {
       Out.emitValue(Value, Size, Loc);
@@ -1258,7 +1284,7 @@ bool IA64AsmParser::parseData16(bool Aligned) {
   MCStreamer &Out = getParser().getStreamer();
   if (getParser().checkForValidSection())
     return true;
-  if (Aligned)
+  if (Aligned && !ElsewhereText)
     Out.emitValueToAlignment(Align(16));
   return getParser().parseMany([&]() -> bool {
     const AsmToken &Tok = getParser().getTok();
@@ -1270,7 +1296,10 @@ bool IA64AsmParser::parseData16(bool Aligned) {
         APInt Value = Tok.getAPIntVal();
         if (Value.getActiveBits() > 128)
           return Error(Loc, "value does not fit in 16 bytes");
-        Out.emitIntValue(Value.zextOrTrunc(128));
+        if (ElsewhereText)
+          addElsewhereText("0x" + toString(Value, 16, /*Signed=*/false));
+        else
+          Out.emitIntValue(Value.zextOrTrunc(128));
         Lex();
         return false;
       }
@@ -1280,14 +1309,20 @@ bool IA64AsmParser::parseData16(bool Aligned) {
       return true;
     int64_t Constant;
     if (Value->evaluateAsAbsolute(Constant)) {
-      Out.emitIntValue(APInt(128, Constant, /*isSigned=*/true));
+      if (ElsewhereText)
+        addElsewhereText(Twine(Constant));
+      else
+        Out.emitIntValue(APInt(128, Constant, /*isSigned=*/true));
       return false;
     }
     // Only @iplt has a 16-byte relocation.
     const auto *Spec = dyn_cast<MCSpecifierExpr>(Value);
     if (!Spec || Spec->getSpecifier() != IA64::S_IPLT)
       return Error(Loc, "expected a number or '@iplt'");
-    getTargetStreamer().emitData16(Value, Loc);
+    if (ElsewhereText)
+      addElsewhereText(*Value);
+    else
+      getTargetStreamer().emitData16(Value, Loc);
     return false;
   });
 }
@@ -1300,7 +1335,7 @@ bool IA64AsmParser::parseRealValues(unsigned Size, bool Aligned) {
   const fltSemantics &Semantics = Size == 4   ? APFloat::IEEEsingle()
                                   : Size == 8 ? APFloat::IEEEdouble()
                                               : APFloat::x87DoubleExtended();
-  if (Aligned)
+  if (Aligned && !ElsewhereText)
     Out.emitValueToAlignment(Align(Size == 10 ? 16 : Size));
   return getParser().parseMany([&]() -> bool {
     bool Negative = parseOptionalToken(AsmToken::Minus);
@@ -1337,7 +1372,12 @@ bool IA64AsmParser::parseRealValues(unsigned Size, bool Aligned) {
     } else {
       return Error(Loc, "expected a floating-point number");
     }
+    // Print the number as written.
+    if (ElsewhereText)
+      addElsewhereText((Negative ? "-" : "") + Tok.getString());
     Lex();
+    if (ElsewhereText)
+      return false;
     if (Negative)
       Value.changeSign();
     Out.emitIntValue(Value.bitcastToAPInt());
@@ -1434,6 +1474,21 @@ ParseStatus IA64AsmParser::parseCrossSectionData(StringRef Directive) {
 
   // Targeting the current section is the same as the plain directive.
   bool IsElsewhere = Section != getStreamer().getCurrentSectionOnly();
+  // Assembly output repeats the directive verbatim. Switching sections and
+  // back would end the bundle when reassembled, and would change what
+  // ".previous" returns to.
+  if (IsElsewhere && getStreamer().hasRawTextSupport()) {
+    std::string Text;
+    ElsewhereText = &Text;
+    ParseStatus Status = parseDataDirective(Name);
+    ElsewhereText = nullptr;
+    if (Status.isSuccess()) {
+      std::string Quoted;
+      raw_string_ostream(Quoted).write_escaped(SectionName);
+      getStreamer().emitRawText("\t" + Lower + "\t\"" + Quoted + "\", " + Text);
+    }
+    return Status;
+  }
   if (IsElsewhere)
     getTargetStreamer().beginDataElsewhere(Section);
   ParseStatus Status = parseDataDirective(Name);
@@ -1498,6 +1553,12 @@ bool IA64AsmParser::parseDataStrings(bool ZeroTerminated) {
     std::string Data;
     if (getParser().parseEscapedString(Data))
       return true;
+    if (ElsewhereText) {
+      std::string Text;
+      raw_string_ostream(Text).write_escaped(Data);
+      addElsewhereText("\"" + Text + "\"");
+      return false;
+    }
     getParser().getStreamer().emitBytes(Data);
     if (ZeroTerminated)
       getParser().getStreamer().emitBytes(StringRef("\0", 1));
