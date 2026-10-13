@@ -140,6 +140,7 @@ void DAGTypeLegalizer::SoftenFloatResult(SDNode *N, unsigned ResNo) {
     case ISD::STRICT_FLDEXP: R = SoftenFloatRes_ExpOp(N); break;
     case ISD::FFREXP:        R = SoftenFloatRes_FFREXP(N); break;
     case ISD::FSINCOS:       R = SoftenFloatRes_FSINCOS(N); break;
+    case ISD::FSINCOSPI:     R = SoftenFloatRes_FSINCOSPI(N); break;
     case ISD::FMODF:         R = SoftenFloatRes_FMODF(N); break;
     case ISD::STRICT_FREM:
     case ISD::FREM:        R = SoftenFloatRes_FREM(N); break;
@@ -844,6 +845,19 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FSINCOS(SDNode *N) {
 
   SetSoftenedFloat(SDValue(N, 0), SoftSin);
   SetSoftenedFloat(SDValue(N, 1), SoftCos);
+  return SDValue();
+}
+
+SDValue DAGTypeLegalizer::SoftenFloatRes_FSINCOSPI(SDNode *N) {
+  EVT VT = N->getValueType(0);
+  if (SoftenFloatRes_UnaryWithTwoFPResults(N, RTLIB::getSINCOSPI(VT)))
+    return SDValue();
+
+  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), VT);
+  DAG.getContext()->emitError("do not know how to soften fsincospi");
+  SDValue Poison = DAG.getPOISON(NVT);
+  SetSoftenedFloat(SDValue(N, 0), Poison);
+  SetSoftenedFloat(SDValue(N, 1), Poison);
   return SDValue();
 }
 

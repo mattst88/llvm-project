@@ -610,6 +610,7 @@ private:
   SDValue SoftenFloatRes_ExpOp(SDNode *N);
   SDValue SoftenFloatRes_FFREXP(SDNode *N);
   SDValue SoftenFloatRes_FSINCOS(SDNode *N);
+  SDValue SoftenFloatRes_FSINCOSPI(SDNode *N);
   SDValue SoftenFloatRes_FMODF(SDNode *N);
   SDValue SoftenFloatRes_FREEZE(SDNode *N);
   SDValue SoftenFloatRes_FREM(SDNode *N);
