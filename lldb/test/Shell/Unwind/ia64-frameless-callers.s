@@ -5,12 +5,17 @@
 # same CFA. They are not an unwind that loops: each has a frame of its own in
 # the register backing store, and so an alternate frame address of its own.
 # Check that the backtrace goes through them.
+#
+# leaf has no entry in the unwind table, as the ABI lets a function that
+# saves nothing have none. Check that the registers a function preserves
+# are known in the frames above it, and that others are not.
 
 # RUN: llvm-mc -filetype=obj --triple=ia64-unknown-linux-gnu %s -o %t.o
 # RUN: ld.lld %t.o -o %t
 # RUN: yaml2obj %S/Inputs/ia64-frameless-callers.yaml -o %t.core
 # RUN: %lldb -b %t -c %t.core -o "target modules load -f %t -s 0" \
 # RUN:   -o "thread backtrace" \
+# RUN:   -o "frame select 1" -o "register read r4 b1 r8" \
 # RUN:   -o "frame select 3" -o "register read r12 bsp" \
 # RUN:   -o "frame select 4" -o "register read r12 bsp" 2>&1 \
 # RUN:   | FileCheck %s
@@ -21,6 +26,11 @@
 # CHECK-NEXT: frame #3: 0x4000000000000220 {{.*}}`first + 16
 # CHECK-NEXT: frame #4: 0x40000000000001f0 {{.*}}`_start + 16
 # CHECK-NOT: frame #5
+
+# CHECK: frame select 1
+# CHECK: r4 = 0x4444444444444444
+# CHECK-NEXT: b1 = 0x4000000000000b10
+# CHECK-NEXT: r8 = error: unavailable
 
 # CHECK: frame select 3
 # CHECK: r12 = 0x200000000080f400

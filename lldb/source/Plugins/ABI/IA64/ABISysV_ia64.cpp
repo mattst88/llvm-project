@@ -155,8 +155,19 @@ UnwindPlanSP ABISysV_ia64::CreateDefaultUnwindPlan() {
   // for the innermost frame of most faults and for nothing above it, so
   // everything else is unknown and the walk ends at the caller.
   IA64UnwindInfo::DescribeUnsavedFrame(row);
-  // The unwinder asserts on a default plan that leaves this unset.
+  // The unwinder asserts if a default plan leaves this unset. It makes every
+  // register the row does not mention undefined, so mark the preserved
+  // registers as unchanged: a leaf function that saves one has an unwind
+  // table entry.
   row.SetUnspecifiedRegistersAreUndefined(true);
+  for (uint32_t r = 4; r <= 7; ++r)
+    row.SetRegisterLocationToSame(ia64_eh_frame::r0 + r, false);
+  for (uint32_t b = 1; b <= 5; ++b)
+    row.SetRegisterLocationToSame(ia64_eh_frame::b0 + b, false);
+  for (uint32_t f = 2; f <= 31; f = f == 5 ? 16 : f + 1) {
+    row.SetRegisterLocationToSame(ia64_eh_frame::f0 + f, false);
+    row.SetRegisterLocationToSame(ia64_eh_frame::f0_raw + f, false);
+  }
 
   auto plan_sp = std::make_shared<UnwindPlan>(eRegisterKindEHFrame);
   plan_sp->AppendRow(std::move(row));
