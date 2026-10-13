@@ -315,8 +315,16 @@ ABIArgInfo IA64ABIInfo::classifyArgumentType(QualType Ty,
     return ABIArgInfo::getDirectInReg(getSignificandsType(1));
 
   llvm::ArrayType *Members = getHomogeneousType(Ty);
-  if (!Members)
+  if (!Members) {
     Members = getSingleMemberType(Ty);
+    // GCC passes one of these that is partly on the stack as words rather
+    // than members: each word in a register slot is the significand of an FP
+    // register.
+    if (Members && Start < 8 && NextSlot > 8)
+      return ABIArgInfo::getDirect(
+          getSignificandsType(Words), 0,
+          Skips ? llvm::Type::getInt64Ty(getVMContext()) : nullptr);
+  }
   if (Members) {
     // Extended-precision members do not make the aggregate 16-byte aligned
     // if it was declared with less alignment.

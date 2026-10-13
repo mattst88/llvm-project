@@ -227,6 +227,29 @@ struct complex_float { _Complex float z; };
 void pass_complex_float(struct complex_float s) {}
 // CHECK-LABEL: define dso_local void @pass_complex_float([2 x float] %s.coerce)
 
+// GCC has one of these that is partly in memory as its words and not as its
+// members. Those of the words that have slots that are registers are each
+// the significand of a floating-point register.
+void pass_single_complex_eighth(long a, long b, long c, long d, long e,
+                                long f, long g, struct single_complex s) {}
+// CHECK-LABEL: define dso_local void @pass_single_complex_eighth(i64 noundef %a, i64 noundef %b, i64 noundef %c, i64 noundef %d, i64 noundef %e, i64 noundef %f, i64 noundef %g, [2 x <2 x float>] %s.coerce)
+
+void pass_single_complex_seventh(long a, long b, long c, long d, long e,
+                                 long f, struct single_complex s) {}
+// CHECK-LABEL: define dso_local void @pass_single_complex_seventh(i64 noundef %a, i64 noundef %b, i64 noundef %c, i64 noundef %d, i64 noundef %e, i64 noundef %f, [2 x double] %s.coerce)
+
+void pass_single_complex_ninth(long a, long b, long c, long d, long e,
+                               long f, long g, long h,
+                               struct single_complex s) {}
+// CHECK-LABEL: define dso_local void @pass_single_complex_ninth(i64 noundef %a, i64 noundef %b, i64 noundef %c, i64 noundef %d, i64 noundef %e, i64 noundef %f, i64 noundef %g, i64 noundef %h, [2 x double] %s.coerce)
+
+// One that is aligned to sixteen bytes has an odd slot left unused before
+// it.
+struct single_complex_extended { struct none n; _Complex long double z; };
+void pass_single_complex_extended(long a, long b, long c, long d, long e,
+                                  struct single_complex_extended s) {}
+// CHECK-LABEL: define dso_local void @pass_single_complex_extended(i64 noundef %a, i64 noundef %b, i64 noundef %c, i64 noundef %d, i64 noundef %e, i64 %0, [4 x <2 x float>] %s.coerce)
+
 // Nor is one that is aligned to less than the value is.
 struct __attribute__((packed)) not_single_packed { float a; struct none n; };
 void pass_not_single_packed(struct not_single_packed s) {}
