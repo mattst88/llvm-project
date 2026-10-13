@@ -47,6 +47,10 @@ public:
                                         const TargetMachine &TM,
                                         MachineModuleInfo *MMI,
                                         MCStreamer &Streamer) const override;
+
+  /// The debug info location of a TLS variable: its offset in its module's
+  /// TLS block, which is what DW_OP_GNU_push_tls_address takes.
+  const MCExpr *getDebugThreadLocalSymbol(const MCSymbol *Sym) const override;
 };
 
 } // end namespace llvm

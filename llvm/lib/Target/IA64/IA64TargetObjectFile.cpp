@@ -78,6 +78,12 @@ const MCExpr *IA64TargetObjectFile::getTTypeGlobalReference(
                                  IA64::S_GPREL, getContext());
 }
 
+const MCExpr *
+IA64TargetObjectFile::getDebugThreadLocalSymbol(const MCSymbol *Sym) const {
+  return MCSpecifierExpr::create(MCSymbolRefExpr::create(Sym, getContext()),
+                                 IA64::S_DTPREL, getContext());
+}
+
 // A constant containing an address is not read-only data even in non-PIC
 // code: the address of a symbol defined in another module, and the function
 // descriptor address of any preemptible function, are only known to the
