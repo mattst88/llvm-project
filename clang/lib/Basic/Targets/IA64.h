@@ -81,6 +81,12 @@ public:
 
   std::string_view getClobbers() const override { return ""; }
 
+  // Landing pads receive the exception data in r15-r18, the scratch registers
+  // GCC's unwinder uses for it.
+  int getEHDataRegisterNumber(unsigned RegNo) const override {
+    return RegNo < 4 ? 15 + RegNo : -1;
+  }
+
   // A bit-precise integer is passed as the integer of the next size up is,
   // and the widest integer there is has 128 bits.
   bool hasBitIntType() const override { return true; }
