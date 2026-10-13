@@ -91,6 +91,8 @@ protected:
                              lldb::addr_t &start_pc,
                              bool &behaves_like_zeroth_frame) override;
 
+  lldb::addr_t DoGetFrameAlternateAddress(uint32_t frame_idx) override;
+
   lldb::RegisterContextSP
   DoCreateRegisterContextForFrame(lldb_private::StackFrame *frame) override;
 

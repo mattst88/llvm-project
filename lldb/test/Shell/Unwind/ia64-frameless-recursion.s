@@ -4,13 +4,18 @@
 # itself has frames with the same CFA that are of the same function. They are
 # not an unwind that goes nowhere: each has a frame of its own in the register
 # backing store, and so an alternate frame address of its own. Check that the
-# backtrace goes through them.
+# backtrace goes through them, and that each of them is a frame of its own,
+# with the argument and the place in the backing store of its instance.
 
 # RUN: llvm-mc -filetype=obj --triple=ia64-unknown-linux-gnu %s -o %t.o
 # RUN: ld.lld %t.o -o %t
 # RUN: yaml2obj %S/Inputs/ia64-frameless-recursion.yaml -o %t.core
 # RUN: %lldb -b %t -c %t.core -o "target modules load -f %t -s 0" \
-# RUN:   -o "thread backtrace" 2>&1 | FileCheck %s
+# RUN:   -o "thread backtrace" \
+# RUN:   -o "frame select 1" -o "frame info" -o "register read r32 bsp" \
+# RUN:   -o "frame select 2" -o "frame info" -o "register read r32 bsp" \
+# RUN:   -o "frame select 3" -o "frame info" -o "register read r32 bsp" 2>&1 \
+# RUN:   | FileCheck %s
 
 # CHECK: frame #0: 0x4000000000000220 {{.*}}`leaf
 # CHECK-NEXT: frame #1: 0x40000000000001f0 {{.*}}`again + 48
@@ -18,6 +23,19 @@
 # CHECK-NEXT: frame #3: 0x4000000000000200 {{.*}}`again + 64
 # CHECK-NEXT: frame #4: 0x40000000000001a0 {{.*}}`_start + 32
 # CHECK-NOT: frame #5
+
+# CHECK: frame info
+# CHECK-NEXT: frame #1: 0x40000000000001f0
+# CHECK: r32 = 0x0000000000000000
+# CHECK-NEXT: bsp = 0x2000000000800140
+# CHECK: frame info
+# CHECK-NEXT: frame #2: 0x4000000000000200
+# CHECK: r32 = 0x0000000000000001
+# CHECK-NEXT: bsp = 0x2000000000800128
+# CHECK: frame info
+# CHECK-NEXT: frame #3: 0x4000000000000200
+# CHECK: r32 = 0x0000000000000002
+# CHECK-NEXT: bsp = 0x2000000000800110
 
 	.text
 	.globl	_start

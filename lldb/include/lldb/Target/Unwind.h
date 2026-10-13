@@ -53,6 +53,13 @@ public:
     return DoGetFrameInfoAtIndex(frame_idx, cfa, pc, behaves_like_zeroth_frame);
   }
 
+  /// Returns the AFA of a frame on targets whose frames can share a CFA and
+  /// differ only in the AFA, and LLDB_INVALID_ADDRESS otherwise.
+  lldb::addr_t GetFrameAlternateAddress(uint32_t frame_idx) {
+    std::lock_guard<std::recursive_mutex> guard(m_unwind_mutex);
+    return DoGetFrameAlternateAddress(frame_idx);
+  }
+
   lldb::RegisterContextSP CreateRegisterContextForFrame(StackFrame *frame) {
     std::lock_guard<std::recursive_mutex> guard(m_unwind_mutex);
     return DoCreateRegisterContextForFrame(frame);
@@ -69,6 +76,10 @@ protected:
   virtual bool DoGetFrameInfoAtIndex(uint32_t frame_idx, lldb::addr_t &cfa,
                                      lldb::addr_t &pc,
                                      bool &behaves_like_zeroth_frame) = 0;
+
+  virtual lldb::addr_t DoGetFrameAlternateAddress(uint32_t frame_idx) {
+    return LLDB_INVALID_ADDRESS;
+  }
 
   virtual lldb::RegisterContextSP
   DoCreateRegisterContextForFrame(StackFrame *frame) = 0;

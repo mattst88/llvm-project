@@ -408,6 +408,12 @@ addr_t UnwindLLDB::GetIdentifyingAFA(const RegisterContextUnwind &reg_ctx) {
   return reg_ctx.m_afa;
 }
 
+addr_t UnwindLLDB::DoGetFrameAlternateAddress(uint32_t idx) {
+  if (idx >= m_frames.size())
+    return LLDB_INVALID_ADDRESS;
+  return GetIdentifyingAFA(*m_frames[idx]->reg_ctx_lldb_sp);
+}
+
 bool UnwindLLDB::DoGetFrameInfoAtIndex(uint32_t idx, addr_t &cfa, addr_t &pc,
                                        bool &behaves_like_zeroth_frame) {
   if (m_frames.size() == 0) {

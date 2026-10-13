@@ -436,6 +436,8 @@ uint32_t StackFrameList::SynthesizeInlineFrames(StackFrameSP frame_sp,
         frame_sp->GetRegisterContextSP(), cfa, next_frame_address,
         behaves_like_zeroth_frame, &next_frame_sc);
 
+    inline_frame_sp->m_id.SetAlternateFrameAddress(
+        frame_sp->m_id.GetAlternateFrameAddress());
     inline_frame_sp->m_frame_list_id = GetIdentifier();
     m_frames.push_back(inline_frame_sp);
     unwind_sc = next_frame_sc;
@@ -552,6 +554,9 @@ bool StackFrameList::FetchFramesUpTo(uint32_t end_idx,
           unwind_frame_sp = std::make_shared<StackFrame>(
               m_thread.shared_from_this(), m_frames.size(), idx, reg_ctx_sp,
               cfa, pc, behaves_like_zeroth_frame, nullptr);
+          if (success)
+            unwind_frame_sp->m_id.SetAlternateFrameAddress(
+                unwinder.GetFrameAlternateAddress(idx));
           unwind_frame_sp->m_frame_list_id = GetIdentifier();
           m_frames.push_back(unwind_frame_sp);
         }
@@ -581,6 +586,8 @@ bool StackFrameList::FetchFramesUpTo(uint32_t end_idx,
           m_thread.shared_from_this(), m_frames.size(), idx, cfa, cfa_is_valid,
           pc, StackFrame::Kind::Regular, false, behaves_like_zeroth_frame,
           nullptr);
+      unwind_frame_sp->m_id.SetAlternateFrameAddress(
+          unwinder.GetFrameAlternateAddress(idx));
 
       // Create synthetic tail call frames between the previous frame and the
       // newly-found frame. The new frame's index may change after this call,

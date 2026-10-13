@@ -32,6 +32,8 @@ public:
 
   lldb::addr_t GetCallFrameAddressWithoutMetadata() const { return m_cfa; }
 
+  lldb::addr_t GetAlternateFrameAddress() const { return m_afa; }
+
   SymbolContextScope *GetSymbolContextScope() const { return m_symbol_scope; }
 
   void SetSymbolContextScope(SymbolContextScope *symbol_scope) {
@@ -41,6 +43,7 @@ public:
   void Clear() {
     m_pc = LLDB_INVALID_ADDRESS;
     m_cfa = LLDB_INVALID_ADDRESS;
+    m_afa = LLDB_INVALID_ADDRESS;
     m_symbol_scope = nullptr;
   }
 
@@ -57,10 +60,12 @@ public:
 
 protected:
   friend class StackFrame;
+  friend class StackFrameList;
   friend class SyntheticStackFrameList;
 
   void SetPC(lldb::addr_t pc, Process *process);
   void SetCFA(lldb::addr_t cfa, Process *process);
+  void SetAlternateFrameAddress(lldb::addr_t afa) { m_afa = afa; }
 
   /// The pc value for the function/symbol for this frame. This will only get
   /// used if the symbol scope is nullptr (the code where we are stopped is not
@@ -74,6 +79,11 @@ protected:
 
   /// The cfa with metadata (i.e. prior to Process::FixAddress).
   lldb::addr_t m_cfa_with_metadata = LLDB_INVALID_ADDRESS;
+
+  /// The alternate frame address: the frame's location on a second stack,
+  /// for targets whose frames can share a CFA and differ only in this.
+  /// LLDB_INVALID_ADDRESS on targets without such frames.
+  lldb::addr_t m_afa = LLDB_INVALID_ADDRESS;
 
   /// If nullptr, there is no block or symbol for this frame. If not nullptr,
   /// this will either be the scope for the lexical block for the frame, or the

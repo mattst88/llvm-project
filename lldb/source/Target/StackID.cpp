@@ -55,6 +55,9 @@ bool lldb_private::operator==(const StackID &lhs, const StackID &rhs) {
       rhs.GetCallFrameAddressWithoutMetadata())
     return false;
 
+  if (lhs.GetAlternateFrameAddress() != rhs.GetAlternateFrameAddress())
+    return false;
+
   SymbolContextScope *lhs_scope = lhs.GetSymbolContextScope();
   SymbolContextScope *rhs_scope = rhs.GetSymbolContextScope();
 
@@ -84,6 +87,14 @@ bool StackID::IsYoungerThan(const StackID &other) const {
 
   if (lhs_cfa != rhs_cfa)
     return lhs_cfa < rhs_cfa;
+
+  // Frames with the same CFA but different AFAs allocated space only on a
+  // second stack. IA-64 is the only such target, and its second stack, the
+  // register backing store, grows upward.
+  const lldb::addr_t lhs_afa = GetAlternateFrameAddress();
+  const lldb::addr_t rhs_afa = other.GetAlternateFrameAddress();
+  if (lhs_afa != rhs_afa)
+    return lhs_afa > rhs_afa;
 
   SymbolContextScope *lhs_scope = GetSymbolContextScope();
   SymbolContextScope *rhs_scope = other.GetSymbolContextScope();
