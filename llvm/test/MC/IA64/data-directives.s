@@ -6,6 +6,9 @@
 // RUN: llvm-objdump -s -j .dc %t | FileCheck %s --check-prefix=DC
 // RUN: llvm-mc -triple ia64 %s | llvm-mc -triple ia64 -filetype=obj \
 // RUN:   | llvm-objdump -s -j .dc - | FileCheck %s --check-prefix=DC
+// RUN: llvm-objdump -s -j .more %t | FileCheck %s --check-prefix=MORE
+// RUN: llvm-mc -triple ia64 %s | llvm-mc -triple ia64 -filetype=obj \
+// RUN:   | llvm-objdump -s -j .more - | FileCheck %s --check-prefix=MORE
 
 // The data directives of GNU as have no dot. data2, data4 and data8 align
 // what they write to its size, and so do .short, .long and .quad, which is
@@ -66,6 +69,13 @@ lab2:
 // DC-NEXT: 0010 08000000 00000000 00000000 00000000
 // DC-NEXT: 0020 090a0000 00000000 00000000 00000000
 // DC-NEXT: 0030 0b000000 00000000 00000000 00000000
+
+// .hword is another .short.
+	.section .more,"aw",@progbits
+	data1 1
+	.hword 0x1234
+
+// MORE: 0000 01003412
 
 // The section is as aligned as its most aligned item.
 	.section .two,"a",@progbits

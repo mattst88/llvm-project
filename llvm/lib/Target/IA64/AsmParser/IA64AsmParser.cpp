@@ -1727,7 +1727,7 @@ ParseStatus IA64AsmParser::parseDataDirective(StringRef Name, bool Here) {
   auto Await = [&] { return Here && failIfInstructionAwaited(); };
   unsigned Size = StringSwitch<unsigned>(Name)
                       .Case("data1", 1)
-                      .Cases({"data2", ".short", ".word"}, 2)
+                      .Cases({"data2", ".short", ".word", ".hword"}, 2)
                       .Cases({".dc", ".dc.w"}, 2)
                       .Cases({"data4", ".long", ".int", ".dc.l"}, 4)
                       .Cases({"data8", ".quad", ".dc.a"}, 8)
