@@ -121,9 +121,8 @@ private:
 
     int32_t regionEnd() const { return regionStart + regionLen - 1; }
     int32_t when(uint64_t t) const {
-      if (regionLen > 0 && t > static_cast<uint64_t>(regionLen - 1))
-        return regionEnd();
-      return regionStart + static_cast<int32_t>(t);
+      uint64_t last = regionLen > 0 ? static_cast<uint64_t>(regionLen - 1) : 0;
+      return regionStart + static_cast<int32_t>(t > last ? last : t);
     }
     void set(int reg, Where where, int32_t when, int64_t value) {
       Save &s = curr.reg[reg];
@@ -145,7 +144,28 @@ private:
     bool active(unsigned qp, uint64_t t) const {
       return reached > when(t) && (qp == 0 || ((pr >> qp) & 1));
     }
-    uint64_t uleb(pint_t &p) { return addressSpace.getULEB128(p, end); }
+    // Never read past the end of the descriptors: such bytes read as zero and
+    // mark the descriptors malformed.
+    uint8_t byte(pint_t &p) {
+      if (p >= end) {
+        bad = true;
+        return 0;
+      }
+      return addressSpace.get8(p++);
+    }
+    uint64_t uleb(pint_t &p) {
+      uint64_t result = 0;
+      for (unsigned shift = 0;; shift += 7) {
+        uint64_t b = byte(p);
+        if (shift >= 64 || ((b & 0x7f) << shift) >> shift != (b & 0x7f)) {
+          bad = true;
+          return 0;
+        }
+        result |= (b & 0x7f) << shift;
+        if (!(b & 0x80))
+          return result;
+      }
+    }
 
     A &addressSpace;
     pint_t begin;
@@ -153,6 +173,7 @@ private:
     int32_t target;  // Stop at the region this slot is in.
     int32_t reached; // The current slot.
     uint64_t pr;
+    bool bad = false; // The descriptors are truncated or malformed.
 
     State curr;
     State stack[kMaxDepth];
@@ -222,12 +243,17 @@ bool IA64UnwindInfo<A>::Parser::startRegion(bool body, uint64_t rlen,
   if (target < regionStart + regionLen)
     return false;
 
-  for (; epilogueCount != 0; --epilogueCount)
-    if (depth != 0)
-      curr = stack[--depth];
+  for (; epilogueCount != 0 && depth != 0; --epilogueCount)
+    curr = stack[--depth];
+  epilogueCount = 0;
   epilogueStart = kNever;
 
   regionStart += regionLen;
+  // Times are slot counts that fit in 32 bits, and so must every region end.
+  if (rlen >= static_cast<uint64_t>(kNever - regionStart)) {
+    bad = true;
+    return false;
+  }
   regionLen = static_cast<int32_t>(rlen);
   inBody = body;
   if (body)
@@ -308,11 +334,11 @@ template <typename A> void IA64UnwindInfo<A>::Parser::finishPrologue() {
 template <typename A>
 bool IA64UnwindInfo<A>::Parser::spillDescriptor(uint8_t b, pint_t &p) {
   unsigned qp = 0;
-  uint8_t b1 = addressSpace.get8(p++);
+  uint8_t b1 = byte(p);
   uint8_t regByte = b1;
   if (b == 0xfb || b == 0xfc) { // X3, X4
     qp = b1 & 0x3f;
-    regByte = addressSpace.get8(p++);
+    regByte = byte(p);
   }
   bool x = (b == 0xf9 || b == 0xfb) ? (b1 >> 7) & 1 : (regByte >> 7) & 1;
   int reg = decodeRegister(regByte & 0x7f);
@@ -327,13 +353,12 @@ bool IA64UnwindInfo<A>::Parser::spillDescriptor(uint8_t b, pint_t &p) {
     Save &s = curr.reg[reg];
     s.where = x ? kSPRel : kPSPRel;
     s.when = when(t);
-    s.value = x ? static_cast<int64_t>(4 * off)
-                : 0x10 - static_cast<int64_t>(4 * off);
+    s.value = static_cast<int64_t>(x ? 4 * off : 0x10 - 4 * off);
     return true;
   }
 
   // X2, X4: spill_reg, or restore
-  uint8_t ytreg = addressSpace.get8(p++);
+  uint8_t ytreg = byte(p);
   uint64_t t = uleb(p);
   if (reg < 0)
     return false;
@@ -359,7 +384,7 @@ bool IA64UnwindInfo<A>::Parser::prologueDescriptor(uint8_t b, pint_t &p) {
     return true;
   }
   if ((b & 0xf0) == 0xa0) { // P2: br_gr
-    uint8_t b1 = addressSpace.get8(p++);
+    uint8_t b1 = byte(p);
     unsigned mask = ((b & 0xf) << 1) | (b1 >> 7);
     unsigned gr = b1 & 0x7f;
     for (int i = 0; i != 5; ++i)
@@ -368,7 +393,7 @@ bool IA64UnwindInfo<A>::Parser::prologueDescriptor(uint8_t b, pint_t &p) {
     return true;
   }
   if ((b & 0xf8) == 0xb0) { // P3
-    uint8_t b1 = addressSpace.get8(p++);
+    uint8_t b1 = byte(p);
     unsigned r = ((b & 7) << 1) | (b1 >> 7);
     unsigned value = b1 & 0x7f;
     static const uint8_t regs[] = {kPSP,  kRP,       kPFS,  kPR,
@@ -380,15 +405,18 @@ bool IA64UnwindInfo<A>::Parser::prologueDescriptor(uint8_t b, pint_t &p) {
     return true;
   }
   if (b == 0xb8) { // P4: spill_mask
+    uint64_t size = (2 * static_cast<uint64_t>(regionLen) + 7) / 8;
+    if (size > static_cast<uint64_t>(end - p))
+      return false;
     imask = p;
-    p += static_cast<pint_t>((2 * regionLen + 7) / 8);
+    p += static_cast<pint_t>(size);
     return true;
   }
   if (b == 0xb9) { // P5: frgr_mem
-    uint8_t b1 = addressSpace.get8(p++);
+    uint8_t b1 = byte(p);
     uint32_t frmask = (b1 & 0xf) << 16;
-    frmask |= static_cast<uint32_t>(addressSpace.get8(p++)) << 8;
-    frmask |= addressSpace.get8(p++);
+    frmask |= static_cast<uint32_t>(byte(p)) << 8;
+    frmask |= byte(p);
     for (int i = 0; i != 4; ++i)
       if ((b1 >> 4) & (1 << i))
         spillHome(kR4 + i);
@@ -406,7 +434,7 @@ bool IA64UnwindInfo<A>::Parser::prologueDescriptor(uint8_t b, pint_t &p) {
   if ((b & 0xf0) == 0xe0) { // P7
     unsigned r = b & 0xf;
     uint64_t t = uleb(p);
-    int64_t psprel = 0x10 - static_cast<int64_t>(4 * t);
+    int64_t psprel = static_cast<int64_t>(0x10 - 4 * t);
     switch (r) {
     case 0: // mem_stack_f
       set(kPSP, kNowhere, when(t), static_cast<int64_t>(16 * uleb(p)));
@@ -430,9 +458,9 @@ bool IA64UnwindInfo<A>::Parser::prologueDescriptor(uint8_t b, pint_t &p) {
     return true;
   }
   if (b == 0xf0) { // P8
-    unsigned r = addressSpace.get8(p++);
+    unsigned r = byte(p);
     uint64_t t = uleb(p);
-    int64_t psprel = 0x10 - static_cast<int64_t>(4 * t);
+    int64_t psprel = static_cast<int64_t>(0x10 - 4 * t);
     int64_t sprel = static_cast<int64_t>(4 * t);
     if (r >= 1 && r <= 6) {
       static const uint8_t regs[] = {kRP, kPFS, kPR, kLC, kUNAT, kFPSR};
@@ -462,16 +490,16 @@ bool IA64UnwindInfo<A>::Parser::prologueDescriptor(uint8_t b, pint_t &p) {
     return false;
   }
   if (b == 0xf1) { // P9: gr_gr
-    unsigned mask = addressSpace.get8(p++) & 0xf;
-    unsigned gr = addressSpace.get8(p++) & 0x7f;
+    unsigned mask = byte(p) & 0xf;
+    unsigned gr = byte(p) & 0x7f;
     for (int i = 0; i != 4; ++i)
       if (mask & (1 << i))
         set(kR4 + i, kGR, regionEnd(), gr++);
     return true;
   }
   if (b == 0xff) { // P10: unwabi, a frame of another ABI
-    uint8_t abi = addressSpace.get8(p++);
-    uint8_t context = addressSpace.get8(p++);
+    uint8_t abi = byte(p);
+    uint8_t context = byte(p);
     uint16_t marker = static_cast<uint16_t>((abi << 8) | context);
     // The trampoline carries both markers, for unwinders that know either.
     if (marker != kLinuxSignalTrampoline && marker != kOldLinuxSignalTrampoline)
@@ -494,15 +522,16 @@ bool IA64UnwindInfo<A>::Parser::bodyDescriptor(uint8_t b, pint_t &p,
   if ((b & 0xc0) == 0x80) { // B1
     copy = b & 0x20;
     label = b & 0x1f;
-  } else if ((b & 0xe0) == 0xc0) { // B2: epilogue
+  } else if ((b & 0xe0) == 0xc0 || b == 0xe0) { // B2, B3: epilogue
     uint64_t t = uleb(p);
+    uint64_t count = b == 0xe0 ? uleb(p) : b & 0x1f;
+    // The epilogue time counts back from the end of the region.
+    if (t >= static_cast<uint64_t>(regionLen))
+      return false;
     epilogueStart = regionEnd() - static_cast<int32_t>(t);
-    epilogueCount = (b & 0x1f) + 1;
-    return true;
-  } else if (b == 0xe0) { // B3: epilogue
-    uint64_t t = uleb(p);
-    epilogueStart = regionEnd() - static_cast<int32_t>(t);
-    epilogueCount = static_cast<unsigned>(uleb(p)) + 1;
+    // Cannot pop more states than the stack holds.
+    epilogueCount =
+        count < kMaxDepth ? static_cast<unsigned>(count) + 1 : kMaxDepth;
     return true;
   } else if (b == 0xf0 || b == 0xf8) { // B4
     copy = b == 0xf8;
@@ -535,7 +564,7 @@ template <typename A>
 bool IA64UnwindInfo<A>::Parser::run(int64_t stopLabel, unsigned copyDepth) {
   pint_t p = begin;
   while (p < end) {
-    uint8_t b = addressSpace.get8(p++);
+    uint8_t b = byte(p);
     // The descriptors are zero-padded to a multiple of eight bytes, and the
     // padding decodes as zero-length regions.
     if (b < 0x80) {
@@ -546,7 +575,7 @@ bool IA64UnwindInfo<A>::Parser::run(int64_t stopLabel, unsigned copyDepth) {
         body = b & 0x20;
         rlen = b & 0x1f;
       } else if ((b & 0xf8) == 0x40) { // R2
-        uint8_t b1 = addressSpace.get8(p++);
+        uint8_t b1 = byte(p);
         body = false;
         mask = ((b & 7) << 1) | (b1 >> 7);
         grsave = b1 & 0x7f;
@@ -557,19 +586,21 @@ bool IA64UnwindInfo<A>::Parser::run(int64_t stopLabel, unsigned copyDepth) {
       } else {
         return false;
       }
+      if (bad)
+        return false;
       if (!startRegion(body, rlen, mask, grsave))
-        return stopLabel < 0;
+        return !bad && stopLabel < 0;
       continue;
     }
     if (first)
       return false;
     if (!inBody) {
-      if (!prologueDescriptor(b, p))
+      if (!prologueDescriptor(b, p) || bad)
         return false;
       continue;
     }
     bool stopped = false;
-    if (!bodyDescriptor(b, p, stopLabel, copyDepth, stopped))
+    if (!bodyDescriptor(b, p, stopLabel, copyDepth, stopped) || bad)
       return false;
     if (stopped)
       return true;
