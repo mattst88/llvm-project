@@ -3124,6 +3124,15 @@ are grouped into a single {ref}`attribute group <attrgrp>`.
     applied to global variables that are dynamically initialized according to
     C++ rules.
 
+`"function-descriptors"`
+:   This attribute indicates that each `ptr @f, ptr null` pair of adjacent
+    elements in the initializer, where `@f` is a function, stands for a
+    function descriptor of `@f` that the target emits in place of the two
+    pointers. It is used for C++ virtual tables on targets whose ABI puts
+    function descriptors in them, such as IA-64. Because the initializer does
+    not describe the contents of memory, loads from such a global cannot be
+    folded and it is not merged with other constants.
+
 (opbundles)=
 
 ### Operand Bundles

@@ -133,7 +133,9 @@ public:
       !isInterposable() &&
       // The initializer of a global variable with the externally_initialized
       // marker may change at runtime before C++ initializers are evaluated.
-      !isExternallyInitialized();
+      !isExternallyInitialized() &&
+      // The initializer does not describe the contents of memory.
+      !hasAttribute("function-descriptors");
   }
 
   /// hasUniqueInitializer - Whether the global variable has an initializer, and
@@ -145,7 +147,9 @@ public:
         // It is not safe to modify initializers of global variables with the
         // external_initializer marker since the value may be changed at runtime
         // before C++ initializers are evaluated.
-        !isExternallyInitialized();
+        !isExternallyInitialized() &&
+        // The initializer does not describe the contents of memory.
+        !hasAttribute("function-descriptors");
   }
 
   /// getInitializer - Return the initializer for this global variable.  It is
