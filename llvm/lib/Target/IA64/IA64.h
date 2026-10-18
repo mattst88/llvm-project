@@ -30,20 +30,24 @@ class PassRegistry;
 FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
 FunctionPass *createIA64ExpandBranchesPass();
+FunctionPass *createIA64ExpandSpeculationPass();
 FunctionPass *createIA64IfConversionPass();
 FunctionPass *createIA64InsertStopsPass();
 FunctionPass *createIA64LocalDynamicTLSPass();
 FunctionPass *createIA64PackGroupsPass();
+FunctionPass *createIA64SpeculateLoadsPass();
 InstructionSelector *
 createIA64InstructionSelector(const IA64TargetMachine &TM,
                               const IA64Subtarget &STI,
                               const IA64RegisterBankInfo &RBI);
 
 void initializeIA64ExpandBranchesPass(PassRegistry &);
+void initializeIA64ExpandSpeculationPass(PassRegistry &);
 void initializeIA64IfConversionPass(PassRegistry &);
 void initializeIA64InsertStopsPass(PassRegistry &);
 void initializeIA64LocalDynamicTLSPass(PassRegistry &);
 void initializeIA64PackGroupsPass(PassRegistry &);
+void initializeIA64SpeculateLoadsPass(PassRegistry &);
 
 struct IA64LoopAliasVersioningPass
     : OptionalPassInfoMixin<IA64LoopAliasVersioningPass> {

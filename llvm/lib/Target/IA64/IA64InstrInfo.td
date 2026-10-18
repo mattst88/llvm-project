@@ -333,6 +333,32 @@ def RELOAD_FR : IA64Pseudo<(outs FR:$dst), (ins i64imm:$fi), "#RELOAD_FR", []>;
 }
 }
 
+// A load moved ahead of branches and stores (SPEC_LD), and the check left in
+// its place (CHECK_LD), which writes the register the early load wrote. $opc
+// is the opcode of the plain load and $pair matches the two up. They become
+// ld.sa and ld.c.clr once nothing can come between them, or, if something
+// did, a copy of zero and the plain load.
+let mayLoad = 1, hasSideEffects = 0 in {
+let SchedRW = [WriteLoad] in {
+def SPEC_LD_GR : IA64Pseudo<(outs GR:$r1),
+                            (ins GR:$r3, i64imm:$opc, i64imm:$pair),
+                            "#SPEC_LD_GR", []>;
+let Constraints = "$old = $r1" in
+def CHECK_LD_GR : IA64Pseudo<(outs GR:$r1),
+                             (ins GR:$r3, GR:$old, i64imm:$opc, i64imm:$pair),
+                             "#CHECK_LD_GR", []>;
+}
+let SchedRW = [WriteFLoad] in {
+def SPEC_LD_FR : IA64Pseudo<(outs FR:$f1),
+                            (ins GR:$r3, i64imm:$opc, i64imm:$pair),
+                            "#SPEC_LD_FR", []>;
+let Constraints = "$old = $f1" in
+def CHECK_LD_FR : IA64Pseudo<(outs FR:$f1),
+                             (ins GR:$r3, FR:$old, i64imm:$opc, i64imm:$pair),
+                             "#CHECK_LD_FR", []>;
+}
+}
+
 let Uses = [R12] in
 def ADJDYNALLOC : IA64Pseudo<(outs GR:$r1), (ins), "#ADJDYNALLOC", []>;
 let hasSideEffects = 0 in

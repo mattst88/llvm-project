@@ -35,6 +35,7 @@ add_llvm_target(IA64CodeGen
   IA64ISelLowering.cpp
   IA64RegisterInfo.cpp
   IA64SelectionDAGInfo.cpp
+  IA64SpeculateLoads.cpp
   IA64Subtarget.cpp
   IA64TargetMachine.cpp
   IA64TargetObjectFile.cpp

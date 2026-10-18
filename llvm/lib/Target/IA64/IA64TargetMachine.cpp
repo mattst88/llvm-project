@@ -39,10 +39,12 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   PassRegistry &PR = *PassRegistry::getPassRegistry();
   initializeGlobalISel(PR);
   initializeIA64ExpandBranchesPass(PR);
+  initializeIA64ExpandSpeculationPass(PR);
   initializeIA64IfConversionPass(PR);
   initializeIA64InsertStopsPass(PR);
   initializeIA64LocalDynamicTLSPass(PR);
   initializeIA64PackGroupsPass(PR);
+  initializeIA64SpeculateLoadsPass(PR);
 }
 
 // Code addresses data relative to GP and other code relative to IP, so it is
@@ -169,8 +171,10 @@ bool IA64PassConfig::addILPOpts() {
 }
 
 void IA64PassConfig::addPreRegAlloc() {
-  if (getOptLevel() != CodeGenOptLevel::None)
+  if (getOptLevel() != CodeGenOptLevel::None) {
     addPass(&MachinePipelinerID);
+    addPass(createIA64SpeculateLoadsPass());
+  }
 }
 
 void IA64PassConfig::addPreSched2() {
@@ -178,7 +182,11 @@ void IA64PassConfig::addPreSched2() {
     addPass(createIA64IfConversionPass());
 }
 
-void IA64PassConfig::addPreEmitPass() { addPass(&BranchRelaxationPassID); }
+void IA64PassConfig::addPreEmitPass() {
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createIA64ExpandSpeculationPass());
+  addPass(&BranchRelaxationPassID);
+}
 
 void IA64PassConfig::addPreEmitPass2() {
   // Block placement is final, so branches can be split from their compares.

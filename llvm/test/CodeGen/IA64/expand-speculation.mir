@@ -1,0 +1,115 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-expand-speculation \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# A pair whose register and address both survive to the check becomes
+# ld4.sa and ld4.c.clr. Anything between them that writes the register, reads
+# it, or writes the address undoes the pair: the speculative load becomes a
+# move from r0 and the check becomes a plain load.
+
+# CHECK-LABEL: name: keep
+# CHECK: $r15 = LD4_SA $r14, 0, $p0
+# CHECK: $r15 = LD4_C_CLR killed $r14, 0, $p0, implicit $r15
+# CHECK-NOT: {{SPEC|CHECK}}_LD
+---
+name:            keep
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33, $r34, $r35
+    $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
+    $r14 = SHLADD $r16, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 710, 0 :: (load (s32))
+    BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
+  bb.1:
+    liveins: $r14, $r15, $r34
+    ST4 $r34, $r0, 0, $p0 :: (store (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 710, 0 :: (load (s32))
+    $r8 = ADDS 1, killed $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...
+# CHECK-LABEL: name: clobber_reg
+# CHECK: $r15 = ADDS 0, $r0, $p0
+# CHECK: $r15 = ADDS 1, $r34, $p0
+# CHECK: $r15 = LD4 killed $r14, 0, $p0
+---
+name:            clobber_reg
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33, $r34, $r35
+    $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
+    $r14 = SHLADD $r16, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 710, 0 :: (load (s32))
+    BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
+  bb.1:
+    liveins: $r14, $r15, $r34
+    ST4 $r34, $r0, 0, $p0 :: (store (s32))
+    $r15 = ADDS 1, $r34, $p0
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 710, 0 :: (load (s32))
+    $r8 = ADDS 1, killed $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...
+# CHECK-LABEL: name: read_reg
+# CHECK: $r15 = ADDS 0, $r0, $p0
+# CHECK: $r34 = ADDS 1, $r15, $p0
+# CHECK: $r15 = LD4 killed $r14, 0, $p0
+---
+name:            read_reg
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33, $r34, $r35
+    $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
+    $r14 = SHLADD $r16, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 710, 0 :: (load (s32))
+    BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
+  bb.1:
+    liveins: $r14, $r15, $r34
+    ST4 $r34, $r0, 0, $p0 :: (store (s32))
+    $r34 = ADDS 1, $r15, $p0
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 710, 0 :: (load (s32))
+    $r8 = ADDS 1, killed $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...
+# CHECK-LABEL: name: clobber_addr
+# CHECK: $r15 = ADDS 0, $r0, $p0
+# CHECK: $r14 = ADDS 8, $r14, $p0
+# CHECK: $r15 = LD4 killed $r14, 0, $p0
+---
+name:            clobber_addr
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33, $r34, $r35
+    $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
+    $r14 = SHLADD $r16, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 710, 0 :: (load (s32))
+    BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
+  bb.1:
+    liveins: $r14, $r15, $r34
+    ST4 $r34, $r0, 0, $p0 :: (store (s32))
+    $r14 = ADDS 8, $r14, $p0
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 710, 0 :: (load (s32))
+    $r8 = ADDS 1, killed $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...

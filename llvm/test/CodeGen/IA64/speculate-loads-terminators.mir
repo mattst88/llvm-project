@@ -1,0 +1,42 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-speculate-loads \
+# RUN:   -ia64-speculate-only-chases=false -ia64-speculate-max-distance=3 \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# The walk up from the load runs out of distance at the BRCC in bb.0. The
+# speculative load goes at the top of bb.1, where the walk entered the
+# block, and not between the BRCC and the BRUNCOND after it, where it would
+# be on the path to bb.2.
+
+# CHECK-LABEL: name: stop_at_terminator
+# CHECK:      bb.0:
+# CHECK:        BRCC %bb.1
+# CHECK-NEXT:   BRUNCOND %bb.2
+# CHECK:      bb.1:
+# CHECK:        [[A:%[0-9]+]]:gr = SHLADD
+# CHECK-NEXT:   [[V:%[0-9]+]]:gr = SPEC_LD_GR [[A]]
+# CHECK-NEXT:   ST4
+# CHECK-NEXT:   {{%[0-9]+}}:gr = CHECK_LD_GR [[A]], [[V]],
+---
+name:            stop_at_terminator
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34, $r35
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = COPY $r35
+    %4:gr = LD8 %1, 0, $p0 :: (load (s64))
+    BRCC %bb.1, 7, %4, %3, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    ST4 %2, $r0, 0, $p0 :: (store (s32))
+    %5:gr = SHLADD %4, 2, %0, $p0
+    %6:gr = LD4 %5, 0, $p0 :: (load (s32))
+    $r8 = ADDS 1, %6, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
