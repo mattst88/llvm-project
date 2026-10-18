@@ -9,6 +9,7 @@
 #ifndef LLVM_LIB_TARGET_IA64_IA64MACHINEFUNCTIONINFO_H
 #define LLVM_LIB_TARGET_IA64_IA64MACHINEFUNCTIONINFO_H
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/CodeGen/MachineFunction.h"
 
 namespace llvm {
@@ -53,6 +54,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   // The sret pointer passed by the caller, which the function returns.
   Register SRetReg;
 
+  // The bundle templates chosen for the bundles that the instructions start,
+  // where they differ from what the assembler would choose.
+  DenseMap<const MachineInstr *, unsigned> Templates;
+
 public:
   IA64MachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {}
 
@@ -60,7 +65,10 @@ public:
   clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
         const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
       const override {
-    return DestMF.cloneInfo<IA64MachineFunctionInfo>(*this);
+    auto *Info = DestMF.cloneInfo<IA64MachineFunctionInfo>(*this);
+    // The instructions are not the clone's.
+    Info->Templates.clear();
+    return Info;
   }
 
   Register getSavedPFS() const { return SavedPFS; }
@@ -93,6 +101,7 @@ public:
   void setSRetReg(Register Reg) { SRetReg = Reg; }
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int FI) { VarArgsFrameIndex = FI; }
+  DenseMap<const MachineInstr *, unsigned> &getTemplates() { return Templates; }
 };
 
 } // end namespace llvm

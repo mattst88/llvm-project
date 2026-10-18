@@ -60,8 +60,8 @@ define ptr @bytes_inside() {
 
 define ptr @bytes_outside() {
 ; CHECK-LABEL: bytes_outside:
-; CHECK:       movl r14 = 4194304
-; CHECK-NEXT:  addl r15 = @gprel(bytes), r1 ;;
+; CHECK:       addl r15 = @gprel(bytes), r1
+; CHECK-NEXT:  movl r14 = 4194304 ;;
 ; CHECK-NEXT:  add r8 = r15, r14
   ret ptr getelementptr (i8, ptr @bytes, i64 4194304)
 }

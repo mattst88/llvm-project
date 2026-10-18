@@ -46,6 +46,7 @@ define i64 @initial_exec() {
 define i64 @local_dynamic() {
 ; CHECK-LABEL: local_dynamic:
 ; PIC:         addl r14 = @ltoff(@dtpmod(ld)), r1
+; PIC-NEXT:    .mmi
 ; PIC-NEXT:    mov r36 = r0
 ; PIC-NEXT:    mov r32 = r1 ;;
 ; PIC-NEXT:    ld8 r35 = [r14]

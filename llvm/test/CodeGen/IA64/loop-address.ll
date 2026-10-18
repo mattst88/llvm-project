@@ -17,8 +17,8 @@ define void @schedule(ptr %w) {
 ; CHECK-NEXT:  adds r18 = -1, r18
 ; CHECK-NEXT:  ld4 r20 = [r16], 4
 ; CHECK-NEXT:  ld4 r21 = [r15], 4 ;;
-; CHECK-NEXT:  add r19 = r20, r19
-; CHECK-NEXT:  ld4 r22 = [r32], 4 ;;
+; CHECK-NEXT:  ld4 r22 = [r32], 4
+; CHECK-NEXT:  add r19 = r20, r19 ;;
 ; CHECK-NEXT:  add r20 = r21, r22 ;;
 ; CHECK-NEXT:  add r19 = r19, r20 ;;
 ; CHECK-NEXT:  st4 [r14] = r19, 4

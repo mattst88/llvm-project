@@ -48,9 +48,9 @@ define double @call() {
 ; CHECK-NEXT:  movl r15 = 4616189618054758400
 ; CHECK-NEXT:  mov r35 = 1
 ; CHECK-NEXT:  mov r37 = 3 ;;
+; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  setf.s f8 = r14
 ; CHECK-NEXT:  setf.d f9 = r15
-; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = x ;;
   %r = call double @x(i64 1, float 2.0, i64 3, double 4.0)
   ret double %r
@@ -117,6 +117,7 @@ define double @across(double %a) {
 ; CHECK:       br.call.sptk.many b0 = x ;;
 ; CHECK:       mov f8 = f2
 ; CHECK-NEXT:  adds r2 = 16, r12 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12

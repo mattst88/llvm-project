@@ -22,9 +22,11 @@ define i64 @args(i64 %a, i64 %b) {
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov r37 = r33
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r38 = r32
 ; CHECK-NEXT:  mov r34 = r1 ;;
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  add r8 = r8, r32
 ; CHECK-NEXT:  mov b0 = r36
@@ -69,6 +71,7 @@ define i64 @frame(i64 %a) {
 ; CHECK-NEXT:  mov r1 = r33 ;;
 ; CHECK-NEXT:  st8 [r14] = r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
@@ -127,6 +130,7 @@ define i64 @indirect(ptr %f, i64 %a) {
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  ld8 r14 = [r32], 8
 ; CHECK-NEXT:  mov r37 = r33
 ; CHECK-NEXT:  mov r34 = r1 ;;
@@ -150,6 +154,7 @@ define i64 @indirect(ptr %f, i64 %a) {
 define i64 @variable(i64 %a) {
 ; CHECK-LABEL: variable:
 ; CHECK:       addl r14 = @ltoffx(descriptors), r1
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r36 = r32
 ; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
@@ -165,6 +170,7 @@ define i64 @variable(i64 %a) {
 define i64 @variable_offset(i64 %a) {
 ; CHECK-LABEL: variable_offset:
 ; CHECK:       addl r14 = @ltoffx(descriptors), r1
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r36 = r32
 ; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;

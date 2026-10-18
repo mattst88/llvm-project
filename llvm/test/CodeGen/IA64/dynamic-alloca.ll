@@ -13,6 +13,7 @@ define void @f(i64 %n) {
 ; CHECK-NEXT:  .vframe r35
 ; CHECK-NEXT:  mov r35 = r12
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r37 = r32
 ; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  adds r14 = 15, r37 ;;
@@ -20,6 +21,7 @@ define void @f(i64 %n) {
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
 ; CHECK-NEXT:  adds r36 = 16, r12
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r35
@@ -39,6 +41,7 @@ define i64 @fixed(i64 %n, i64 %m) {
 ; CHECK-NEXT:  mov r37 = b0
 ; CHECK-NEXT:  .vframe r38
 ; CHECK-NEXT:  mov r38 = r12
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r12 = -16, r12
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  adds r14 = 15, r32 ;;
@@ -83,6 +86,7 @@ declare void @h(i64, i64, i64, i64, i64, i64, i64, i64, i64, ptr)
 define void @stack_arguments(i64 %n) {
 ; CHECK-LABEL: stack_arguments:
 ; CHECK:       sub r12 = r12, r14 ;;
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  adds r14 = 32, r12
 ; CHECK-NEXT:  adds r15 = 24, r12
 ; CHECK:       st8 [r15] = r14

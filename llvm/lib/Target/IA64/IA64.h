@@ -32,6 +32,7 @@ FunctionPass *createIA64ExpandBranchesPass();
 FunctionPass *createIA64IfConversionPass();
 FunctionPass *createIA64InsertStopsPass();
 FunctionPass *createIA64LocalDynamicTLSPass();
+FunctionPass *createIA64PackGroupsPass();
 InstructionSelector *
 createIA64InstructionSelector(const IA64TargetMachine &TM,
                               const IA64Subtarget &STI,
@@ -41,6 +42,7 @@ void initializeIA64ExpandBranchesPass(PassRegistry &);
 void initializeIA64IfConversionPass(PassRegistry &);
 void initializeIA64InsertStopsPass(PassRegistry &);
 void initializeIA64LocalDynamicTLSPass(PassRegistry &);
+void initializeIA64PackGroupsPass(PassRegistry &);
 
 } // namespace llvm
 

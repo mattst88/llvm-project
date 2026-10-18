@@ -22,7 +22,7 @@ declare void @ext()
 ; CHECK-LABEL: two:
 ; CHECK: addl r14 = @ltoff(@dtpmod(a)), r1
 ; CHECK: br.call.sptk.many b0 = __tls_get_addr
-; CHECK-NEXT: mov r3 = r8
+; CHECK: mov r3 = r8
 ; CHECK: addl r14 = @dtprel(a), r3
 ; CHECK-NEXT: addl r15 = @dtprel(b), r3
 ; CHECK-NOT: __tls_get_addr
@@ -43,7 +43,7 @@ define i32 @two() {
 ; What was returned is kept in a register that the call of ext preserves.
 ; CHECK-LABEL: around_a_call:
 ; CHECK: br.call.sptk.many b0 = __tls_get_addr
-; CHECK-NEXT: mov r3 = r8
+; CHECK: mov r3 = r8
 ; CHECK-NOT: __tls_get_addr
 ; CHECK: br.call.sptk.many b0 = ext
 ; CHECK-NOT: __tls_get_addr

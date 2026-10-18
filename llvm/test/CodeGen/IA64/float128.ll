@@ -56,6 +56,7 @@ define x86_fp80 @to_extended(fp128 %a) {
 define i64 @to_integer(fp128 %a) {
 ; CHECK-LABEL: to_integer:
 ; CHECK:         mov r38 = r33
+; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    mov r37 = r32
 ; CHECK-NEXT:    mov r34 = r1 ;;
 ; CHECK-NEXT:    br.call.sptk.many b0 = __fixtfdi ;;

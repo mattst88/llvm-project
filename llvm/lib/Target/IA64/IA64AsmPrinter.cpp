@@ -13,6 +13,7 @@
 
 #include "IA64.h"
 #include "IA64InstrInfo.h"
+#include "IA64MachineFunctionInfo.h"
 #include "IA64TargetMachine.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
 #include "MCTargetDesc/IA64InstPrinter.h"
@@ -600,6 +601,11 @@ void IA64AsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
 
 void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   emitUnwindDirectives(*MI);
+  // IA64PackGroups chose the template of the bundle this starts.
+  const auto &Templates =
+      MF->getInfo<IA64MachineFunctionInfo>()->getTemplates();
+  if (auto It = Templates.find(MI); It != Templates.end())
+    getTargetStreamer().emitTemplate(It->second);
   AfterCall = MI->isCall() && MI->getAsmPrinterFlag(IA64::StopAfter);
   // The prologue ends where its last instruction does.
   struct EndPrologue {

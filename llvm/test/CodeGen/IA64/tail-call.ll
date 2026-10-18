@@ -76,6 +76,7 @@ define i64 @frame(i64 %a) {
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    adds r36 = 16, r12
 ; CHECK-NEXT:    br.call.sptk.many b0 = fill ;;
+; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    mov r33 = 3
 ; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    adds r12 = 800, r12

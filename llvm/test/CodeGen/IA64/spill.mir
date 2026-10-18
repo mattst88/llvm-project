@@ -1,5 +1,5 @@
 # RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=prolog-epilog \
-# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+# RUN:   -verify-machineinstrs -ia64-packing=false -o - %s | FileCheck %s
 
 # A register is spilled and reloaded by one instruction each, which become the
 # add that forms the address and the store or the load only when the frame is

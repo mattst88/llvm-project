@@ -1,0 +1,77 @@
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-packing=false < %s | FileCheck %s --check-prefix=OFF
+; The option is not named after the pass, so tools that make an option of
+; every pass name start.
+; RUN: opt -mtriple=ia64-unknown-linux-gnu -disable-output < %s
+
+; Eight A-unit instructions fill three bundles either way. The assembler
+; would choose MII for all three, and two MII bundles have four I slots for
+; two I ports, so the second waits a cycle. With MMI first, the first two
+; bundles issue together. After the stop, the add that would sit between the
+; first two stores goes after the second, so that the stores pair up in MMI
+; bundles.
+define void @six_adds(ptr %p, i64 %a, i64 %b, i64 %c) {
+; CHECK-LABEL: six_adds:
+; CHECK:       .mmi
+; CHECK-NEXT:  adds r14 = 1, r33
+; CHECK-NEXT:  adds r15 = 2, r34
+; CHECK-NEXT:  adds r18 = 8, r32
+; CHECK-NEXT:  adds r16 = 3, r35
+; CHECK-NEXT:  add r17 = r33, r34
+; CHECK-NEXT:  adds r19 = 16, r32
+; CHECK-NEXT:  adds r20 = 24, r32
+; CHECK-NEXT:  adds r21 = 32, r32 ;;
+; CHECK-NEXT:  st8 [r32] = r14, 40
+; CHECK-NEXT:  st8 [r18] = r15
+; CHECK-NEXT:  add r15 = r33, r35
+; CHECK-NEXT:  st8 [r19] = r16
+; CHECK-NEXT:  st8 [r20] = r17
+; CHECK-NEXT:  add r14 = r34, r35 ;;
+; CHECK-NEXT:  st8 [r21] = r14
+; CHECK-NEXT:  st8 [r32] = r15
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+; OFF-LABEL: six_adds:
+; OFF-NOT:     .mmi
+; OFF:         st8 [r32] = r14, 40
+; OFF-NEXT:    add r14 = r34, r35
+; OFF-NEXT:    st8 [r18] = r15
+  %x1 = add i64 %a, 1
+  %x2 = add i64 %b, 2
+  %x3 = add i64 %c, 3
+  %x4 = add i64 %a, %b
+  %x5 = add i64 %b, %c
+  %x6 = add i64 %a, %c
+  %p1 = getelementptr i64, ptr %p, i64 1
+  %p2 = getelementptr i64, ptr %p, i64 2
+  %p3 = getelementptr i64, ptr %p, i64 3
+  %p4 = getelementptr i64, ptr %p, i64 4
+  %p5 = getelementptr i64, ptr %p, i64 5
+  store i64 %x1, ptr %p
+  store i64 %x2, ptr %p1
+  store i64 %x3, ptr %p2
+  store i64 %x4, ptr %p3
+  store i64 %x5, ptr %p4
+  store i64 %x6, ptr %p5
+  ret void
+}
+
+; The assembler's MMI holds both loads, and nothing does better, so there is
+; no directive. A template that leaves its last bundle emptier is no cheaper
+; for it.
+define i64 @loads(ptr %p, ptr %q, i64 %a) {
+; CHECK-LABEL: loads:
+; CHECK-NOT:   .m
+; CHECK:       ld8 r14 = [r32]
+; CHECK-NEXT:  ld8 r15 = [r33] ;;
+; CHECK-NEXT:  add r14 = r14, r15 ;;
+; CHECK-NEXT:  shladd r8 = r34, 3, r14
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %x = load i64, ptr %p
+  %y = load i64, ptr %q
+  %s = shl i64 %a, 3
+  %t = add i64 %x, %y
+  %u = add i64 %t, %s
+  ret i64 %u
+}

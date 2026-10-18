@@ -8,8 +8,8 @@
 ; CHECK-NEXT: fcvt.fx.trunc f7 = f9 ;;
 ; CHECK-NEXT: getf.sig r8 = f6
 ; CHECK-NEXT: setf.s f6 = r14
-; CHECK-NEXT: movl r14 = 1325400063
-; CHECK-NEXT: getf.sig r9 = f7 ;;
+; CHECK-NEXT: getf.sig r9 = f7
+; CHECK-NEXT: movl r14 = 1325400063 ;;
 ; CHECK-NEXT: setf.s f7 = r14
 ; CHECK-NEXT: movl r14 = -2147483648
 ; CHECK-NEXT: fcmp.le p7, p6 = f6, f8 ;;

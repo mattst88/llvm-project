@@ -248,6 +248,7 @@ define x86_fp80 @unaligned_bits([8 x float] %h, i64, i64, i64,
                                 [1 x x86_fp80] alignstack(8) %a) {
 ; CHECK-LABEL: unaligned_bits:
 ; CHECK:       adds r15 = 16, r12 ;;
+; CHECK-NEXT:  or r16 = 8, r14
 ; CHECK-NEXT:  ld8 r15 = [r15]
 ; CHECK:       st8 [r{{[0-9]+}}] = r39
 ; CHECK:       st8 [r{{[0-9]+}}] = r15
@@ -346,6 +347,7 @@ define float @pass_one_variadic([1 x float] %h) {
 ; CHECK-LABEL: pass_one_variadic:
 ; CHECK:       mov f15 = f8
 ; CHECK:       getf.s r42 = f15
+; CHECK-NEXT:       movl r40 = 4618441417868443648 ;;
 ; CHECK:       br.call.sptk.many b0 = take_odd_variadic ;;
   %r = call float (double, double, double, double, double, double, double, [1 x float], ...) @take_odd_variadic(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [1 x float] %h)
   ret float %r

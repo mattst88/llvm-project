@@ -37,6 +37,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64IfConversionPass(PR);
   initializeIA64InsertStopsPass(PR);
   initializeIA64LocalDynamicTLSPass(PR);
+  initializeIA64PackGroupsPass(PR);
 }
 
 // Code addresses data relative to GP and other code relative to IP, so it is
@@ -177,8 +178,11 @@ void IA64PassConfig::addPreEmitPass() { addPass(&BranchRelaxationPassID); }
 void IA64PassConfig::addPreEmitPass2() {
   // Block placement is final, so branches can be split from their compares.
   addPass(createIA64ExpandBranchesPass());
-  // Nothing may add, remove or reorder an instruction after this.
+  // Nothing may add, remove or reorder an instruction after this, except
+  // within the instruction groups it forms.
   addPass(createIA64InsertStopsPass());
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createIA64PackGroupsPass());
 }
 
 TargetTransformInfo

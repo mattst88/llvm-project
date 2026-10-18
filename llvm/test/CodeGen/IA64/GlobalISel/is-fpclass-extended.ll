@@ -87,8 +87,8 @@ define i1 @snan(x86_fp80 %x) {
 
 ; A positive normal number or a negative zero.
 ; CHECK-LABEL: two:
-; CHECK:      fclass.m p6, p7 = f8, 17
-; CHECK-NEXT: mov r14 = r0
+; CHECK:      mov r14 = r0
+; CHECK-NEXT: fclass.m p6, p7 = f8, 17
 ; CHECK-NEXT: mov r15 = r0 ;;
 ; CHECK-NEXT: (p6) mov r14 = 1
 ; CHECK-NEXT: fclass.m p6, p7 = f8, 6 ;;

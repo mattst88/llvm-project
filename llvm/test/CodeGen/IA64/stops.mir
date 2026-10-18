@@ -1,5 +1,5 @@
 # RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
-# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+# RUN:   -verify-machineinstrs -ia64-packing=false -o - %s | FileCheck %s
 
 # A stop ends an instruction group wherever the next instruction would read
 # or write again what the group has written.

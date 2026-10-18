@@ -61,9 +61,9 @@ define i80 @bits(x86_fp80 %x) {
 }
 
 ; CHECK-LABEL: isnan:
-; CHECK:      mov r14 = r12
-; CHECK-NEXT: mov r16 = 32767
+; CHECK: mov r16 = 32767
 ; CHECK-NEXT: movl r17 = -9223372036854775808
+; CHECK-NEXT: mov r14 = r12
 ; CHECK-NEXT: mov r8 = r0 ;;
 ; CHECK-NEXT: stfe [r14] = f8
 ; CHECK-NEXT: adds r15 = 8, r14

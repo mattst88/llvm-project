@@ -26,6 +26,7 @@ define i64 @outgoing(i64 %a) {
 ; CHECK-NEXT:  .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12 ;;
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  mov r15 = 10
 ; CHECK-NEXT:  adds r16 = 16, r12
@@ -35,6 +36,7 @@ define i64 @outgoing(i64 %a) {
 ; CHECK-NEXT:  st8 [r14] = r15
 ; CHECK-NEXT:  st8 [r16] = r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = incoming ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
@@ -58,6 +60,7 @@ define i64 @both(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 ; CHECK-NEXT:  adds r14 = 72, r12 ;;
 ; CHECK-NEXT:  ld8 r32 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = sink ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12
 ; CHECK:       st8 [r14] = r32

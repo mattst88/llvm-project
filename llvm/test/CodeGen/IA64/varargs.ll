@@ -30,13 +30,13 @@ define i64 @first(i32 %n, ...) {
 ; CHECK-NEXT:  st8.spill [r15] = r37
 ; CHECK-NEXT:  adds r15 = 24, r14 ;;
 ; CHECK-NEXT:  st8.spill [r15] = r36
-; CHECK-NEXT:  adds r15 = 16, r14
-; CHECK-NEXT:  st8 [r17] = r16 ;;
+; CHECK-NEXT:  st8 [r17] = r16
+; CHECK-NEXT:  adds r15 = 16, r14 ;;
 ; CHECK-NEXT:  st8.spill [r15] = r35
 ; CHECK-NEXT:  ld8 r15 = [r17] ;;
 ; CHECK-NEXT:  st8.spill [r16] = r34
-; CHECK-NEXT:  adds r16 = 8, r15
-; CHECK-NEXT:  ld8 r14 = [r14] ;;
+; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  adds r16 = 8, r15 ;;
 ; CHECK-NEXT:  st8 [r17] = r16
 ; CHECK-NEXT:  ld8 r15 = [r15] ;;
 ; CHECK-NEXT:  add r8 = r14, r15
@@ -96,6 +96,7 @@ define i128 @wide(i64 %a, ...) {
 ; CHECK-NEXT:  st8.spill [r14] = r33 ;;
 ; CHECK:       and r16 = -16, r16 ;;
 ; CHECK:       or r15 = 8, r16 ;;
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  st8.spill [r14] = r34
 ; CHECK:       ld8 r8 = [r16] ;;
 ; CHECK:       ld8 r9 = [r15]
@@ -132,6 +133,7 @@ define i32 @call(double %d, double %e) {
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 8, 0
 ; CHECK:       getf.d r37 = f8
 ; CHECK-NEXT:  mov r36 = 1 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12
 ; CHECK-NEXT:  mov r39 = 2

@@ -42,6 +42,7 @@ define i64 @aligned(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 define void @page() {
 ; CHECK-LABEL: page:
 ; CHECK:         mov r35 = r12
+; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    adds r12 = -8176, r12
 ; CHECK-NEXT:    mov r2 = -4096 ;;
 ; CHECK-NEXT:    and r12 = r2, r12

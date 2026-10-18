@@ -17,6 +17,7 @@ define ptr @return_address_call() {
 ; CHECK-LABEL: return_address_call:
 ; CHECK:       mov r32 = b0
 ; CHECK:       br.call.sptk.many b0 = g ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  mov r8 = r32
   call void @g(ptr null)

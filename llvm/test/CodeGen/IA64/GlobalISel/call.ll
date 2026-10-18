@@ -13,6 +13,7 @@ define signext i32 @narrow(i32 signext %a, double %b, ptr %p, i8 zeroext %c) {
 ; CHECK-LABEL: narrow:
 ; CHECK:       alloc r36 = ar.pfs, 4, 2, 3, 0
 ; CHECK:       mov r38 = r32
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r40 = r34
 ; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
@@ -56,7 +57,8 @@ define i64 @indirect(ptr %fp, i64 %a) {
 ; floating-point value again.
 define x86_fp80 @extended_slots([8 x float] %a, x86_fp80 %b) {
 ; CHECK-LABEL: extended_slots:
-; CHECK:       st8 [r14] = r36 ;;
+; CHECK:       st8 [r14] = r36
+; CHECK-NEXT:  adds r15 = 8, r14 ;;
 ; CHECK-NEXT:  st8 [r15] = r37
 ; CHECK-NEXT:  ldfe f8 = [r14]
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
@@ -128,10 +130,11 @@ define void @call_big(ptr %p) {
 ; CHECK:       adds r12 = -32, r12
 ; CHECK:       mov r46 = 32
 ; CHECK-NEXT:  adds r45 = 64, r32 ;;
-; CHECK-NEXT:  adds r44 = 16, r12
 ; CHECK:       ld8 r33 = [r14]
+; CHECK-NEXT:  adds r44 = 16, r12
 ; CHECK:       ld8 r40 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = memcpy ;;
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  mov r44 = r33
 ; CHECK:       mov r51 = r40
 ; CHECK-NEXT:  mov r1 = r41

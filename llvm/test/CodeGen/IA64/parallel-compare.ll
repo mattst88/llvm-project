@@ -21,7 +21,8 @@ define i32 @both(i64 %a, i64 %b) {
 ; O0-LABEL: both:
 ; O0-NOT:      or.andcm
 ; OBJ-LABEL: <both>:
-; OBJ:         cmp.eq p7, p6 = 5, r32 ;;
+; OBJ:         cmp.eq p7, p6 = 5, r32
+; OBJ-NEXT:    nop.i 0 ;;
 ; OBJ:         cmp.eq.or.andcm p6, p7 = 0, r33
 entry:
   %cmp = icmp eq i64 %a, 5
