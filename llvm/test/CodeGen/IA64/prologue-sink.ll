@@ -2,17 +2,18 @@
 ; RUN:   -ia64-pipeliner=false < %s | FileCheck %s
 
 ; alloc and the save of ar.lc can only issue on I0, so the save waits until
-; the body's first instructions have taken their I ports, and the unwind
-; directive follows it. The count is compared signed, so the compare needs
-; it zero-extended in the entry block.
+; the body's first instructions, and the unwind directive follows it. Among
+; them it takes the first I slot of the bundle, which is the one that goes
+; to I0. The count is compared signed, so the compare needs it zero-extended
+; in the entry block.
 define i64 @count(ptr %a, i32 %i, i32 %n) {
 ; CHECK-LABEL: count:
 ; CHECK:       .save ar.pfs, r35
 ; CHECK-NEXT:  alloc r35 = ar.pfs, 3, 2, 0, 0
-; CHECK-NEXT:  zxt4 [[N:r[0-9]+]] = r34
 ; CHECK-NEXT:  .save ar.lc, r36
-; CHECK-NEXT:  mov r36 = ar.lc ;;
+; CHECK-NEXT:  mov r36 = ar.lc
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  zxt4 [[N:r[0-9]+]] = r34 ;;
 ; CHECK-NEXT:  cmp.lt p7, p6 = 0, [[N]]
 entry:
   %ie = zext i32 %i to i64

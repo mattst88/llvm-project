@@ -394,24 +394,47 @@ static bool mustPrecede(const MachineInstr &A, const MachineInstr &B,
           TRI.regsOverlap(MA.getReg(), MB.getReg()))
         return true;
   }
+  // There is no red zone: memory below sp may be overwritten at any
+  // instruction, by a signal handler, so an access keeps its order with a
+  // write of sp.
+  if ((A.mayLoadOrStore() && B.modifiesRegister(IA64::R12, &TRI)) ||
+      (B.mayLoadOrStore() && A.modifiesRegister(IA64::R12, &TRI)))
+    return true;
   // Accesses to memory take effect in program order within a group.
   return A.mayLoadOrStore() && B.mayLoadOrStore() &&
          (A.mayStore() || B.mayStore() || A.hasOrderedMemoryRef() ||
           B.hasOrderedMemoryRef());
 }
 
+/// Whether \p MI copies between a general register and a branch register,
+/// ar.pfs, ar.lc or ar.ec. Those are marked as having side effects, but
+/// what reads or writes them names them as an operand.
+static bool isRegisterMove(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  case IA64::MOV_BR:
+  case IA64::MOV_FROM_BR:
+    return true;
+  case IA64::MOV_AR:
+  case IA64::MOV_FROM_AR: {
+    Register AR =
+        MI.getOperand(MI.getOpcode() == IA64::MOV_AR ? 0 : 1).getReg();
+    return AR == IA64::AR64 || AR == IA64::AR65 || AR == IA64::AR66;
+  }
+  default:
+    return false;
+  }
+}
+
 /// Whether \p MI keeps its place among the instructions of its group.
 static bool isFixed(const MachineInstr &MI) {
   return MI.isBranch() || MI.isCall() || MI.isReturn() || MI.isTerminator() ||
-         MI.hasUnmodeledSideEffects();
+         (MI.hasUnmodeledSideEffects() && !isRegisterMove(MI));
 }
 
 /// Whether \p MI is in the prologue or the epilogue, whose unwind directives
 /// count instructions.
 static bool pinsGroup(const MachineInstr &MI) {
-  return MI.getFlag(MachineInstr::FrameSetup) ||
-         MI.getFlag(MachineInstr::FrameDestroy) || MI.getHeapAllocMarker() ||
-         MI.getPCSections() || MI.getMMRAMetadata();
+  return MI.getHeapAllocMarker() || MI.getPCSections() || MI.getMMRAMetadata();
 }
 
 /// Whether the asm printer emits a label or an alignment before \p MBB,

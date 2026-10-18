@@ -182,8 +182,8 @@ define i64 @variable_offset(i64 %a) {
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov b6 = r14
 ; CHECK-NEXT:  mov r1 = r15
+; CHECK-NEXT:  mov b6 = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
   %r = call i64 getelementptr inbounds ([4 x ptr], ptr @descriptors, i64 0, i64 2)(i64 %a)
   ret i64 %r

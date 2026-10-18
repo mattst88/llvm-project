@@ -25,12 +25,12 @@ define i64 @aligned(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 ; CHECK-NEXT:    mov r35 = b0
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = use ;;
-; CHECK-NEXT:    .mmf
-; CHECK-NEXT:    mov r1 = r33
+; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    mov r8 = r32
 ; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    mov r12 = r36
 ; CHECK-NEXT:    mov b0 = r35
+; CHECK-NEXT:    mov r1 = r33
 ; CHECK-NEXT:    mov ar.pfs = r34
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %x = alloca [64 x i8], align 64

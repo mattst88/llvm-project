@@ -12,12 +12,12 @@
 ; ASM:      br.call.sptk.many b0 = g ;;
 ; ASM-NEXT: [.Ltmp{{[0-9]+}}:]
 ; ASM-NEXT: .loc
-; ASM-NEXT: zxt4 r8 = r8
+; ASM-NEXT: mov b0 = r34
 
 ; OBJ-LABEL: <f>:
 ; OBJ:       1c: {{.*}} br.call.sptk.many b0 =
 ; OBJ-NEXT:  20: {{.*}} nop.m 0 // [MII]
-; OBJ-NEXT:  26: {{.*}} zxt4 r8 = r8
+; OBJ-NEXT:  26: {{.*}} mov b0 = r34
 
 ; DWARF:      DW_TAG_call_site
 ; DWARF:        DW_AT_call_return_pc (0x0000000000000020)

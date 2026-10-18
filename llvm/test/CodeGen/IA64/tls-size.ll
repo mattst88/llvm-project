@@ -49,9 +49,9 @@ define ptr @local_dynamic() {
 ;
 ; SIZE22-LABEL: local_dynamic:
 ; SIZE22:       br.call.sptk.many b0 = __tls_get_addr ;;
-; SIZE22-NEXT:  .mlx
 ; SIZE22-NEXT:  mov r3 = r8
 ; SIZE22-NEXT:  mov r1 = r32 ;;
+; SIZE22-NEXT:  mov b0 = r34
 ; SIZE22-NEXT:  addl r8 = @dtprel(ld), r3
 ;
 ; SIZE64-LABEL: local_dynamic:

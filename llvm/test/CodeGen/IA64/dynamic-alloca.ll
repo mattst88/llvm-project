@@ -45,12 +45,11 @@ define i64 @fixed(i64 %n, i64 %m) {
 ; CHECK-NEXT:  and r14 = -16, r14 ;;
 ; CHECK-NEXT:  st8 [r34] = r33
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
-; CHECK-NEXT:  .mlx
-; CHECK-NEXT:  adds r39 = 16, r12
-; CHECK-NEXT:  mov r40 = r32
 ; CHECK-NEXT:  .save rp, r37
 ; CHECK-NEXT:  mov r37 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  adds r39 = 16, r12
+; CHECK-NEXT:  mov r40 = r32
 ; CHECK:       ld8 r8 = [r34]
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r38
@@ -63,7 +62,9 @@ define i64 @fixed(i64 %n, i64 %m) {
   ret i64 %r
 }
 
-; With no call there is nothing below it.
+; With no call there is nothing below it. Memory below sp may be overwritten
+; by a signal handler at any instruction, so sp is put back after the load
+; from the space it frees, though they are in one group.
 define i8 @leaf(i64 %n) {
 ; CHECK-LABEL: leaf:
 ; CHECK:       alloc r33 = ar.pfs, 1, 2, 0, 0
@@ -73,7 +74,9 @@ define i8 @leaf(i64 %n) {
 ; CHECK:       mov r14 = r12
 ; CHECK-NEXT:  mov r15 = 1 ;;
 ; CHECK-NEXT:  st1 [r14] = r15
-; CHECK:       mov r12 = r34
+; CHECK-NEXT:  ld1 r8 = [r14]
+; CHECK-NEXT:  .restore sp
+; CHECK-NEXT:  mov r12 = r34
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %a = alloca i8, i64 %n
   store volatile i8 1, ptr %a

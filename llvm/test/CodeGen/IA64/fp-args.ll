@@ -66,11 +66,11 @@ define double @call_memory(float %f, double %d) {
 ; CHECK:       adds r14 = 24, r12
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r15 = 16, r12
-; CHECK:       stfd [r14] = f9
-; CHECK-NEXT:  stfs [r15] = f8
-; CHECK-NEXT:  .save rp, r34
+; CHECK:       .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  stfd [r14] = f9
+; CHECK-NEXT:  stfs [r15] = f8
 ; CHECK-NEXT:  br.call.sptk.many b0 = y ;;
   %r = call double @y(i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7, i64 8, float %f, double %d)
   ret double %r
@@ -124,6 +124,8 @@ define double @across(double %a) {
 ; CHECK:       .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  mov r35 = 1
+; CHECK-NEXT:  mov r37 = 3
 ; CHECK-NEXT:  br.call.sptk.many b0 = x ;;
 ; CHECK:       mov f8 = f2
 ; CHECK-NEXT:  adds r2 = 16, r12 ;;

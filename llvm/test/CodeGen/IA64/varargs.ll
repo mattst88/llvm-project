@@ -113,11 +113,11 @@ define i32 @forward(ptr %f, ...) {
 ; CHECK:       alloc r40 = ar.pfs, 8, 3, 2, 0
 ; CHECK:       adds r14 = 40, r12
 ; CHECK:       st8.spill [r14] = r33
-; CHECK:       st8 [r15] = r14
-; CHECK-NEXT:  ld8 r44 = [r15]
-; CHECK-NEXT:  .save rp, r41
+; CHECK:       .save rp, r41
 ; CHECK-NEXT:  mov r41 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  st8 [r15] = r14
+; CHECK-NEXT:  ld8 r44 = [r15]
 ; CHECK-NEXT:  br.call.sptk.many b0 = vf ;;
   %ap = alloca ptr
   %aq = alloca ptr
@@ -142,9 +142,9 @@ define i32 @call(double %d, double %e) {
 ; CHECK-NEXT:  mov r39 = 2
 ; CHECK-NEXT:  getf.d r38 = f9
 ; CHECK-NEXT:  mov r35 = r0 ;;
+; CHECK-NEXT:  mov r40 = r37
 ; CHECK-NEXT:  stfd [r14] = f8
 ; CHECK-NEXT:  stfd [r15] = f8
-; CHECK-NEXT:  mov r40 = r37
 ; CHECK-NEXT:  mov r41 = r37
 ; CHECK-NEXT:  mov r42 = r37
 ; CHECK-NEXT:  .save rp, r34

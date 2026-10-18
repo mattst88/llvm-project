@@ -14,8 +14,8 @@
 define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-LABEL: sum:
 ; CHECK:       adds [[LC:r[0-9]+]] = -1, r33
-; CHECK:       adds [[REM:r[0-9]+]] = -1, [[LC]]
-; CHECK-NEXT:  mov ar.lc = [[LC]]
+; CHECK:       mov ar.lc = [[LC]]
+; CHECK-NEXT:  adds [[REM:r[0-9]+]] = -1, [[LC]]
 ; CHECK-NEXT:  cmp.ltu p7, p6 = 0, [[LC]]
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[REST:[0-9]+]] ;;
 ; CHECK:       ld8 [[V:r[0-9]+]] = [r32], 8 ;;

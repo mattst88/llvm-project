@@ -33,11 +33,11 @@ define void @both_extended(i32 %a, x86_fp80 %l) {
 ; CHECK:         mov r36 = r32
 ; CHECK:         stfe [r14] = f8
 ; CHECK-NEXT:    or r15 = 8, r14 ;;
-; CHECK-NEXT:    ld8 r39 = [r15]
-; CHECK-NEXT:    ld8 r38 = [r14]
 ; CHECK-NEXT:    .save rp, r35
 ; CHECK-NEXT:    mov r35 = b0
 ; CHECK-NEXT:    .body
+; CHECK-NEXT:    ld8 r39 = [r15]
+; CHECK-NEXT:    ld8 r38 = [r14]
 ; CHECK-NEXT:    br.call.sptk.many b0 = kr ;;
   call i32 (i32, x86_fp80, ...) @kr(i32 %a, x86_fp80 %l)
   ret void
@@ -83,7 +83,7 @@ define void @unnamed(ptr %s, double %d) {
 define double @named(double %a, float %b, x86_fp80 %c, ...) {
 ; CHECK-LABEL: named:
 ; CHECK:         fma.d f6 = f9, f1, f0
-; CHECK-NEXT:    fma.d f7 = f10, f1, f0 ;;
+; CHECK:         fma.d f7 = f10, f1, f0 ;;
 ; CHECK:         st8.spill [r14] = r36
 ; CHECK:         st8.spill [r15] = r39
 ; CHECK-NOT:     r35

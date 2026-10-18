@@ -58,10 +58,11 @@ define void @large(ptr %p, i64 %x) {
 ; CHECK-NEXT:  mov r41 = r1 ;;
 ; CHECK-NEXT:  adds r44 = 16, r12
 ; CHECK-NEXT:  mov r46 = 960
-; CHECK:       ld8 r{{[0-9]+}} = [r45], 64
-; CHECK-NEXT:  .save rp, r43
+; CHECK:       .save rp, r43
 ; CHECK-NEXT:  mov r43 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  ld8 r{{[0-9]+}} = [r14]
+; CHECK-NEXT:  ld8 r{{[0-9]+}} = [r45], 64
 ; CHECK-NEXT:  br.call.sptk.many b0 = memcpy ;;
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 976, r12

@@ -65,6 +65,7 @@ define i64 @large(i64 %a) {
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       mov r2 = 800000 ;;
+; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  add r12 = r2, r12
   %p = alloca [100000 x i64]
@@ -112,11 +113,11 @@ define i64 @aligned(i64 %n) {
 define i64 @returns(i64 %a) {
 ; The code after an epilogue has the frame that the code before it had.
 ; CHECK-LABEL: returns:
-; CHECK:       .fframe 16
-; CHECK-NEXT:  adds r12 = -16, r12
-; CHECK-NEXT:  mov r33 = r1
+; CHECK:       mov r33 = r1
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
+; CHECK-NEXT:  .fframe 16
+; CHECK-NEXT:  adds r12 = -16, r12
 ; CHECK-NEXT:  .body
 ; CHECK-NOT:   .body
 ; CHECK:       .label_state 1
