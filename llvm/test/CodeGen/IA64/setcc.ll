@@ -160,13 +160,12 @@ define i64 @sgt_too_large(i64 %a) {
   ret i64 %r
 }
 
-; A narrow compare is of the values extended.
+; A narrow compare is of the low words, which need no extension.
 
 define i64 @slt32(i32 %a, i32 %b) {
 ; CHECK-LABEL: slt32:
-; CHECK-DAG:   sxt4 [[A:r[0-9]+]] = r32
-; CHECK-DAG:   sxt4 [[B:r[0-9]+]] = r33
-; CHECK:       cmp.lt p6, p7 = [[A]], [[B]]
+; CHECK-NOT:   sxt4
+; CHECK:       cmp4.lt p6, p7 = r32, r33
   %c = icmp slt i32 %a, %b
   %r = zext i1 %c to i64
   ret i64 %r
@@ -174,10 +173,82 @@ define i64 @slt32(i32 %a, i32 %b) {
 
 define i64 @ult32(i32 %a, i32 %b) {
 ; CHECK-LABEL: ult32:
-; CHECK-DAG:   zxt4 [[A:r[0-9]+]] = r32
-; CHECK-DAG:   zxt4 [[B:r[0-9]+]] = r33
-; CHECK:       cmp.ltu p6, p7 = [[A]], [[B]]
+; CHECK-NOT:   zxt4
+; CHECK:       cmp4.ltu p6, p7 = r32, r33
   %c = icmp ult i32 %a, %b
   %r = zext i1 %c to i64
+  ret i64 %r
+}
+
+define i64 @eq32(i32 %a, i32 %b) {
+; CHECK-LABEL: eq32:
+; CHECK:       cmp4.eq p6, p7 = r32, r33
+  %c = icmp eq i32 %a, %b
+  %r = zext i1 %c to i64
+  ret i64 %r
+}
+
+; cmp4 sign-extends its immediate from eight bits, and compares the low 32
+; bits of it.
+define i64 @ult32_max(i32 %a) {
+; CHECK-LABEL: ult32_max:
+; CHECK:       cmp4.eq p7, p6 = -1, r32
+  %c = icmp ult i32 %a, -1
+  %r = zext i1 %c to i64
+  ret i64 %r
+}
+
+define i64 @ugt32_big(i32 %a) {
+; CHECK-LABEL: ugt32_big:
+; CHECK:       movl [[C:r[0-9]+]] = 3000000000
+; CHECK:       cmp4.ltu p6, p7 = [[C]], r32
+  %c = icmp ugt i32 %a, 3000000000
+  %r = zext i1 %c to i64
+  ret i64 %r
+}
+
+define i64 @sgt32_imm(i32 %a) {
+; CHECK-LABEL: sgt32_imm:
+; CHECK:       cmp4.lt p6, p7 = 7, r32
+  %c = icmp sgt i32 %a, 7
+  %r = zext i1 %c to i64
+  ret i64 %r
+}
+
+; A 64-bit value, or values extended differently, need the full compare.
+define i64 @wide32(i32 %a, i64 %b) {
+; CHECK-LABEL: wide32:
+; CHECK:       sxt4 [[A:r[0-9]+]] = r32 ;;
+; CHECK-NEXT:  cmp.lt p6, p7 = [[A]], r33
+  %e = sext i32 %a to i64
+  %c = icmp slt i64 %e, %b
+  %r = zext i1 %c to i64
+  ret i64 %r
+}
+
+define i64 @mixed32(i32 %a, i32 %b) {
+; CHECK-LABEL: mixed32:
+; CHECK-DAG:   sxt4 [[A:r[0-9]+]] = r32
+; CHECK-DAG:   zxt4 [[B:r[0-9]+]] = r33
+; CHECK:       cmp.eq p6, p7 = [[A]], [[B]]
+  %x = sext i32 %a to i64
+  %y = zext i32 %b to i64
+  %c = icmp eq i64 %x, %y
+  %r = zext i1 %c to i64
+  ret i64 %r
+}
+
+; Parallel compares of words accumulate into the same predicates in one
+; instruction group.
+define i64 @or32(i32 %a, i32 %b, i32 %c) {
+; CHECK-LABEL: or32:
+; CHECK:       cmp4.eq.or.andcm p6, p7 = 1, r32{{$}}
+; CHECK-NEXT:  cmp4.eq.or.andcm p6, p7 = 2, r33 ;;
+  %x = icmp eq i32 %a, 1
+  %y = icmp eq i32 %b, 2
+  %z = icmp slt i32 %c, 0
+  %o = or i1 %x, %y
+  %p = or i1 %o, %z
+  %r = zext i1 %p to i64
   ret i64 %r
 }

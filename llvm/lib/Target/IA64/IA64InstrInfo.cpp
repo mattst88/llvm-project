@@ -148,9 +148,9 @@ void IA64InstrInfo::loadImmediate(MachineBasicBlock &MBB,
 // The encoded compares are EQ and LT, signed and unsigned, with any
 // immediate as the left operand. The other conditions swap the operands,
 // swap the two result predicates, or compare against the constant minus
-// one: r < c is !(c - 1 < r).
+// one: r < c is !(c - 1 < r). cmp4 has the same forms as cmp.
 bool IA64CC::isLegalImmediate(CondCode CC, int64_t Imm) {
-  switch (CC) {
+  switch (getDoubleword(CC)) {
   case LT:
   case GE:
     return isInt<8>(Imm - 1);
@@ -162,6 +162,44 @@ bool IA64CC::isLegalImmediate(CondCode CC, int64_t Imm) {
     return isUInt<6>(Imm);
   default:
     return isInt<8>(Imm);
+  }
+}
+
+// The cmp4 form of a cmp, or 0 for 0.
+static unsigned getWordCompare(unsigned Opcode) {
+  switch (Opcode) {
+  case 0:
+    return 0;
+  case IA64::CMP_EQ:
+    return IA64::CMP4_EQ;
+  case IA64::CMP_EQi:
+    return IA64::CMP4_EQi;
+  case IA64::CMP_LT:
+    return IA64::CMP4_LT;
+  case IA64::CMP_LTi:
+    return IA64::CMP4_LTi;
+  case IA64::CMP_LTU:
+    return IA64::CMP4_LTU;
+  case IA64::CMP_LTUi:
+    return IA64::CMP4_LTUi;
+  case IA64::CMP_EQ_OR_ANDCM:
+    return IA64::CMP4_EQ_OR_ANDCM;
+  case IA64::CMP_EQ_OR_ANDCMi:
+    return IA64::CMP4_EQ_OR_ANDCMi;
+  case IA64::CMP_NE_OR_ANDCM:
+    return IA64::CMP4_NE_OR_ANDCM;
+  case IA64::CMP_NE_OR_ANDCMi:
+    return IA64::CMP4_NE_OR_ANDCMi;
+  case IA64::CMP_GT_OR_ANDCMz:
+    return IA64::CMP4_GT_OR_ANDCMz;
+  case IA64::CMP_GE_OR_ANDCMz:
+    return IA64::CMP4_GE_OR_ANDCMz;
+  case IA64::CMP_LT_OR_ANDCMz:
+    return IA64::CMP4_LT_OR_ANDCMz;
+  case IA64::CMP_LE_OR_ANDCMz:
+    return IA64::CMP4_LE_OR_ANDCMz;
+  default:
+    llvm_unreachable("Not a compare with a cmp4 form");
   }
 }
 
@@ -263,6 +301,8 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
     return;
   }
 
+  bool Word = IA64CC::isWord(CC);
+  CC = IA64CC::getDoubleword(CC);
   bool IsImm = RHS.isImm();
   unsigned Opcode;
   // Whether the encoded compare is the inverse of the requested one, and
@@ -317,6 +357,8 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
   default:
     llvm_unreachable("Not the condition of an integer compare");
   }
+  if (Word)
+    Opcode = getWordCompare(Opcode);
 
   MachineInstrBuilder MIB =
       BuildMI(MBB, I, DL, get(Opcode))
@@ -335,6 +377,8 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
 }
 
 unsigned IA64CC::getParallelCompare(CondCode CC, std::optional<int64_t> Imm) {
+  if (isWord(CC))
+    return getWordCompare(getParallelCompare(getDoubleword(CC), Imm));
   if (CC == EQ || CC == NE) {
     if (Imm && !isInt<8>(*Imm))
       return 0;
@@ -390,6 +434,7 @@ bool IA64InstrInfo::emitParallelCompare(MachineBasicBlock &MBB,
   MachineOperand L = MachineOperand::CreateReg(
       LHS.getReg(), /*isDef=*/false, /*isImp=*/false, /*isKill=*/false,
       /*isDead=*/false, LHS.isUndef());
+  CC = IA64CC::getDoubleword(CC);
   if (CC == IA64CC::EQ || CC == IA64CC::NE) {
     if (Imm)
       MIB.addImm(*Imm).add(L);

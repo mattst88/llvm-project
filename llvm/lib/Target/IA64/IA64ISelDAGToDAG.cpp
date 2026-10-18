@@ -212,6 +212,28 @@ static IA64CC::CondCode getIA64FPCC(ISD::CondCode CC) {
   }
 }
 
+// The value whose low 32 bits V extends to 64, by sign if Signed and
+// otherwise by zero, or a null value if V is not such an extension. Stripped
+// is set if the result is not V itself, but the operand of the extension.
+static SDValue getWordOperand(SelectionDAG &DAG, SDValue V, bool Signed,
+                              bool &Stripped) {
+  if (Signed) {
+    if (V.getOpcode() == ISD::SIGN_EXTEND_INREG &&
+        cast<VTSDNode>(V.getOperand(1))->getVT() == MVT::i32) {
+      Stripped = true;
+      return V.getOperand(0);
+    }
+    return DAG.ComputeNumSignBits(V) > 32 ? V : SDValue();
+  }
+  if (V.getOpcode() == ISD::AND && isa<ConstantSDNode>(V.getOperand(1)) &&
+      V.getConstantOperandVal(1) == 0xffffffff) {
+    Stripped = true;
+    return V.getOperand(0);
+  }
+  return DAG.MaskedValueIsZero(V, APInt::getHighBitsSet(64, 32)) ? V
+                                                                 : SDValue();
+}
+
 /// Push the compare operands: condition code, LHS, and RHS, which is an
 /// immediate if the compare has an immediate form. These operands are common
 /// to every instruction containing a compare; returns which of the three
@@ -239,11 +261,33 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     return Immediate;
   }
   IA64CC::CondCode IACC = getIA64CC(CC);
+  // Two 32-bit values extended the same way compare as their low words do,
+  // and cmp4 compares just those, so an extension that is a node of its own
+  // can be left out. The signed extension serves equality as well as the
+  // signed conditions, and the zero extension the unsigned ones.
+  for (bool Signed : {true, false}) {
+    if (Signed ? ISD::isUnsignedIntSetCC(CC) : ISD::isSignedIntSetCC(CC))
+      continue;
+    bool Stripped = false;
+    SDValue L = getWordOperand(*CurDAG, LHS, Signed, Stripped);
+    SDValue R = getWordOperand(*CurDAG, RHS, Signed, Stripped);
+    if (L && R && Stripped) {
+      LHS = L;
+      RHS = R;
+      IACC = IA64CC::getWord(IACC);
+      break;
+    }
+  }
   Ops.push_back(CurDAG->getTargetConstant(IACC, DL, MVT::i64));
   Ops.push_back(LHS);
   auto *C = dyn_cast<ConstantSDNode>(RHS);
-  if (C && IA64CC::isLegalImmediate(IACC, C->getSExtValue())) {
-    Ops.push_back(CurDAG->getTargetConstant(C->getSExtValue(), DL, MVT::i64));
+  // cmp4 sign-extends its immediate, but only its low 32 bits matter.
+  int64_t Imm = 0;
+  if (C)
+    Imm = IA64CC::isWord(IACC) ? SignExtend64<32>(C->getZExtValue())
+                               : C->getSExtValue();
+  if (C && IA64CC::isLegalImmediate(IACC, Imm)) {
+    Ops.push_back(CurDAG->getTargetConstant(Imm, DL, MVT::i64));
     return Immediate;
   }
   Ops.push_back(RHS);

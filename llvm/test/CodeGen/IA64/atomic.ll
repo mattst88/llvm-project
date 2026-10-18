@@ -133,7 +133,9 @@ define i16 @add_narrow(ptr %p) {
 
 define i32 @maximum(ptr %p, i32 %v) {
 ; CHECK-LABEL: maximum:
-; CHECK:       cmpxchg4.acq r8 = [r32], r16, ar.ccv ;;
+; CHECK:       cmp4.lt p6, p7 = {{r[0-9]+}}, r14 ;;
+; CHECK:       cmpxchg4.acq r8 = [r32], {{r[0-9]+}}, ar.ccv ;;
+; CHECK-NEXT:  cmp4.eq p7, p6 = r8, r14
   %o = atomicrmw max ptr %p, i32 %v seq_cst
   ret i32 %o
 }

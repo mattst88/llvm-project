@@ -33,9 +33,10 @@ enum : uint8_t {
 
 namespace IA64CC {
 // Compare conditions, integer then FP, then tests of the bit of the left
-// operand that the right one, a constant, numbers. Each is next to its
-// inverse; for FP that is the one that differs in its result for unordered
-// operands.
+// operand that the right one, a constant, numbers, then the integer
+// conditions again for compares of only the low 32 bits (cmp4). Each is next
+// to its inverse; for FP that is the one that differs in its result for
+// unordered operands.
 enum CondCode : unsigned {
   EQ,
   NE,
@@ -61,11 +62,29 @@ enum CondCode : unsigned {
   ORD,
   BitClear,
   BitSet,
+  EQ4,
+  NE4,
+  LT4,
+  GE4,
+  GT4,
+  LE4,
+  LTU4,
+  GEU4,
+  GTU4,
+  LEU4,
 };
 
 inline bool isFloatingPoint(CondCode CC) { return CC >= OEQ && CC <= ORD; }
 
-inline bool isBitTest(CondCode CC) { return CC >= BitClear; }
+inline bool isBitTest(CondCode CC) { return CC == BitClear || CC == BitSet; }
+
+inline bool isWord(CondCode CC) { return CC >= EQ4; }
+
+// The 32-bit form of an integer condition, and the 64-bit form of either.
+inline CondCode getWord(CondCode CC) { return CondCode(CC - EQ + EQ4); }
+inline CondCode getDoubleword(CondCode CC) {
+  return isWord(CC) ? CondCode(CC - EQ4 + EQ) : CC;
+}
 
 inline CondCode getOpposite(CondCode CC) { return CondCode(CC ^ 1); }
 

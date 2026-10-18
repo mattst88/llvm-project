@@ -42,15 +42,19 @@ d:
 
 ; Signed compares in other blocks would rather have the word sign-extended,
 ; but that would put an sxt4 after the load for every user, including a mask
-; of its low bits. Each signed compare extends it instead.
+; of its low bits. The signed compares are of its low word, which needs no
+; extension.
 define i32 @signed(ptr %p, i1 %c) {
 ; CHECK-LABEL: signed:
 ; CHECK:       ld4 [[V:r[0-9]+]] = [r32]
 ; CHECK-NOT:   sxt4
 ; CHECK:       br.call.sptk.many b0 = g
-; CHECK:       sxt4 [[S:r[0-9]+]] = [[V]] ;;
-; CHECK-NEXT:  cmp.lt p7, p6 = -1, [[S]]
+; CHECK-NOT:   sxt4
+; CHECK:       cmp4.lt p7, p6 = -1, [[V]]
+; CHECK-NOT:   sxt4
 ; CHECK:       and {{r[0-9]+}} = 63, [[V]]
+; CHECK-NOT:   sxt4
+; CHECK:       .endp signed
 entry:
   %v = load i32, ptr %p
   br i1 %c, label %l, label %d

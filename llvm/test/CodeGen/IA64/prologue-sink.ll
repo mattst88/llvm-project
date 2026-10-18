@@ -3,7 +3,8 @@
 
 ; alloc and the save of ar.lc can only issue on I0, so the save waits until
 ; the body's first instructions have taken their I ports, and the unwind
-; directive follows it.
+; directive follows it. The count is compared signed, so the compare needs
+; it zero-extended in the entry block.
 define i64 @count(ptr %a, i32 %i, i32 %n) {
 ; CHECK-LABEL: count:
 ; CHECK:       .save ar.pfs, r35
@@ -12,12 +13,12 @@ define i64 @count(ptr %a, i32 %i, i32 %n) {
 ; CHECK-NEXT:  .save ar.lc, r36
 ; CHECK-NEXT:  mov r36 = ar.lc ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  cmp.eq p6, p7 = 0, [[N]]
+; CHECK-NEXT:  cmp.lt p7, p6 = 0, [[N]]
 entry:
   %ie = zext i32 %i to i64
   %ne = zext i32 %n to i64
   %p0 = getelementptr i8, ptr %a, i64 %ie
-  %z = icmp eq i64 %ne, 0
+  %z = icmp slt i64 %ne, 1
   br i1 %z, label %exit, label %loop
 loop:
   %j = phi i64 [ 0, %entry ], [ %j.next, %loop ]

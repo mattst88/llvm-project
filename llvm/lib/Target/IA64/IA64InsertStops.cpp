@@ -80,6 +80,14 @@ static bool isParallelCompare(unsigned Opcode) {
   case IA64::CMP_GE_OR_ANDCMz:
   case IA64::CMP_LT_OR_ANDCMz:
   case IA64::CMP_LE_OR_ANDCMz:
+  case IA64::CMP4_EQ_OR_ANDCM:
+  case IA64::CMP4_EQ_OR_ANDCMi:
+  case IA64::CMP4_NE_OR_ANDCM:
+  case IA64::CMP4_NE_OR_ANDCMi:
+  case IA64::CMP4_GT_OR_ANDCMz:
+  case IA64::CMP4_GE_OR_ANDCMz:
+  case IA64::CMP4_LT_OR_ANDCMz:
+  case IA64::CMP4_LE_OR_ANDCMz:
     return true;
   }
 }

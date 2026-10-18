@@ -31,9 +31,8 @@ define i32 @catch_int() personality ptr @__gxx_personality_v0 {
 ; CHECK-NEXT:    mov r1 = r33 ;;
 ; CHECK-NEXT:  .Ltmp1:
 ; CHECK:       .Ltmp2:
-; CHECK-NEXT:    zxt4 r14 = r16
-; CHECK-NEXT:    mov r1 = r33 ;;
-; CHECK-NEXT:    cmp.eq p7, p6 = 1, r14
+; CHECK-NEXT:    mov r1 = r33
+; CHECK-NEXT:    cmp4.eq p7, p6 = 1, r16
 ; CHECK-NEXT:    (p6) br.cond.dpnt.few .LBB0_5 ;;
 ; CHECK-NEXT:  // %bb.4: // %catch
 ; CHECK-NEXT:    mov r36 = r15
@@ -138,9 +137,9 @@ define void @no_pad() personality ptr @__gxx_personality_v0 {
 ; OBJ-NEXT:   0x0 R_IA64_DIR64LSB _ZTIi 0x0
 ; OBJ-NEXT: }
 ; OBJ:      0x00000000 02000000 03000100
-; OBJ:      0x00000020 ffb41901 09102060 0330a001 00000000
+; OBJ:      0x00000020 ffb41901 09102060 03309001 00000000
 ; OBJ-NEXT: 0x00000030 017d0000 00000000 00000000 00000000
 ; OBJ-NEXT: 0x00000040 02000000 00000100
 
-; SYM: 0000000000000000 g F .text 00000000000000d0 catch_int
-; SYM: 00000000000000d0 g F .text 0000000000000040 no_pad
+; SYM: 0000000000000000 g F .text 00000000000000c0 catch_int
+; SYM: 00000000000000c0 g F .text 0000000000000040 no_pad
