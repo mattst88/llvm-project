@@ -19,6 +19,18 @@
 # CHECK-NEXT: $r8 = ADDS 0, $r0, $p0
 # CHECK-NEXT: $r8 = ADDL 1, $r0, $p6, implicit $r8
 
+# A select replaces its false value, which may be undef, under p6.
+
+# CHECK-LABEL: name: select_and
+# CHECK:      $p6, $p7 = CMP_LTU $r9, $r10, $p0
+# CHECK-NEXT: $p7, $p6 = CMP_NE_OR_ANDCMi 3, $r10, $p0
+# CHECK-NEXT: $r8 = ADDS 0, $r9, $p6, implicit undef $r8
+
+# CHECK-LABEL: name: select_fr_or
+# CHECK:      $p6, $p7 = CMP_EQ $r8, $r9, $p0
+# CHECK-NEXT: $p6, $p7 = CMP_LT_OR_ANDCMz $r10, $p0
+# CHECK-NEXT: $f8 = FMERGE_S $f9, $f9, $p6, implicit $f8
+
 ---
 name: and
 tracksRegLiveness: true
@@ -40,4 +52,26 @@ body: |
     ; r8 == r9 || r8 == 5 || r10 > 0
     $r8 = SETCC_OR 0, $r8, $r9, 0, $r8, 5, 4, $r10, 0, implicit-def dead $p6, implicit-def dead $p7
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+name: select_and
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r9, $r10
+
+    ; r9 <u r10 && r10 == 3 ? r9 : undef
+    $r8 = SELECT_AND undef $r8, $r9, 6, $r9, $r10, 0, $r10, 3, implicit-def dead $p6, implicit-def dead $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+name: select_fr_or
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r8, $r9, $r10, $f8, $f9
+
+    ; r8 == r9 || r10 > 0 ? f9 : f8
+    $f8 = SELECT_FR_OR $f8, $f9, 0, $r8, $r9, 4, $r10, 0, implicit-def dead $p6, implicit-def dead $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
 ...

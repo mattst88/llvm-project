@@ -186,6 +186,14 @@ public:
                            IA64CC::CondCode CC, const MachineOperand &LHS,
                            const MachineOperand &RHS, Register Set,
                            Register Clear) const;
+
+  /// Emit parallel compares before \p MI for the compares whose operands
+  /// start at operand \p First of \p MI, combining them into the predicates
+  /// of a compare already emitted: with \p And, p6 stays set only if all of
+  /// them hold, and otherwise it becomes set if any of them does. p7 stays
+  /// the complement of p6.
+  void emitChainCompares(MachineBasicBlock &MBB, MachineInstr &MI,
+                         const DebugLoc &DL, unsigned First, bool And) const;
 };
 
 } // end namespace llvm

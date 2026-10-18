@@ -157,6 +157,24 @@ def SELECT_FRf : IA64Pseudo<(outs FR:$r1),
                             "#SELECT_FRf", []>;
 }
 
+// Select on all (AND) or any (OR) of two or more integer compares, whose
+// operands follow $true as in SETCC_AND and SETCC_OR.
+let Constraints = "$false = $r1", Defs = [P6, P7], hasSideEffects = 0,
+    SchedRW = [WriteSelect] in {
+def SELECT_AND    : IA64Pseudo<(outs GR:$r1),
+                               (ins GR:$false, GR:$true, variable_ops),
+                               "#SELECT_AND", []>;
+def SELECT_OR     : IA64Pseudo<(outs GR:$r1),
+                               (ins GR:$false, GR:$true, variable_ops),
+                               "#SELECT_OR", []>;
+def SELECT_FR_AND : IA64Pseudo<(outs FR:$r1),
+                               (ins FR:$false, FR:$true, variable_ops),
+                               "#SELECT_FR_AND", []>;
+def SELECT_FR_OR  : IA64Pseudo<(outs FR:$r1),
+                               (ins FR:$false, FR:$true, variable_ops),
+                               "#SELECT_FR_OR", []>;
+}
+
 // A conditional branch, predicated on the compare. It is not expanded until
 // blocks can no longer be moved.
 let isBranch = 1, isTerminator = 1 in {

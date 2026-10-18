@@ -53,7 +53,11 @@ public:
   enum CompareForm { Register, Immediate, FloatingPoint };
   bool selectMinMax(SDNode *Node);
   bool selectBitField(SDNode *Node);
+  bool appendChainCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
+                          const SDLoc &DL, SmallVectorImpl<SDValue> &Ops,
+                          unsigned First, bool &HasPlain);
   bool selectCompareChain(SDNode *Node);
+  bool selectSelectChain(SDNode *Node);
   CompareForm selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                             const SDLoc &DL, SmallVectorImpl<SDValue> &Ops);
 
@@ -240,11 +244,38 @@ static void setNoFPExcept(SDNode *Node) {
   Node->setFlags(Flags);
 }
 
+// Append the operands of another compare to a chain of integer compares
+// whose operands start at Ops[First]. The compares after the first must have
+// parallel forms, so a compare without one goes first, and HasPlain records
+// that the chain has one. Returns false, appending nothing, if the chain cannot
+// take the compare.
+bool IA64DAGToDAGISel::appendChainCompare(SDValue LHS, SDValue RHS,
+                                          ISD::CondCode CC, const SDLoc &DL,
+                                          SmallVectorImpl<SDValue> &Ops,
+                                          unsigned First, bool &HasPlain) {
+  if (!LHS.getValueType().isInteger())
+    return false;
+  unsigned Start = Ops.size();
+  selectCompare(LHS, RHS, CC, DL, Ops);
+  auto IACC = IA64CC::CondCode(Ops[Start]->getAsZExtVal());
+  std::optional<int64_t> Imm;
+  if (Ops[Start + 2].getOpcode() == ISD::TargetConstant)
+    Imm = Ops[Start + 2]->getAsAPIntVal().getSExtValue();
+  if (IA64CC::getParallelCompare(IACC, Imm))
+    return true;
+  if (HasPlain) {
+    Ops.truncate(Start);
+    return false;
+  }
+  HasPlain = true;
+  std::rotate(Ops.begin() + First, Ops.begin() + Start, Ops.end());
+  return true;
+}
+
 // Select an AND or OR of integer compares, through further ANDs or ORs of the
 // same kind, as one compare followed by parallel compares that accumulate
-// into its predicates. All the compares but one need a parallel form. The
-// combining nodes and compares must have no other users, or they would be
-// computed twice.
+// into its predicates. The combining nodes and compares must have no other
+// users, or they would be computed twice.
 bool IA64DAGToDAGISel::selectCompareChain(SDNode *Node) {
   unsigned Opcode = Node->getOpcode();
   if ((Opcode != ISD::AND && Opcode != ISD::OR) ||
@@ -260,8 +291,7 @@ bool IA64DAGToDAGISel::selectCompareChain(SDNode *Node) {
         return false;
       if (Op.getOpcode() == Opcode)
         Worklist.push_back(Op.getNode());
-      else if (Op.getOpcode() == ISD::SETCC &&
-               Op.getOperand(0).getValueType().isInteger())
+      else if (Op.getOpcode() == ISD::SETCC)
         Compares.push_back(Op.getNode());
       else
         return false;
@@ -270,28 +300,78 @@ bool IA64DAGToDAGISel::selectCompareChain(SDNode *Node) {
 
   SDLoc DL(Node);
   SmallVector<SDValue, 12> Ops;
-  // Where the compare without a parallel form went, if there is one.
-  std::optional<unsigned> Plain;
-  for (SDNode *Compare : Compares) {
-    unsigned Start = Ops.size();
-    selectCompare(Compare->getOperand(0), Compare->getOperand(1),
-                  cast<CondCodeSDNode>(Compare->getOperand(2))->get(), DL, Ops);
-    auto CC = IA64CC::CondCode(Ops[Start]->getAsZExtVal());
-    std::optional<int64_t> Imm;
-    if (Ops[Start + 2].getOpcode() == ISD::TargetConstant)
-      Imm = Ops[Start + 2]->getAsAPIntVal().getSExtValue();
-    if (IA64CC::getParallelCompare(CC, Imm))
-      continue;
-    if (Plain)
+  bool HasPlain = false;
+  for (SDNode *Compare : Compares)
+    if (!appendChainCompare(Compare->getOperand(0), Compare->getOperand(1),
+                            cast<CondCodeSDNode>(Compare->getOperand(2))->get(),
+                            DL, Ops, 0, HasPlain))
       return false;
-    Plain = Start;
-  }
-  // The first compare is the one that writes both predicates outright.
-  if (Plain)
-    std::rotate(Ops.begin(), Ops.begin() + *Plain, Ops.begin() + *Plain + 3);
   CurDAG->SelectNodeTo(Node,
                        Opcode == ISD::AND ? IA64::SETCC_AND : IA64::SETCC_OR,
                        MVT::i64, Ops);
+  return true;
+}
+
+// The DAG combiner turns a select on an AND of compares into a select on the
+// first compare between a select on the second and the false value, and a
+// select on an OR into one between the true value and a select on the
+// second. Select such a nest of SELECT_CCs on integer compares, each inner
+// one with no other users, as one select on a chain of compares. An inner
+// select with its values the other way round tests the inverse condition.
+// The chain stops at a compare it cannot take, whose select becomes the value
+// selected.
+bool IA64DAGToDAGISel::selectSelectChain(SDNode *Node) {
+  SDLoc DL(Node);
+  EVT VT = Node->getValueType(0);
+  SDValue True = Node->getOperand(2), False = Node->getOperand(3);
+  auto IsInner = [&](SDValue V) {
+    return V.getOpcode() == ISD::SELECT_CC && V.hasOneUse() &&
+           V.getOperand(0).getValueType().isInteger();
+  };
+  // In an AND chain the false value is common to every select and the chain
+  // goes on through the true values; the other way round in an OR chain.
+  bool And = IsInner(True) &&
+             (True.getOperand(3) == False || True.getOperand(2) == False);
+  if (!And && !(IsInner(False) &&
+                (False.getOperand(2) == True || False.getOperand(3) == True)))
+    return false;
+  SDValue Common = And ? False : True;
+  SDValue Next = And ? True : False;
+
+  SmallVector<SDValue, 12> Ops = {False, True};
+  bool HasPlain = false;
+  if (!appendChainCompare(Node->getOperand(0), Node->getOperand(1),
+                          cast<CondCodeSDNode>(Node->getOperand(4))->get(), DL,
+                          Ops, 2, HasPlain))
+    return false;
+  unsigned Count = 1;
+  while (IsInner(Next)) {
+    // The value this select gives when its compare would end the chain
+    // there, and the one it gives otherwise.
+    SDValue Ends = Next.getOperand(And ? 3 : 2);
+    SDValue Goes = Next.getOperand(And ? 2 : 3);
+    ISD::CondCode CC = cast<CondCodeSDNode>(Next.getOperand(4))->get();
+    if (Goes == Common) {
+      std::swap(Ends, Goes);
+      CC = ISD::getSetCCInverse(CC, Next.getOperand(0).getValueType());
+    } else if (Ends != Common) {
+      break;
+    }
+    if (!appendChainCompare(Next.getOperand(0), Next.getOperand(1), CC, DL, Ops,
+                            2, HasPlain))
+      break;
+    ++Count;
+    Next = Goes;
+  }
+  if (Count < 2)
+    return false;
+  Ops[And ? 1 : 0] = Next;
+
+  bool FR = VT.isFloatingPoint();
+  static const unsigned Opcodes[2][2] = {
+      {IA64::SELECT_OR, IA64::SELECT_AND},
+      {IA64::SELECT_FR_OR, IA64::SELECT_FR_AND}};
+  CurDAG->SelectNodeTo(Node, Opcodes[FR][And], VT, Ops);
   return true;
 }
 
@@ -767,7 +847,7 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
         {IA64::SELECT, IA64::SELECTi, IA64::SELECTf},
         {IA64::SELECT_FR, IA64::SELECT_FRi, IA64::SELECT_FRf}};
     MVT VT = Node->getSimpleValueType(0);
-    if (selectMinMax(Node))
+    if (selectMinMax(Node) || selectSelectChain(Node))
       return;
     SmallVector<SDValue, 6> Ops = {Node->getOperand(3), Node->getOperand(2)};
     CompareForm Form = selectCompare(

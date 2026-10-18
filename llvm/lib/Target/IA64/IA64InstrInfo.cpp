@@ -383,6 +383,22 @@ bool IA64InstrInfo::emitParallelCompare(MachineBasicBlock &MBB,
   return true;
 }
 
+// For an AND, each compare clears p6 and sets p7 if its condition is false;
+// for an OR, it sets p6 and clears p7 if it is true. They write the
+// predicates only one way, so they need no stops between them.
+void IA64InstrInfo::emitChainCompares(MachineBasicBlock &MBB, MachineInstr &MI,
+                                      const DebugLoc &DL, unsigned First,
+                                      bool And) const {
+  for (unsigned I = First, E = MI.getNumExplicitOperands(); I < E; I += 3) {
+    auto CC = IA64CC::CondCode(MI.getOperand(I).getImm());
+    [[maybe_unused]] bool Emitted = emitParallelCompare(
+        MBB, MI, DL, And ? IA64CC::getOpposite(CC) : CC, MI.getOperand(I + 1),
+        MI.getOperand(I + 2), And ? IA64::P7 : IA64::P6,
+        And ? IA64::P6 : IA64::P7);
+    assert(Emitted && "No parallel compare for this condition");
+  }
+}
+
 ArrayRef<std::pair<unsigned, const char *>>
 IA64InstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
   static const std::pair<unsigned, const char *> Flags[] = {
@@ -666,21 +682,8 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
                                                          : PlainCompare;
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
                 MI.getOperand(2), MI.getOperand(3), Kind);
-    // The other compares of SETCC_AND clear p6 and set p7 if their condition
-    // is false, and those of SETCC_OR set p6 and clear p7 if it is true, so
-    // p7 stays the complement of p6. They write the predicates only one way,
-    // so they need no stops between them.
-    bool And = MI.getOpcode() == IA64::SETCC_AND;
-    bool Chain = And || MI.getOpcode() == IA64::SETCC_OR;
-    for (unsigned I = 4, E = Chain ? MI.getNumExplicitOperands() : 0; I < E;
-         I += 3) {
-      auto CC = IA64CC::CondCode(MI.getOperand(I).getImm());
-      [[maybe_unused]] bool Emitted = emitParallelCompare(
-          MBB, MI, DL, And ? IA64CC::getOpposite(CC) : CC, MI.getOperand(I + 1),
-          MI.getOperand(I + 2), And ? IA64::P7 : IA64::P6,
-          And ? IA64::P6 : IA64::P7);
-      assert(Emitted && "No parallel compare for this condition");
-    }
+    if (MI.getOpcode() == IA64::SETCC_AND || MI.getOpcode() == IA64::SETCC_OR)
+      emitChainCompares(MBB, MI, DL, 4, MI.getOpcode() == IA64::SETCC_AND);
     BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
         .addImm(0)
         .addReg(IA64::R0)
@@ -719,7 +722,11 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   case IA64::SELECTf:
   case IA64::SELECT_FR:
   case IA64::SELECT_FRi:
-  case IA64::SELECT_FRf: {
+  case IA64::SELECT_FRf:
+  case IA64::SELECT_AND:
+  case IA64::SELECT_OR:
+  case IA64::SELECT_FR_AND:
+  case IA64::SELECT_FR_OR: {
     Register Dst = MI.getOperand(0).getReg();
     Register True = MI.getOperand(2).getReg();
     // The value kept when the predicate is false may be undef.
@@ -727,6 +734,16 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         RegState::Implicit | getUndefRegState(MI.getOperand(1).isUndef());
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(3).getImm()),
                 MI.getOperand(4), MI.getOperand(5));
+    switch (MI.getOpcode()) {
+    case IA64::SELECT_AND:
+    case IA64::SELECT_FR_AND:
+      emitChainCompares(MBB, MI, DL, 6, /*And=*/true);
+      break;
+    case IA64::SELECT_OR:
+    case IA64::SELECT_FR_OR:
+      emitChainCompares(MBB, MI, DL, 6, /*And=*/false);
+      break;
+    }
     if (IA64::FRRegClass.contains(Dst))
       BuildMI(MBB, MI, DL, get(IA64::FMERGE_S), Dst)
           .addReg(True)
