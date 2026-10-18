@@ -5341,6 +5341,12 @@ Instruction *InstCombinerImpl::visitSelectInst(SelectInst &SI) {
         if (Known.isConstant())
           return replaceOperand(SI, 1,
                                 ConstantInt::get(SelType, Known.getConstant()));
+        // select Cond, X, (and X, M) --> and X, M
+        // if X has no bits outside M when Cond holds.
+        const APInt *Mask;
+        if (match(FalseVal, m_And(m_Specific(TrueVal), m_APInt(Mask))) &&
+            (~*Mask).isSubsetOf(Known.Zero))
+          return replaceInstUsesWith(SI, FalseVal);
       }
 
       CC.Invert = true;
@@ -5350,6 +5356,12 @@ Instruction *InstCombinerImpl::visitSelectInst(SelectInst &SI) {
         if (Known.isConstant())
           return replaceOperand(SI, 2,
                                 ConstantInt::get(SelType, Known.getConstant()));
+        // select Cond, (and X, M), X --> and X, M
+        // if X has no bits outside M when Cond does not hold.
+        const APInt *Mask;
+        if (match(TrueVal, m_And(m_Specific(FalseVal), m_APInt(Mask))) &&
+            (~*Mask).isSubsetOf(Known.Zero))
+          return replaceInstUsesWith(SI, TrueVal);
       }
     }
   }
