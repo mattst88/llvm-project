@@ -28,6 +28,10 @@
 //     differs from the assembler's choice it has the asm printer emit a
 //     template directive.
 //
+// The I slots of a cycle's bundles take ports I0 and I1 in order, so an
+// instruction that only I0 executes must be the first of its cycle on an I
+// port, or it and the rest of its bundle wait for the next.
+//
 // A label starts a bundle, so the replay restarts at each block that has
 // one. Blocks with anything the replay does not model are left alone.
 //
@@ -42,6 +46,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -83,6 +88,8 @@ struct Item {
   bool LastSlot;
   bool IsLoad;
   bool IsStore;
+  /// Whether only port I0 executes it.
+  bool I0Only;
   /// Whether its group ends after it.
   bool Stop;
   /// The template of a directive before it, or -1.
@@ -123,7 +130,7 @@ struct Dispersal {
     unsigned Port = Unit == IA64II::UnitL ? IA64II::UnitI : Unit;
     unsigned Limit = Port == IA64II::UnitM ? 4 : Port == IA64II::UnitB ? 3 : 2;
     if (Ports[Port] == Limit || (It.IsLoad && Loads == 2) ||
-        (It.IsStore && Stores == 2))
+        (It.IsStore && Stores == 2) || (It.I0Only && Ports[Port] != 0))
       newCycle(1);
     ++Ports[Port];
     Loads += It.IsLoad;
@@ -347,6 +354,32 @@ static unsigned getUnits(const MachineInstr &MI, const MCInstrInfo &MCII,
   return IA64::getSlotUnits(Inst, MCII, MRI);
 }
 
+/// The index of the scheduling model's port I0, or 0 if it has none.
+static unsigned getPortI0(const TargetSchedModel &SM) {
+  if (!SM.hasInstrSchedModel())
+    return 0;
+  const MCSchedModel &M = *SM.getMCSchedModel();
+  for (unsigned I = 1; I != M.getNumProcResourceKinds(); ++I)
+    if (StringRef(M.getProcResource(I)->Name) == "I2PortI0")
+      return I;
+  return 0;
+}
+
+/// Whether the scheduling model has \p MI use port \p PortI0.
+static bool usesOnlyI0(const MachineInstr &MI, const TargetSchedModel &SM,
+                       unsigned PortI0) {
+  if (!PortI0)
+    return false;
+  const MCSchedClassDesc *SC = SM.resolveSchedClass(&MI);
+  if (!SC->isValid())
+    return false;
+  return any_of(
+      make_range(SM.getWriteProcResBegin(SC), SM.getWriteProcResEnd(SC)),
+      [&](const MCWriteProcResEntry &E) {
+        return E.ProcResourceIdx == PortI0 && E.ReleaseAtCycle;
+      });
+}
+
 /// Whether \p A, which comes first in its group, must stay before \p B.
 static bool mustPrecede(const MachineInstr &A, const MachineInstr &B,
                         const TargetRegisterInfo &TRI) {
@@ -411,6 +444,9 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo &TRI = *STI.getRegisterInfo();
   const MCRegisterInfo &MRI = TRI;
   const MCInstrInfo &MCII = *STI.getInstrInfo();
+  TargetSchedModel SM;
+  SM.init(&STI);
+  unsigned PortI0 = getPortI0(SM);
   bool Changed = false;
 
   // The instructions since the last start of a bundle. After a block that
@@ -476,9 +512,9 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         }
       }
       bool Stop = MI.getAsmPrinterFlag(IA64::StopAfter);
-      Items.push_back({&MI, Units,
-                       (MI.getDesc().TSFlags & IA64II::LastSlot) != 0,
-                       MI.mayLoad(), MI.mayStore(), Stop});
+      Items.push_back(
+          {&MI, Units, (MI.getDesc().TSFlags & IA64II::LastSlot) != 0,
+           MI.mayLoad(), MI.mayStore(), usesOnlyI0(MI, SM, PortI0), Stop});
       Attached.emplace_back();
       Movable &= !pinsGroup(MI);
       if (Stop)

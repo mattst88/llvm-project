@@ -19,6 +19,7 @@ define i64 @args(i64 %a, i64 %b) {
 ; CHECK-LABEL: args:
 ; CHECK:       alloc r35 = ar.pfs, 2, 3, 2, 0
 ; CHECK-NEXT:  mov r34 = r1
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r37 = r33
 ; CHECK-NEXT:  mov r38 = r32
 ; CHECK-NEXT:  .save rp, r36

@@ -136,6 +136,7 @@ define void @unnamed([3 x float] %h, [2 x double] %d) {
 ; CHECK-NEXT:  getf.d r38 = f11
 ; CHECK-NEXT:  getf.d r39 = f12 ;;
 ; CHECK-NEXT:  shl r14 = r14, 32
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  zxt4 r15 = r15 ;;
 ; CHECK-NEXT:  or r36 = r15, r14
 ; CHECK-NEXT:  .save rp, r34

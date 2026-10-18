@@ -11,7 +11,7 @@
 ; CODE:      c: add r14 = r33, r32 ;;
 ; CODE-NEXT: 10: adds r33 = 28, r12
 ; CODE:      20: st4 [r33] = r14
-; CODE-NEXT: 26: mov r37 = r33
+; CODE:      30: mov r37 = r33
 ; CODE:      3c: br.call.sptk.many b0 =
 ; CODE-NEXT: 40: ld4 r14 = [r33]
 ; CODE-NEXT: 46: setf.sig f6 = r32
@@ -20,7 +20,7 @@
 ; CHECK: min_inst_length: 1
 ; CHECK:      0x0000000000000000      2      0 {{.*}} is_stmt
 ; CHECK-NEXT: 0x0000000000000002      3     17 {{.*}} is_stmt prologue_end
-; CHECK:      0x0000000000000021      4      3 {{.*}} is_stmt
+; CHECK:      0x0000000000000030      4      3 {{.*}} is_stmt
 ; CHECK-NEXT: 0x0000000000000040      5     10 {{.*}} is_stmt
 ; CHECK-NEXT: 0x0000000000000041      5     16
 ; CHECK-NEXT: 0x0000000000000042      4      3 {{.*}} is_stmt

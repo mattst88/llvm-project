@@ -53,6 +53,7 @@ define ptr @frame_address_call() {
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  mov r8 = r35
 ; CHECK-NEXT:  .restore sp

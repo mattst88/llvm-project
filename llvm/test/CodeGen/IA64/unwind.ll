@@ -97,6 +97,7 @@ define i64 @aligned(i64 %n) {
 ; CHECK:       .vframe r35
 ; CHECK-NEXT:  mov r35 = r12
 ; CHECK-NEXT:  adds r12 = -112, r12 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  and r12 = -64, r12
 ; CHECK:       .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0

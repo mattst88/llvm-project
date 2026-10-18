@@ -13,6 +13,7 @@ define signext i32 @narrow(i32 signext %a, double %b, ptr %p, i8 zeroext %c) {
 ; CHECK-LABEL: narrow:
 ; CHECK:       alloc r36 = ar.pfs, 4, 2, 3, 0
 ; CHECK-NEXT:  mov r33 = r1
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r38 = r32
 ; CHECK-NEXT:  mov r40 = r34
 ; CHECK-NEXT:  .save rp, r37

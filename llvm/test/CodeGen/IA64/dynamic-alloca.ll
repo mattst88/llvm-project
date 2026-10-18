@@ -45,6 +45,7 @@ define i64 @fixed(i64 %n, i64 %m) {
 ; CHECK-NEXT:  and r14 = -16, r14 ;;
 ; CHECK-NEXT:  st8 [r34] = r33
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
+; CHECK-NEXT:  .mlx
 ; CHECK-NEXT:  adds r39 = 16, r12
 ; CHECK-NEXT:  mov r40 = r32
 ; CHECK-NEXT:  .save rp, r37

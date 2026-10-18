@@ -48,6 +48,7 @@ define double @call() {
 ; CHECK-NEXT:  movl r15 = 4616189618054758400
 ; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  mov r35 = 1 ;;
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  setf.s f8 = r14
 ; CHECK-NEXT:  setf.d f9 = r15
 ; CHECK-NEXT:  mov r37 = 3

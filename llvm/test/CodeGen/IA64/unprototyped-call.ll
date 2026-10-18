@@ -65,6 +65,7 @@ define void @both_memory(double %d) {
 define void @unnamed(ptr %s, double %d) {
 ; CHECK-LABEL: unnamed:
 ; CHECK:         getf.d r37 = f8
+; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    mov r33 = r1
 ; CHECK-NEXT:    mov r36 = r32
 ; CHECK-NEXT:    .save rp, r35

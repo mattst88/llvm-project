@@ -20,6 +20,7 @@ define void @callee(ptr sret(%big) %res, i64 %a) {
 define i64 @caller(i64 %a) {
 ; CHECK-LABEL: caller:
 ; CHECK:         mov r36 = r32 ;;
+; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    adds r32 = 16, r12
 ; CHECK-NEXT:    mov r33 = r1 ;;
 ; CHECK-NEXT:    mov r8 = r32

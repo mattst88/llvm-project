@@ -68,6 +68,7 @@ define double @fp(i64 %a, double %d) {
 define i64 @frame(i64 %a) {
 ; CHECK-LABEL: frame:
 ; CHECK:         .save ar.pfs, r34
+; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    alloc r34 = ar.pfs, 1, 3, 1, 0
 ; CHECK-NEXT:    .fframe 800
 ; CHECK-NEXT:    adds r12 = -800, r12 ;;

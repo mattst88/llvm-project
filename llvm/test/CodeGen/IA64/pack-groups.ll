@@ -60,7 +60,8 @@ define void @six_adds(ptr %p, i64 %a, i64 %b, i64 %c) {
 ; The frame is saved and the out registers are filled in three bundles. The
 ; assembler would choose MII for the first two, so the second waits for an I
 ; port. Neither MMI alone issues them in one cycle, so the templates of the
-; two are chosen together.
+; two are chosen together. Only port I0 moves from b0, so the third is MMI
+; too, which puts that move in its first I slot.
 declare void @g(i64, i64, i64, i64, i64, i64)
 define void @six_moves(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) {
 ; CHECK-LABEL: six_moves:
@@ -72,6 +73,7 @@ define void @six_moves(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) {
 ; CHECK-NEXT:  mov r42 = r36
 ; CHECK-NEXT:  mov r43 = r35
 ; CHECK-NEXT:  mov r44 = r34
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r45 = r33
 ; CHECK-NEXT:  mov r46 = r32
 ; CHECK-NEXT:  .save rp, r40
@@ -80,6 +82,23 @@ define void @six_moves(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) {
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
   call void @g(i64 %f, i64 %e, i64 %d, i64 %c, i64 %b, i64 %a)
   ret void
+}
+
+; Only port I0 shifts by a constant, and the I slots of a cycle take ports I0
+; and I1 in order, so the shift goes before the zero extension.
+define i64 @i0_only(i64 %a, i64 %b, i64 %c) {
+; CHECK-LABEL: i0_only:
+; CHECK:       shl r15 = r33, 5
+; CHECK-NEXT:  zxt4 r14 = r32 ;;
+; OFF-LABEL:   i0_only:
+; OFF:         zxt4 r14 = r32
+; OFF-NEXT:    shl r15 = r33, 5 ;;
+  %z = and i64 %a, 4294967295
+  %s = shl i64 %b, 5
+  %t = add i64 %c, 1
+  %u = add i64 %z, %s
+  %v = add i64 %u, %t
+  ret i64 %v
 }
 
 ; The assembler's MMI holds both loads, and nothing does better, so there is

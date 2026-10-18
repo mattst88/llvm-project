@@ -33,7 +33,7 @@ define i64 @caller(i64 %a) #0 {
 ; CHECK:         br.call.sptk.many b0 = _mcount ;;
 ; CHECK-NEXT:    .prologue
 ; CHECK:         .save ar.pfs, r34
-; CHECK-NEXT:    .mlx
+; CHECK-NEXT:    .mmf
 ; CHECK-NEXT:    alloc r34 = ar.pfs, 1, 3, 1, 0
 ; CHECK:         br.call.sptk.many b0 = g ;;
   %r = call i64 @g(i64 %a)
