@@ -629,6 +629,20 @@ IA64InstructionSelector::getCondition(Register Reg,
     IA64CC::CondCode CC = getIntegerCondition(Pred);
     Register LHS = Def->getOperand(2).getReg();
     Register RHS = Def->getOperand(3).getReg();
+    // A test of whether a single bit is set is a bit test.
+    const MachineInstr *And = MRI.getVRegDef(LHS);
+    auto Zero = getIConstantVRegValWithLookThrough(RHS, MRI);
+    if ((CC == IA64CC::EQ || CC == IA64CC::NE) && Zero &&
+        Zero->Value.isZero() && And &&
+        And->getOpcode() == TargetOpcode::G_AND) {
+      if (auto Mask = getIConstantVRegValWithLookThrough(
+              And->getOperand(2).getReg(), MRI);
+          Mask && Mask->Value.isPowerOf2())
+        return {Condition::RegisterAndConstant,
+                CC == IA64CC::EQ ? IA64CC::BitClear : IA64CC::BitSet,
+                And->getOperand(1).getReg(), Register(),
+                Mask->Value.logBase2()};
+    }
     if (auto C = getIConstantVRegValWithLookThrough(RHS, MRI);
         C && C->Value.isSignedIntN(64) &&
         IA64CC::isLegalImmediate(CC, C->Value.getSExtValue()))

@@ -12,6 +12,7 @@
   define void @mem() { ret void }
   define void @ext() { ret void }
   define void @cmp() { unreachable }
+  define void @bit() { unreachable }
   define void @fp() { ret void }
   define void @addr() {
   entry:
@@ -243,6 +244,43 @@ body:             |
   bb.3:
     liveins: $f8
     BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...
+---
+# A compare of a single bit with zero is a bit test, 22 if the bit is clear
+# and 23 if it is set, and the mask is left unused. Any other mask is not.
+# CHECK-LABEL: name: bit
+# CHECK: bb.0:
+# CHECK-NOT: AND
+# CHECK: %{{[0-9]+}}:gr = SELECTi %{{[0-9]+}}, %{{[0-9]+}}, 22, %{{[0-9]+}}, 3, implicit-def $p6, implicit-def $p7
+# CHECK: %{{[0-9]+}}:gr = ANDi 12, %{{[0-9]+}}, $p0
+# CHECK: %{{[0-9]+}}:gr = SETCCi 1, %{{[0-9]+}}, 0, implicit-def $p6, implicit-def $p7
+# CHECK: BRCCi %bb.1, 23, %{{[0-9]+}}, 40, implicit-def $p6, implicit-def $p7
+name:            bit
+legalized: true
+regBankSelected: true
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $r32, $r33
+    %0:gpr(s64) = COPY $r32
+    %1:gpr(s64) = COPY $r33
+    %2:gpr(s64) = G_CONSTANT i64 0
+    %3:gpr(s64) = G_CONSTANT i64 8
+    %4:gpr(s64) = G_AND %0, %3
+    %5:gpr(s64) = G_ICMP intpred(eq), %4, %2
+    %6:gpr(s64) = G_SELECT %5, %0, %1
+    %7:gpr(s64) = G_CONSTANT i64 12
+    %8:gpr(s64) = G_AND %0, %7
+    %9:gpr(s64) = G_ICMP intpred(ne), %8, %2
+    %10:gpr(s64) = G_ADD %6, %9
+    $r8 = COPY %10(s64)
+    %11:gpr(s64) = G_CONSTANT i64 1099511627776
+    %12:gpr(s64) = G_AND %1, %11
+    %13:gpr(s64) = G_ICMP intpred(ne), %12, %2
+    G_BRCOND %13, %bb.1
+  bb.1:
+    liveins: $r8
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
 ...
 ---
 # Arithmetic is a multiply and add, f0 and f1 are the constants there are,
