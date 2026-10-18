@@ -12,11 +12,16 @@
 
 #include "IA64TargetTransformInfo.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "ia64tti"
+
+static cl::opt<unsigned> UnrollThreshold(
+    "ia64-unroll-threshold", cl::Hidden, cl::init(30),
+    cl::desc("Size up to which loops are unrolled partially or at runtime"));
 
 // Zero is r0. An add of an immediate to r0 materializes a 22-bit signed
 // constant in one slot of a bundle; anything wider needs movl, which takes two.
@@ -209,6 +214,24 @@ InstructionCost IA64TTIImpl::getArithmeticInstrCost(
 
   return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info, Op2Info,
                                        Args, CtxI);
+}
+
+void IA64TTIImpl::getUnrollingPreferences(
+    Loop *L, ScalarEvolution &SE, TTI::UnrollingPreferences &UP,
+    OptimizationRemarkEmitter *ORE) const {
+  BaseT::getUnrollingPreferences(L, SE, UP, ORE);
+
+  // A call costs more than the loop overhead that unrolling saves.
+  for (BasicBlock *BB : L->blocks())
+    for (Instruction &I : *BB)
+      if (auto *Call = dyn_cast<CallBase>(&I)) {
+        const Function *F = Call->getCalledFunction();
+        if (!F || isLoweredToCall(F))
+          return;
+      }
+
+  UP.Partial = UP.Runtime = UP.UpperBound = true;
+  UP.PartialThreshold = UnrollThreshold;
 }
 
 bool IA64TTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,

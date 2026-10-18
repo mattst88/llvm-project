@@ -75,6 +75,12 @@ public:
       ArrayRef<const Value *> Args = {},
       const Instruction *CtxI = nullptr) const override;
 
+  // An in-order machine that issues six instructions a cycle has nothing to
+  // overlap one iteration of a small loop with but the next.
+  void getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
+                               TTI::UnrollingPreferences &UP,
+                               OptimizationRemarkEmitter *ORE) const override;
+
   // br.cloop counts a loop down in ar.lc, which is callee-saved, so a
   // counted loop needs no induction variable of its own to compare.
   bool isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
