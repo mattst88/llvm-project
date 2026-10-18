@@ -153,6 +153,43 @@ define i64 @insert_seventeen(i64 %x, i64 %y) {
   ret i64 %r
 }
 
+; The sign of a 32-bit value masked by one whose high bits are clear: the
+; arithmetic shift becomes a logical one, but either is the same under the
+; mask, and only the arithmetic one is a field.
+define i32 @sign_masked(i32 %k, i32 zeroext %n) {
+; CHECK-LABEL: sign_masked:
+; CHECK:       extr r14 = r32, 31, 1 ;;
+; CHECK-NEXT:  and r14 = r14, r33 ;;
+  %s = ashr i32 %k, 31
+  %m = and i32 %s, %n
+  %r = add i32 %m, %k
+  ret i32 %r
+}
+
+; A mask that may keep the high bits tells the two shifts apart.
+define i64 @sign_unmasked(i64 %x, i64 %n) {
+; CHECK-LABEL: sign_unmasked:
+; CHECK:       sxt4 r14 = r32 ;;
+; CHECK-NEXT:  shr.u r14 = r14, 31 ;;
+; CHECK-NEXT:  and r8 = r14, r33
+  %s = shl i64 %x, 32
+  %a = ashr i64 %s, 32
+  %l = lshr i64 %a, 31
+  %m = and i64 %l, %n
+  ret i64 %m
+}
+
+; A user other than an AND (here the return's copy) need not have two
+; operands; this crashed CPython's os_sched_getaffinity.
+define i64 @sign_unused_by_and(i32 %x) {
+; CHECK-LABEL: sign_unused_by_and:
+; CHECK:       sxt4 r14 = r32 ;;
+; CHECK-NEXT:  shr.u r8 = r14, 1
+  %s = sext i32 %x to i64
+  %l = lshr i64 %s, 1
+  ret i64 %l
+}
+
 ; A value that may have bits outside the field is not one to deposit.
 
 define i64 @not_a_field(i64 %x, i64 %y) {

@@ -16,6 +16,7 @@
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "llvm/Support/KnownBits.h"
 #include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
@@ -43,6 +44,7 @@ public:
   void restoreGPAtLandingPads(MachineFunction &MF);
 
   void Select(SDNode *Node) override;
+  void PreprocessISelDAG() override;
   void PostprocessISelDAG() override;
 
   bool SelectInlineAsmMemoryOperand(const SDValue &Op,
@@ -882,6 +884,40 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   }
 
   SelectCode(Node);
+}
+
+// A sign-extended field shifted right differs from the same field shifted
+// arithmetically only in the top bits, which are zero in one and copies of
+// the sign in the other. When every user is an AND whose other operand has
+// those bits clear, the combiner prefers the logical shift, but only the
+// arithmetic one is a single extr.
+void IA64DAGToDAGISel::PreprocessISelDAG() {
+  bool Changed = false;
+  for (SDNode &Node : make_early_inc_range(CurDAG->allnodes())) {
+    unsigned Amount;
+    if (Node.getValueType(0) != MVT::i64 ||
+        !isShiftBy(SDValue(&Node, 0), ISD::SRL, Amount) || Amount == 0)
+      continue;
+    SDValue Field = Node.getOperand(0);
+    if (Field.getOpcode() != ISD::SIGN_EXTEND_INREG ||
+        Amount >= cast<VTSDNode>(Field.getOperand(1))->getVT().getSizeInBits())
+      continue;
+    APInt Top = APInt::getHighBitsSet(64, Amount);
+    auto Masks = [&](const SDUse &U) {
+      if (U.getUser()->getOpcode() != ISD::AND)
+        return false;
+      SDValue Other = U.getUser()->getOperand(1 - U.getOperandNo());
+      return Top.isSubsetOf(CurDAG->computeKnownBits(Other).Zero);
+    };
+    if (!all_of(Node.uses(), Masks))
+      continue;
+    SDValue Shift = CurDAG->getNode(ISD::SRA, SDLoc(&Node), MVT::i64, Field,
+                                    Node.getOperand(1));
+    CurDAG->ReplaceAllUsesOfValueWith(SDValue(&Node, 0), Shift);
+    Changed = true;
+  }
+  if (Changed)
+    CurDAG->RemoveDeadNodes();
 }
 
 // An LTOFF load of an address from the linkage table can be relaxed by the
