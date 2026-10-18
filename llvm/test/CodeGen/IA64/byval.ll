@@ -22,6 +22,9 @@ define void @small(ptr %p) {
 ; CHECK:       ld8 r36 = [r32], 8
 ; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  ld8 r37 = [r32]
+; CHECK-NEXT:  .save rp, r35
+; CHECK-NEXT:  mov r35 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take ;;
   call void @take(ptr byval(%struct.s) align 8 %p)
   ret void
@@ -37,6 +40,9 @@ define void @odd(ptr %p) {
 ; CHECK-NEXT:  ld2 r14 = [r14] ;;
 ; CHECK-NEXT:  shl r15 = r15, 16 ;;
 ; CHECK-NEXT:  or r36 = r14, r15
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_odd ;;
   call void @take_odd(ptr byval(%struct.odd) align 8 %p)
   ret void
@@ -48,11 +54,15 @@ define void @odd(ptr %p) {
 define void @large(ptr %p, i64 %x) {
 ; CHECK-LABEL: large:
 ; CHECK:       adds r12 = -976, r12
-; CHECK:       mov r45 = r32 ;;
+; CHECK:       mov r45 = r32
+; CHECK-NEXT:  mov r41 = r1 ;;
 ; CHECK-NEXT:  adds r44 = 16, r12
 ; CHECK-NEXT:  mov r46 = 960
-; CHECK:       ld8 r{{[0-9]+}} = [r45], 64 ;;
-; CHECK:       br.call.sptk.many b0 = memcpy ;;
+; CHECK:       ld8 r{{[0-9]+}} = [r45], 64
+; CHECK-NEXT:  .save rp, r43
+; CHECK-NEXT:  mov r43 = b0
+; CHECK-NEXT:  .body
+; CHECK-NEXT:  br.call.sptk.many b0 = memcpy ;;
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 976, r12
 ; CHECK:       st8 [r14] = r33
@@ -69,6 +79,9 @@ define void @aligned(ptr %p) {
 ; CHECK-NEXT:  ld8 r40 = [r14]
 ; CHECK:       ld8 r39 = [r15] ;;
 ; CHECK-NEXT:  ld8 r38 = [r14]
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_al ;;
   call void @take_al(i64 0, ptr byval(%struct.al) align 16 %p)
   ret void
@@ -77,13 +90,16 @@ define void @aligned(ptr %p) {
 ; It may be partly in registers and partly in memory.
 define void @split(ptr %p) {
 ; CHECK-LABEL: split:
-; CHECK:       adds r15 = 16, r12
 ; CHECK:       ld8 r42 = [r14]
+; CHECK-NEXT:  adds r15 = 16, r12
 ; CHECK:       ld8 r41 = [r32], 24 ;;
 ; CHECK-NEXT:  st8 [r15] = r14
 ; CHECK-NEXT:  adds r15 = 24, r12
 ; CHECK-NEXT:  ld8 r14 = [r32]
 ; CHECK:       st8 [r15] = r14
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_split ;;
   call void @take_split(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5,
                         ptr byval(%struct.al) align 16 %p)

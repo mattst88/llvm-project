@@ -23,6 +23,9 @@ define i64 @caller(i64 %a) {
 ; CHECK-NEXT:    adds r32 = 16, r12
 ; CHECK-NEXT:    mov r33 = r1 ;;
 ; CHECK-NEXT:    mov r8 = r32
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = make ;;
   %res = alloca %big
   call void @make(ptr sret(%big) %res, i64 %a)

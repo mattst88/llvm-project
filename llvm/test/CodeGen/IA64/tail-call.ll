@@ -69,12 +69,12 @@ define i64 @frame(i64 %a) {
 ; CHECK-LABEL: frame:
 ; CHECK:         .save ar.pfs, r34
 ; CHECK-NEXT:    alloc r34 = ar.pfs, 1, 3, 1, 0
-; CHECK-NEXT:    .save rp, r35
-; CHECK-NEXT:    mov r35 = b0
 ; CHECK-NEXT:    .fframe 800
 ; CHECK-NEXT:    adds r12 = -800, r12 ;;
-; CHECK-NEXT:    .body
 ; CHECK-NEXT:    adds r36 = 16, r12
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = fill ;;
 ; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    mov r33 = 3

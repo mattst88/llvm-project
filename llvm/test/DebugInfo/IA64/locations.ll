@@ -5,9 +5,9 @@
 ; the same name for as long as it runs, and whose DWARF number is the number
 ; of the register and needs DW_OP_regx from r32 on. The first parameter stays
 ; where it came. The second is in r33 until r33 is given the address of the
-; local variable, by the instruction in the second slot of the second bundle:
+; local variable, by the instruction in the first slot of the second bundle:
 ; the address of a slot is that of its bundle with the slot number added, so
-; the range ends at 0x12. What is in memory is found from the stack pointer,
+; the range ends at 0x11. What is in memory is found from the stack pointer,
 ; which is the frame base.
 
 ; CHECK:      DW_TAG_subprogram
@@ -18,7 +18,7 @@
 ; CHECK-NEXT:   DW_AT_name ("a")
 ; CHECK:      DW_TAG_formal_parameter
 ; CHECK-NEXT:   DW_AT_location
-; CHECK-NEXT:     [0x0000000000000000, 0x0000000000000012): DW_OP_regx R33)
+; CHECK-NEXT:     [0x0000000000000000, 0x0000000000000011): DW_OP_regx R33)
 ; CHECK-NEXT:   DW_AT_name ("b")
 ; CHECK:      DW_TAG_variable
 ; CHECK-NEXT:   DW_AT_location (DW_OP_fbreg +28)

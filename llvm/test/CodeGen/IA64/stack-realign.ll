@@ -13,17 +13,17 @@ define i64 @aligned(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 ; CHECK:       // %bb.0:
 ; CHECK-NEXT:    .save ar.pfs, r34
 ; CHECK-NEXT:    alloc r34 = ar.pfs, 0, 5, 1, 0
-; CHECK-NEXT:    .save rp, r35
-; CHECK-NEXT:    mov r35 = b0
 ; CHECK-NEXT:    .vframe r36
 ; CHECK-NEXT:    mov r36 = r12
 ; CHECK-NEXT:    adds r12 = -112, r12 ;;
 ; CHECK-NEXT:    and r12 = -64, r12
-; CHECK-NEXT:    .body
-; CHECK-NEXT:    adds r14 = 16, r36 ;;
+; CHECK-NEXT:    adds r14 = 16, r36
+; CHECK-NEXT:    mov r33 = r1 ;;
 ; CHECK-NEXT:    adds r37 = 64, r12
-; CHECK-NEXT:    mov r33 = r1
 ; CHECK-NEXT:    ld8 r32 = [r14]
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = use ;;
 ; CHECK-NEXT:    mov r1 = r33
 ; CHECK-NEXT:    mov r8 = r32
@@ -42,7 +42,6 @@ define i64 @aligned(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 define void @page() {
 ; CHECK-LABEL: page:
 ; CHECK:         mov r35 = r12
-; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    adds r12 = -8176, r12
 ; CHECK-NEXT:    mov r2 = -4096 ;;
 ; CHECK-NEXT:    and r12 = r2, r12
@@ -63,6 +62,9 @@ define void @variable(i64 %n) {
 ; CHECK-NEXT:    mov r36 = r12
 ; CHECK:         sub r12 = r12, r14 ;;
 ; CHECK-NEXT:    adds r37 = 16, r12
+; CHECK-NEXT:    .save rp, r34
+; CHECK-NEXT:    mov r34 = b0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = use ;;
 ; CHECK-NEXT:    adds r37 = 64, r36
 ; CHECK-NEXT:    mov r1 = r32

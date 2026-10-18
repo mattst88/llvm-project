@@ -25,7 +25,6 @@ define i64 @callee(ptr nest %chain, i64 %a) {
 define i64 @direct(ptr %chain, i64 %a) {
 ; CHECK-LABEL: direct:
 ; CHECK:       mov r37 = r33
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r15 = r32
 ; CHECK:       br.call.sptk.many b0 = nested ;;
 ; GISEL-LABEL: direct:

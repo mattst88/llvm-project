@@ -53,8 +53,8 @@ define i64 @next_to_last(i64 %a, i64 %b) {
 define i64 @operand(i64 %a) {
 ; CHECK-LABEL: operand:
 ; CHECK:       alloc r[[PFS:3[3-9]]] = ar.pfs, 1, 87, 2, 0
-; CHECK:       mov r[[RP:3[3-9]]] = b0
 ; CHECK:       mov r119 = r{{[0-9]+}}
+; CHECK:       mov r[[RP:3[3-9]]] = b0
 ; CHECK:       adds r{{[0-9]+}} = 1, r119
 ; CHECK:       mov b0 = r[[RP]]
 ; CHECK-NEXT:  mov ar.pfs = r[[PFS]]

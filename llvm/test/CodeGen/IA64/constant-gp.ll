@@ -10,10 +10,10 @@ declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)
 define i64 @by_name(i64 %a) {
 ; CHECK-LABEL: by_name:
 ; CHECK:       alloc r33 = ar.pfs, 1, 2, 1, 0
+; CHECK-NEXT:  mov r35 = r32
 ; CHECK-NEXT:  .save rp, r34
-; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  mov r34 = b0 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov r35 = r32 ;;
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext ;;
 ; CHECK-NEXT:  adds r8 = 1, r8
 ; CHECK-NEXT:  mov b0 = r34
@@ -40,9 +40,12 @@ define void @library(ptr %d, ptr %s, i64 %n) {
 define i64 @indirect(ptr %f, i64 %a) {
 ; CHECK-LABEL: indirect:
 ; CHECK:       ld8 r14 = [r32], 8
-; CHECK-NEXT:  mov r37 = r33
-; CHECK-NEXT:  mov r34 = r1 ;;
+; CHECK-NEXT:  mov r34 = r1
+; CHECK-NEXT:  mov r37 = r33 ;;
 ; CHECK-NEXT:  ld8 r15 = [r32]
+; CHECK-NEXT:  .save rp, r36
+; CHECK-NEXT:  mov r36 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov b6 = r14 ;;
 ; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;

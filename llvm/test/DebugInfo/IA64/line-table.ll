@@ -5,24 +5,28 @@
 ; A row of the line table is for an instruction, and three instructions share
 ; the sixteen bytes of a bundle, so the address in a row is that of the bundle
 ; with the number of the slot in its low bits, as it is for gas. The
-; instructions of one bundle may be of different lines: the store of line 3
-; is between the two halves of the call of line 4.
+; instructions of one bundle may be of different lines: the load of line 5
+; is between the call of line 4 and the gp it puts back.
 
-; CODE:      10: add r14 = r33, r32 ;;
-; CODE-NEXT: 16: adds r33 = 28, r12
-; CODE:      20: mov r37 = r33
-; CODE-NEXT: 26: st4 [r33] = r14
-; CODE-NEXT: 2c: br.call.sptk.many b0 =
+; CODE:      c: add r14 = r33, r32 ;;
+; CODE-NEXT: 10: adds r33 = 28, r12
+; CODE:      20: st4 [r33] = r14
+; CODE-NEXT: 26: mov r37 = r33
+; CODE:      3c: br.call.sptk.many b0 =
+; CODE-NEXT: 40: ld4 r14 = [r33]
+; CODE-NEXT: 46: setf.sig f6 = r32
+; CODE-NEXT: 4c: mov r1 = r34 ;;
 
 ; CHECK: min_inst_length: 1
 ; CHECK:      0x0000000000000000      2      0 {{.*}} is_stmt
-; CHECK-NEXT: 0x0000000000000010      3     17 {{.*}} is_stmt prologue_end
-; CHECK:      0x0000000000000020      4      3 {{.*}} is_stmt
-; CHECK-NEXT: 0x0000000000000021      3      7 {{.*}} is_stmt
-; CHECK-NEXT: 0x0000000000000022      4      3 {{.*}} is_stmt
-; CHECK-NEXT: 0x0000000000000030      5     10 {{.*}} is_stmt
-; CHECK:      0x0000000000000061      5      3 {{.*}} epilogue_begin
-; CHECK-NEXT: 0x0000000000000080      5      3 {{.*}} end_sequence
+; CHECK-NEXT: 0x0000000000000002      3     17 {{.*}} is_stmt prologue_end
+; CHECK:      0x0000000000000021      4      3 {{.*}} is_stmt
+; CHECK-NEXT: 0x0000000000000040      5     10 {{.*}} is_stmt
+; CHECK-NEXT: 0x0000000000000041      5     16
+; CHECK-NEXT: 0x0000000000000042      4      3 {{.*}} is_stmt
+; CHECK-NEXT: 0x0000000000000050      5     16 {{.*}} is_stmt
+; CHECK:      0x0000000000000071      5      3 {{.*}} epilogue_begin
+; CHECK-NEXT: 0x0000000000000090      5      3 {{.*}} end_sequence
 
 define i32 @f(i32 %a, i32 %b) !dbg !8 {
 entry:

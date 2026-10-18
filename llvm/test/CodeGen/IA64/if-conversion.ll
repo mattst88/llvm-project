@@ -45,8 +45,11 @@ join:
 
 define void @diamond(i64 %a, ptr %p, ptr %q) {
 ; CHECK-LABEL: diamond:
-; CHECK:       cmp.lt p6, p7 = -1, r32
-; CHECK-NEXT:  mov r35 = r1 ;;
+; CHECK:       mov r35 = r1
+; CHECK-NEXT:  .save rp, r37
+; CHECK-NEXT:  mov r37 = b0
+; CHECK-NEXT:  .body
+; CHECK-NEXT:  cmp.lt p6, p7 = -1, r32 ;;
 ; CHECK-NEXT:  (p6) mov r14 = 2 ;;
 ; CHECK-NEXT:  (p6) st8 [r34] = r14
 ; CHECK-NEXT:  (p7) mov r14 = 1 ;;

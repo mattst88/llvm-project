@@ -26,9 +26,12 @@ define i64 @srem(i64 %a, i64 %b) {
 ; The operands are extended to the register first.
 define i32 @urem32(i32 %a, i32 %b) {
 ; CHECK-LABEL: urem32:
-; CHECK:      zxt4 r37 = r32
+; CHECK:      mov r34 = r1
+; CHECK-NEXT: zxt4 r37 = r32
 ; CHECK-NEXT: zxt4 r38 = r33
-; CHECK-NEXT: mov r34 = r1 ;;
+; CHECK-NEXT: .save rp, r36
+; CHECK-NEXT: mov r36 = b0 ;;
+; CHECK-NEXT: .body
 ; CHECK-NEXT: br.call.sptk.many b0 = __umoddi3 ;;
   %r = urem i32 %a, %b
   ret i32 %r

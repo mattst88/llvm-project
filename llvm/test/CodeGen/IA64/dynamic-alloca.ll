@@ -8,18 +8,17 @@ declare void @g(ptr, i64)
 define void @f(i64 %n) {
 ; CHECK-LABEL: f:
 ; CHECK:       alloc r33 = ar.pfs, 1, 3, 2, 0
-; CHECK-NEXT:  .save rp, r34
-; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .vframe r35
 ; CHECK-NEXT:  mov r35 = r12
-; CHECK-NEXT:  .body
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r37 = r32
 ; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  adds r14 = 15, r37 ;;
 ; CHECK-NEXT:  and r14 = -16, r14 ;;
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
 ; CHECK-NEXT:  adds r36 = 16, r12
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r32
@@ -37,13 +36,9 @@ define void @f(i64 %n) {
 define i64 @fixed(i64 %n, i64 %m) {
 ; CHECK-LABEL: fixed:
 ; CHECK:       alloc r36 = ar.pfs, 2, 5, 2, 0
-; CHECK-NEXT:  .save rp, r37
-; CHECK-NEXT:  mov r37 = b0
 ; CHECK-NEXT:  .vframe r38
 ; CHECK-NEXT:  mov r38 = r12
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r12 = -16, r12
-; CHECK-NEXT:  .body
 ; CHECK-NEXT:  adds r14 = 15, r32 ;;
 ; CHECK-NEXT:  adds r34 = 8, r38
 ; CHECK-NEXT:  mov r35 = r1
@@ -51,6 +46,10 @@ define i64 @fixed(i64 %n, i64 %m) {
 ; CHECK-NEXT:  st8 [r34] = r33
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
 ; CHECK-NEXT:  adds r39 = 16, r12
+; CHECK-NEXT:  mov r40 = r32
+; CHECK-NEXT:  .save rp, r37
+; CHECK-NEXT:  mov r37 = b0
+; CHECK-NEXT:  .body
 ; CHECK:       ld8 r8 = [r34]
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r38
@@ -86,7 +85,6 @@ declare void @h(i64, i64, i64, i64, i64, i64, i64, i64, i64, ptr)
 define void @stack_arguments(i64 %n) {
 ; CHECK-LABEL: stack_arguments:
 ; CHECK:       sub r12 = r12, r14 ;;
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 32, r12
 ; CHECK-NEXT:  adds r15 = 24, r12
 ; CHECK:       st8 [r15] = r14

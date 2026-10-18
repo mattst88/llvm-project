@@ -13,10 +13,13 @@ declare i32 @printf(ptr, ...)
 define void @both(i32 %a, double %d, float %f) {
 ; CHECK-LABEL: both:
 ; CHECK:         getf.d r37 = f8
+; CHECK-NEXT:    mov r33 = r1
 ; CHECK-NEXT:    mov r36 = r32
 ; CHECK-NEXT:    mov r39 = 7
-; CHECK-NEXT:    mov r33 = r1
-; CHECK-NEXT:    getf.s r38 = f9 ;;
+; CHECK-NEXT:    getf.s r38 = f9
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0 ;;
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = kr ;;
   call i32 (i32, double, float, i32, ...) @kr(i32 %a, double %d, float %f, i32 7)
   ret void
@@ -32,6 +35,9 @@ define void @both_extended(i32 %a, x86_fp80 %l) {
 ; CHECK-NEXT:    or r15 = 8, r14 ;;
 ; CHECK-NEXT:    ld8 r39 = [r15]
 ; CHECK-NEXT:    ld8 r38 = [r14]
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = kr ;;
   call i32 (i32, x86_fp80, ...) @kr(i32 %a, x86_fp80 %l)
   ret void
@@ -41,10 +47,14 @@ define void @both_extended(i32 %a, x86_fp80 %l) {
 
 define void @both_memory(double %d) {
 ; CHECK-LABEL: both_memory:
-; CHECK:         getf.d r42 = f8 ;;
-; CHECK-NEXT:    adds r14 = 16, r12
+; CHECK:         adds r14 = 16, r12
+; CHECK-NEXT:    .mmi
+; CHECK-NEXT:    getf.d r42 = f8
 ; CHECK-NOT:     f9
 ; CHECK:         stfd [r14] = f8
+; CHECK-NEXT:    .save rp, r34
+; CHECK-NEXT:    mov r34 = b0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = kr ;;
   call i32 (i64, i64, i64, i64, i64, i64, i64, double, double, ...) @kr(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, double %d, double %d)
   ret void
@@ -55,8 +65,11 @@ define void @both_memory(double %d) {
 define void @unnamed(ptr %s, double %d) {
 ; CHECK-LABEL: unnamed:
 ; CHECK:         getf.d r37 = f8
+; CHECK-NEXT:    mov r33 = r1
 ; CHECK-NEXT:    mov r36 = r32
-; CHECK-NEXT:    mov r33 = r1 ;;
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0 ;;
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = printf ;;
   call i32 (ptr, ...) @printf(ptr %s, double %d)
   ret void

@@ -115,6 +115,9 @@ define i32 @forward(ptr %f, ...) {
 ; CHECK:       st8.spill [r14] = r33
 ; CHECK:       st8 [r15] = r14
 ; CHECK-NEXT:  ld8 r44 = [r15]
+; CHECK-NEXT:  .save rp, r41
+; CHECK-NEXT:  mov r41 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = vf ;;
   %ap = alloca ptr
   %aq = alloca ptr
@@ -131,20 +134,22 @@ declare i32 @pf(ptr, ...)
 define i32 @call(double %d, double %e) {
 ; CHECK-LABEL: call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 8, 0
-; CHECK:       getf.d r37 = f8
-; CHECK-NEXT:  mov r36 = 1 ;;
-; CHECK-NEXT:  .mmi
+; CHECK:       getf.d r37 = f8 ;;
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12
+; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  mov r36 = 1
 ; CHECK-NEXT:  mov r39 = 2
-; CHECK-NEXT:  mov r35 = r0
 ; CHECK-NEXT:  getf.d r38 = f9
-; CHECK-NEXT:  mov r32 = r1 ;;
+; CHECK-NEXT:  mov r35 = r0 ;;
 ; CHECK-NEXT:  stfd [r14] = f8
 ; CHECK-NEXT:  stfd [r15] = f8
 ; CHECK-NEXT:  mov r40 = r37
 ; CHECK-NEXT:  mov r41 = r37
 ; CHECK-NEXT:  mov r42 = r37
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = pf ;;
   %r = call i32 (ptr, ...) @pf(ptr null, i32 1, double %d, double %e, i64 2, double %d, double %d, double %d, double %d, double %d)
   ret i32 %r
@@ -161,6 +166,9 @@ define i32 @call_named(double %d, float %f) {
 ; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  getf.s r36 = f9 ;;
 ; CHECK-NEXT:  mov r37 = r35
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = pf2 ;;
   %r = call i32 (double, ...) @pf2(double %d, float %f, double %d)
   ret i32 %r

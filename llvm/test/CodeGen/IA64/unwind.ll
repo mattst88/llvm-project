@@ -38,10 +38,11 @@ define i64 @call(i64 %a) {
 ; CHECK-NEXT:  .prologue
 ; CHECK:       .save ar.pfs, r34
 ; CHECK-NEXT:  alloc r34 = ar.pfs, 1, 3, 1, 0
+; CHECK-NEXT:  .fframe 16
+; CHECK-NEXT:  adds r12 = -16, r12 ;;
+; CHECK:       st8 [r36] = r32
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
-; CHECK-NEXT:  .fframe 16
-; CHECK-NEXT:  adds r12 = -16, r12
 ; CHECK-NEXT:  .body
 ; CHECK:       .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
@@ -60,6 +61,8 @@ define i64 @large(i64 %a) {
 ; CHECK:       mov r2 = -800000 ;;
 ; CHECK-NEXT:  .fframe 800000
 ; CHECK-NEXT:  add r12 = r2, r12
+; CHECK:       .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       mov r2 = 800000 ;;
 ; CHECK-NEXT:  .restore sp
@@ -75,6 +78,10 @@ define i64 @dynamic(i64 %n) {
 ; CHECK-LABEL: dynamic:
 ; CHECK:       .vframe r35
 ; CHECK-NEXT:  mov r35 = r12
+; CHECK:       sub r12 = r12, r14 ;;
+; CHECK-NEXT:  adds r36 = 16, r12
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       .restore sp
 ; CHECK-NEXT:  mov r12 = r35
@@ -91,6 +98,8 @@ define i64 @aligned(i64 %n) {
 ; CHECK-NEXT:  mov r35 = r12
 ; CHECK-NEXT:  adds r12 = -112, r12 ;;
 ; CHECK-NEXT:  and r12 = -64, r12
+; CHECK:       .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       .restore sp
 ; CHECK-NEXT:  mov r12 = r35
@@ -104,6 +113,9 @@ define i64 @returns(i64 %a) {
 ; CHECK-LABEL: returns:
 ; CHECK:       .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12
+; CHECK-NEXT:  mov r33 = r1
+; CHECK-NEXT:  .save rp, r35
+; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NOT:   .body
 ; CHECK:       .label_state 1
@@ -142,8 +154,6 @@ define i64 @saves(i64 %a) {
 ; CHECK-LABEL: saves:
 ; CHECK:       .save ar.pfs, r33
 ; CHECK-NEXT:  alloc r33 = ar.pfs, 0, 4, 1, 0
-; CHECK-NEXT:  .save rp, r34
-; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .save ar.unat, r35
 ; CHECK-NEXT:  mov r35 = ar.unat
 ; CHECK-NEXT:  .fframe 64
@@ -160,6 +170,9 @@ define i64 @saves(i64 %a) {
 ; CHECK-NEXT:  adds r2 = 32, r12 ;;
 ; CHECK-NEXT:  .save.g 0x1
 ; CHECK-NEXT:  st8.spill [r2] = r4
+; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       br.call.sptk.many b0 = ext ;;
 ; CHECK-NEXT:  mov r1 = r32
@@ -217,6 +230,9 @@ define i64 @saves_aligned(i64 %a) {
 ; CHECK-NEXT:  adds r2 = -24, r36 ;;
 ; CHECK-NEXT:  .save.g 0x8
 ; CHECK-NEXT:  st8.spill [r2] = r7
+; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       adds r37 = 64, r12
 ; CHECK:       adds r7 = -24, r36 ;;

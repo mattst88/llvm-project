@@ -152,11 +152,13 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
         .addImm(0)
         .addReg(IA64::P0)
         .setMIFlag(MachineInstr::FrameSetup);
+    SmallVector<MachineInstr *, 6> Sinkable;
     if (SaveRP) {
-      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_BR), FI->getSavedRP())
-          .addReg(IA64::B0)
-          .addReg(IA64::P0)
-          .setMIFlag(MachineInstr::FrameSetup);
+      Sinkable.push_back(
+          BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_BR), FI->getSavedRP())
+              .addReg(IA64::B0)
+              .addReg(IA64::P0)
+              .setMIFlag(MachineInstr::FrameSetup));
       if (!MBB.isLiveIn(IA64::B0))
         MBB.addLiveIn(IA64::B0);
     }
@@ -170,19 +172,40 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
           .addReg(IA64::P0)
           .setMIFlag(MachineInstr::FrameSetup);
     if (FI->getSavedLC())
-      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_AR), FI->getSavedLC())
-          .addReg(IA64::AR65)
-          .addReg(IA64::P0)
-          .setMIFlag(MachineInstr::FrameSetup);
+      Sinkable.push_back(
+          BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_AR), FI->getSavedLC())
+              .addReg(IA64::AR65)
+              .addReg(IA64::P0)
+              .setMIFlag(MachineInstr::FrameSetup));
     for (unsigned I = 0; I != 5; ++I) {
       if (!FI->getSavedBR(I))
         continue;
-      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_BR), FI->getSavedBR(I))
-          .addReg(IA64::B1 + I)
-          .addReg(IA64::P0)
-          .setMIFlag(MachineInstr::FrameSetup);
+      Sinkable.push_back(
+          BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_FROM_BR), FI->getSavedBR(I))
+              .addReg(IA64::B1 + I)
+              .addReg(IA64::P0)
+              .setMIFlag(MachineInstr::FrameSetup));
       if (!MBB.isLiveIn(IA64::B1 + I))
         MBB.addLiveIn(IA64::B1 + I);
+    }
+    // The I-unit moves of ar.lc and the branch registers would compete for
+    // the two I ports with the first instructions of the body, so each goes
+    // as late in the block as it can: before the first instruction that
+    // touches either register, or that a call, a label or an epilogue may
+    // need it before. The unwind directives follow it there.
+    for (MachineInstr *MI : Sinkable) {
+      Register Save = MI->getOperand(0).getReg();
+      Register From = MI->getOperand(1).getReg();
+      MachineBasicBlock::iterator To = MBBI;
+      while (
+          To != MBB.end() && !To->isCall() && !To->isTerminator() &&
+          !To->isLabel() && !To->isInlineAsm() &&
+          !To->hasUnmodeledSideEffects() &&
+          !To->getFlag(MachineInstr::FrameDestroy) &&
+          !To->readsRegister(From, &TRI) && !To->modifiesRegister(From, &TRI) &&
+          !To->readsRegister(Save, &TRI) && !To->modifiesRegister(Save, &TRI))
+        ++To;
+      MBB.splice(To, &MBB, MI);
     }
     // If sp moves in the body, the frame is located from the incoming sp.
     if (FI->getFramePointer())

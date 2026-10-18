@@ -31,6 +31,9 @@ define <2 x float> @call(<2 x float> %v) {
 ; CHECK-DAG:   setf.d f12 = r15
 ; CHECK-DAG:   setf.sig f8 = r14
 ; CHECK:       mov f10 = f8
+; CHECK-NEXT:  .save rp, r36
+; CHECK-NEXT:  mov r36 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext
 ; CHECK-NEXT:  getf.sig r33 = f8
   %r = call <2 x float> @ext(i64 1, <2 x float> %v, double 1.0, <2 x float> %v, double 2.0)
@@ -91,6 +94,9 @@ define void @variadic(<2 x float> %v) {
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 1, 0
 ; CHECK:       getf.sig r35 = f8
 ; CHECK:       setf.sig f8 = r35
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = named
   call void (<2 x float>, ...) @named(<2 x float> %v)
   ret void

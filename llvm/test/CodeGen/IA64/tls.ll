@@ -46,10 +46,12 @@ define i64 @initial_exec() {
 define i64 @local_dynamic() {
 ; CHECK-LABEL: local_dynamic:
 ; PIC:         addl r14 = @ltoff(@dtpmod(ld)), r1
-; PIC-NEXT:    .mmi
-; PIC-NEXT:    mov r36 = r0
-; PIC-NEXT:    mov r32 = r1 ;;
+; PIC-NEXT:    mov r32 = r1
+; PIC-NEXT:    mov r36 = r0 ;;
 ; PIC-NEXT:    ld8 r35 = [r14]
+; PIC-NEXT:    .save rp, r34
+; PIC-NEXT:    mov r34 = b0
+; PIC-NEXT:    .body
 ; PIC-NEXT:    br.call.sptk.many b0 = __tls_get_addr ;;
 ; PIC-NEXT:    mov r3 = r8
 ; PIC-NEXT:    mov r1 = r32 ;;
@@ -74,6 +76,9 @@ define ptr @general_dynamic() {
 ; PIC-NEXT:    ld8 r35 = [r14]
 ; PIC-NEXT:    addl r14 = @ltoff(@dtprel(gd)), r1 ;;
 ; PIC-NEXT:    ld8 r36 = [r14]
+; PIC-NEXT:    .save rp, r34
+; PIC-NEXT:    mov r34 = b0
+; PIC-NEXT:    .body
 ; PIC-NEXT:    br.call.sptk.many b0 = __tls_get_addr ;;
 ; PIC-NEXT:    mov r1 = r32
 ; EXEC:        addl r14 = @ltoff(@tprel(gd)), r1 ;;

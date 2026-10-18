@@ -22,7 +22,10 @@ declare i32 @llvm.eh.typeid.for.p0(ptr)
 define i32 @catch_int() personality ptr @__gxx_personality_v0 {
 ; CHECK-LABEL: catch_int:
 ; CHECK:       .Lfunc_begin0:
-; CHECK:         mov r33 = r1 ;;
+; CHECK:         mov r33 = r1
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0 ;;
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:  .Ltmp0:
 ; CHECK-NEXT:    br.call.sptk.many b0 = may_throw ;;
 ; CHECK-NEXT:    mov r1 = r33 ;;

@@ -11,6 +11,9 @@ define void @f(i64 %n) {
 ; CHECK:       and r14 = -16, r14 ;;
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
 ; CHECK-NEXT:  adds r36 = 16, r12
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 ; CHECK:       mov r12 = r35
   %a = alloca i8, i64 %n
@@ -28,6 +31,9 @@ define void @aligned(i64 %n) {
 ; CHECK-NEXT:  adds r14 = 16, r12 ;;
 ; CHECK-NEXT:  adds r14 = 63, r14 ;;
 ; CHECK-NEXT:  and r37 = -64, r14
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
   %a = alloca i8, i64 %n, align 64
   call void @g(ptr %a, i64 %n)

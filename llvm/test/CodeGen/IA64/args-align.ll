@@ -43,11 +43,14 @@ declare i64 @g(i64, i128, i64)
 define i64 @call() {
 ; CHECK-LABEL: call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 5, 0
-; CHECK:       mov r35 = 1
+; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  mov r35 = 1
 ; CHECK-NEXT:  mov r37 = 2
 ; CHECK-NEXT:  mov r39 = 3
 ; CHECK-NEXT:  mov r38 = r0
-; CHECK-NEXT:  mov r32 = r1 ;;
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0 ;;
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
   %r = call i64 @g(i64 1, i128 2, i64 3)
   ret i64 %r

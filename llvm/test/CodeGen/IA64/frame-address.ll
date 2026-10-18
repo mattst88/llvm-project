@@ -44,14 +44,14 @@ define ptr @frame_address() {
 define ptr @frame_address_call() {
 ; CHECK-LABEL: frame_address_call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 4, 1, 0
-; CHECK-NEXT:  .save rp, r34
-; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .vframe r35
 ; CHECK-NEXT:  mov r35 = r12
-; CHECK-NEXT:  adds r12 = -48, r12 ;;
-; CHECK-NEXT:  .body
+; CHECK-NEXT:  adds r12 = -48, r12
+; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  adds r36 = -24, r35
-; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  mov r8 = r35

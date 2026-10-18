@@ -69,17 +69,16 @@ define void @count() {
   ret void
 }
 
-; They are saved after the return link and before the function goes on, and
-; are put back before it is.
+; They are saved before the function goes on, and are put back before it is.
 declare void @g()
 define void @all() {
 ; CHECK-LABEL: all:
 ; CHECK:       alloc r33 = ar.pfs, 0, 6, 0, 0
-; CHECK:       mov r34 = b0
 ; CHECK:       mov r35 = pr
-; CHECK:       mov r36 = ar.lc
 ; CHECK:       .spillreg b2, r37
 ; CHECK-NEXT:  mov r37 = b2
+; CHECK:       mov r36 = ar.lc
+; CHECK:       mov r34 = b0
 ; CHECK:       .body
 ; CHECK:       br.call.sptk.many b0 = g
 ; CHECK:       mov pr = r35, 65598

@@ -101,6 +101,9 @@ define float @pass_odd([3 x float] %h) {
 ; CHECK:       mov f15 = f8
 ; CHECK:       adds r14 = 16, r12 ;;
 ; CHECK-NEXT:  stfs [r14] = f6
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_odd ;;
   %r = call float @take_odd(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [3 x float] %h)
   ret float %r
@@ -110,8 +113,8 @@ define float @pass_four([4 x float] %h) {
 ; CHECK-LABEL: pass_four:
 ; CHECK:       getf.s r14 = f11
 ; CHECK-NEXT:  mov f15 = f9
-; CHECK-NEXT:  mov f14 = f8
 ; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  mov f14 = f8
 ; CHECK-NEXT:  getf.s r15 = f10
 ; CHECK-NEXT:  mov f8 = f1 ;;
 ; CHECK-NEXT:  shl r14 = r14, 32
@@ -126,8 +129,8 @@ define float @pass_four([4 x float] %h) {
 define void @unnamed([3 x float] %h, [2 x double] %d) {
 ; CHECK-LABEL: unnamed:
 ; CHECK:       getf.s r14 = f9
-; CHECK-NEXT:  mov r35 = 1
 ; CHECK-NEXT:  mov r32 = r1
+; CHECK-NEXT:  mov r35 = 1
 ; CHECK-NEXT:  getf.s r15 = f8
 ; CHECK-NEXT:  getf.s r37 = f10
 ; CHECK-NEXT:  getf.d r38 = f11
@@ -135,6 +138,9 @@ define void @unnamed([3 x float] %h, [2 x double] %d) {
 ; CHECK-NEXT:  shl r14 = r14, 32
 ; CHECK-NEXT:  zxt4 r15 = r15 ;;
 ; CHECK-NEXT:  or r36 = r15, r14
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = variadic ;;
   call void (i32, ...) @variadic(i32 1, [3 x float] %h, [2 x double] %d)
   ret void
@@ -151,10 +157,13 @@ define void @maybe_named([2 x double] %d, [3 x float] %h) {
 ; CHECK-NEXT:  getf.s r36 = f12
 ; CHECK-NEXT:  mov f10 = f12 ;;
 ; CHECK-NEXT:  getf.d r37 = f6
-; CHECK-NEXT:  mov f11 = f6
 ; CHECK-NEXT:  mov f12 = f7
-; CHECK-NEXT:  getf.d r38 = f7
+; CHECK:       getf.d r38 = f7
+; CHECK-NEXT:  mov f11 = f6
 ; CHECK:       or r35 = r15, r14
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = variadic ;;
   call void ([3 x float], [2 x double], ...) @variadic([3 x float] %h, [2 x double] %d)
   ret void
@@ -165,6 +174,9 @@ define double @pass_none_left([8 x float] %h, double %d, x86_fp80 %l) {
 ; CHECK:       mov r46 = r36
 ; CHECK:       ld8 r49 = [r15]
 ; CHECK-NEXT:  ld8 r48 = [r14]
+; CHECK-NEXT:  .save rp, r41
+; CHECK-NEXT:  mov r41 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_none_left ;;
   %r = call double @take_none_left([8 x float] %h, double %d, x86_fp80 %l)
   ret double %r
@@ -283,6 +295,7 @@ declare void @take_unaligned_memory(i64, i64, i64, i64, i64, i64, i64, i64, i64,
 define void @pass_unaligned([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned:
 ; CHECK:       adds r14 = 24, r12
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r15 = 9
 ; CHECK:       st8 [r14] = r15
 ; CHECK-NOT:   f8
@@ -301,6 +314,9 @@ define void @pass_unaligned_variable([1 x x86_fp80] %a) {
 ; CHECK-NEXT:  or r14 = 8, r14
 ; CHECK:       ld8 r14 = [r14] ;;
 ; CHECK-NEXT:  st8 [r15] = r14
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_unaligned_variable ;;
   call void (i64, ...) @take_unaligned_variable(
       i64 0, i64 1, i64 2, i64 3, i64 4, i64 5, i64 6,
@@ -315,6 +331,9 @@ define void @pass_unaligned_memory([1 x x86_fp80] %a) {
 ; CHECK-NOT:   stfe
 ; CHECK:       adds r15 = 24, r12
 ; CHECK:       st8 [r15] = r14
+; CHECK-NEXT:  .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_unaligned_memory ;;
   call void @take_unaligned_memory(i64 0, i64 1, i64 2, i64 3, i64 4, i64 5,
                                    i64 6, i64 7, i64 8,
@@ -347,7 +366,7 @@ define float @pass_one_variadic([1 x float] %h) {
 ; CHECK-LABEL: pass_one_variadic:
 ; CHECK:       mov f15 = f8
 ; CHECK:       getf.s r42 = f15
-; CHECK-NEXT:       movl r40 = 4618441417868443648 ;;
+; CHECK-NEXT:       movl r41 = 4619567317775286272 ;;
 ; CHECK:       br.call.sptk.many b0 = take_odd_variadic ;;
   %r = call float (double, double, double, double, double, double, double, [1 x float], ...) @take_odd_variadic(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [1 x float] %h)
   ret float %r
