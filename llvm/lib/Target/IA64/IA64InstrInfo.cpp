@@ -979,8 +979,62 @@ namespace {
 // preheader, and each prologue closes with a br.cloop that leaves for its
 // epilogue once the count has run out, so the prologues use up one count
 // each for the iterations they start, and the count needs no adjusting.
+//
+// The MVE expander instead unrolls the kernel so that no value needs copying
+// from one stage's register to the next, and runs whatever iterations are
+// left over in the original loop. Its pipelined loop counts in a general
+// register, starting from the value the preheader sets ar.lc to, and leaves
+// ar.lc alone until the epilogue sets it for the iterations left over.
 class IA64PipelinerLoopInfo : public TargetInstrInfo::PipelinerLoopInfo {
+  const IA64InstrInfo &TII;
+  MachineRegisterInfo &MRI;
+  // One less than the number of iterations, which the preheader puts in
+  // ar.lc.
+  Register InitLC;
+  // The number of iterations the kernel of the pipelined loop leaves to
+  // start: on entry, the count after its first pass, and afterwards the
+  // count after its last.
+  Register Remaining;
+
+  // Reg plus Imm, in a new register at the end of MBB.
+  Register addImm(MachineBasicBlock &MBB, Register Reg, int64_t Imm) {
+    Register Sum = MRI.createVirtualRegister(&IA64::GRRegClass);
+    MachineBasicBlock::iterator I = MBB.getFirstTerminator();
+    if (isInt<14>(Imm)) {
+      BuildMI(MBB, I, DebugLoc(), TII.get(IA64::ADDS), Sum)
+          .addImm(Imm)
+          .addReg(Reg)
+          .addReg(IA64::P0);
+      return Sum;
+    }
+    Register ImmReg = MRI.createVirtualRegister(&IA64::GRRegClass);
+    TII.loadImmediate(MBB, I, DebugLoc(), ImmReg, Imm);
+    BuildMI(MBB, I, DebugLoc(), TII.get(IA64::ADD), Sum)
+        .addReg(Reg)
+        .addReg(ImmReg)
+        .addReg(IA64::P0);
+    return Sum;
+  }
+
+  // The condition that Reg compares as CC with Imm.
+  void compare(MachineBasicBlock &MBB, IA64CC::CondCode CC, Register Reg,
+               int64_t Imm, SmallVectorImpl<MachineOperand> &Cond) {
+    Cond.push_back(MachineOperand::CreateImm(CC));
+    Cond.push_back(MachineOperand::CreateReg(Reg, /*isDef=*/false));
+    if (IA64CC::isLegalImmediate(CC, Imm)) {
+      Cond.push_back(MachineOperand::CreateImm(Imm));
+      return;
+    }
+    Register ImmReg = MRI.createVirtualRegister(&IA64::GRRegClass);
+    TII.loadImmediate(MBB, MBB.getFirstTerminator(), DebugLoc(), ImmReg, Imm);
+    Cond.push_back(MachineOperand::CreateReg(ImmReg, /*isDef=*/false));
+  }
+
 public:
+  IA64PipelinerLoopInfo(const IA64InstrInfo &TII, MachineRegisterInfo &MRI,
+                        Register InitLC)
+      : TII(TII), MRI(MRI), InitLC(InitLC) {}
+
   bool shouldIgnoreForPipelining(const MachineInstr *MI) const override {
     return MI->isTerminator();
   }
@@ -994,6 +1048,44 @@ public:
 
   void adjustTripCount(int TripCountAdjust) override {}
   void setPreheader(MachineBasicBlock *NewPreheader) override {}
+
+  bool isMVEExpanderSupported() override { return InitLC.isValid(); }
+  bool isMVEExpanderPreferred() override { return true; }
+
+  // The expander asks first, before the prologue, whether the loop runs more
+  // than the TC iterations that the prologue and one pass of the kernel
+  // start; then, at the end of the kernel, whether more than TC are left,
+  // for another pass; and last, in the epilogue, whether any are left.
+  void createRemainingIterationsGreaterCondition(
+      int TC, MachineBasicBlock &MBB, SmallVectorImpl<MachineOperand> &Cond,
+      DenseMap<MachineInstr *, MachineInstr *> &LastStage0Insts) override {
+    if (LastStage0Insts.empty()) {
+      MRI.clearKillFlags(InitLC);
+      Remaining = addImm(MBB, InitLC, -TC);
+      compare(MBB, IA64CC::GEU, InitLC, TC, Cond);
+      return;
+    }
+    if (LastStage0Insts.begin()->second->getParent() != &MBB) {
+      // The original loop runs the rest, counted in ar.lc.
+      Register LC = addImm(MBB, Remaining, -1);
+      BuildMI(MBB, MBB.getFirstTerminator(), DebugLoc(), TII.get(IA64::SET_LC))
+          .addReg(LC);
+      compare(MBB, IA64CC::NE, Remaining, 0, Cond);
+      return;
+    }
+    // Each pass of the kernel starts TC + 1 iterations.
+    MachineBasicBlock *Entry = *find_if(
+        MBB.predecessors(), [&](MachineBasicBlock *P) { return P != &MBB; });
+    Register Left = MRI.createVirtualRegister(&IA64::GRRegClass);
+    Register Next = addImm(MBB, Left, -(TC + 1));
+    BuildMI(MBB, MBB.begin(), DebugLoc(), TII.get(IA64::PHI), Left)
+        .addReg(Remaining)
+        .addMBB(Entry)
+        .addReg(Next)
+        .addMBB(&MBB);
+    Remaining = Left;
+    compare(MBB, IA64CC::GTU, Left, TC, Cond);
+  }
 };
 } // end anonymous namespace
 
@@ -1002,7 +1094,22 @@ IA64InstrInfo::analyzeLoopForPipelining(MachineBasicBlock *LoopBB) const {
   MachineBasicBlock::iterator I = LoopBB->getFirstTerminator();
   if (I == LoopBB->end() || I->getOpcode() != IA64::BRLOOP)
     return nullptr;
-  return std::make_unique<IA64PipelinerLoopInfo>();
+  // Find the count the preheader starts the loop with, for the MVE expander.
+  Register InitLC;
+  MachineBasicBlock *Preheader = nullptr;
+  if (LoopBB->pred_size() == 2)
+    Preheader = *find_if(LoopBB->predecessors(),
+                         [&](MachineBasicBlock *P) { return P != LoopBB; });
+  if (Preheader)
+    for (MachineInstr &MI : reverse(*Preheader))
+      if (MI.definesRegister(IA64::AR65, /*TRI=*/nullptr)) {
+        if (MI.getOpcode() == IA64::SET_LC &&
+            MI.getOperand(0).getReg().isVirtual())
+          InitLC = MI.getOperand(0).getReg();
+        break;
+      }
+  return std::make_unique<IA64PipelinerLoopInfo>(
+      *this, LoopBB->getParent()->getRegInfo(), InitLC);
 }
 
 // A load or store addresses memory by the register of its first input, with

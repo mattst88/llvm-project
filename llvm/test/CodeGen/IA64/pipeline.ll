@@ -2,23 +2,55 @@
 ; RUN:   | FileCheck %s
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
 ; RUN:   -ia64-pipeliner=false < %s | FileCheck %s --check-prefix=OFF
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -pipeliner-mve-cg=false < %s | FileCheck %s --check-prefix=COPY
 
 ; The load of each element issues in the iteration before the add of it, so
-; the add need not wait for the load. The prologue loads the first element
-; and starts the kernel with a br.cloop, which leaves for the epilogue
-; instead when that was the only element; the epilogue adds the last one.
+; the add need not wait for the load. The kernel counts the iterations it
+; starts in a general register from one less than the count, the value the
+; preheader puts in ar.lc, and leaves for the original loop, to run the
+; iterations left over counted in ar.lc, if there are too few to start the
+; kernel or once they are too few to continue it.
 define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-LABEL: sum:
-; CHECK:       mov ar.lc = r{{[0-9]+}}
+; CHECK:       adds [[LC:r[0-9]+]] = -1, r33
+; CHECK:       adds [[REM:r[0-9]+]] = -1, [[LC]]
+; CHECK-NEXT:  mov ar.lc = [[LC]]
+; CHECK-NEXT:  cmp.ltu p7, p6 = 0, [[LC]]
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[REST:[0-9]+]] ;;
 ; CHECK:       ld8 [[V:r[0-9]+]] = [r32], 8 ;;
-; CHECK-NEXT:  br.cloop.sptk.few .LBB0_[[KERNEL:[0-9]+]]
-; CHECK-NEXT:  br.cond.sptk.few .LBB0_[[EPILOGUE:[0-9]+]] ;;
-; CHECK-NEXT:  .LBB0_[[KERNEL]]:
+; CHECK-NEXT:  .LBB0_[[KERNEL:[0-9]+]]:
 ; CHECK:       add [[S:r[0-9]+]] = [[S]], [[V]]
 ; CHECK-NEXT:  ld8 [[V]] = [r32], 8
-; CHECK-NEXT:  br.cloop.sptk.few .LBB0_[[KERNEL]] ;;
-; CHECK-NEXT:  .LBB0_[[EPILOGUE]]:
-; CHECK-NEXT:  add r8 = [[S]], [[V]]
+; CHECK-NEXT:  mov [[LEFT:r[0-9]+]] = [[REM]] ;;
+; CHECK-NEXT:  adds [[REM]] = -1, [[LEFT]]
+; CHECK-NEXT:  cmp.ltu p6, p7 = 0, [[LEFT]]
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[KERNEL]] ;;
+; CHECK:       adds [[LC2:r[0-9]+]] = -1, [[LEFT]]
+; CHECK-NEXT:  add [[S]] = [[S]], [[V]] ;;
+; CHECK-NEXT:  mov ar.lc = [[LC2]]
+; CHECK-NEXT:  cmp.eq p6, p7 = 0, [[LEFT]]
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[EXIT:[0-9]+]] ;;
+; CHECK-NEXT:  .LBB0_[[REST]]:
+; CHECK:       ld8
+; CHECK:       add [[S]] = [[S]],
+; CHECK-NEXT:  br.cloop.sptk.few .LBB0_[[REST]] ;;
+; CHECK-NEXT:  .LBB0_[[EXIT]]:
+;
+; The default expander's prologue loads the first element and starts the
+; kernel with a br.cloop, which leaves for the epilogue instead when that was
+; the only element; the epilogue adds the last one.
+; COPY-LABEL:  sum:
+; COPY:        mov ar.lc = r{{[0-9]+}}
+; COPY:        ld8 [[V:r[0-9]+]] = [r32], 8 ;;
+; COPY-NEXT:   br.cloop.sptk.few .LBB0_[[KERNEL:[0-9]+]]
+; COPY-NEXT:   br.cond.sptk.few .LBB0_[[EPILOGUE:[0-9]+]] ;;
+; COPY-NEXT:   .LBB0_[[KERNEL]]:
+; COPY:        add [[S:r[0-9]+]] = [[S]], [[V]]
+; COPY-NEXT:   ld8 [[V]] = [r32], 8
+; COPY-NEXT:   br.cloop.sptk.few .LBB0_[[KERNEL]] ;;
+; COPY-NEXT:   .LBB0_[[EPILOGUE]]:
+; COPY-NEXT:   add r8 = [[S]], [[V]]
 ;
 ; OFF-LABEL:   sum:
 ; OFF:         mov ar.lc =
