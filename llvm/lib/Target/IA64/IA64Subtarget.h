@@ -97,6 +97,9 @@ public:
   // an earlier result, so instruction order decides how many issue together.
   bool enableMachineScheduler() const override { return true; }
   bool enablePostRAScheduler() const override { return true; }
+  // Alias analysis lets the schedulers move a load above a store to memory
+  // that the load cannot overlap, which hides most of its latency.
+  bool useAA() const override { return true; }
   // Software pipelining overlaps the iterations of a counted loop, which on
   // an in-order machine is the only way they overlap.
   bool enableMachinePipeliner() const override;
