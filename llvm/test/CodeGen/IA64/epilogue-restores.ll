@@ -36,3 +36,48 @@ exit:
   store i64 %i, ptr %b2
   ret void
 }
+
+; Block placement copies the epilogue into the blocks that branch to it,
+; after they were scheduled. They are scheduled again, so that the restores
+; move up among the instructions before them.
+define i64 @copied(ptr %p, ptr %q, i64 %c) {
+; CHECK-LABEL: copied:
+; CHECK:       (p6) br.cond.dpnt.few .LBB1_2 ;;
+; CHECK-NEXT:  // %b
+; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  ld8 r14 = [r33]
+; CHECK-NEXT:  mov b0 = r37 ;;
+; CHECK-NEXT:  add r8 = r14, r34
+; CHECK-NEXT:  mov ar.pfs = r36
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+; CHECK-NEXT:  .LBB1_2:
+; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  ld8 r14 = [r32]
+; CHECK-NEXT:  mov r8 = r0
+; CHECK-NEXT:  mov b0 = r37
+; CHECK-NEXT:  ld8 r15 = [r33]
+; CHECK-NEXT:  mov ar.pfs = r36 ;;
+; CHECK-NEXT:  cmp.lt p6, p7 = r14, r15 ;;
+; CHECK-NEXT:  (p6) mov r8 = 1
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+entry:
+  call void @g()
+  %t = icmp eq i64 %c, 0
+  br i1 %t, label %a, label %b
+
+a:
+  %x = load i64, ptr %p
+  %y = load i64, ptr %q
+  %lt = icmp slt i64 %x, %y
+  %r = zext i1 %lt to i64
+  br label %ret
+
+b:
+  %z = load i64, ptr %q
+  %s = add i64 %z, %c
+  br label %ret
+
+ret:
+  %v = phi i64 [ %r, %a ], [ %s, %b ]
+  ret i64 %v
+}

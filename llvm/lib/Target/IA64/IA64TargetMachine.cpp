@@ -124,6 +124,7 @@ public:
   bool addILPOpts() override;
   void addPreRegAlloc() override;
   void addPreSched2() override;
+  void addBlockPlacement() override;
   void addPreEmitPass() override;
   void addPreEmitPass2() override;
 };
@@ -183,6 +184,14 @@ void IA64PassConfig::addPreRegAlloc() {
 void IA64PassConfig::addPreSched2() {
   if (getOptLevel() != CodeGenOptLevel::None)
     addPass(createIA64IfConversionPass());
+}
+
+// Placement copies small blocks, epilogues among them, into their
+// predecessors, after the blocks were scheduled apart. Schedule the result
+// again, so that the copy and the code it joins share instruction groups.
+void IA64PassConfig::addBlockPlacement() {
+  TargetPassConfig::addBlockPlacement();
+  addPass(&PostMachineSchedulerID);
 }
 
 void IA64PassConfig::addPreEmitPass() {

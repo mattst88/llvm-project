@@ -26,8 +26,8 @@ define i32 @returns(i64 %a, i64 %b) {
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ; CHECK-NEXT:  .LBB0_4:
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
-; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  mov b0 = r36
+; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ; CHECK-NEXT:  .endp returns
