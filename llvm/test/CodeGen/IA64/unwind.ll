@@ -65,10 +65,10 @@ define i64 @large(i64 %a) {
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       mov b0 = r34
-; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  mov r2 = 800000 ;;
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  add r12 = r2, r12
+; CHECK-NEXT:  mov ar.pfs = r33
   %p = alloca [100000 x i64]
   %r = call i64 @ext(ptr %p)
   ret i64 %r

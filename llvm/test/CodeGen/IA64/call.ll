@@ -59,9 +59,9 @@ define i64 @frame(i64 %a) {
 ; CHECK:       alloc r34 = ar.pfs, 1, 3, 2, 0
 ; CHECK-NEXT:  .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12
-; CHECK-NEXT:  mov r33 = r1
+; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  .save rp, r35
-; CHECK-NEXT:  mov r35 = b0 ;;
+; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = vext ;;
 ; CHECK-NEXT:  adds r14 = 24, r12
@@ -155,11 +155,11 @@ define i64 @variable(i64 %a) {
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = r32 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
-; CHECK-NEXT:  ld8 r15 = [r14], 8 ;;
-; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  ld8 r15 = [r14], 8
 ; CHECK-NEXT:  .save rp, r35
-; CHECK-NEXT:  mov r35 = b0
+; CHECK-NEXT:  mov r35 = b0 ;;
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  ld8 r14 = [r14]
 ; CHECK-NEXT:  mov b6 = r15 ;;
 ; CHECK-NEXT:  mov r1 = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;

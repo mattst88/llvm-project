@@ -16,13 +16,16 @@
 // Itanium 2 disperses at most two bundles per cycle, and a cycle also ends at
 // a stop or when an instruction finds no free port of its unit. This pass
 // replays the assembler's packing and that dispersal, and improves on them
-// in two ways:
+// in three ways:
 //
 //   - It reorders each instruction group. Any order is valid as long as no
 //     register read moves after a write of the register, and accesses to
 //     memory keep their order. It moves one instruction at a time while
 //     that lowers the cycles, then the bundles, that the group and its
 //     neighbors take.
+//   - It moves an instruction that only I0 executes into the group before
+//     or after its own, where that has a free I0 port. Two of them in a
+//     group take two cycles.
 //   - It chooses the template of each bundle, together with that of the
 //     bundle after it, by the cost of the next two groups, and where that
 //     differs from the assembler's choice it has the asm printer emit a
@@ -57,6 +60,7 @@ using namespace llvm;
 #define PASS_NAME "IA64 instruction group packing"
 
 STATISTIC(NumMoved, "Number of instructions moved within their group");
+STATISTIC(NumCrossed, "Number of instructions moved to another group");
 STATISTIC(NumTemplates, "Number of bundle templates chosen");
 
 static cl::opt<bool> EnablePacking("ia64-packing", cl::Hidden, cl::init(true),
@@ -432,6 +436,29 @@ static bool isFixed(const MachineInstr &MI) {
          (MI.hasUnmodeledSideEffects() && !isRegisterMove(MI));
 }
 
+/// Whether \p B, in a group after \p A, may not share A's group: B reads or
+/// writes a register that A writes.
+static bool dependsOn(const MachineInstr &B, const MachineInstr &A,
+                      const TargetRegisterInfo &TRI) {
+  for (const MachineOperand &MA : A.operands()) {
+    if (!MA.isReg() || !MA.getReg() || !MA.isDef())
+      continue;
+    for (const MachineOperand &MB : B.operands())
+      if (MB.isReg() && MB.getReg() &&
+          TRI.regsOverlap(MA.getReg(), MB.getReg()))
+        return true;
+  }
+  return false;
+}
+
+/// Whether \p It may move to the group before or after its own: an
+/// instruction that only I0 executes and that touches only registers.
+static bool crossesGroups(const Item &It) {
+  const MachineInstr &MI = *It.MI;
+  return It.I0Only && !isFixed(MI) && !MI.mayLoadOrStore() &&
+         !MI.modifiesRegister(IA64::R12, nullptr);
+}
+
 /// Whether \p MI is in the prologue or the epilogue, whose unwind directives
 /// count instructions.
 static bool pinsGroup(const MachineInstr &MI) {
@@ -548,12 +575,12 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       PlanRun();
       continue;
     }
-    if (Movable && GroupStart + 1 < Items.size())
+    if (Movable && GroupStart < Items.size())
       Groups.push_back({GroupStart, Items.size()});
 
-    // The cost of the group before G, G, and the group after.
-    auto CostAround = [&](unsigned G) {
-      unsigned Begin = Groups[G].first, End = Groups[G].second;
+    // The cost of the instructions from Begin to End, and of the groups
+    // before and after them.
+    auto CostAround = [&](unsigned Begin, unsigned End) {
       if (Begin != 0)
         --Begin;
       while (Begin != 0 && !Items[Begin - 1].Stop)
@@ -564,30 +591,30 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       SmallVector<Item, 16> Window(Items.begin() + Begin, Items.begin() + End);
       return plan(Window);
     };
+    auto Rotate = [&](unsigned From, unsigned To) {
+      auto Move = [&](auto &V) {
+        if (From < To)
+          std::rotate(V.begin() + From, V.begin() + From + 1,
+                      V.begin() + To + 1);
+        else
+          std::rotate(V.begin() + To, V.begin() + From, V.begin() + From + 1);
+      };
+      Move(Items);
+      Move(Attached);
+    };
 
     bool Reordered = false;
-    for (unsigned G = 0; G != Groups.size(); ++G) {
+    auto ReorderGroup = [&](unsigned G) {
       auto [Begin, End] = Groups[G];
       // The search takes time cubic in the size of the group.
       if (End - Begin < 2 || End - Begin > MaxGroupSize)
-        continue;
+        return;
       // The stop goes with whatever ends up last.
       bool Stop = Items[End - 1].Stop;
       Items[End - 1].Stop = false;
-      auto Rotate = [&](unsigned From, unsigned To) {
-        auto Move = [&](auto &V) {
-          if (From < To)
-            std::rotate(V.begin() + From, V.begin() + From + 1,
-                        V.begin() + To + 1);
-          else
-            std::rotate(V.begin() + To, V.begin() + From, V.begin() + From + 1);
-        };
-        Move(Items);
-        Move(Attached);
-      };
       auto Evaluate = [&] {
         Items[End - 1].Stop = Stop;
-        Dispersal Cost = CostAround(G);
+        Dispersal Cost = CostAround(Begin, End);
         Items[End - 1].Stop = false;
         return Cost;
       };
@@ -628,6 +655,91 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         }
       }
       Items[End - 1].Stop = Stop;
+    };
+    for (unsigned G = 0; G != Groups.size(); ++G)
+      ReorderGroup(G);
+
+    // Two instructions that only I0 executes take two cycles in one group,
+    // and a group whose instructions wait for a load may hold several. Move
+    // one into the group before or after, in the same block, where nothing
+    // there keeps it out and that costs less.
+    for (unsigned G = 0; G + 1 < Groups.size(); ++G) {
+      unsigned Begin = Groups[G].first, Mid = Groups[G].second;
+      unsigned End = Groups[G + 1].second;
+      if (Groups[G + 1].first != Mid)
+        continue;
+      Dispersal Current = CostAround(Begin, End);
+      // Move the instruction at From to To, with the first group ending
+      // before NewMid, and keep that if it costs less.
+      auto Try = [&](unsigned From, unsigned To, unsigned NewMid) {
+        bool FirstStop = Items[Mid - 1].Stop, SecondStop = Items[End - 1].Stop;
+        Rotate(From, To);
+        Items[Mid - 1].Stop = false;
+        Items[End - 1].Stop = SecondStop;
+        Items[NewMid - 1].Stop = FirstStop;
+        Dispersal Cost = CostAround(Begin, End);
+        if (Cost < Current) {
+          Current = Cost;
+          Mid = Groups[G].second = Groups[G + 1].first = NewMid;
+          Reordered = true;
+          ++NumCrossed;
+          return true;
+        }
+        Items[NewMid - 1].Stop = false;
+        Items[End - 1].Stop = false;
+        Rotate(To, From);
+        Items[Mid - 1].Stop = FirstStop;
+        Items[End - 1].Stop = SecondStop;
+        return false;
+      };
+      bool Moved = false;
+      // Down, to the start of the second group.
+      for (unsigned From = Begin; From != Mid && !Moved && Mid - Begin > 1;
+           ++From) {
+        if (!crossesGroups(Items[From]))
+          continue;
+        const MachineInstr &MI = *Items[From].MI;
+        bool Legal = Items[Mid].MI->getOpcode() != IA64::ALLOC;
+        for (unsigned I = From + 1; I != Mid && Legal; ++I)
+          Legal = !isFixed(*Items[I].MI) && !mustPrecede(MI, *Items[I].MI, TRI);
+        for (unsigned I = Mid; I != End && Legal; ++I)
+          Legal = !dependsOn(*Items[I].MI, MI, TRI);
+        // A result that takes more than a cycle would come later to the
+        // group after.
+        for (unsigned I = End; I != Items.size() && Legal; ++I) {
+          Legal = SM.computeInstrLatency(&MI) <= 1 ||
+                  !dependsOn(*Items[I].MI, MI, TRI);
+          if (Items[I].Stop)
+            break;
+        }
+        if (Legal)
+          Moved = Try(From, Mid - 1, Mid - 1);
+      }
+      // Up, to the end of the first group.
+      for (unsigned From = Mid; From != End && !Moved && End - Mid > 1;
+           ++From) {
+        if (!crossesGroups(Items[From]))
+          continue;
+        const MachineInstr &MI = *Items[From].MI;
+        bool Legal = true;
+        for (unsigned I = Mid; I != From && Legal; ++I)
+          Legal = !isFixed(*Items[I].MI) && !mustPrecede(*Items[I].MI, MI, TRI);
+        for (unsigned I = Begin; I != Mid && Legal; ++I)
+          Legal = !isFixed(*Items[I].MI) && !dependsOn(MI, *Items[I].MI, TRI);
+        // Nor may an operand come later to it.
+        for (unsigned I = Begin; I != 0 && Legal; --I) {
+          if (I != Begin && Items[I - 1].Stop)
+            break;
+          Legal = SM.computeInstrLatency(Items[I - 1].MI) <= 1 ||
+                  !dependsOn(MI, *Items[I - 1].MI, TRI);
+        }
+        if (Legal)
+          Moved = Try(From, Mid, Mid + 1);
+      }
+      if (Moved) {
+        ReorderGroup(G);
+        ReorderGroup(G + 1);
+      }
     }
 
     if (Reordered) {

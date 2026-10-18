@@ -172,11 +172,11 @@ define void @maybe_named([2 x double] %d, [3 x float] %h) {
 define double @pass_none_left([8 x float] %h, double %d, x86_fp80 %l) {
 ; CHECK-LABEL: pass_none_left:
 ; CHECK:       mov r46 = r36
-; CHECK:       ld8 r49 = [r15]
-; CHECK-NEXT:  ld8 r48 = [r14]
-; CHECK-NEXT:  .save rp, r41
-; CHECK-NEXT:  mov r41 = b0
+; CHECK:       .save rp, r41
+; CHECK-NEXT:  mov r41 = b0 ;;
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  ld8 r49 = [r15]
+; CHECK-NEXT:  ld8 r48 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_none_left ;;
   %r = call double @take_none_left([8 x float] %h, double %d, x86_fp80 %l)
   ret double %r

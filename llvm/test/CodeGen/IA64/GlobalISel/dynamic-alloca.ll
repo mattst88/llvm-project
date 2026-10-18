@@ -47,7 +47,7 @@ declare void @llvm.stackrestore(ptr)
 define void @saved(i64 %n) {
 ; CHECK-LABEL: saved:
 ; CHECK:       mov r34 = r12
-; CHECK:       sub r12 = r12, r14 ;;
+; CHECK:       sub r12 = r12, r14
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  mov r12 = r34

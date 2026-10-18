@@ -119,3 +119,23 @@ define i64 @loads(ptr %p, ptr %q, i64 %a) {
   %u = add i64 %t, %s
   ret i64 %u
 }
+
+; Only port I0 moves to b0 and ar.pfs, so the two restores take two cycles in
+; the group of the loads. The compare after the loads waits for them, and
+; one restore goes to its group.
+declare void @h()
+define i64 @restores(ptr %p, ptr %q) {
+; CHECK-LABEL: restores:
+; CHECK:       br.call.sptk.many b0 = h ;;
+; CHECK:       ld8 r14 = [r32]
+; CHECK-NOT:   b0
+; CHECK:       mov ar.pfs = r35 ;;
+; CHECK-NEXT:  mov b0 = r36
+; CHECK-NEXT:  cmp.lt p6, p7 = r14, r15 ;;
+  call void @h()
+  %x = load i64, ptr %p
+  %y = load i64, ptr %q
+  %lt = icmp slt i64 %x, %y
+  %r = zext i1 %lt to i64
+  ret i64 %r
+}
