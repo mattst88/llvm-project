@@ -1067,6 +1067,36 @@ bool TargetLoweringBase::canOpTrap(unsigned Op, EVT VT) const {
   }
 }
 
+ISD::NodeType
+TargetLoweringBase::getPreferredExtendForValue(const Instruction *I) const {
+  // For the users of the source value being used for compare instruction, if
+  // the number of signed predicate is greater than unsigned predicate, we
+  // prefer to use SIGN_EXTEND.
+  //
+  // With this optimization, we would be able to reduce some redundant sign or
+  // zero extension instruction, and eventually more machine CSE opportunities
+  // can be exposed.
+  ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
+  unsigned NumOfSigned = 0, NumOfUnsigned = 0;
+  for (const Use &U : I->uses()) {
+    if (const auto *CI = dyn_cast<CmpInst>(U.getUser())) {
+      NumOfSigned += CI->isSigned();
+      NumOfUnsigned += CI->isUnsigned();
+    }
+    if (const auto *CallI = dyn_cast<CallBase>(U.getUser())) {
+      if (!CallI->isArgOperand(&U))
+        continue;
+      unsigned ArgNo = CallI->getArgOperandNo(&U);
+      NumOfUnsigned += CallI->paramHasAttr(ArgNo, Attribute::ZExt);
+      NumOfSigned += CallI->paramHasAttr(ArgNo, Attribute::SExt);
+    }
+  }
+  if (NumOfSigned > NumOfUnsigned)
+    ExtendKind = ISD::SIGN_EXTEND;
+
+  return ExtendKind;
+}
+
 bool TargetLoweringBase::isFreeAddrSpaceCast(const DataLayout &DL,
                                              unsigned SrcAS,
                                              unsigned DestAS) const {

@@ -57,35 +57,6 @@ static bool isUsedOutsideOfDefiningBlock(const Instruction *I) {
   return false;
 }
 
-static ISD::NodeType getPreferredExtendForValue(const Instruction *I) {
-  // For the users of the source value being used for compare instruction, if
-  // the number of signed predicate is greater than unsigned predicate, we
-  // prefer to use SIGN_EXTEND.
-  //
-  // With this optimization, we would be able to reduce some redundant sign or
-  // zero extension instruction, and eventually more machine CSE opportunities
-  // can be exposed.
-  ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
-  unsigned NumOfSigned = 0, NumOfUnsigned = 0;
-  for (const Use &U : I->uses()) {
-    if (const auto *CI = dyn_cast<CmpInst>(U.getUser())) {
-      NumOfSigned += CI->isSigned();
-      NumOfUnsigned += CI->isUnsigned();
-    }
-    if (const auto *CallI = dyn_cast<CallBase>(U.getUser())) {
-      if (!CallI->isArgOperand(&U))
-        continue;
-      unsigned ArgNo = CallI->getArgOperandNo(&U);
-      NumOfUnsigned += CallI->paramHasAttr(ArgNo, Attribute::ZExt);
-      NumOfSigned += CallI->paramHasAttr(ArgNo, Attribute::SExt);
-    }
-  }
-  if (NumOfSigned > NumOfUnsigned)
-    ExtendKind = ISD::SIGN_EXTEND;
-
-  return ExtendKind;
-}
-
 void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
                                SelectionDAG *DAG) {
   Fn = &fn;
@@ -243,7 +214,7 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
       // Decide the preferred extend type for a value. This iterates over all
       // users and therefore isn't cheap, so don't do this at O0.
       if (DAG->getOptLevel() != CodeGenOptLevel::None)
-        PreferredExtendType[&I] = getPreferredExtendForValue(&I);
+        PreferredExtendType[&I] = TLI->getPreferredExtendForValue(&I);
     }
   }
 
