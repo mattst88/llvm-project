@@ -1062,7 +1062,10 @@ void SwingSchedulerDAG::schedule() {
   if (ExperimentalCodeGen && NewInstrChanges.empty()) {
     PeelingModuloScheduleExpander MSE(MF, MS, &LIS);
     MSE.expand();
-  } else if (MVECodeGen && NewInstrChanges.empty() &&
+  } else if ((MVECodeGen.getNumOccurrences()
+                  ? MVECodeGen
+                  : LoopPipelinerInfo->isMVEExpanderPreferred()) &&
+             NewInstrChanges.empty() &&
              LoopPipelinerInfo->isMVEExpanderSupported() &&
              ModuloScheduleExpanderMVE::canApply(Loop)) {
     ModuloScheduleExpanderMVE MSE(MF, MS, LIS);

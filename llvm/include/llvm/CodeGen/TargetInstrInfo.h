@@ -912,6 +912,10 @@ public:
     /// Return true if the target can expand pipelined schedule with modulo
     /// variable expansion.
     virtual bool isMVEExpanderSupported() { return false; }
+
+    /// Return true if the target expands pipelined schedules with modulo
+    /// variable expansion unless told otherwise.
+    virtual bool isMVEExpanderPreferred() { return false; }
   };
 
   /// Analyze loop L, which must be a single-basic-block loop, and if the
