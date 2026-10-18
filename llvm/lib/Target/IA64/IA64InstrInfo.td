@@ -234,7 +234,7 @@ def BRLOOP : IA64Pseudo<(outs), (ins brtarget:$target, i64imm:$exit),
 // loop runs. ar.lc is not allocatable, so this is a pseudo rather than a
 // move to a register operand.
 let hasSideEffects = 1, Defs = [AR65] in
-let SchedRW = [WriteToAR] in
+let SchedRW = [WriteToLC] in
 def SET_LC : IA64Pseudo<(outs), (ins GR:$lc), "#SET_LC", []>;
 
 // An unconditional branch. Hardware branches are unconditional only by having

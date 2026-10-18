@@ -24,6 +24,9 @@ mov r8 = pr
 movl r8 = 0x123456789
 mov.m ar.ccv = r32
 mov.m r8 = ar.unat
+mov.i ar.lc = r32
+mov.i r8 = ar.lc
+mov.i ar.pfs = r32
 ld8 r8 = [r32]
 ld8 r8 = [r32], 8
 st8 [r32] = r33
@@ -81,6 +84,9 @@ nop.i 0
 # CHECK-NEXT:  2      1     0.50                        movl	r8 = 4886718345
 # CHECK-NEXT:  1      5     1.00                  U     mov.m	ar.ccv = r32
 # CHECK-NEXT:  1      6     1.00                  U     mov.m	r8 = ar.unat
+# CHECK-NEXT:  1      1     1.00                  U     mov.i	ar.lc = r32
+# CHECK-NEXT:  1      2     1.00                  U     mov.i	r8 = ar.lc
+# CHECK-NEXT:  1      5     1.00                  U     mov.i	ar.pfs = r32
 # CHECK-NEXT:  1      1     0.50    *                   ld8	r8 = [r32]
 # CHECK-NEXT:  1      1     0.50    *                   ld8	r8 = [r32], 8
 # CHECK-NEXT:  1      1     0.50           *            st8	[r32] = r33
@@ -123,7 +129,7 @@ nop.i 0
 
 # CHECK:      Resource pressure per iteration:
 # CHECK-NEXT: [0.0]  [0.1]  [0.2]  [1.0]  [1.1]  [2]    [3]    [4]    [5]    [6]    [7]
-# CHECK-NEXT: 1.00   1.00   1.00   3.50   3.50   12.00  4.00   3.75   3.75   7.75   3.75
+# CHECK-NEXT: 1.00   1.00   1.00   3.50   3.50   15.00  4.00   3.75   3.75   7.75   3.75
 
 # CHECK:      Resource pressure by instruction:
 # CHECK-NEXT: [0.0]  [0.1]  [0.2]  [1.0]  [1.1]  [2]    [3]    [4]    [5]    [6]    [7]    Instructions:
@@ -147,6 +153,9 @@ nop.i 0
 # CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     movl	r8 = 4886718345
 # CHECK-NEXT:  -      -      -      -      -      -      -      -      -     1.00    -     mov.m	ar.ccv = r32
 # CHECK-NEXT:  -      -      -      -      -      -      -      -      -     1.00    -     mov.m	r8 = ar.unat
+# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     mov.i	ar.lc = r32
+# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     mov.i	r8 = ar.lc
+# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     mov.i	ar.pfs = r32
 # CHECK-NEXT:  -      -      -      -      -      -      -     0.50   0.50    -      -     ld8	r8 = [r32]
 # CHECK-NEXT:  -      -      -      -      -      -      -     0.50   0.50    -      -     ld8	r8 = [r32], 8
 # CHECK-NEXT:  -      -      -      -      -      -      -      -      -     0.50   0.50   st8	[r32] = r33

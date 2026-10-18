@@ -36,6 +36,7 @@ def WriteMovL     : SchedWrite; // Move of a 64-bit constant.
 // unit as the register says.
 def WriteToAR   : SchedWrite;
 def WriteFromAR : SchedWrite;
+def WriteToLC   : SchedWrite; // Set ar.lc for a counted loop.
 
 // Memory.
 def WriteLoad     : SchedWrite; // Integer load.

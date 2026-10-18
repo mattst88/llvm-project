@@ -79,11 +79,30 @@ def : I2Write<WriteMovL, I2PortI, 1> {
   let NumMicroOps = 2;
 }
 
-// These are the M-unit costs, which apply to the application registers the
-// compiler uses on its own; ar.pfs and ar.lc only matter in prologues and
-// counted loops.
-def : I2Write<WriteToAR,   I2PortM2, 5>;
-def : I2Write<WriteFromAR, I2PortM2, 6>;
+// ar.pfs, ar.lc and ar.ec are the I-unit application registers, and the
+// loop counters among them are quick to move to and from. The others cost
+// as the M-unit ones do.
+class I2IsAR<int op, list<Register> regs>
+    : MCSchedPredicate<CheckAny<!foreach(r, regs, CheckRegOperand<op, r>)>>;
+def I2IsToLoopAR : I2IsAR<0, [AR65, AR66]>;
+def I2IsToIAR : I2IsAR<0, [AR64]>;
+def I2IsFromLoopAR : I2IsAR<1, [AR65, AR66]>;
+def I2IsFromIAR : I2IsAR<1, [AR64]>;
+def I2ToLoopAR : SchedWriteRes<[I2PortI0]> { let Latency = 1; }
+def I2ToIAR : SchedWriteRes<[I2PortI0]> { let Latency = 5; }
+def I2ToMAR : SchedWriteRes<[I2PortM2]> { let Latency = 5; }
+def I2FromLoopAR : SchedWriteRes<[I2PortI0]> { let Latency = 2; }
+def I2FromIAR : SchedWriteRes<[I2PortI0]> { let Latency = 6; }
+def I2FromMAR : SchedWriteRes<[I2PortM2]> { let Latency = 6; }
+def : SchedAlias<WriteToAR, SchedWriteVariant<[
+  SchedVar<I2IsToLoopAR, [I2ToLoopAR]>,
+  SchedVar<I2IsToIAR, [I2ToIAR]>,
+  SchedVar<NoSchedPred, [I2ToMAR]>]>>;
+def : SchedAlias<WriteFromAR, SchedWriteVariant<[
+  SchedVar<I2IsFromLoopAR, [I2FromLoopAR]>,
+  SchedVar<I2IsFromIAR, [I2FromIAR]>,
+  SchedVar<NoSchedPred, [I2FromMAR]>]>>;
+def : I2Write<WriteToLC, I2PortI0, 1>;
 
 def : I2Write<WriteLoad,     I2PortM01, 1>;
 def : I2Write<WriteStore,    I2PortM23, 1>;
