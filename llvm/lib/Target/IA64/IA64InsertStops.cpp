@@ -66,8 +66,8 @@ static bool isConstantReg(MCRegister Reg) {
          Reg == IA64::P0;
 }
 
-// Parallel compares (or.andcm), which set the first predicate and clear the
-// second when the condition holds, and write neither otherwise.
+// Parallel compares and bit tests (or.andcm), which set the first predicate and
+// clear the second when the condition holds, and write neither otherwise.
 static bool isParallelCompare(unsigned Opcode) {
   switch (Opcode) {
   default:
@@ -88,6 +88,8 @@ static bool isParallelCompare(unsigned Opcode) {
   case IA64::CMP4_GE_OR_ANDCMz:
   case IA64::CMP4_LT_OR_ANDCMz:
   case IA64::CMP4_LE_OR_ANDCMz:
+  case IA64::TBIT_Z_OR_ANDCM:
+  case IA64::TBIT_NZ_OR_ANDCM:
     return true;
   }
 }
