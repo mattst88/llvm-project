@@ -30,6 +30,8 @@ public:
   /// The registers preserved across a call to a returns_twice function.
   const uint32_t *getReturnsTwiceCallPreservedMask() const;
   BitVector getReservedRegs(const MachineFunction &MF) const override;
+  bool isCallerPreservedPhysReg(MCRegister PhysReg,
+                                const MachineFunction &MF) const override;
 
   bool eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,
                            unsigned FIOperandNum,

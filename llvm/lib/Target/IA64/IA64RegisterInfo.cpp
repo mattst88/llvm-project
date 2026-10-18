@@ -192,6 +192,14 @@ bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   return true;
 }
 
+// A call writes r1, but the call pseudo itself restores this function's GP,
+// as does the copy after a returns_twice call and at a landing pad. So r1 holds
+// GP wherever it is read, and an address formed from it is loop invariant.
+bool IA64RegisterInfo::isCallerPreservedPhysReg(
+    MCRegister PhysReg, const MachineFunction &MF) const {
+  return PhysReg == IA64::R1;
+}
+
 Register IA64RegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   if (Register FP = MF.getInfo<IA64MachineFunctionInfo>()->getFramePointer())
     return FP;
