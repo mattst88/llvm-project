@@ -1237,6 +1237,14 @@ bool IA64TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   } else if (!isa<LoadSDNode>(N)) {
     return false;
   }
+  // A store that steps the address of a load puts the load of the next
+  // iteration after the computation of the stored value, so that iterations
+  // cannot overlap. Leave the increment to an add instead.
+  if (isa<StoreSDNode>(N) && any_of(Ptr->users(), [&](const SDNode *U) {
+        const auto *L = dyn_cast<LoadSDNode>(U);
+        return L && L->getBasePtr() == Ptr;
+      }))
+    return false;
   AM = ISD::POST_INC;
   return true;
 }

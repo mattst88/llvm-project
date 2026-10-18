@@ -11,10 +11,12 @@ define void @add2(ptr noalias %y, ptr noalias %x, i64 %n) {
 ; CHECK-NEXT:  ld8 r17 = [r32]
 ; CHECK-NEXT:  ld8 r18 = [r15], 16 ;;
 ; CHECK-NEXT:  add r16 = r16, r17
-; CHECK-NEXT:  ld8 r19 = [r14] ;;
-; CHECK-NEXT:  st8 [r32] = r16, 16
-; CHECK-NEXT:  add r17 = r18, r19 ;;
-; CHECK-NEXT:  st8 [r14] = r17, 16
+; CHECK-NEXT:  ld8 r17 = [r14] ;;
+; CHECK-NEXT:  st8 [r32] = r16
+; CHECK-NEXT:  adds r32 = 16, r32
+; CHECK-NEXT:  add r16 = r18, r17 ;;
+; CHECK-NEXT:  st8 [r14] = r16
+; CHECK-NEXT:  adds r14 = 16, r14
 ; CHECK-NEXT:  br.cloop.sptk.few .LBB0_1 ;;
 entry:
   br label %loop

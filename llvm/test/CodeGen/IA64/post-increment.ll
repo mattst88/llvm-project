@@ -167,3 +167,27 @@ l:
 x:
   ret void
 }
+
+; A store to the address that a load reads would step it only once the
+; stored value is computed, and the load of the next iteration would wait for
+; that. The address steps in an add of its own instead.
+define void @load_store(ptr %p, i64 %n) {
+; CHECK-LABEL: load_store:
+; CHECK:       ld8 r{{[0-9]+}} = [r32]
+; CHECK:       st8 [r32] = r{{[0-9]+}}
+; CHECK-NEXT:  adds r32 = 8, r32
+entry:
+  br label %loop
+loop:
+  %a = phi ptr [ %p, %entry ], [ %a.next, %loop ]
+  %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  %v = load i64, ptr %a
+  %w = add i64 %v, 1
+  store i64 %w, ptr %a
+  %a.next = getelementptr i8, ptr %a, i64 8
+  %i.next = add i64 %i, 1
+  %c = icmp eq i64 %i.next, %n
+  br i1 %c, label %exit, label %loop
+exit:
+  ret void
+}
