@@ -39,3 +39,35 @@ d:
   %z = zext i32 %s to i64
   ret i64 %z
 }
+
+; Signed compares in other blocks would rather have the word sign-extended,
+; but that would put an sxt4 after the load for every user, including a mask
+; of its low bits. Each signed compare extends it instead.
+define i32 @signed(ptr %p, i1 %c) {
+; CHECK-LABEL: signed:
+; CHECK:       ld4 [[V:r[0-9]+]] = [r32]
+; CHECK-NOT:   sxt4
+; CHECK:       br.call.sptk.many b0 = g
+; CHECK:       sxt4 [[S:r[0-9]+]] = [[V]] ;;
+; CHECK-NEXT:  cmp.lt p7, p6 = -1, [[S]]
+; CHECK:       and {{r[0-9]+}} = 63, [[V]]
+entry:
+  %v = load i32, ptr %p
+  br i1 %c, label %l, label %d
+l:
+  call void @g()
+  br label %d
+d:
+  %op = and i32 %v, 63
+  %neg = icmp slt i32 %v, 0
+  br i1 %neg, label %a, label %b
+a:
+  %t = icmp sgt i32 %v, -1
+  %tt = zext i1 %t to i32
+  ret i32 %tt
+b:
+  %x = icmp sgt i32 %v, 7
+  %xx = zext i1 %x to i32
+  %r = add i32 %op, %xx
+  ret i32 %r
+}

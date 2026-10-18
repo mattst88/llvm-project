@@ -1260,6 +1260,13 @@ bool IA64TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
   return TargetLowering::isZExtFree(Val, VT2);
 }
 
+ISD::NodeType
+IA64TargetLowering::getPreferredExtendForValue(const Instruction *I) const {
+  if (isa<LoadInst>(I))
+    return ISD::ANY_EXTEND;
+  return TargetLowering::getPreferredExtendForValue(I);
+}
+
 unsigned IA64TargetLowering::getJumpTableEncoding() const {
   return MachineJumpTableInfo::EK_LabelDifference64;
 }

@@ -54,8 +54,10 @@ public:
   ISD::NodeType getExtendForAtomicCmpSwapArg() const override {
     return ISD::ZERO_EXTEND;
   }
-  // Loads zero-extend as well.
+  // Loads zero-extend as well, so a loaded value used in other blocks is
+  // passed to them as it was loaded, not sign-extended for signed compares.
   bool isZExtFree(SDValue Val, EVT VT2) const override;
+  ISD::NodeType getPreferredExtendForValue(const Instruction *I) const override;
   Register getRegisterByName(const char *RegName, LLT Ty,
                              const MachineFunction &MF) const override;
   ConstraintType getConstraintType(StringRef Constraint) const override;
