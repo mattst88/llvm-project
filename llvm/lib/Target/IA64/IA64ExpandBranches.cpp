@@ -71,62 +71,16 @@ INITIALIZE_PASS_BEGIN(IA64ExpandBranches, DEBUG_TYPE, PASS_NAME, false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineBranchProbabilityInfoWrapperPass)
 INITIALIZE_PASS_END(IA64ExpandBranches, DEBUG_TYPE, PASS_NAME, false, false)
 
-// The parallel compare (or.andcm) that sets its first predicate and clears
-// its second if the condition holds, and leaves both unchanged otherwise.
-// There are forms for equality against a register or immediate, and for
-// comparing a register against zero, which covers orderings against zero
-// and its neighbors 1 and -1. The operands after the predicates are
-// appended to Operands.
-static unsigned getParallelCompare(const MachineInstr &Branch,
-                                   IA64CC::CondCode CC,
-                                   SmallVectorImpl<MachineOperand> &Operands) {
-  if (Branch.getOpcode() == IA64::BRCCf)
-    return 0;
-  Register LHS = Branch.getOperand(2).getReg();
+// Whether the compare of a conditional branch, with condition CC, has a
+// parallel form.
+static bool hasParallelCompare(const MachineInstr &Branch,
+                               IA64CC::CondCode CC) {
   const MachineOperand &RHS = Branch.getOperand(3);
-  if (CC == IA64CC::EQ || CC == IA64CC::NE) {
-    bool Equal = CC == IA64CC::EQ;
-    if (RHS.isImm()) {
-      Operands.push_back(MachineOperand::CreateImm(RHS.getImm()));
-      Operands.push_back(MachineOperand::CreateReg(LHS, false));
-      return Equal ? IA64::CMP_EQ_OR_ANDCMi : IA64::CMP_NE_OR_ANDCMi;
-    }
-    Operands.push_back(MachineOperand::CreateReg(LHS, false));
-    Operands.push_back(MachineOperand::CreateReg(RHS.getReg(), false));
-    return Equal ? IA64::CMP_EQ_OR_ANDCM : IA64::CMP_NE_OR_ANDCM;
-  }
-  if (!RHS.isImm())
-    return 0;
-  // The instruction has zero on the left: "r < 0" is "0 > r".
-  unsigned Opcode = 0;
-  int64_t Imm = RHS.getImm();
-  switch (CC) {
-  default:
-    return 0;
-  case IA64CC::LT:
-    Opcode = Imm == 0   ? IA64::CMP_GT_OR_ANDCMz
-             : Imm == 1 ? IA64::CMP_GE_OR_ANDCMz
-                        : 0;
-    break;
-  case IA64CC::LE:
-    Opcode = Imm == 0    ? IA64::CMP_GE_OR_ANDCMz
-             : Imm == -1 ? IA64::CMP_GT_OR_ANDCMz
-                         : 0;
-    break;
-  case IA64CC::GT:
-    Opcode = Imm == 0    ? IA64::CMP_LT_OR_ANDCMz
-             : Imm == -1 ? IA64::CMP_LE_OR_ANDCMz
-                         : 0;
-    break;
-  case IA64CC::GE:
-    Opcode = Imm == 0   ? IA64::CMP_LE_OR_ANDCMz
-             : Imm == 1 ? IA64::CMP_LT_OR_ANDCMz
-                        : 0;
-    break;
-  }
-  if (Opcode)
-    Operands.push_back(MachineOperand::CreateReg(LHS, false));
-  return Opcode;
+  std::optional<int64_t> Imm;
+  if (RHS.isImm())
+    Imm = RHS.getImm();
+  return Branch.getOpcode() != IA64::BRCCf &&
+         IA64CC::getParallelCompare(CC, Imm);
 }
 
 // A block ending in a conditional branch that falls through to a block
@@ -191,18 +145,16 @@ static bool mergeBranches(MachineBasicBlock &MBB, const IA64InstrInfo &TII,
     CC1 = IA64CC::getOpposite(CC1);
   MachineInstr *Plain = &*First, *Parallel = &*Second;
   IA64CC::CondCode PlainCC = CC1, ParallelCC = CC2;
-  SmallVector<MachineOperand, 2> Operands;
-  unsigned Opcode = getParallelCompare(
-      *Parallel, Either ? ParallelCC : IA64CC::getOpposite(ParallelCC),
-      Operands);
-  if (!Opcode) {
+  if (!Either)
+    ParallelCC = IA64CC::getOpposite(ParallelCC);
+  if (!hasParallelCompare(*Parallel, ParallelCC)) {
     std::swap(Plain, Parallel);
     std::swap(PlainCC, ParallelCC);
-    Operands.clear();
-    Opcode = getParallelCompare(
-        *Parallel, Either ? ParallelCC : IA64CC::getOpposite(ParallelCC),
-        Operands);
-    if (!Opcode)
+    if (!Either) {
+      PlainCC = IA64CC::getOpposite(PlainCC);
+      ParallelCC = IA64CC::getOpposite(ParallelCC);
+    }
+    if (!hasParallelCompare(*Parallel, ParallelCC))
       return false;
   }
 
@@ -214,13 +166,10 @@ static bool mergeBranches(MachineBasicBlock &MBB, const IA64InstrInfo &TII,
   DebugLoc DL = First->getDebugLoc();
   TII.emitCompare(MBB, MBB.end(), DL, PlainCC, Plain->getOperand(2),
                   Plain->getOperand(3));
-  MachineInstrBuilder MIB =
-      BuildMI(MBB, MBB.end(), DL, TII.get(Opcode))
-          .addReg(Either ? IA64::P6 : IA64::P7, RegState::Define)
-          .addReg(Either ? IA64::P7 : IA64::P6, RegState::Define);
-  for (const MachineOperand &MO : Operands)
-    MIB.add(MO);
-  MIB.addReg(IA64::P0);
+  TII.emitParallelCompare(MBB, MBB.end(), DL, ParallelCC,
+                          Parallel->getOperand(2), Parallel->getOperand(3),
+                          Either ? IA64::P6 : IA64::P7,
+                          Either ? IA64::P7 : IA64::P6);
   BuildMI(MBB, MBB.end(), DL, TII.get(IA64::BR_COND))
       .addMBB(NextTarget)
       .addImm(Taken >= BranchProbability(1, 2) ? IA64II::WhetherDPTK
@@ -264,18 +213,12 @@ static bool mergeBranches(MachineBasicBlock &MBB, const IA64InstrInfo &TII,
                                Tail->getOperand(0).getMBB() == Target ||
                                next_nodbg(Tail, More.end()) != More.end()))
       break;
-    Operands.clear();
-    Opcode = getParallelCompare(
-        *Branch, IA64CC::CondCode(Branch->getOperand(1).getImm()), Operands);
-    if (!Opcode)
+    IA64CC::CondCode CC = IA64CC::CondCode(Branch->getOperand(1).getImm());
+    if (!hasParallelCompare(*Branch, CC))
       break;
     MachineBasicBlock::iterator Merged = MBB.getFirstTerminator();
-    MachineInstrBuilder Compare = BuildMI(MBB, Merged, DL, TII.get(Opcode))
-                                      .addReg(IA64::P6, RegState::Define)
-                                      .addReg(IA64::P7, RegState::Define);
-    for (const MachineOperand &MO : Operands)
-      Compare.add(MO);
-    Compare.addReg(IA64::P0);
+    TII.emitParallelCompare(MBB, Merged, DL, CC, Branch->getOperand(2),
+                            Branch->getOperand(3), IA64::P6, IA64::P7);
     Taken += Taken.getCompl() * MBPI.getEdgeProbability(&More, Target);
     MBB.setSuccProbability(find(MBB.successors(), Target), Taken);
     MBB.setSuccProbability(find(MBB.successors(), &Next), Taken.getCompl());

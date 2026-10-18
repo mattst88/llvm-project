@@ -65,6 +65,13 @@ inline CondCode getOpposite(CondCode CC) { return CondCode(CC ^ 1); }
 
 // Whether a compare against the constant has an immediate form.
 bool isLegalImmediate(CondCode CC, int64_t Imm);
+
+// The parallel compare (or.andcm) testing CC against a register, if Imm is
+// empty, or against the constant Imm; 0 if there is none. There are forms for
+// equality against a register or an 8-bit immediate, and for ordering against
+// zero, which also covers ordering against its neighbors 1 and -1. If CC has
+// one, so does its opposite.
+unsigned getParallelCompare(CondCode CC, std::optional<int64_t> Imm);
 } // namespace IA64CC
 
 class IA64InstrInfo : public IA64GenInstrInfo {
@@ -169,6 +176,16 @@ public:
                    const DebugLoc &DL, IA64CC::CondCode CC,
                    const MachineOperand &LHS, const MachineOperand &RHS,
                    CompareKind Kind = PlainCompare) const;
+
+  /// Compare \p LHS with \p RHS with a parallel compare before \p I: if
+  /// \p CC holds, \p Set is set and \p Clear is cleared, and otherwise both
+  /// are left as they are. Returns false and emits nothing if no parallel
+  /// compare tests \p CC on these operands.
+  bool emitParallelCompare(MachineBasicBlock &MBB,
+                           MachineBasicBlock::iterator I, const DebugLoc &DL,
+                           IA64CC::CondCode CC, const MachineOperand &LHS,
+                           const MachineOperand &RHS, Register Set,
+                           Register Clear) const;
 };
 
 } // end namespace llvm

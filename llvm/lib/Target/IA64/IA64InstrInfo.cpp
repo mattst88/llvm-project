@@ -319,6 +319,70 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
   MIB.addReg(IA64::P0);
 }
 
+unsigned IA64CC::getParallelCompare(CondCode CC, std::optional<int64_t> Imm) {
+  if (CC == EQ || CC == NE) {
+    if (Imm && !isInt<8>(*Imm))
+      return 0;
+    if (CC == EQ)
+      return Imm ? IA64::CMP_EQ_OR_ANDCMi : IA64::CMP_EQ_OR_ANDCM;
+    return Imm ? IA64::CMP_NE_OR_ANDCMi : IA64::CMP_NE_OR_ANDCM;
+  }
+  if (!Imm)
+    return 0;
+  // The instruction has zero on the left: "r < 0" is "0 > r".
+  switch (CC) {
+  case LT:
+    return *Imm == 0   ? IA64::CMP_GT_OR_ANDCMz
+           : *Imm == 1 ? IA64::CMP_GE_OR_ANDCMz
+                       : 0;
+  case LE:
+    return *Imm == 0    ? IA64::CMP_GE_OR_ANDCMz
+           : *Imm == -1 ? IA64::CMP_GT_OR_ANDCMz
+                        : 0;
+  case GT:
+    return *Imm == 0    ? IA64::CMP_LT_OR_ANDCMz
+           : *Imm == -1 ? IA64::CMP_LE_OR_ANDCMz
+                        : 0;
+  case GE:
+    return *Imm == 0   ? IA64::CMP_LE_OR_ANDCMz
+           : *Imm == 1 ? IA64::CMP_LT_OR_ANDCMz
+                       : 0;
+  default:
+    return 0;
+  }
+}
+
+bool IA64InstrInfo::emitParallelCompare(MachineBasicBlock &MBB,
+                                        MachineBasicBlock::iterator I,
+                                        const DebugLoc &DL, IA64CC::CondCode CC,
+                                        const MachineOperand &LHS,
+                                        const MachineOperand &RHS, Register Set,
+                                        Register Clear) const {
+  std::optional<int64_t> Imm;
+  if (RHS.isImm())
+    Imm = RHS.getImm();
+  unsigned Opcode = IA64CC::getParallelCompare(CC, Imm);
+  if (!Opcode)
+    return false;
+  MachineInstrBuilder MIB = BuildMI(MBB, I, DL, get(Opcode))
+                                .addReg(Set, RegState::Define)
+                                .addReg(Clear, RegState::Define);
+  // As in emitCompare, keep only the register and its undef flag.
+  MachineOperand L = MachineOperand::CreateReg(
+      LHS.getReg(), /*isDef=*/false, /*isImp=*/false, /*isKill=*/false,
+      /*isDead=*/false, LHS.isUndef());
+  if (CC == IA64CC::EQ || CC == IA64CC::NE) {
+    if (Imm)
+      MIB.addImm(*Imm).add(L);
+    else
+      MIB.add(L).addReg(RHS.getReg(), getUndefRegState(RHS.isUndef()));
+  } else {
+    MIB.add(L);
+  }
+  MIB.addReg(IA64::P0);
+  return true;
+}
+
 ArrayRef<std::pair<unsigned, const char *>>
 IA64InstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
   static const std::pair<unsigned, const char *> Flags[] = {
