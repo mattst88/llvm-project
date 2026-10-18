@@ -33,11 +33,11 @@ define i32 @catch_int() personality ptr @__gxx_personality_v0 {
 ; CHECK:       .Ltmp2:
 ; CHECK-NEXT:    mov r1 = r33
 ; CHECK-NEXT:    cmp4.eq p7, p6 = 1, r16
-; CHECK-NEXT:    (p6) br.cond.dpnt.few .LBB0_5 ;;
-; CHECK-NEXT:  // %bb.4: // %catch
+; CHECK-NEXT:    (p6) br.cond.dpnt.few .LBB0_4 ;;
+; CHECK-NEXT:  // %bb.3: // %catch
 ; CHECK-NEXT:    mov r36 = r15
 ; CHECK-NEXT:    br.call.sptk.many b0 = __cxa_begin_catch ;;
-; CHECK:       .LBB0_5: // %resume
+; CHECK:       .LBB0_4: // %resume
 ; CHECK-NEXT:    mov r36 = r15
 ; CHECK-NEXT:    br.call.sptk.many b0 = _Unwind_Resume ;;
 ; CHECK-NEXT:    mov r1 = r33 ;;
@@ -137,7 +137,7 @@ define void @no_pad() personality ptr @__gxx_personality_v0 {
 ; OBJ-NEXT:   0x0 R_IA64_DIR64LSB _ZTIi 0x0
 ; OBJ-NEXT: }
 ; OBJ:      0x00000000 02000000 03000100
-; OBJ:      0x00000020 ffb41901 09102060 03309001 00000000
+; OBJ:      0x00000020 ffb41901 09102050 03309001 00000000
 ; OBJ-NEXT: 0x00000030 017d0000 00000000 00000000 00000000
 ; OBJ-NEXT: 0x00000040 02000000 00000100
 

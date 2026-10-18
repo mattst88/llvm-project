@@ -1,11 +1,16 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
+; RUN:   -verify-machineinstrs < %s | FileCheck %s
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -O0 < %s | FileCheck %s --check-prefix=O0
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -filetype=obj < %s \
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
+; RUN:   -filetype=obj < %s \
 ; RUN:   | llvm-objdump -d - | FileCheck %s --check-prefix=OBJ
 
 ; A parallel compare leaves its two predicates alone unless its condition
 ; holds, so it adds a condition to the one an ordinary compare put there, and
 ; two branches that go the same way become one.
+; The generic tail duplication threshold keeps a return that two branches
+; share; IA64's would copy it into the blocks before it, which leaves the
+; branches nothing in common.
 
 declare i32 @g()
 declare i32 @h()

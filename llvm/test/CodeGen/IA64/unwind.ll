@@ -122,9 +122,16 @@ define i64 @returns(i64 %a) {
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
 ; CHECK:       br.ret.sptk.many b0 ;;
-; CHECK-NEXT:  .LBB6_5:
+; CHECK-NEXT:  .LBB6_2:
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  .copy_state 1
+; CHECK:       .label_state 2
+; CHECK-NEXT:  .restore sp
+; CHECK-NEXT:  adds r12 = 16, r12
+; CHECK:       br.ret.sptk.many b0 ;;
+; CHECK-NEXT:  .LBB6_4:
+; CHECK-NEXT:  .body
+; CHECK-NEXT:  .copy_state 2
 ; CHECK-NEXT:  br.call.sptk.many b0 = stop ;;
   %p = alloca i64
   %c = icmp eq i64 %a, 1

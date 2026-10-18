@@ -175,6 +175,12 @@ public:
       const TargetRegisterInfo *TRI) const override;
   bool getIncrementValue(const MachineInstr &MI, int &Value) const override;
 
+  // Copying a block into the end of its predecessors saves each of them a
+  // taken branch, which on Itanium costs more than a few instructions.
+  unsigned getTailDuplicateSize(CodeGenOptLevel OptLevel) const override {
+    return 9;
+  }
+
   bool useMachineCombiner() const override { return true; }
   bool isAssociativeAndCommutative(const MachineInstr &Inst,
                                    bool Invert) const override;

@@ -1,10 +1,14 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -filetype=obj < %s \
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
+; RUN:   -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
+; RUN:   -filetype=obj < %s \
 ; RUN:   | llvm-objdump -d - | FileCheck %s --check-prefix=OBJ
 
 ; "br" has a 21-bit count of bundles for a displacement, which is 16 MiB each
 ; way. A branch that has further to go is "brl", and a conditional one goes
 ; round it.
+; The generic tail duplication threshold keeps each join a block that is
+; branched to; IA64's would copy it into the blocks before it.
 
 declare void @g()
 
