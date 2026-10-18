@@ -185,3 +185,109 @@ return:
   %r = phi i32 [ %call, %then ], [ 1, %entry ]
   ret i32 %r
 }
+
+; A branch to a block testing another condition takes that block's branch
+; instead, if one of its results goes where the first branch did not. Here
+; each condition sends the second block back to the fallthrough of the
+; first, so the merged branch is taken only if none of them hold.
+define void @target(i64 %a, i64 %b, i64 %c, i64 %d, ptr %p) {
+; CHECK-LABEL: target:
+; CHECK:       cmp.eq p7, p6 = r32, r33 ;;
+; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = 0, r32
+; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = r34, r35
+; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB7_4 ;;
+; CHECK:       st8 [r36] = r14
+entry:
+  %cmp = icmp eq i64 %a, %b
+  br i1 %cmp, label %then, label %lor
+
+lor:
+  %cmp1 = icmp eq i64 %c, %d
+  %cmp2 = icmp eq i64 %a, 0
+  %or = or i1 %cmp2, %cmp1
+  br i1 %or, label %then, label %end
+
+then:
+  store i64 1, ptr %p
+  br label %end
+
+end:
+  ret void
+}
+
+; The second block goes where the first falls through if its condition does
+; not hold.
+define i32 @target_both(i64 %a, i64 %b) {
+; CHECK-LABEL: target_both:
+; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
+; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = 0, r33
+; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB8_4 ;;
+; CHECK:       .LBB8_4:
+; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
+entry:
+  %cmp = icmp eq i64 %a, 5
+  br i1 %cmp, label %next, label %return, !prof !0
+
+next:
+  %cmp1 = icmp ne i64 %b, 0
+  br i1 %cmp1, label %then, label %return
+
+then:
+  %call = call i32 @g()
+  br label %return
+
+return:
+  %r = phi i32 [ %call, %then ], [ 0, %entry ], [ 0, %next ]
+  ret i32 %r
+}
+
+; Or if its condition does.
+define i32 @target_opposite(i64 %a, i64 %b) {
+; CHECK-LABEL: target_opposite:
+; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
+; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = 0, r33
+; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB9_4 ;;
+; CHECK:       .LBB9_4:
+; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
+entry:
+  %cmp = icmp eq i64 %a, 5
+  br i1 %cmp, label %next, label %return, !prof !0
+
+next:
+  %cmp1 = icmp ne i64 %b, 0
+  br i1 %cmp1, label %return, label %then
+
+then:
+  %call = call i32 @g()
+  br label %return
+
+return:
+  %r = phi i32 [ %call, %then ], [ 0, %entry ], [ 0, %next ]
+  ret i32 %r
+}
+
+; The second compare would be made whether or not the first branch went to
+; it, which must not happen for one that can raise an exception.
+define i32 @target_float(i64 %a, double %x) {
+; CHECK-LABEL: target_float:
+; CHECK-NOT:   or.andcm
+; CHECK:       fcmp.lt
+; CHECK:       .Lfunc_end10:
+entry:
+  %cmp = icmp eq i64 %a, 5
+  br i1 %cmp, label %next, label %return, !prof !0
+
+next:
+  %cmp1 = fcmp olt double %x, 1.000000e+00
+  br i1 %cmp1, label %then, label %return
+
+then:
+  %call = call i32 @g()
+  br label %return
+
+return:
+  %r = phi i32 [ %call, %then ], [ 0, %entry ], [ 0, %next ]
+  ret i32 %r
+}
+
+!0 = !{!"branch_weights", i32 1, i32 100}

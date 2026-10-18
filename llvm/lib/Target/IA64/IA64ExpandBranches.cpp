@@ -13,10 +13,10 @@
 //
 // The branch's whether hint (dptk/dpnt) comes from the branch probability.
 //
-// Two conditions tested back to back with nothing in between become one
+// Conditions tested back to back with nothing in between become one
 // branch. A parallel compare writes its predicates only when its relation
-// holds, so the second compare accumulates its result into the predicate
-// the first one wrote, and a single branch tests both.
+// holds, so each compare after the first accumulates its result into the
+// predicate the first one wrote, and a single branch tests them all.
 //
 // The pass also keeps a function from ending in a call. A call returns to
 // the following bundle, and an unwinder attributes that address to the
@@ -71,166 +71,237 @@ INITIALIZE_PASS_BEGIN(IA64ExpandBranches, DEBUG_TYPE, PASS_NAME, false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineBranchProbabilityInfoWrapperPass)
 INITIALIZE_PASS_END(IA64ExpandBranches, DEBUG_TYPE, PASS_NAME, false, false)
 
-// Whether the compare of a conditional branch, with condition CC, has a
-// parallel form.
-static bool hasParallelCompare(const MachineInstr &Branch,
-                               IA64CC::CondCode CC) {
-  const MachineOperand &RHS = Branch.getOperand(3);
-  std::optional<int64_t> Imm;
-  if (RHS.isImm())
-    Imm = RHS.getImm();
-  return Branch.getOpcode() != IA64::BRCCf &&
-         IA64CC::getParallelCompare(CC, Imm);
+namespace {
+
+// One condition of a branch: a compare of two operands.
+struct Condition {
+  IA64CC::CondCode CC;
+  MachineOperand LHS, RHS;
+  bool FP;
+
+  // Whether a parallel compare can test the condition, or its opposite.
+  bool hasParallelCompare() const {
+    std::optional<int64_t> Imm;
+    if (RHS.isImm())
+      Imm = RHS.getImm();
+    return !FP && IA64CC::getParallelCompare(CC, Imm);
+  }
+};
+
+// The conditions a branch is taken on: if any of them holds, or only if all
+// of them do.
+struct Chain {
+  bool Any = true;
+  SmallVector<Condition, 4> Conds;
+
+  void negate() {
+    Any = !Any;
+    for (Condition &C : Conds)
+      C.CC = IA64CC::getOpposite(C.CC);
+  }
+};
+
+} // end anonymous namespace
+
+// The conditional branch a block ends in, if it ends in one, followed by
+// nothing or by an unconditional branch.
+static MachineInstr *getConditionalBranch(MachineBasicBlock &MBB) {
+  MachineBasicBlock::iterator Br = MBB.getFirstTerminator();
+  if (Br == MBB.end() || !IA64InstrInfo::isConditionalBranch(*Br) ||
+      MBB.succ_size() != 2)
+    return nullptr;
+  MachineBasicBlock::iterator After = next_nodbg(Br, MBB.end());
+  if (After != MBB.end() && (After->getOpcode() != IA64::BRUNCOND ||
+                             next_nodbg(After, MBB.end()) != MBB.end()))
+    return nullptr;
+  return &*Br;
 }
 
-// A block ending in a conditional branch that falls through to a block
-// consisting only of another conditional branch, with no other predecessors,
-// tests two conditions where one branch would do. If both branches go to the
-// same target, the merged branch is taken if either condition holds. If the
-// second block's fallthrough goes to the first branch's target, the merged
-// branch is the second one, taken if the first condition is false and the
-// second is true.
-static bool mergeBranches(MachineBasicBlock &MBB, const IA64InstrInfo &TII,
+// Where a block ending in the conditional branch Br goes when it is not
+// taken.
+static MachineBasicBlock *getNotTaken(MachineInstr &Br) {
+  MachineBasicBlock &MBB = *Br.getParent();
+  MachineBasicBlock::iterator After =
+      next_nodbg(MachineBasicBlock::iterator(Br), MBB.end());
+  if (After != MBB.end())
+    return After->getOperand(0).getMBB();
+  MachineFunction::iterator Next = std::next(MBB.getIterator());
+  if (Next == MBB.getParent()->end() || !MBB.isSuccessor(&*Next))
+    return nullptr;
+  return &*Next;
+}
+
+static bool isEmpty(const MachineBasicBlock &MBB) {
+  return MBB.getFirstNonDebugInstr() == MBB.end();
+}
+
+// The block that entering MBB leads to, past any empty blocks.
+static MachineBasicBlock *skipEmpty(MachineBasicBlock *MBB) {
+  SmallPtrSet<MachineBasicBlock *, 4> Seen;
+  while (isEmpty(*MBB) && MBB->succ_size() == 1 && Seen.insert(MBB).second)
+    MBB = *MBB->succ_begin();
+  return MBB;
+}
+
+// The block that the edge from Pred to MBB leads to, past any empty blocks,
+// if it and the blocks passed are entered only along that path. The empty
+// blocks are added to Path.
+static MachineBasicBlock *
+followOnlyPath(MachineBasicBlock *Pred, MachineBasicBlock *MBB,
+               SmallVectorImpl<MachineBasicBlock *> &Path) {
+  for (;;) {
+    if (MBB->pred_size() != 1 || *MBB->pred_begin() != Pred || MBB->isEHPad() ||
+        MBB->hasAddressTaken())
+      return nullptr;
+    if (!isEmpty(*MBB))
+      return MBB;
+    if (MBB->succ_size() != 1)
+      return nullptr;
+    Path.push_back(MBB);
+    Pred = MBB;
+    MBB = *MBB->succ_begin();
+  }
+}
+
+// The chain taken if both Head's and Tail's are, each negated as asked, with
+// Tail's conditions tested along with Head's though they were tested only
+// after Head's before. That fails if the result is not all of one kind, if
+// more than one of its conditions has no parallel compare, or if Tail has
+// an FP compare, which may raise an exception where none was before.
+static std::optional<Chain> combine(bool Any, Chain Head, bool NegateHead,
+                                    Chain Tail, bool NegateTail) {
+  if (NegateHead)
+    Head.negate();
+  if (NegateTail)
+    Tail.negate();
+  if ((Head.Conds.size() > 1 && Head.Any != Any) ||
+      (Tail.Conds.size() > 1 && Tail.Any != Any) ||
+      any_of(Tail.Conds, [](const Condition &C) { return C.FP; }))
+    return std::nullopt;
+  Chain Result;
+  Result.Any = Any;
+  append_range(Result.Conds, Head.Conds);
+  append_range(Result.Conds, Tail.Conds);
+  if (count_if(Result.Conds,
+               [](const Condition &C) { return !C.hasParallelCompare(); }) > 1)
+    return std::nullopt;
+  // The compares are now in one block, so a register may be read after a
+  // compare that killed it.
+  for (Condition &C : Result.Conds)
+    for (MachineOperand *MO : {&C.LHS, &C.RHS})
+      if (MO->isReg())
+        MO->setIsKill(false);
+  return Result;
+}
+
+// A block ending in a conditional branch that leads to a block consisting
+// only of another conditional branch, with no other way in, tests two
+// conditions where one branch would do. The first block's branch is made
+// to test both, and the second block's is dropped:
+//
+// - If the second block is where the first goes when not taken, and both
+//   branches go to the same place, the branch is taken if either condition
+//   holds.
+// - If instead the second block goes where the first branch did when not
+//   taken, the first branch goes where the second one did, if the first
+//   condition does not hold and the second does.
+// - If the second block is where the first branch goes, which then goes
+//   where the second does on one of its conditions, the first branch goes
+//   where the second does on the other, if the first condition holds and
+//   the second has that result. The second block is removed.
+//
+// Empty blocks along the way are passed through.
+static bool mergeBranches(MachineBasicBlock &MBB,
+                          DenseMap<MachineBasicBlock *, Chain> &Chains,
                           const MachineBranchProbabilityInfo &MBPI) {
-  MachineBasicBlock::iterator First = MBB.getFirstTerminator();
-  if (First == MBB.end() || !IA64InstrInfo::isConditionalBranch(*First) ||
-      std::next(First) != MBB.end() || MBB.succ_size() != 2)
+  MachineInstr *Br = getConditionalBranch(MBB);
+  if (!Br || !Chains.count(&MBB))
     return false;
-  MachineBasicBlock *Target = First->getOperand(0).getMBB();
-  MachineFunction::iterator NextIt = std::next(MBB.getIterator());
-  if (NextIt == MBB.getParent()->end())
-    return false;
-  MachineBasicBlock &Next = *NextIt;
-  if (&Next == Target || !MBB.isSuccessor(&Next) || Next.pred_size() != 1 ||
-      Next.succ_size() != 2 || Next.hasAddressTaken() || Next.isEHPad())
+  MachineBasicBlock *Taken = Br->getOperand(0).getMBB();
+  MachineBasicBlock *NotTaken = getNotTaken(*Br);
+  if (!NotTaken || Taken == NotTaken)
     return false;
 
-  MachineBasicBlock::iterator Second = Next.getFirstNonDebugInstr();
-  // An FP compare may raise an exception, which it must not do on a path
-  // the first branch would have bypassed.
-  if (Second == Next.end() || !IA64InstrInfo::isConditionalBranch(*Second) ||
-      Second->getOpcode() == IA64::BRCCf)
-    return false;
-  MachineBasicBlock *NextTarget = Second->getOperand(0).getMBB();
-  // Where the second block goes when its branch is not taken.
-  MachineBasicBlock *Rest = nullptr;
-  MachineBasicBlock::iterator After = next_nodbg(Second, Next.end());
-  if (After == Next.end()) {
-    MachineFunction::iterator Fallthrough = std::next(NextIt);
-    if (Fallthrough == MBB.getParent()->end())
-      return false;
-    Rest = &*Fallthrough;
-  } else if (After->getOpcode() == IA64::BRUNCOND &&
-             next_nodbg(After, Next.end()) == Next.end()) {
-    Rest = After->getOperand(0).getMBB();
-  } else {
-    return false;
-  }
-  if (Rest == NextTarget || !Next.isSuccessor(Rest) ||
-      !Next.isSuccessor(NextTarget) || NextTarget == &Next)
-    return false;
+  for (bool Fallthrough : {true, false}) {
+    SmallVector<MachineBasicBlock *, 4> Path;
+    MachineBasicBlock *Next =
+        followOnlyPath(&MBB, Fallthrough ? NotTaken : Taken, Path);
+    if (!Next || Next == &MBB || !Chains.count(Next))
+      continue;
+    MachineInstr *NextBr = getConditionalBranch(*Next);
+    if (!NextBr || NextBr != &*Next->getFirstNonDebugInstr())
+      continue;
+    MachineBasicBlock *NextTaken = NextBr->getOperand(0).getMBB();
+    MachineBasicBlock *NextNotTaken = getNotTaken(*NextBr);
+    if (!NextNotTaken)
+      continue;
 
-  bool Either = NextTarget == Target;
-  if (!Either && Rest != Target)
-    return false;
+    // Where each branch leads. None may be back into the blocks merged.
+    MachineBasicBlock *Y = skipEmpty(NextTaken);
+    MachineBasicBlock *Z = skipEmpty(NextNotTaken);
+    MachineBasicBlock *Other = skipEmpty(Fallthrough ? Taken : NotTaken);
+    SmallPtrSet<MachineBasicBlock *, 8> Merged(Path.begin(), Path.end());
+    Merged.insert(&MBB);
+    Merged.insert(Next);
+    if (Y == Z || Merged.count(Y) || Merged.count(Z) || Merged.count(Other))
+      continue;
 
-  // The first compare is a normal one, writing the predicate and its
-  // complement, and the second is the parallel one. Either condition can go
-  // first, since neither compare does anything but write predicates. For
-  // the branch to be taken only if both conditions hold, the second compare
-  // sets the complement predicate when its condition is false.
-  IA64CC::CondCode CC1 = IA64CC::CondCode(First->getOperand(1).getImm());
-  IA64CC::CondCode CC2 = IA64CC::CondCode(Second->getOperand(1).getImm());
-  if (!Either)
-    CC1 = IA64CC::getOpposite(CC1);
-  MachineInstr *Plain = &*First, *Parallel = &*Second;
-  IA64CC::CondCode PlainCC = CC1, ParallelCC = CC2;
-  if (!Either)
-    ParallelCC = IA64CC::getOpposite(ParallelCC);
-  if (!hasParallelCompare(*Parallel, ParallelCC)) {
-    std::swap(Plain, Parallel);
-    std::swap(PlainCC, ParallelCC);
-    if (!Either) {
-      PlainCC = IA64CC::getOpposite(PlainCC);
-      ParallelCC = IA64CC::getOpposite(ParallelCC);
+    BranchProbability ToNext =
+        MBPI.getEdgeProbability(&MBB, Fallthrough ? NotTaken : Taken);
+    const Chain &Head = Chains[&MBB], &Tail = Chains[Next];
+    std::optional<Chain> Result;
+    MachineBasicBlock *NewTaken;
+    BranchProbability P;
+    if (Fallthrough && Y == Other) {
+      Result = combine(true, Head, false, Tail, false);
+      NewTaken = Taken;
+      P = MBPI.getEdgeProbability(&MBB, Taken) +
+          ToNext * MBPI.getEdgeProbability(Next, NextTaken);
+    } else if (Fallthrough && Z == Other) {
+      Result = combine(false, Head, true, Tail, false);
+      NewTaken = NextTaken;
+      P = ToNext * MBPI.getEdgeProbability(Next, NextTaken);
+    } else if (!Fallthrough && Y == Other) {
+      Result = combine(false, Head, false, Tail, true);
+      NewTaken = NextNotTaken;
+      P = ToNext * MBPI.getEdgeProbability(Next, NextNotTaken);
+    } else if (!Fallthrough && Z == Other) {
+      Result = combine(false, Head, false, Tail, false);
+      NewTaken = NextTaken;
+      P = ToNext * MBPI.getEdgeProbability(Next, NextTaken);
+    } else {
+      continue;
     }
-    if (!hasParallelCompare(*Parallel, ParallelCC))
-      return false;
+    if (!Result)
+      continue;
+    Chains[&MBB] = std::move(*Result);
+    Chains.erase(Next);
+
+    if (NewTaken != Taken) {
+      MBB.removeSuccessor(Taken);
+      MBB.addSuccessor(NewTaken, P);
+      Br->getOperand(0).setMBB(NewTaken);
+    } else {
+      MBB.setSuccProbability(find(MBB.successors(), NewTaken), P);
+    }
+    MBB.setSuccProbability(find(MBB.successors(), NotTaken), P.getCompl());
+
+    if (Fallthrough) {
+      // The second block now goes only where its branch did not.
+      NextBr->eraseFromParent();
+      Next->removeSuccessor(NextTaken);
+      Next->normalizeSuccProbs();
+    } else {
+      Path.push_back(Next);
+      for (MachineBasicBlock *Dead : Path) {
+        while (!Dead->succ_empty())
+          Dead->removeSuccessor(Dead->succ_begin());
+        Dead->eraseFromParent();
+      }
+    }
+    return true;
   }
-
-  BranchProbability ToNext = MBPI.getEdgeProbability(&MBB, &Next);
-  BranchProbability Taken = ToNext * MBPI.getEdgeProbability(&Next, NextTarget);
-  if (Either)
-    Taken = MBPI.getEdgeProbability(&MBB, Target) + Taken;
-
-  DebugLoc DL = First->getDebugLoc();
-  TII.emitCompare(MBB, MBB.end(), DL, PlainCC, Plain->getOperand(2),
-                  Plain->getOperand(3));
-  TII.emitParallelCompare(MBB, MBB.end(), DL, ParallelCC,
-                          Parallel->getOperand(2), Parallel->getOperand(3),
-                          Either ? IA64::P6 : IA64::P7,
-                          Either ? IA64::P7 : IA64::P6);
-  BuildMI(MBB, MBB.end(), DL, TII.get(IA64::BR_COND))
-      .addMBB(NextTarget)
-      .addImm(Taken >= BranchProbability(1, 2) ? IA64II::WhetherDPTK
-                                               : IA64II::WhetherDPNT)
-      .addImm(0)
-      .addImm(0)
-      .addReg(IA64::P6);
-  First->eraseFromParent();
-  Second->eraseFromParent();
-
-  if (Either) {
-    MBB.setSuccProbability(find(MBB.successors(), Target), Taken);
-    MBB.setSuccProbability(find(MBB.successors(), &Next), Taken.getCompl());
-  } else {
-    MBB.removeSuccessor(Target);
-    MBB.addSuccessor(NextTarget, Taken);
-    MBB.setSuccProbability(find(MBB.successors(), &Next), Taken.getCompl());
-  }
-  Next.removeSuccessor(NextTarget);
-  Next.normalizeSuccProbs();
-
-  // Further blocks that branch to the same target on their own conditions
-  // are folded into the branch, each as another parallel compare.
-  MachineBasicBlock *Empty = &Next;
-  while (Either && Empty->getFirstNonDebugInstr() == Empty->end()) {
-    MachineFunction::iterator MoreIt = std::next(Empty->getIterator());
-    if (MoreIt == MBB.getParent()->end())
-      break;
-    MachineBasicBlock &More = *MoreIt;
-    if (!Empty->isSuccessor(&More) || More.pred_size() != 1 ||
-        More.succ_size() != 2 || More.hasAddressTaken() || More.isEHPad() ||
-        &More == Target || !More.isSuccessor(Target))
-      break;
-    MachineBasicBlock::iterator Branch = More.getFirstNonDebugInstr();
-    if (Branch == More.end() || !IA64InstrInfo::isConditionalBranch(*Branch) ||
-        Branch->getOperand(0).getMBB() != Target)
-      break;
-    // Any remaining branch must go somewhere other than the target.
-    MachineBasicBlock::iterator Tail = next_nodbg(Branch, More.end());
-    if (Tail != More.end() && (Tail->getOpcode() != IA64::BRUNCOND ||
-                               Tail->getOperand(0).getMBB() == Target ||
-                               next_nodbg(Tail, More.end()) != More.end()))
-      break;
-    IA64CC::CondCode CC = IA64CC::CondCode(Branch->getOperand(1).getImm());
-    if (!hasParallelCompare(*Branch, CC))
-      break;
-    MachineBasicBlock::iterator Merged = MBB.getFirstTerminator();
-    TII.emitParallelCompare(MBB, Merged, DL, CC, Branch->getOperand(2),
-                            Branch->getOperand(3), IA64::P6, IA64::P7);
-    Taken += Taken.getCompl() * MBPI.getEdgeProbability(&More, Target);
-    MBB.setSuccProbability(find(MBB.successors(), Target), Taken);
-    MBB.setSuccProbability(find(MBB.successors(), &Next), Taken.getCompl());
-    Merged->getOperand(1).setImm(Taken >= BranchProbability(1, 2)
-                                     ? IA64II::WhetherDPTK
-                                     : IA64II::WhetherDPNT);
-    Branch->eraseFromParent();
-    More.removeSuccessor(Target);
-    More.normalizeSuccProbs();
-    Empty = &More;
-  }
-  return true;
+  return false;
 }
 
 bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
@@ -239,9 +310,27 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
       getAnalysis<MachineBranchProbabilityInfoWrapperPass>().getMBPI();
   bool Changed = false;
 
-  if (MF.getTarget().getOptLevel() != CodeGenOptLevel::None)
-    for (MachineBasicBlock &MBB : MF)
-      Changed |= mergeBranches(MBB, TII, MBPI);
+  DenseMap<MachineBasicBlock *, Chain> Chains;
+  if (MF.getTarget().getOptLevel() != CodeGenOptLevel::None) {
+    for (MachineBasicBlock &MBB : MF) {
+      MachineInstr *Br = getConditionalBranch(MBB);
+      if (!Br)
+        continue;
+      Chain &C = Chains[&MBB];
+      C.Conds.push_back({IA64CC::CondCode(Br->getOperand(1).getImm()),
+                         Br->getOperand(2), Br->getOperand(3),
+                         Br->getOpcode() == IA64::BRCCf});
+    }
+    bool Merged;
+    do {
+      Merged = false;
+      for (MachineBasicBlock &MBB : MF)
+        if (mergeBranches(MBB, Chains, MBPI)) {
+          Merged = Changed = true;
+          break;
+        }
+    } while (Merged);
+  }
 
   for (MachineBasicBlock &MBB : MF) {
     for (MachineInstr &MI : make_early_inc_range(MBB.terminators())) {
@@ -249,8 +338,32 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
         continue;
       const DebugLoc &DL = MI.getDebugLoc();
       MachineBasicBlock *Target = MI.getOperand(0).getMBB();
-      TII.emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
-                      MI.getOperand(2), MI.getOperand(3));
+      auto It = Chains.find(&MBB);
+      if (It != Chains.end() && It->second.Conds.size() > 1) {
+        // The one condition with no parallel compare, if there is one, is
+        // tested first, by an ordinary compare. If the branch needs all of
+        // them to hold, each other one clears p6 if it does not.
+        const Chain &C = It->second;
+        auto Plain = find_if(C.Conds, [](const Condition &C) {
+          return !C.hasParallelCompare();
+        });
+        if (Plain == C.Conds.end())
+          Plain = C.Conds.begin();
+        TII.emitCompare(MBB, MI, DL, Plain->CC, Plain->LHS, Plain->RHS);
+        for (auto I = C.Conds.begin(), E = C.Conds.end(); I != E; ++I) {
+          if (I == Plain)
+            continue;
+          bool Emitted = TII.emitParallelCompare(
+              MBB, MI, DL, C.Any ? I->CC : IA64CC::getOpposite(I->CC), I->LHS,
+              I->RHS, C.Any ? IA64::P6 : IA64::P7, C.Any ? IA64::P7 : IA64::P6);
+          assert(Emitted && "condition has no parallel compare");
+          (void)Emitted;
+        }
+      } else {
+        TII.emitCompare(MBB, MI, DL,
+                        IA64CC::CondCode(MI.getOperand(1).getImm()),
+                        MI.getOperand(2), MI.getOperand(3));
+      }
       bool Taken =
           MBPI.getEdgeProbability(&MBB, Target) >= BranchProbability(1, 2);
       BuildMI(MBB, MI, DL, TII.get(IA64::BR_COND))
