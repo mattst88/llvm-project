@@ -1249,6 +1249,17 @@ bool IA64TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   return true;
 }
 
+bool IA64TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
+  if (const auto *Load = dyn_cast<LoadSDNode>(Val)) {
+    EVT MemVT = Load->getMemoryVT();
+    if (MemVT.isScalarInteger() && MemVT.getSizeInBits() <= 32 &&
+        (Load->getExtensionType() == ISD::NON_EXTLOAD ||
+         Load->getExtensionType() == ISD::ZEXTLOAD))
+      return true;
+  }
+  return TargetLowering::isZExtFree(Val, VT2);
+}
+
 unsigned IA64TargetLowering::getJumpTableEncoding() const {
   return MachineJumpTableInfo::EK_LabelDifference64;
 }

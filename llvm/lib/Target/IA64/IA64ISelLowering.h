@@ -54,6 +54,8 @@ public:
   ISD::NodeType getExtendForAtomicCmpSwapArg() const override {
     return ISD::ZERO_EXTEND;
   }
+  // Loads zero-extend as well.
+  bool isZExtFree(SDValue Val, EVT VT2) const override;
   Register getRegisterByName(const char *RegName, LLT Ty,
                              const MachineFunction &MF) const override;
   ConstraintType getConstraintType(StringRef Constraint) const override;
