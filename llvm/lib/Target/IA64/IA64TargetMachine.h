@@ -37,6 +37,8 @@ public:
 
   TargetTransformInfo getTargetTransformInfo(const Function &F) const override;
 
+  void registerPassBuilderCallbacks(PassBuilder &PB) override;
+
   MachineFunctionInfo *
   createMachineFunctionInfo(BumpPtrAllocator &Allocator, const Function &F,
                             const TargetSubtargetInfo *STI) const override;

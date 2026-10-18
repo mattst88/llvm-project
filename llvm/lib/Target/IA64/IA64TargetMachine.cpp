@@ -21,12 +21,17 @@
 #include "llvm/InitializePasses.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/PassRegistry.h"
+#include "llvm/Passes/PassBuilder.h"
 
 using namespace llvm;
 
 static cl::opt<bool>
     EnableCountedLoops("ia64-counted-loops", cl::Hidden, cl::init(true),
                        cl::desc("Count loops down in ar.lc with br.cloop"));
+
+static cl::opt<bool> EnableAliasVersioning(
+    "ia64-alias-versioning", cl::Hidden, cl::init(true),
+    cl::desc("Version small loops on whether their pointers overlap"));
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   RegisterTargetMachine<IA64TargetMachine> X(getTheIA64Target());
@@ -188,6 +193,19 @@ void IA64PassConfig::addPreEmitPass2() {
 TargetTransformInfo
 IA64TargetMachine::getTargetTransformInfo(const Function &F) const {
   return TargetTransformInfo(std::make_unique<IA64TTIImpl>(this, F));
+}
+
+void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
+#define GET_PASS_REGISTRY "IA64PassRegistry.def"
+#include "llvm/Passes/TargetPassRegistry.inc"
+
+  // Before the vectorizer and the unroller, which copy the versioned loop.
+  PB.registerVectorizerStartEPCallback(
+      [](FunctionPassManager &FPM, OptimizationLevel Level) {
+        if (EnableAliasVersioning &&
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+          FPM.addPass(IA64LoopAliasVersioningPass());
+      });
 }
 
 TargetPassConfig *IA64TargetMachine::createPassConfig(PassManagerBase &PM) {

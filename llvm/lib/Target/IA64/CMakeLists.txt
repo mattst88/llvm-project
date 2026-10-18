@@ -26,6 +26,7 @@ add_llvm_target(IA64CodeGen
   IA64FrameLowering.cpp
   IA64ExpandBranches.cpp
   IA64IfConversion.cpp
+  IA64LoopAliasVersioning.cpp
   IA64InsertStops.cpp
   IA64PackGroups.cpp
   IA64LocalDynamicTLS.cpp
@@ -49,10 +50,12 @@ add_llvm_target(IA64CodeGen
   Core
   GlobalISel
   MC
+  Passes
   SelectionDAG
   Support
   Target
   TargetParser
+  TransformUtils
 
   ADD_TO_COMPONENT
   IA64

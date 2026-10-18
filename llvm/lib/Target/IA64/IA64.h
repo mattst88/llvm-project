@@ -15,6 +15,7 @@
 #define LLVM_LIB_TARGET_IA64_IA64_H
 
 #include "MCTargetDesc/IA64MCTargetDesc.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/Support/CodeGen.h"
 
 namespace llvm {
@@ -43,6 +44,11 @@ void initializeIA64IfConversionPass(PassRegistry &);
 void initializeIA64InsertStopsPass(PassRegistry &);
 void initializeIA64LocalDynamicTLSPass(PassRegistry &);
 void initializeIA64PackGroupsPass(PassRegistry &);
+
+struct IA64LoopAliasVersioningPass
+    : OptionalPassInfoMixin<IA64LoopAliasVersioningPass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
 
 } // namespace llvm
 
