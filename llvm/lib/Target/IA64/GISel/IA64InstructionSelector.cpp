@@ -872,6 +872,45 @@ bool IA64InstructionSelector::selectGlobalValue(
   return true;
 }
 
+// The llvm.loop.decrement whose result alone decides a branch, under any
+// extensions, masks and inversions of it. Exit is set if the branch is taken
+// when the count has run out.
+static MachineInstr *
+getLoopDecrement(Register Reg, const MachineRegisterInfo &MRI, bool &Exit) {
+  Exit = false;
+  while (MRI.hasOneNonDBGUse(Reg)) {
+    MachineInstr *Def = MRI.getVRegDef(Reg);
+    switch (Def->getOpcode()) {
+    case TargetOpcode::G_ZEXT:
+    case TargetOpcode::G_ANYEXT:
+    case TargetOpcode::G_TRUNC:
+      Reg = Def->getOperand(1).getReg();
+      continue;
+    // Only the low bit is the condition, which an and keeps and an xor
+    // inverts if the constant has it set.
+    case TargetOpcode::G_AND:
+    case TargetOpcode::G_XOR: {
+      auto Mask = getIConstantVRegVal(Def->getOperand(2).getReg(), MRI);
+      if (!Mask || !(*Mask)[0])
+        return nullptr;
+      if (Def->getOpcode() == TargetOpcode::G_XOR)
+        Exit = !Exit;
+      Reg = Def->getOperand(1).getReg();
+      continue;
+    }
+    case TargetOpcode::G_INTRINSIC_W_SIDE_EFFECTS: {
+      if (cast<GIntrinsic>(Def)->getIntrinsicID() != Intrinsic::loop_decrement)
+        return nullptr;
+      auto Amount = getIConstantVRegVal(Def->getOperand(2).getReg(), MRI);
+      return Amount && Amount->isOne() ? Def : nullptr;
+    }
+    default:
+      return nullptr;
+    }
+  }
+  return nullptr;
+}
+
 bool IA64InstructionSelector::selectInstruction(
     MachineInstr &I, MachineRegisterInfo &MRI) const {
   if (!I.isPreISelOpcode()) {
@@ -971,6 +1010,14 @@ bool IA64InstructionSelector::selectInstruction(
   }
 
   case TargetOpcode::G_BRCOND: {
+    bool Exit;
+    if (getLoopDecrement(I.getOperand(0).getReg(), MRI, Exit)) {
+      // br.cloop decrements ar.lc as it branches, so the decrement moves to
+      // the branch and is left with nothing to do.
+      emit(I, IA64::BRLOOP).add(I.getOperand(1)).addImm(Exit);
+      I.eraseFromParent();
+      return true;
+    }
     static const unsigned Opcodes[] = {IA64::BRCC, IA64::BRCCi, IA64::BRCCf};
     Condition Cond = getCondition(I.getOperand(0).getReg(), MRI);
     MachineInstrBuilder MIB = emit(I, Opcodes[Cond.Kind]).add(I.getOperand(1));
@@ -983,6 +1030,29 @@ bool IA64InstructionSelector::selectInstruction(
   case TargetOpcode::G_ATOMICRMW_ADD:
   case TargetOpcode::G_ATOMICRMW_SUB:
     return selectAtomic(I, MRI);
+
+  // ar.lc is one less than the number of iterations. A decrement is selected
+  // with the branch on its result, and is gone by the time it is reached.
+  case TargetOpcode::G_INTRINSIC_W_SIDE_EFFECTS:
+    switch (cast<GIntrinsic>(I).getIntrinsicID()) {
+    case Intrinsic::set_loop_iterations: {
+      Register Count = MRI.createVirtualRegister(&IA64::GRRegClass);
+      emit(I, IA64::ADDS, Count)
+          .addImm(-1)
+          .addReg(I.getOperand(1).getReg())
+          .addReg(IA64::P0);
+      emit(I, IA64::SET_LC).addReg(Count);
+      I.eraseFromParent();
+      return true;
+    }
+    case Intrinsic::loop_decrement:
+      if (!MRI.use_nodbg_empty(I.getOperand(0).getReg()))
+        return false;
+      I.eraseFromParent();
+      return true;
+    default:
+      return selectByPattern(I, MRI);
+    }
 
   // Atomic loads and stores already carry the ordering they need, so only a
   // cross-thread seq_cst fence emits an mf.

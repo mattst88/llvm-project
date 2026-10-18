@@ -24,6 +24,10 @@
 
 using namespace llvm;
 
+static cl::opt<bool>
+    EnableCountedLoops("ia64-counted-loops", cl::Hidden, cl::init(true),
+                       cl::desc("Count loops down in ar.lc with br.cloop"));
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   RegisterTargetMachine<IA64TargetMachine> X(getTheIA64Target());
 
@@ -115,6 +119,8 @@ public:
 
 void IA64PassConfig::addIRPasses() {
   addPass(createAtomicExpandLegacyPass());
+  if (getOptLevel() != CodeGenOptLevel::None && EnableCountedLoops)
+    addPass(createHardwareLoopsLegacyPass());
   TargetPassConfig::addIRPasses();
 }
 

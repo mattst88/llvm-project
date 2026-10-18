@@ -413,6 +413,9 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   }
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
 
+  // Counted loops branch with br.cloop.
+  setTargetDAGCombine({ISD::BRCOND, ISD::INTRINSIC_VOID});
+
   // va_list is a pointer to the next argument; each argument occupies one or
   // more 8-byte slots.
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
@@ -504,6 +507,63 @@ static void reportUnsupported(SelectionDAG &DAG, const SDLoc &DL,
   DAG.getContext()->diagnose(DiagnosticInfoUnsupported(
       DAG.getMachineFunction().getFunction(),
       What + " is not supported on IA-64", DL.getDebugLoc()));
+}
+
+// A branch on llvm.loop.decrement, which br.cloop does in one instruction,
+// decrementing ar.lc as it branches. The decrement moves to the branch.
+static SDValue combineLoopBranch(SDNode *N, SelectionDAG &DAG) {
+  SDValue Cond = N->getOperand(1);
+  bool Exit = false;
+  // Find the decrement under any inversions of it.
+  while (Cond.hasOneUse()) {
+    if (Cond.getOpcode() == ISD::XOR && isOneConstant(Cond.getOperand(1))) {
+      Exit = !Exit;
+      Cond = Cond.getOperand(0);
+      continue;
+    }
+    if (Cond.getOpcode() == ISD::SETCC) {
+      auto *RHS = dyn_cast<ConstantSDNode>(Cond.getOperand(1));
+      ISD::CondCode CC = cast<CondCodeSDNode>(Cond.getOperand(2))->get();
+      if (!RHS || RHS->getZExtValue() > 1 ||
+          (CC != ISD::SETEQ && CC != ISD::SETNE))
+        break;
+      // The value is 0 or 1, so comparing it with one value is comparing it
+      // with the other, inverted.
+      Exit ^= (CC == ISD::SETEQ) != RHS->isOne();
+      Cond = Cond.getOperand(0);
+      continue;
+    }
+    break;
+  }
+  if (!Cond.hasOneUse() || Cond.getOpcode() != ISD::INTRINSIC_W_CHAIN ||
+      Cond.getResNo() != 0 ||
+      Cond.getConstantOperandVal(1) != Intrinsic::loop_decrement ||
+      !isOneConstant(Cond.getOperand(2)))
+    return SDValue();
+  SDLoc DL(N);
+  DAG.ReplaceAllUsesOfValueWith(Cond.getValue(1), Cond.getOperand(0));
+  return DAG.getNode(IA64ISD::BRLOOP, DL, MVT::Other, N->getOperand(0),
+                     N->getOperand(2),
+                     DAG.getTargetConstant(Exit, DL, MVT::i64));
+}
+
+SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
+                                              DAGCombinerInfo &DCI) const {
+  SelectionDAG &DAG = DCI.DAG;
+  switch (N->getOpcode()) {
+  case ISD::BRCOND:
+    return combineLoopBranch(N, DAG);
+  case ISD::INTRINSIC_VOID:
+    if (N->getConstantOperandVal(1) == Intrinsic::set_loop_iterations) {
+      SDLoc DL(N);
+      SDValue Count = N->getOperand(2);
+      return DAG.getNode(IA64ISD::SET_LC, DL, MVT::Other, N->getOperand(0),
+                         DAG.getNode(ISD::ADD, DL, MVT::i64, Count,
+                                     DAG.getAllOnesConstant(DL, MVT::i64)));
+    }
+    break;
+  }
+  return SDValue();
 }
 
 SDValue IA64TargetLowering::LowerOperation(SDValue Op,

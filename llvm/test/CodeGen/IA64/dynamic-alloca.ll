@@ -109,14 +109,14 @@ declare ptr @llvm.stacksave()
 declare void @llvm.stackrestore(ptr)
 define void @loop(i64 %n) {
 ; CHECK-LABEL: loop:
-; CHECK:       mov r35 = r12 ;;
+; CHECK:       mov r34 = r12 ;;
 ; CHECK-NEXT:  and r14 = -16, r14 ;;
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
 ; CHECK-NEXT:  adds r39 = 16, r12
-; CHECK-NEXT:  mov r40 = r33
+; CHECK-NEXT:  mov r40 = r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
-; CHECK-NEXT:  mov r1 = r34
-; CHECK-NEXT:  mov r12 = r35
+; CHECK-NEXT:  mov r1 = r33
+; CHECK-NEXT:  mov r12 = r34
 entry:
   br label %l
 l:

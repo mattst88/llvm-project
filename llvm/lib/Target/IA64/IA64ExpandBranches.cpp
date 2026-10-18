@@ -304,6 +304,44 @@ static bool mergeBranches(MachineBasicBlock &MBB,
   return false;
 }
 
+// br.cloop branches while ar.lc is nonzero, so it can only continue a loop.
+// A branch that leaves the loop when the count runs out instead continues it
+// with br.cloop and then branches out.
+static void expandLoopBranch(MachineBasicBlock &MBB, MachineInstr &MI,
+                             const IA64InstrInfo &TII,
+                             const MachineBranchProbabilityInfo &MBPI) {
+  const DebugLoc &DL = MI.getDebugLoc();
+  MachineBasicBlock *Target = MI.getOperand(0).getMBB();
+  if (!MI.getOperand(1).getImm()) {
+    bool Taken =
+        MBPI.getEdgeProbability(&MBB, Target) >= BranchProbability(1, 2);
+    BuildMI(MBB, MI, DL, TII.get(IA64::BR_CLOOP))
+        .addMBB(Target)
+        .addImm(Taken ? IA64II::WhetherSPTK : IA64II::WhetherSPNT)
+        .addImm(0)
+        .addImm(0);
+    MI.eraseFromParent();
+    return;
+  }
+  // The loop continues to the block the branch does not go to.
+  MachineBasicBlock *Loop;
+  auto Next = std::next(MI.getIterator());
+  if (Next != MBB.end() && Next->getOpcode() == IA64::BRUNCOND) {
+    Loop = Next->getOperand(0).getMBB();
+    Next->eraseFromParent();
+  } else {
+    Loop = &*std::next(MBB.getIterator());
+  }
+  bool Taken = MBPI.getEdgeProbability(&MBB, Loop) >= BranchProbability(1, 2);
+  BuildMI(MBB, MI, DL, TII.get(IA64::BR_CLOOP))
+      .addMBB(Loop)
+      .addImm(Taken ? IA64II::WhetherSPTK : IA64II::WhetherSPNT)
+      .addImm(0)
+      .addImm(0);
+  BuildMI(MBB, MI, DL, TII.get(IA64::BRUNCOND)).addMBB(Target);
+  MI.eraseFromParent();
+}
+
 bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
   const IA64InstrInfo &TII = *MF.getSubtarget<IA64Subtarget>().getInstrInfo();
   const MachineBranchProbabilityInfo &MBPI =
@@ -334,6 +372,11 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
 
   for (MachineBasicBlock &MBB : MF) {
     for (MachineInstr &MI : make_early_inc_range(MBB.terminators())) {
+      if (MI.getOpcode() == IA64::BRLOOP) {
+        expandLoopBranch(MBB, MI, TII, MBPI);
+        Changed = true;
+        break;
+      }
       if (!IA64InstrInfo::isConditionalBranch(MI))
         continue;
       const DebugLoc &DL = MI.getDebugLoc();

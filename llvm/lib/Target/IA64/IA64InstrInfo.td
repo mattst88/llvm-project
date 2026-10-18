@@ -219,6 +219,24 @@ def BRCCf : IA64Pseudo<(outs),
 }
 }
 
+// The end of a counted loop: br.cloop, which branches to $target and
+// decrements ar.lc if ar.lc is not zero. With $exit set, the sense is
+// reversed: the loop ends by branching to $target when ar.lc is zero, and
+// otherwise ar.lc is decremented and execution continues. That has no
+// single instruction; once blocks are placed it becomes a br.cloop to the
+// block that follows and a branch to $target.
+let isBranch = 1, isTerminator = 1, Uses = [AR65], Defs = [AR65] in
+let SchedRW = [WriteBr] in
+def BRLOOP : IA64Pseudo<(outs), (ins brtarget:$target, i64imm:$exit),
+                        "#BRLOOP", []>;
+
+// Start a counted loop: set ar.lc to one less than the number of times the
+// loop runs. ar.lc is not allocatable, so this is a pseudo rather than a
+// move to a register operand.
+let hasSideEffects = 1, Defs = [AR65] in
+let SchedRW = [WriteToAR] in
+def SET_LC : IA64Pseudo<(outs), (ins GR:$lc), "#SET_LC", []>;
+
 // An unconditional branch. Hardware branches are unconditional only by having
 // p0 as their qualifying predicate, but the code generator needs a distinct
 // opcode, so this stands for "br.cond" until it is emitted.
@@ -936,6 +954,7 @@ let LastSlot = 1 in {
 def BR_WEXIT : B1<2, "br.wexit">;
 def BR_WTOP  : B1<3, "br.wtop">;
 }
+let Uses = [AR65], Defs = [AR65] in
 def BR_CLOOP : B2<5, "br.cloop">;
 def BR_CEXIT : B2<6, "br.cexit">;
 def BR_CTOP  : B2<7, "br.ctop">;

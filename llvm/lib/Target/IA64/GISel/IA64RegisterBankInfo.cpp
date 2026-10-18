@@ -363,6 +363,16 @@ IA64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
     Ops[0] = Ops[1] = Bank(IsFP);
     break;
   }
+  // The counted loop intrinsics take and give integers.
+  case G_INTRINSIC_W_SIDE_EFFECTS:
+    switch (cast<GIntrinsic>(MI).getIntrinsicID()) {
+    case Intrinsic::set_loop_iterations:
+    case Intrinsic::loop_decrement:
+      break;
+    default:
+      return getInvalidInstructionMapping();
+    }
+    break;
   case G_PHI: {
     // The incoming values and the result share one bank, as the single
     // mapping of a copy-like instruction implies. It is FPR if either the

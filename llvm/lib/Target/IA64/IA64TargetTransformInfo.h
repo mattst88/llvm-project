@@ -75,6 +75,12 @@ public:
       ArrayRef<const Value *> Args = {},
       const Instruction *CtxI = nullptr) const override;
 
+  // br.cloop counts a loop down in ar.lc, which is callee-saved, so a
+  // counted loop needs no induction variable of its own to compare.
+  bool isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
+                                AssumptionCache &AC, TargetLibraryInfo *LibInfo,
+                                HardwareLoopInfo &HWLoopInfo) const override;
+
   bool supportsTailCallFor(const CallBase *CB) const override {
     return TLI->supportsTailCallFor(CB);
   }

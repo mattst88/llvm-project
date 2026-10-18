@@ -68,6 +68,10 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // ar.fpsr: the rounding mode and the raised exception flags.
   Reserved.set(IA64::AR40);
 
+  // ar.lc, which counted loops set in the preheader and br.cloop counts down.
+  // It is callee-saved, and the prologue saves it when anything writes it.
+  Reserved.set(IA64::AR65);
+
   // RSE state: ar.rsc, ar.bsp, ar.bspstore and ar.rnat.
   Reserved.set(IA64::AR16);
   Reserved.set(IA64::AR17);

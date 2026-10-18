@@ -1,0 +1,84 @@
+# RUN: llc -mtriple=ia64 -run-pass=ia64-expand-branches \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s --check-prefix=BRANCH
+# RUN: llc -mtriple=ia64 -run-pass=postrapseudos -verify-machineinstrs \
+# RUN:   -o - %s | FileCheck %s --check-prefix=PSEUDO
+
+# br.cloop branches while ar.lc is not zero. A loop branch taken when the
+# count runs out continues the loop with br.cloop and then leaves it, to
+# wherever the other branch went or else to the next block.
+
+# BRANCH-LABEL: name: continue
+# BRANCH:      BR_CLOOP %bb.1, 0, 0, 0, implicit-def $ar65, implicit $ar65
+# BRANCH-NOT:  BR
+# BRANCH:      bb.2
+
+# BRANCH-LABEL: name: leave
+# BRANCH:      BR_CLOOP %bb.1, 0, 0, 0, implicit-def $ar65, implicit $ar65
+# BRANCH-NEXT: BRUNCOND %bb.3
+# BRANCH-NOT:  BR
+# BRANCH:      bb.2
+
+# BRANCH-LABEL: name: leave_fallthrough
+# BRANCH:      BR_CLOOP %bb.2, 0, 0, 0, implicit-def $ar65, implicit $ar65
+# BRANCH-NEXT: BRUNCOND %bb.3
+# BRANCH-NOT:  BR
+# BRANCH:      bb.2
+
+# ar.lc is one less than the number of iterations, written directly.
+# PSEUDO-LABEL: name: continue
+# PSEUDO:      $ar65 = MOV_AR killed $r14, $p0
+
+---
+name: continue
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14
+    SET_LC killed $r14, implicit-def $ar65
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    BRLOOP %bb.1, 0, implicit-def $ar65, implicit $ar65
+
+  bb.2:
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+name: leave
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14
+    SET_LC killed $r14, implicit-def $ar65
+
+  bb.1:
+    successors: %bb.3, %bb.1
+    BRLOOP %bb.3, 1, implicit-def $ar65, implicit $ar65
+    BRUNCOND %bb.1
+
+  bb.2:
+    BR_RET $b0, 0, 1, 0, $p0
+
+  bb.3:
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+name: leave_fallthrough
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14
+    SET_LC killed $r14, implicit-def $ar65
+
+  bb.1:
+    successors: %bb.3, %bb.2
+
+    BRLOOP %bb.3, 1, implicit-def $ar65, implicit $ar65
+
+  bb.2:
+    successors: %bb.1
+    BRUNCOND %bb.1
+
+  bb.3:
+    BR_RET $b0, 0, 1, 0, $p0
+...

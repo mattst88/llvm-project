@@ -65,7 +65,7 @@ define i64 @invariant(ptr %p, i64 %n, i64 %k) {
 ; CHECK:       .LBB{{[0-9_]+}}:
 ; CHECK-NOT:   r34
 ; CHECK:       xma.l f7 = f7, f6, f0 ;;
-; CHECK:       br.cond.dptk.few .LBB
+; CHECK:       br.cloop.sptk.few .LBB
 entry:
   br label %loop
 

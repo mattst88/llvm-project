@@ -514,6 +514,12 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         .addReg(IA64::P0);
     MI.eraseFromParent();
     return true;
+  case IA64::SET_LC:
+    BuildMI(MBB, MI, DL, get(IA64::MOV_AR), IA64::AR65)
+        .add(MI.getOperand(0))
+        .addReg(IA64::P0);
+    MI.eraseFromParent();
+    return true;
   case IA64::CMPXCHG: {
     static const unsigned Opcodes[] = {IA64::CMPXCHG1_ACQ, IA64::CMPXCHG2_ACQ,
                                        IA64::CMPXCHG4_ACQ, IA64::CMPXCHG8_ACQ};
@@ -868,6 +874,11 @@ bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
       getCondition(*Last, Cond);
       return false;
     }
+    if (Last->getOpcode() == IA64::BRLOOP) {
+      TBB = Last->getOperand(0).getMBB();
+      Cond.push_back(Last->getOperand(1));
+      return false;
+    }
     return true;
   }
 
@@ -878,6 +889,13 @@ bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
   if (isConditionalBranch(*SecondLast) && Last->getOpcode() == IA64::BRUNCOND) {
     TBB = SecondLast->getOperand(0).getMBB();
     getCondition(*SecondLast, Cond);
+    FBB = Last->getOperand(0).getMBB();
+    return false;
+  }
+  if (SecondLast->getOpcode() == IA64::BRLOOP &&
+      Last->getOpcode() == IA64::BRUNCOND) {
+    TBB = SecondLast->getOperand(0).getMBB();
+    Cond.push_back(SecondLast->getOperand(1));
     FBB = Last->getOperand(0).getMBB();
     return false;
   }
@@ -900,7 +918,8 @@ unsigned IA64InstrInfo::removeBranch(MachineBasicBlock &MBB,
   unsigned Count = 0;
   MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
   while (I != MBB.end() &&
-         (I->getOpcode() == IA64::BRUNCOND || isConditionalBranch(*I))) {
+         (I->getOpcode() == IA64::BRUNCOND || I->getOpcode() == IA64::BRLOOP ||
+          isConditionalBranch(*I))) {
     if (BytesRemoved)
       *BytesRemoved += getInstSizeInBytes(*I);
     I->eraseFromParent();
@@ -914,7 +933,7 @@ unsigned IA64InstrInfo::insertBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
     ArrayRef<MachineOperand> Cond, const DebugLoc &DL, int *BytesAdded) const {
   assert(TBB && "A branch needs somewhere to go");
-  assert((Cond.empty() || Cond.size() == 3) && "Not a condition");
+  assert((Cond.size() <= 1 || Cond.size() == 3) && "Not a condition");
 
   if (Cond.empty()) {
     assert(!FBB && "Two destinations and no condition");
@@ -925,7 +944,9 @@ unsigned IA64InstrInfo::insertBranch(
   }
 
   unsigned Opcode = IA64::BRCC;
-  if (Cond[2].isImm())
+  if (Cond.size() == 1)
+    Opcode = IA64::BRLOOP;
+  else if (Cond[2].isImm())
     Opcode = IA64::BRCCi;
   else if (IA64CC::isFloatingPoint(IA64CC::CondCode(Cond[0].getImm())))
     Opcode = IA64::BRCCf;
@@ -940,9 +961,14 @@ unsigned IA64InstrInfo::insertBranch(
   return 2;
 }
 
-// Each condition has an opposite, and both accept the same immediates.
+// Each condition has an opposite, and both accept the same immediates. A
+// counted loop branch either continues the loop or leaves it.
 bool IA64InstrInfo::reverseBranchCondition(
     SmallVectorImpl<MachineOperand> &Cond) const {
+  if (Cond.size() == 1) {
+    Cond[0].setImm(!Cond[0].getImm());
+    return false;
+  }
   assert(Cond.size() == 3 && "Not a condition");
   Cond[0].setImm(IA64CC::getOpposite(IA64CC::CondCode(Cond[0].getImm())));
   return false;
@@ -1005,6 +1031,7 @@ unsigned IA64InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   case IA64::BRCC:
   case IA64::BRCCi:
   case IA64::BRIND:
+  case IA64::BRLOOP:
     return 32;
   // An FP condition may need a second compare to get the required
   // signaling behavior.

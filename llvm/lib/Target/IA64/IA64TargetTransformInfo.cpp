@@ -210,3 +210,19 @@ InstructionCost IA64TTIImpl::getArithmeticInstrCost(
   return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info, Op2Info,
                                        Args, CtxI);
 }
+
+bool IA64TTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
+                                           AssumptionCache &AC,
+                                           TargetLibraryInfo *LibInfo,
+                                           HardwareLoopInfo &HWLoopInfo) const {
+  // Inline assembly may use ar.lc for loops of its own.
+  for (BasicBlock *BB : L->blocks())
+    for (Instruction &I : *BB)
+      if (auto *Call = dyn_cast<CallBase>(&I); Call && Call->isInlineAsm())
+        return false;
+
+  LLVMContext &C = L->getHeader()->getContext();
+  HWLoopInfo.CountType = Type::getInt64Ty(C);
+  HWLoopInfo.LoopDecrement = ConstantInt::get(HWLoopInfo.CountType, 1);
+  return true;
+}

@@ -193,7 +193,7 @@ bool IA64IfConversion::convert(MachineBasicBlock &MBB) const {
   MachineBasicBlock *TBB = nullptr, *FBB = nullptr;
   SmallVector<MachineOperand, 3> Cond;
   if (MBB.succ_size() != 2 || TII->analyzeBranch(MBB, TBB, FBB, Cond, false) ||
-      Cond.empty())
+      Cond.size() != 3)
     return false;
   if (!FBB)
     FBB = *MBB.succ_begin() == TBB ? *MBB.succ_rbegin() : *MBB.succ_begin();

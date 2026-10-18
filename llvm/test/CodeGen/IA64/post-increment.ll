@@ -1,4 +1,5 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-counted-loops=false < %s | FileCheck %s
 
 ; A load or a store that is followed by an add to its address does the add
 ; itself: nine bits of constant, or for a load a register.

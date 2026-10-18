@@ -1,4 +1,5 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-counted-loops=false < %s | FileCheck %s
 
 ; A loop that reads and writes at fixed distances from where it has got to
 ; keeps a pointer for each of them, which the load or the store moves on,

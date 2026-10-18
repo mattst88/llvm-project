@@ -51,6 +51,15 @@ def IA64dynareaoffset
     : SDNode<"IA64ISD::DYNAREAOFFSET",
              SDTypeProfile<1, 0, [SDTCisVT<0, i64>]>>;
 
+// The end of a counted loop, and its start. See BRLOOP and SET_LC.
+def IA64brloop
+    : SDNode<"IA64ISD::BRLOOP",
+             SDTypeProfile<0, 2, [SDTCisVT<0, OtherVT>, SDTCisVT<1, i64>]>,
+             [SDNPHasChain]>;
+def IA64setlc
+    : SDNode<"IA64ISD::SET_LC", SDTypeProfile<0, 1, [SDTCisVT<0, i64>]>,
+             [SDNPHasChain, SDNPSideEffect]>;
+
 // Move the bits of an f32 to/from the low half of a GR.
 def IA64getfs
     : SDNode<"IA64ISD::GETF_S",
@@ -100,6 +109,8 @@ def shladdamt : ImmLeaf<i64, [{ return Imm >= 1 && Imm <= 4; }]>;
 def : Pat<(IA64retglue), (BR_RET B0, 0, 1, 0)>;
 def : Pat<(br bb:$target), (BRUNCOND bb:$target)>;
 def : Pat<(brind GR:$target), (BRIND GR:$target)>;
+def : Pat<(IA64brloop bb:$target, timm:$exit), (BRLOOP bb:$target, timm:$exit)>;
+def : Pat<(IA64setlc GR:$lc), (SET_LC GR:$lc)>;
 
 def : Pat<(IA64call tglobaladdr:$target, GRSave:$gp),
           (CALL tglobaladdr:$target, GRSave:$gp)>;
