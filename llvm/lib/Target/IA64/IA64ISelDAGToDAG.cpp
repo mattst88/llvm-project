@@ -53,6 +53,7 @@ public:
   enum CompareForm { Register, Immediate, FloatingPoint };
   bool selectMinMax(SDNode *Node);
   bool selectBitField(SDNode *Node);
+  bool selectCompareChain(SDNode *Node);
   CompareForm selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                             const SDLoc &DL, SmallVectorImpl<SDValue> &Ops);
 
@@ -237,6 +238,61 @@ static void setNoFPExcept(SDNode *Node) {
   SDNodeFlags Flags = Node->getFlags();
   Flags.setNoFPExcept(true);
   Node->setFlags(Flags);
+}
+
+// Select an AND or OR of integer compares, through further ANDs or ORs of the
+// same kind, as one compare followed by parallel compares that accumulate
+// into its predicates. All the compares but one need a parallel form. The
+// combining nodes and compares must have no other users, or they would be
+// computed twice.
+bool IA64DAGToDAGISel::selectCompareChain(SDNode *Node) {
+  unsigned Opcode = Node->getOpcode();
+  if ((Opcode != ISD::AND && Opcode != ISD::OR) ||
+      Node->getValueType(0) != MVT::i64)
+    return false;
+
+  SmallVector<SDNode *, 4> Compares;
+  SmallVector<SDNode *, 4> Worklist = {Node};
+  while (!Worklist.empty()) {
+    SDNode *N = Worklist.pop_back_val();
+    for (SDValue Op : N->ops()) {
+      if (!Op.hasOneUse())
+        return false;
+      if (Op.getOpcode() == Opcode)
+        Worklist.push_back(Op.getNode());
+      else if (Op.getOpcode() == ISD::SETCC &&
+               Op.getOperand(0).getValueType().isInteger())
+        Compares.push_back(Op.getNode());
+      else
+        return false;
+    }
+  }
+
+  SDLoc DL(Node);
+  SmallVector<SDValue, 12> Ops;
+  // Where the compare without a parallel form went, if there is one.
+  std::optional<unsigned> Plain;
+  for (SDNode *Compare : Compares) {
+    unsigned Start = Ops.size();
+    selectCompare(Compare->getOperand(0), Compare->getOperand(1),
+                  cast<CondCodeSDNode>(Compare->getOperand(2))->get(), DL, Ops);
+    auto CC = IA64CC::CondCode(Ops[Start]->getAsZExtVal());
+    std::optional<int64_t> Imm;
+    if (Ops[Start + 2].getOpcode() == ISD::TargetConstant)
+      Imm = Ops[Start + 2]->getAsAPIntVal().getSExtValue();
+    if (IA64CC::getParallelCompare(CC, Imm))
+      continue;
+    if (Plain)
+      return false;
+    Plain = Start;
+  }
+  // The first compare is the one that writes both predicates outright.
+  if (Plain)
+    std::rotate(Ops.begin(), Ops.begin() + *Plain, Ops.begin() + *Plain + 3);
+  CurDAG->SelectNodeTo(Node,
+                       Opcode == ISD::AND ? IA64::SETCC_AND : IA64::SETCC_OR,
+                       MVT::i64, Ops);
+  return true;
 }
 
 // Memory operands are a register address, whatever the constraint.
@@ -442,7 +498,7 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   case ISD::SRL:
   case ISD::SRA:
   case ISD::SIGN_EXTEND_INREG:
-    if (selectBitField(Node))
+    if (selectCompareChain(Node) || selectBitField(Node))
       return;
     break;
   case ISD::FrameIndex: {

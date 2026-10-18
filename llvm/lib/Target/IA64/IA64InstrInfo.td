@@ -107,6 +107,17 @@ def SETFCLASS : IA64Pseudo<(outs GR:$r1),
                            (ins FR:$f2, i64imm:$fclass, i64imm:$none),
                            "#SETFCLASS", []>;
 
+// 1 if all (SETCC_AND) or any (SETCC_OR) of two or more integer compares
+// hold, else 0. The operands are a condition code, a register and a register
+// or immediate for each compare. The first compare may be any; the others
+// must have parallel forms, which accumulate into its predicates.
+let Defs = [P6, P7], hasSideEffects = 0, SchedRW = [WriteSelect] in {
+def SETCC_AND : IA64Pseudo<(outs GR:$r1), (ins variable_ops), "#SETCC_AND",
+                           []>;
+def SETCC_OR  : IA64Pseudo<(outs GR:$r1), (ins variable_ops), "#SETCC_OR",
+                           []>;
+}
+
 // Select: $r1 is tied to $false and overwritten with $true under the
 // predicate.
 let Constraints = "$false = $r1" in {

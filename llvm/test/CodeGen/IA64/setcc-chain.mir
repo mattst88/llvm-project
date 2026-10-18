@@ -1,0 +1,43 @@
+# RUN: llc -mtriple=ia64 -run-pass=postrapseudos -verify-machineinstrs \
+# RUN:   -o - %s | FileCheck %s
+
+# The result is written only after every compare, since it may be one of
+# their operands. The parallel compares keep p7 the complement of p6. A
+# compare operand that has no value says so.
+
+# CHECK-LABEL: name: and
+# CHECK:      $p6, $p7 = CMP_LTU $r8, $r9, $p0
+# CHECK-NEXT: $p7, $p6 = CMP_NE_OR_ANDCM $r10, $r8, $p0
+# CHECK-NEXT: $p7, $p6 = CMP_GT_OR_ANDCMz undef $r11, $p0
+# CHECK-NEXT: $r8 = ADDS 0, $r0, $p0
+# CHECK-NEXT: $r8 = ADDL 1, $r0, $p6, implicit $r8
+
+# CHECK-LABEL: name: or
+# CHECK:      $p6, $p7 = CMP_EQ $r8, $r9, $p0
+# CHECK-NEXT: $p6, $p7 = CMP_EQ_OR_ANDCMi 5, $r8, $p0
+# CHECK-NEXT: $p6, $p7 = CMP_LT_OR_ANDCMz $r10, $p0
+# CHECK-NEXT: $r8 = ADDS 0, $r0, $p0
+# CHECK-NEXT: $r8 = ADDL 1, $r0, $p6, implicit $r8
+
+---
+name: and
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r8, $r9, $r10
+
+    ; r8 <u r9 && r10 == r8 && r11 > -1
+    $r8 = SETCC_AND 6, $r8, $r9, 0, $r10, $r8, 4, undef $r11, -1, implicit-def dead $p6, implicit-def dead $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+name: or
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r8, $r9, $r10
+
+    ; r8 == r9 || r8 == 5 || r10 > 0
+    $r8 = SETCC_OR 0, $r8, $r9, 0, $r8, 5, 4, $r10, 0, implicit-def dead $p6, implicit-def dead $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

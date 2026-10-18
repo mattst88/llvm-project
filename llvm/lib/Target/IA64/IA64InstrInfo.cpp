@@ -653,16 +653,34 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   case IA64::SETCCi:
   case IA64::SETCCf:
   case IA64::SETCCfq:
-  case IA64::SETCCfs: {
+  case IA64::SETCCfs:
+  case IA64::SETCC_AND:
+  case IA64::SETCC_OR: {
     // Set the result to 0, then to 1 under p6. The result may be an operand
-    // register, so the compare goes first; they can still share an
-    // instruction group, since a write after a read is not a dependency.
+    // register, so the compares go first; the last can still share an
+    // instruction group with the 0, since a write after a read is not a
+    // dependency.
     Register Dst = MI.getOperand(0).getReg();
     CompareKind Kind = MI.getOpcode() == IA64::SETCCfq   ? QuietCompare
                        : MI.getOpcode() == IA64::SETCCfs ? SignalingCompare
                                                          : PlainCompare;
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
                 MI.getOperand(2), MI.getOperand(3), Kind);
+    // The other compares of SETCC_AND clear p6 and set p7 if their condition
+    // is false, and those of SETCC_OR set p6 and clear p7 if it is true, so
+    // p7 stays the complement of p6. They write the predicates only one way,
+    // so they need no stops between them.
+    bool And = MI.getOpcode() == IA64::SETCC_AND;
+    bool Chain = And || MI.getOpcode() == IA64::SETCC_OR;
+    for (unsigned I = 4, E = Chain ? MI.getNumExplicitOperands() : 0; I < E;
+         I += 3) {
+      auto CC = IA64CC::CondCode(MI.getOperand(I).getImm());
+      [[maybe_unused]] bool Emitted = emitParallelCompare(
+          MBB, MI, DL, And ? IA64CC::getOpposite(CC) : CC, MI.getOperand(I + 1),
+          MI.getOperand(I + 2), And ? IA64::P7 : IA64::P6,
+          And ? IA64::P6 : IA64::P7);
+      assert(Emitted && "No parallel compare for this condition");
+    }
     BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
         .addImm(0)
         .addReg(IA64::R0)
