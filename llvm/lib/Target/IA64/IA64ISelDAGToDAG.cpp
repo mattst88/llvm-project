@@ -224,6 +224,18 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     Ops.push_back(RHS);
     return FloatingPoint;
   }
+  // A test of whether a single bit is set is a bit test.
+  if ((CC == ISD::SETEQ || CC == ISD::SETNE) && isNullConstant(RHS) &&
+      LHS.getOpcode() == ISD::AND && isa<ConstantSDNode>(LHS.getOperand(1)) &&
+      LHS.getConstantOperandAPInt(1).isPowerOf2()) {
+    IA64CC::CondCode IACC =
+        CC == ISD::SETEQ ? IA64CC::BitClear : IA64CC::BitSet;
+    Ops.push_back(CurDAG->getTargetConstant(IACC, DL, MVT::i64));
+    Ops.push_back(LHS.getOperand(0));
+    Ops.push_back(CurDAG->getTargetConstant(
+        LHS.getConstantOperandAPInt(1).logBase2(), DL, MVT::i64));
+    return Immediate;
+  }
   IA64CC::CondCode IACC = getIA64CC(CC);
   Ops.push_back(CurDAG->getTargetConstant(IACC, DL, MVT::i64));
   Ops.push_back(LHS);

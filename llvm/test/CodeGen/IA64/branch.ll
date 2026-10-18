@@ -40,12 +40,11 @@ else:
   ret i64 0
 }
 
-; A condition that is a value is compared with zero.
+; A condition that is a value has its low bit tested.
 
 define i64 @branch_value(i1 %c, ptr %p) {
 ; CHECK-LABEL: branch_value:
-; CHECK:       and [[C:r[0-9]+]] = 1, r32 ;;
-; CHECK-NEXT:  cmp.eq p6, p7 = 0, [[C]]
+; CHECK:       tbit.z p6, p7 = r32, 0
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB2_2 ;;
 ; CHECK-NEXT:  // %bb.1:
   br i1 %c, label %then, label %else

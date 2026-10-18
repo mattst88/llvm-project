@@ -32,8 +32,10 @@ enum : uint8_t {
 } // namespace IA64
 
 namespace IA64CC {
-// Compare conditions, integer then FP. Each is next to its inverse; for FP
-// that is the one that differs in its result for unordered operands.
+// Compare conditions, integer then FP, then tests of the bit of the left
+// operand that the right one, a constant, numbers. Each is next to its
+// inverse; for FP that is the one that differs in its result for unordered
+// operands.
 enum CondCode : unsigned {
   EQ,
   NE,
@@ -57,9 +59,13 @@ enum CondCode : unsigned {
   ULT,
   UO,
   ORD,
+  BitClear,
+  BitSet,
 };
 
-inline bool isFloatingPoint(CondCode CC) { return CC >= OEQ; }
+inline bool isFloatingPoint(CondCode CC) { return CC >= OEQ && CC <= ORD; }
+
+inline bool isBitTest(CondCode CC) { return CC >= BitClear; }
 
 inline CondCode getOpposite(CondCode CC) { return CondCode(CC ^ 1); }
 
@@ -68,9 +74,9 @@ bool isLegalImmediate(CondCode CC, int64_t Imm);
 
 // The parallel compare (or.andcm) testing CC against a register, if Imm is
 // empty, or against the constant Imm; 0 if there is none. There are forms for
-// equality against a register or an 8-bit immediate, and for ordering against
-// zero, which also covers ordering against its neighbors 1 and -1. If CC has
-// one, so does its opposite.
+// equality against a register or an 8-bit immediate, for ordering against
+// zero, which also covers ordering against its neighbors 1 and -1, and for
+// bit tests. If CC has one, so does its opposite.
 unsigned getParallelCompare(CondCode CC, std::optional<int64_t> Imm);
 } // namespace IA64CC
 

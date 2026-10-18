@@ -34,13 +34,12 @@ define i64 @max(i64 %a, i64 %b) {
   ret i64 %r
 }
 
-; A condition that is a value is compared with zero.
+; A condition that is a value has its low bit tested.
 
 define i64 @select_value(i1 %c, i64 %x, i64 %y) {
 ; CHECK-LABEL: select_value:
-; CHECK:       and [[C:r[0-9]+]] = 1, r32
-; CHECK-NEXT:  mov r8 = r34 ;;
-; CHECK-NEXT:  cmp.eq p7, p6 = 0, [[C]] ;;
+; CHECK:       mov r8 = r34
+; CHECK-NEXT:  tbit.z p7, p6 = r32, 0 ;;
 ; CHECK-NEXT:  (p6) mov r8 = r33
   %r = select i1 %c, i64 %x, i64 %y
   ret i64 %r

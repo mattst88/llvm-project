@@ -157,6 +157,9 @@ bool IA64CC::isLegalImmediate(CondCode CC, int64_t Imm) {
   case LTU:
   case GEU:
     return Imm != 0 && isInt<8>(Imm - 1);
+  case BitClear:
+  case BitSet:
+    return isUInt<6>(Imm);
   default:
     return isInt<8>(Imm);
   }
@@ -248,6 +251,18 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
     return;
   }
 
+  if (IA64CC::isBitTest(CC)) {
+    // tbit.nz is tbit.z with its predicates swapped.
+    bool Set = CC == IA64CC::BitSet;
+    BuildMI(MBB, I, DL, get(IA64::TBIT_Z))
+        .addReg(Set ? IA64::P7 : IA64::P6, RegState::Define)
+        .addReg(Set ? IA64::P6 : IA64::P7, RegState::Define)
+        .add(L)
+        .addImm(RHS.getImm())
+        .addReg(IA64::P0);
+    return;
+  }
+
   bool IsImm = RHS.isImm();
   unsigned Opcode;
   // Whether the encoded compare is the inverse of the requested one, and
@@ -329,6 +344,10 @@ unsigned IA64CC::getParallelCompare(CondCode CC, std::optional<int64_t> Imm) {
   }
   if (!Imm)
     return 0;
+  if (CC == BitClear)
+    return IA64::TBIT_Z_OR_ANDCM;
+  if (CC == BitSet)
+    return IA64::TBIT_NZ_OR_ANDCM;
   // The instruction has zero on the left: "r < 0" is "0 > r".
   switch (CC) {
   case LT:
@@ -376,6 +395,8 @@ bool IA64InstrInfo::emitParallelCompare(MachineBasicBlock &MBB,
       MIB.addImm(*Imm).add(L);
     else
       MIB.add(L).addReg(RHS.getReg(), getUndefRegState(RHS.isUndef()));
+  } else if (IA64CC::isBitTest(CC)) {
+    MIB.add(L).addImm(*Imm);
   } else {
     MIB.add(L);
   }
