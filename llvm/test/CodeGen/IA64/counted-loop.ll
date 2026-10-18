@@ -1,7 +1,8 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-pipeliner=false < %s \
 ; RUN:   | FileCheck %s
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs -global-isel \
-; RUN:   -global-isel-abort=1 < %s | FileCheck %s
+; RUN:   -global-isel-abort=1 -ia64-pipeliner=false < %s | FileCheck %s
 
 ; A loop that runs a known number of times counts down in ar.lc, and
 ; br.cloop decrements it and branches back while it is not zero. ar.lc is

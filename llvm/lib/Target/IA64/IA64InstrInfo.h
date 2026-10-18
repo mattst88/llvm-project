@@ -146,6 +146,8 @@ public:
                         int *BytesAdded = nullptr) const override;
   bool
   reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+  std::unique_ptr<PipelinerLoopInfo>
+  analyzeLoopForPipelining(MachineBasicBlock *LoopBB) const override;
 
   bool useMachineCombiner() const override { return true; }
   bool isAssociativeAndCommutative(const MachineInstr &Inst,

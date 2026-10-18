@@ -974,6 +974,37 @@ bool IA64InstrInfo::reverseBranchCondition(
   return false;
 }
 
+namespace {
+// A loop counted in ar.lc is the only kind pipelined. The count is set in the
+// preheader, and each prologue closes with a br.cloop that leaves for its
+// epilogue once the count has run out, so the prologues use up one count
+// each for the iterations they start, and the count needs no adjusting.
+class IA64PipelinerLoopInfo : public TargetInstrInfo::PipelinerLoopInfo {
+public:
+  bool shouldIgnoreForPipelining(const MachineInstr *MI) const override {
+    return MI->isTerminator();
+  }
+
+  std::optional<bool> createTripCountGreaterCondition(
+      int TC, MachineBasicBlock &MBB,
+      SmallVectorImpl<MachineOperand> &Cond) override {
+    Cond.push_back(MachineOperand::CreateImm(1));
+    return std::nullopt;
+  }
+
+  void adjustTripCount(int TripCountAdjust) override {}
+  void setPreheader(MachineBasicBlock *NewPreheader) override {}
+};
+} // end anonymous namespace
+
+std::unique_ptr<TargetInstrInfo::PipelinerLoopInfo>
+IA64InstrInfo::analyzeLoopForPipelining(MachineBasicBlock *LoopBB) const {
+  MachineBasicBlock::iterator I = LoopBB->getFirstTerminator();
+  if (I == LoopBB->end() || I->getOpcode() != IA64::BRLOOP)
+    return nullptr;
+  return std::make_unique<IA64PipelinerLoopInfo>();
+}
+
 // Summing four values takes three adds, either chained or as two in parallel
 // followed by a third. The machine combiner reassociates the chain into the
 // parallel form when that shortens the critical path, which on a six-issue

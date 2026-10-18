@@ -1,4 +1,5 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-pipeliner=false < %s | FileCheck %s
 
 ; The multiplier is in the floating-point unit and takes the significands
 ; of two of its registers.

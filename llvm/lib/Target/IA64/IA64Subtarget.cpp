@@ -18,6 +18,14 @@
 
 using namespace llvm;
 
+static cl::opt<bool>
+    EnablePipeliner("ia64-pipeliner", cl::Hidden, cl::init(true),
+                    cl::desc("Software pipeline loops counted in ar.lc"));
+
+bool IA64Subtarget::enableMachinePipeliner() const {
+  return EnablePipeliner && getSchedModel().hasInstrSchedModel();
+}
+
 IA64Subtarget &IA64Subtarget::initializeSubtargetDependencies(StringRef CPU,
                                                               StringRef TuneCPU,
                                                               StringRef FS) {

@@ -97,6 +97,13 @@ public:
   // an earlier result, so instruction order decides how many issue together.
   bool enableMachineScheduler() const override { return true; }
   bool enablePostRAScheduler() const override { return true; }
+  // Software pipelining overlaps the iterations of a counted loop, which on
+  // an in-order machine is the only way they overlap.
+  bool enableMachinePipeliner() const override;
+  bool useDFAforSMS() const override { return false; }
+  // The window scheduler, which the pipeliner falls back on, schedules with
+  // the target's own machine scheduler, and IA64 uses the generic one.
+  bool enableWindowScheduler() const override { return false; }
 
   bool isRegisterReservedByUser(Register Reg) const override {
     assert(Reg.id() < IA64::NUM_TARGET_REGS && "not a physical register");

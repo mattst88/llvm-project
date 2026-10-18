@@ -111,6 +111,7 @@ public:
   bool addGlobalInstructionSelect() override;
   void addMachineSSAOptimization() override;
   bool addILPOpts() override;
+  void addPreRegAlloc() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
   void addPreEmitPass2() override;
@@ -159,6 +160,11 @@ void IA64PassConfig::addMachineSSAOptimization() {
 bool IA64PassConfig::addILPOpts() {
   addPass(&MachineCombinerID);
   return true;
+}
+
+void IA64PassConfig::addPreRegAlloc() {
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(&MachinePipelinerID);
 }
 
 void IA64PassConfig::addPreSched2() {
