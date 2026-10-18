@@ -383,6 +383,29 @@ bool IA64InstrInfo::emitParallelCompare(MachineBasicBlock &MBB,
   return true;
 }
 
+// Whether a pseudo combines compares by AND or by OR, if it is one that
+// combines them.
+static std::optional<bool> isAndChain(unsigned Opcode) {
+  switch (Opcode) {
+  case IA64::SETCC_AND:
+  case IA64::SETCC_ANDf:
+  case IA64::SELECT_AND:
+  case IA64::SELECT_ANDf:
+  case IA64::SELECT_FR_AND:
+  case IA64::SELECT_FR_ANDf:
+    return true;
+  case IA64::SETCC_OR:
+  case IA64::SETCC_ORf:
+  case IA64::SELECT_OR:
+  case IA64::SELECT_ORf:
+  case IA64::SELECT_FR_OR:
+  case IA64::SELECT_FR_ORf:
+    return false;
+  default:
+    return std::nullopt;
+  }
+}
+
 // For an AND, each compare clears p6 and sets p7 if its condition is false;
 // for an OR, it sets p6 and clears p7 if it is true. They write the
 // predicates only one way, so they need no stops between them.
@@ -671,7 +694,9 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   case IA64::SETCCfq:
   case IA64::SETCCfs:
   case IA64::SETCC_AND:
-  case IA64::SETCC_OR: {
+  case IA64::SETCC_OR:
+  case IA64::SETCC_ANDf:
+  case IA64::SETCC_ORf: {
     // Set the result to 0, then to 1 under p6. The result may be an operand
     // register, so the compares go first; the last can still share an
     // instruction group with the 0, since a write after a read is not a
@@ -682,8 +707,8 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
                                                          : PlainCompare;
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(1).getImm()),
                 MI.getOperand(2), MI.getOperand(3), Kind);
-    if (MI.getOpcode() == IA64::SETCC_AND || MI.getOpcode() == IA64::SETCC_OR)
-      emitChainCompares(MBB, MI, DL, 4, MI.getOpcode() == IA64::SETCC_AND);
+    if (std::optional<bool> And = isAndChain(MI.getOpcode()))
+      emitChainCompares(MBB, MI, DL, 4, *And);
     BuildMI(MBB, MI, DL, get(IA64::ADDS), Dst)
         .addImm(0)
         .addReg(IA64::R0)
@@ -726,7 +751,11 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   case IA64::SELECT_AND:
   case IA64::SELECT_OR:
   case IA64::SELECT_FR_AND:
-  case IA64::SELECT_FR_OR: {
+  case IA64::SELECT_FR_OR:
+  case IA64::SELECT_ANDf:
+  case IA64::SELECT_ORf:
+  case IA64::SELECT_FR_ANDf:
+  case IA64::SELECT_FR_ORf: {
     Register Dst = MI.getOperand(0).getReg();
     Register True = MI.getOperand(2).getReg();
     // The value kept when the predicate is false may be undef.
@@ -734,16 +763,8 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         RegState::Implicit | getUndefRegState(MI.getOperand(1).isUndef());
     emitCompare(MBB, MI, DL, IA64CC::CondCode(MI.getOperand(3).getImm()),
                 MI.getOperand(4), MI.getOperand(5));
-    switch (MI.getOpcode()) {
-    case IA64::SELECT_AND:
-    case IA64::SELECT_FR_AND:
-      emitChainCompares(MBB, MI, DL, 6, /*And=*/true);
-      break;
-    case IA64::SELECT_OR:
-    case IA64::SELECT_FR_OR:
-      emitChainCompares(MBB, MI, DL, 6, /*And=*/false);
-      break;
-    }
+    if (std::optional<bool> And = isAndChain(MI.getOpcode()))
+      emitChainCompares(MBB, MI, DL, 6, *And);
     if (IA64::FRRegClass.contains(Dst))
       BuildMI(MBB, MI, DL, get(IA64::FMERGE_S), Dst)
           .addReg(True)

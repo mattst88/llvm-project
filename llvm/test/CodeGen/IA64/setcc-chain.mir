@@ -19,6 +19,14 @@
 # CHECK-NEXT: $r8 = ADDS 0, $r0, $p0
 # CHECK-NEXT: $r8 = ADDL 1, $r0, $p6, implicit $r8
 
+# An FP compare can come first.
+
+# CHECK-LABEL: name: or_fp
+# CHECK:      $p6, $p7 = FCMP_LT $f8, $f9, 0, $p0
+# CHECK-NEXT: $p6, $p7 = CMP_EQ_OR_ANDCMi 5, $r9, $p0
+# CHECK-NEXT: $r8 = ADDS 0, $r0, $p0
+# CHECK-NEXT: $r8 = ADDL 1, $r0, $p6, implicit $r8
+
 # A select replaces its false value, which may be undef, under p6.
 
 # CHECK-LABEL: name: select_and
@@ -51,6 +59,17 @@ body: |
 
     ; r8 == r9 || r8 == 5 || r10 > 0
     $r8 = SETCC_OR 0, $r8, $r9, 0, $r8, 5, 4, $r10, 0, implicit-def dead $p6, implicit-def dead $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+name: or_fp
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r9, $f8, $f9
+
+    ; f8 < f9 || r9 == 5
+    $r8 = SETCC_ORf 12, $f8, $f9, 0, $r9, 5, implicit-def dead $p6, implicit-def dead $p7, implicit $ar40
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
 ...
 ---

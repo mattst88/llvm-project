@@ -107,15 +107,24 @@ def SETFCLASS : IA64Pseudo<(outs GR:$r1),
                            (ins FR:$f2, i64imm:$fclass, i64imm:$none),
                            "#SETFCLASS", []>;
 
-// 1 if all (SETCC_AND) or any (SETCC_OR) of two or more integer compares
-// hold, else 0. The operands are a condition code, a register and a register
-// or immediate for each compare. The first compare may be any; the others
-// must have parallel forms, which accumulate into its predicates.
-let Defs = [P6, P7], hasSideEffects = 0, SchedRW = [WriteSelect] in {
+// 1 if all (SETCC_AND) or any (SETCC_OR) of two or more compares hold, else
+// 0. The operands are a condition code, a register and a register or
+// immediate for each compare. The first compare may be any; the others must
+// be integer compares with parallel forms, which accumulate into its
+// predicates. In the "f" forms the first compare is of FP registers.
+let Defs = [P6, P7], hasSideEffects = 0 in {
+let SchedRW = [WriteSelect] in {
 def SETCC_AND : IA64Pseudo<(outs GR:$r1), (ins variable_ops), "#SETCC_AND",
                            []>;
 def SETCC_OR  : IA64Pseudo<(outs GR:$r1), (ins variable_ops), "#SETCC_OR",
                            []>;
+}
+let Uses = [AR40], mayRaiseFPException = 1, SchedRW = [WriteFSelect] in {
+def SETCC_ANDf : IA64Pseudo<(outs GR:$r1), (ins variable_ops), "#SETCC_ANDf",
+                            []>;
+def SETCC_ORf  : IA64Pseudo<(outs GR:$r1), (ins variable_ops), "#SETCC_ORf",
+                            []>;
+}
 }
 
 // Select: $r1 is tied to $false and overwritten with $true under the
@@ -157,10 +166,10 @@ def SELECT_FRf : IA64Pseudo<(outs FR:$r1),
                             "#SELECT_FRf", []>;
 }
 
-// Select on all (AND) or any (OR) of two or more integer compares, whose
-// operands follow $true as in SETCC_AND and SETCC_OR.
-let Constraints = "$false = $r1", Defs = [P6, P7], hasSideEffects = 0,
-    SchedRW = [WriteSelect] in {
+// Select on all (AND) or any (OR) of two or more compares, whose operands
+// follow $true as in SETCC_AND and SETCC_OR.
+let Constraints = "$false = $r1", Defs = [P6, P7], hasSideEffects = 0 in {
+let SchedRW = [WriteSelect] in {
 def SELECT_AND    : IA64Pseudo<(outs GR:$r1),
                                (ins GR:$false, GR:$true, variable_ops),
                                "#SELECT_AND", []>;
@@ -173,6 +182,21 @@ def SELECT_FR_AND : IA64Pseudo<(outs FR:$r1),
 def SELECT_FR_OR  : IA64Pseudo<(outs FR:$r1),
                                (ins FR:$false, FR:$true, variable_ops),
                                "#SELECT_FR_OR", []>;
+}
+let Uses = [AR40], mayRaiseFPException = 1, SchedRW = [WriteFSelect] in {
+def SELECT_ANDf    : IA64Pseudo<(outs GR:$r1),
+                                (ins GR:$false, GR:$true, variable_ops),
+                                "#SELECT_ANDf", []>;
+def SELECT_ORf     : IA64Pseudo<(outs GR:$r1),
+                                (ins GR:$false, GR:$true, variable_ops),
+                                "#SELECT_ORf", []>;
+def SELECT_FR_ANDf : IA64Pseudo<(outs FR:$r1),
+                                (ins FR:$false, FR:$true, variable_ops),
+                                "#SELECT_FR_ANDf", []>;
+def SELECT_FR_ORf  : IA64Pseudo<(outs FR:$r1),
+                                (ins FR:$false, FR:$true, variable_ops),
+                                "#SELECT_FR_ORf", []>;
+}
 }
 
 // A conditional branch, predicated on the compare. It is not expanded until

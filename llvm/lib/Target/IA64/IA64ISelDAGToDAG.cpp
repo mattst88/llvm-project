@@ -244,17 +244,15 @@ static void setNoFPExcept(SDNode *Node) {
   Node->setFlags(Flags);
 }
 
-// Append the operands of another compare to a chain of integer compares
-// whose operands start at Ops[First]. The compares after the first must have
-// parallel forms, so a compare without one goes first, and HasPlain records
-// that the chain has one. Returns false, appending nothing, if the chain cannot
-// take the compare.
+// Append the operands of another compare to a chain of compares whose
+// operands start at Ops[First]. The compares after the first must have
+// parallel forms, which only integer compares do, so a compare without one
+// goes first, and HasPlain records that the chain has one. Returns false,
+// appending nothing, if the chain cannot take the compare.
 bool IA64DAGToDAGISel::appendChainCompare(SDValue LHS, SDValue RHS,
                                           ISD::CondCode CC, const SDLoc &DL,
                                           SmallVectorImpl<SDValue> &Ops,
                                           unsigned First, bool &HasPlain) {
-  if (!LHS.getValueType().isInteger())
-    return false;
   unsigned Start = Ops.size();
   selectCompare(LHS, RHS, CC, DL, Ops);
   auto IACC = IA64CC::CondCode(Ops[Start]->getAsZExtVal());
@@ -306,9 +304,13 @@ bool IA64DAGToDAGISel::selectCompareChain(SDNode *Node) {
                             cast<CondCodeSDNode>(Compare->getOperand(2))->get(),
                             DL, Ops, 0, HasPlain))
       return false;
-  CurDAG->SelectNodeTo(Node,
-                       Opcode == ISD::AND ? IA64::SETCC_AND : IA64::SETCC_OR,
-                       MVT::i64, Ops);
+  static const unsigned Opcodes[2][2] = {
+      {IA64::SETCC_OR, IA64::SETCC_AND}, {IA64::SETCC_ORf, IA64::SETCC_ANDf}};
+  bool FP = Ops[1].getValueType().isFloatingPoint();
+  SDNode *New = CurDAG->SelectNodeTo(Node, Opcodes[FP][Opcode == ISD::AND],
+                                     MVT::i64, Ops);
+  if (FP)
+    setNoFPExcept(New);
   return true;
 }
 
@@ -317,7 +319,9 @@ bool IA64DAGToDAGISel::selectCompareChain(SDNode *Node) {
 // select on an OR into one between the true value and a select on the
 // second. Select such a nest of SELECT_CCs on integer compares, each inner
 // one with no other users, as one select on a chain of compares. An inner
-// select with its values the other way round tests the inverse condition.
+// select with its values the other way round tests the inverse condition,
+// which for an FP compare holds for unordered operands if the original does
+// not.
 // The chain stops at a compare it cannot take, whose select becomes the value
 // selected.
 bool IA64DAGToDAGISel::selectSelectChain(SDNode *Node) {
@@ -325,8 +329,7 @@ bool IA64DAGToDAGISel::selectSelectChain(SDNode *Node) {
   EVT VT = Node->getValueType(0);
   SDValue True = Node->getOperand(2), False = Node->getOperand(3);
   auto IsInner = [&](SDValue V) {
-    return V.getOpcode() == ISD::SELECT_CC && V.hasOneUse() &&
-           V.getOperand(0).getValueType().isInteger();
+    return V.getOpcode() == ISD::SELECT_CC && V.hasOneUse();
   };
   // In an AND chain the false value is common to every select and the chain
   // goes on through the true values; the other way round in an OR chain.
@@ -367,11 +370,16 @@ bool IA64DAGToDAGISel::selectSelectChain(SDNode *Node) {
     return false;
   Ops[And ? 1 : 0] = Next;
 
-  bool FR = VT.isFloatingPoint();
-  static const unsigned Opcodes[2][2] = {
-      {IA64::SELECT_OR, IA64::SELECT_AND},
-      {IA64::SELECT_FR_OR, IA64::SELECT_FR_AND}};
-  CurDAG->SelectNodeTo(Node, Opcodes[FR][And], VT, Ops);
+  static const unsigned Opcodes[2][2][2] = {
+      {{IA64::SELECT_OR, IA64::SELECT_AND},
+       {IA64::SELECT_ORf, IA64::SELECT_ANDf}},
+      {{IA64::SELECT_FR_OR, IA64::SELECT_FR_AND},
+       {IA64::SELECT_FR_ORf, IA64::SELECT_FR_ANDf}}};
+  bool FP = Ops[3].getValueType().isFloatingPoint();
+  SDNode *New =
+      CurDAG->SelectNodeTo(Node, Opcodes[VT.isFloatingPoint()][FP][And], VT, Ops);
+  if (FP)
+    setNoFPExcept(New);
   return true;
 }
 

@@ -89,17 +89,48 @@ define i64 @sel_two_plain(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %x,
 }
 
 define i64 @sel_fp(i64 %a, i64 %b, double %c, double %d, i64 %x, i64 %y) {
-; FP compares have no parallel forms.
+; An FP compare goes first, as it has no parallel form.
 ; CHECK-LABEL: sel_fp:
-; CHECK:       mov r8 = r37
-; CHECK-NEXT:  fcmp.eq p6, p7 = f8, f9 ;;
-; CHECK-NEXT:  mov r14 = r8 ;;
-; CHECK-NEXT:  (p6) mov r14 = r36
-; CHECK-NEXT:  cmp.eq p6, p7 = r32, r33 ;;
-; CHECK-NEXT:  (p6) mov r8 = r14
+; CHECK:       fcmp.eq p6, p7 = f8, f9
+; CHECK-NEXT:  mov r8 = r37 ;;
+; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = r32, r33 ;;
+; CHECK-NEXT:  (p6) mov r8 = r36
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %c1 = icmp eq i64 %a, %b
   %c2 = fcmp oeq double %c, %d
+  %and = and i1 %c1, %c2
+  %r = select i1 %and, i64 %x, i64 %y
+  ret i64 %r
+}
+
+define double @sel_fp_inverted(double %a, double %b, i64 %c, double %x,
+                               double %y) {
+; The inverse of an FP compare holds for unordered operands.
+; CHECK-LABEL: sel_fp_inverted:
+; CHECK:       fcmp.lt p7, p6 = f8, f9 ;;
+; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = 0, r34 ;;
+; CHECK-NEXT:  (p6) mov f11 = f10 ;;
+; CHECK-NEXT:  mov f8 = f11
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %c1 = icmp eq i64 %c, 0
+  %c2 = fcmp olt double %a, %b
+  %i = select i1 %c2, double %y, double %x
+  %r = select i1 %c1, double %i, double %y
+  ret double %r
+}
+
+define i64 @sel_two_fp(double %a, double %b, double %c, i64 %x, i64 %y) {
+; The chain stops at a second FP compare.
+; CHECK-LABEL: sel_two_fp:
+; CHECK:       mov r8 = r36
+; CHECK-NEXT:  fcmp.lt p6, p7 = f9, f10 ;;
+; CHECK-NEXT:  mov r14 = r8 ;;
+; CHECK-NEXT:  (p6) mov r14 = r35
+; CHECK-NEXT:  fcmp.lt p6, p7 = f8, f9 ;;
+; CHECK-NEXT:  (p6) mov r8 = r14
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %c1 = fcmp olt double %a, %b
+  %c2 = fcmp olt double %b, %c
   %and = and i1 %c1, %c2
   %r = select i1 %and, i64 %x, i64 %y
   ret i64 %r

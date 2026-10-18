@@ -82,13 +82,41 @@ define i64 @set_shared(i64 %a, i64 %b, i64 %c, i64 %d, ptr %p) {
 }
 
 define i64 @set_fp(double %x, i64 %c) {
-; FP compares have no parallel form and are not combined.
+; An FP compare has no parallel form, but can be the ordinary compare.
 ; CHECK-LABEL: set_fp:
-; CHECK-NOT:   or.andcm
-; CHECK:       or r8 = r14, r15
+; CHECK:       fcmp.lt p6, p7 = f8, f0
+; CHECK-NEXT:  mov r8 = r0 ;;
+; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 0, r33 ;;
+; CHECK-NEXT:  (p6) mov r8 = 1
   %c1 = fcmp olt double %x, 0.0
   %c2 = icmp eq i64 %c, 0
   %or = or i1 %c1, %c2
   %r = zext i1 %or to i64
   ret i64 %r
 }
+
+define i64 @set_two_fp(double %x, double %y) {
+; Two compares without parallel forms are not combined.
+; CHECK-LABEL: set_two_fp:
+; CHECK-NOT:   or.andcm
+; CHECK:       and r8 = r14, r15
+  %c1 = fcmp olt double %x, 0.0
+  %c2 = fcmp ogt double %y, 0.0
+  %and = and i1 %c1, %c2
+  %r = zext i1 %and to i64
+  ret i64 %r
+}
+
+define i64 @set_strict(double %x, i64 %c) #0 {
+; A strict compare is left as it is.
+; CHECK-LABEL: set_strict:
+; CHECK-NOT:   or.andcm
+; CHECK:       or r8 = r14, r15
+  %c1 = call i1 @llvm.experimental.constrained.fcmp.f64(double %x, double 0.0, metadata !"olt", metadata !"fpexcept.strict") #0
+  %c2 = icmp eq i64 %c, 0
+  %or = or i1 %c1, %c2
+  %r = zext i1 %or to i64
+  ret i64 %r
+}
+
+attributes #0 = { strictfp }
