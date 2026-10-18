@@ -105,6 +105,9 @@ public:
     // Also schedule after register allocation, with the same scheduler.
     if (TM.getOptLevel() != CodeGenOptLevel::None)
       substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
+    // Merging the identical ends of blocks, epilogues among them, would
+    // replace them with taken branches, which cost more than the code saved.
+    setEnableTailMerge(false);
   }
 
   IA64TargetMachine &getIA64TargetMachine() const {
