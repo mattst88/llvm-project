@@ -1250,7 +1250,7 @@ bool IA64TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
 }
 
 unsigned IA64TargetLowering::getJumpTableEncoding() const {
-  return MachineJumpTableInfo::EK_LabelDifference32;
+  return MachineJumpTableInfo::EK_LabelDifference64;
 }
 
 Register

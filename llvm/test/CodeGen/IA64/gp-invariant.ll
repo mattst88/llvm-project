@@ -36,7 +36,7 @@ done:
 ; CHECK:       ld8.mov [[T:r[0-9]+]] = [[[E]]], .LJTI1_0
 ; CHECK:       Loop Header
 ; CHECK-NOT:   @ltoffx
-; CHECK:       shladd {{r[0-9]+}} = {{r[0-9]+}}, 2, [[T]]
+; CHECK:       shladd {{r[0-9]+}} = {{r[0-9]+}}, 3, [[T]]
 ; CHECK:       .endp dispatch
 define i32 @dispatch(ptr %p, i64 %n) {
 entry:

@@ -1,7 +1,10 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -filetype=obj < %s \
+; RUN:   | llvm-readobj -r - | FileCheck %s --check-prefix=RELOC
 
 ; A switch reads the distance from the table to the block out of the table,
-; whose address is in the linkage table, and branches through b6.
+; whose address is in the linkage table, and branches through b6. The
+; distances are eight bytes, so they need no sign extension.
 define i64 @f(i64 %a) {
 ; CHECK-LABEL: f:
 ; CHECK:       cmp.ltu p6, p7 = 4, r32 ;;
@@ -9,20 +12,26 @@ define i64 @f(i64 %a) {
 ; CHECK-NEXT:  (p6) br.ret.dpnt.many b0 ;;
 ; CHECK:       addl r14 = @ltoffx(.LJTI0_0), r1 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], .LJTI0_0 ;;
-; CHECK-NEXT:  shladd r15 = r32, 2, r14 ;;
-; CHECK-NEXT:  ld4 r15 = [r15] ;;
-; CHECK-NEXT:  sxt4 r15 = r15 ;;
+; CHECK-NEXT:  shladd r15 = r32, 3, r14 ;;
+; CHECK-NEXT:  ld8 r15 = [r15] ;;
 ; CHECK-NEXT:  add r14 = r14, r15 ;;
 ; CHECK-NEXT:  mov b6 = r14
 ; CHECK-NEXT:  br.cond.sptk.few b6 ;;
 ; CHECK:       .section .rodata
-; CHECK-NEXT:  .p2align 2
+; CHECK-NEXT:  .p2align 3
 ; CHECK:       .LJTI0_0:
-; CHECK-NEXT:  data4.ua .LBB0_2-.LJTI0_0
-; CHECK-NEXT:  data4.ua .LBB0_6-.LJTI0_0
-; CHECK-NEXT:  data4.ua .LBB0_4-.LJTI0_0
-; CHECK-NEXT:  data4.ua .LBB0_5-.LJTI0_0
-; CHECK-NEXT:  data4.ua .LBB0_3-.LJTI0_0
+; CHECK-NEXT:  data8.ua .LBB0_2-.LJTI0_0
+; CHECK-NEXT:  data8.ua .LBB0_6-.LJTI0_0
+; CHECK-NEXT:  data8.ua .LBB0_4-.LJTI0_0
+; CHECK-NEXT:  data8.ua .LBB0_5-.LJTI0_0
+; CHECK-NEXT:  data8.ua .LBB0_3-.LJTI0_0
+; RELOC:       Section ({{[0-9]+}}) .rela.rodata {
+; RELOC-NEXT:    0x0 R_IA64_PCREL64LSB .text
+; RELOC-NEXT:    0x8 R_IA64_PCREL64LSB .text
+; RELOC-NEXT:    0x10 R_IA64_PCREL64LSB .text
+; RELOC-NEXT:    0x18 R_IA64_PCREL64LSB .text
+; RELOC-NEXT:    0x20 R_IA64_PCREL64LSB .text
+; RELOC-NEXT:  }
   switch i64 %a, label %d [ i64 0, label %b0
                             i64 1, label %b1
                             i64 2, label %b2

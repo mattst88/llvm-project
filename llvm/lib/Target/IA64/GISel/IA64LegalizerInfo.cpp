@@ -792,21 +792,19 @@ bool IA64LegalizerInfo::legalizeCustom(
   case G_BRJT: {
     // Load the entry, add it to the table address and branch there.
     const MachineJumpTableInfo *MJTI = MF.getJumpTableInfo();
-    if (MJTI->getEntryKind() != MachineJumpTableInfo::EK_LabelDifference32)
+    if (MJTI->getEntryKind() != MachineJumpTableInfo::EK_LabelDifference64)
       return false;
     LLT P0 = LLT::pointer(0, 64);
-    LLT S32 = LLT::scalar(32);
     LLT S64 = LLT::scalar(64);
     Register Table = MI.getOperand(0).getReg();
     auto Offset = MIRBuilder.buildShl(S64, MI.getOperand(2).getReg(),
-                                      MIRBuilder.buildConstant(S64, 2));
+                                      MIRBuilder.buildConstant(S64, 3));
     auto Entry = MIRBuilder.buildLoad(
-        S32, MIRBuilder.buildPtrAdd(P0, Table, Offset),
+        S64, MIRBuilder.buildPtrAdd(P0, Table, Offset),
         *MF.getMachineMemOperand(MachinePointerInfo::getJumpTable(MF),
-                                 MachineMemOperand::MOLoad, S32, Align(4)));
+                                 MachineMemOperand::MOLoad, S64, Align(8)));
     MIRBuilder.buildBrIndirect(
-        MIRBuilder.buildPtrAdd(P0, Table, MIRBuilder.buildSExt(S64, Entry))
-            .getReg(0));
+        MIRBuilder.buildPtrAdd(P0, Table, Entry).getReg(0));
     MI.eraseFromParent();
     return true;
   }
