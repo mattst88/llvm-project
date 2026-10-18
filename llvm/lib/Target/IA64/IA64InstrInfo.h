@@ -148,6 +148,13 @@ public:
   reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
   std::unique_ptr<PipelinerLoopInfo>
   analyzeLoopForPipelining(MachineBasicBlock *LoopBB) const override;
+  // The pipeliner compares the addresses of accesses in different iterations
+  // by their base register and how much it steps each iteration.
+  bool getMemOperandsWithOffsetWidth(
+      const MachineInstr &MI, SmallVectorImpl<const MachineOperand *> &BaseOps,
+      int64_t &Offset, bool &OffsetIsScalable, LocationSize &Width,
+      const TargetRegisterInfo *TRI) const override;
+  bool getIncrementValue(const MachineInstr &MI, int &Value) const override;
 
   bool useMachineCombiner() const override { return true; }
   bool isAssociativeAndCommutative(const MachineInstr &Inst,

@@ -1005,6 +1005,71 @@ IA64InstrInfo::analyzeLoopForPipelining(MachineBasicBlock *LoopBB) const {
   return std::make_unique<IA64PipelinerLoopInfo>();
 }
 
+// A load or store addresses memory by the register of its first input, with
+// no offset.
+static const MachineOperand *getMemBaseOp(const MachineInstr &MI) {
+  if (!MI.mayLoadOrStore() || (MI.mayLoad() && MI.mayStore()) ||
+      !MI.hasOneMemOperand())
+    return nullptr;
+  const MachineOperand &Base = MI.getOperand(MI.getNumExplicitDefs());
+  return Base.isReg() ? &Base : nullptr;
+}
+
+// The immediate a load or store adds to its address register after the
+// access. It follows the address of a load and the value of a store, and
+// precedes the hint.
+static std::optional<int64_t> getPostIncrement(const MachineInstr &MI) {
+  const MachineOperand *Base = getMemBaseOp(MI);
+  if (!Base || !Base->isTied())
+    return std::nullopt;
+  unsigned Idx = MI.getOperandNo(Base) + (MI.mayStore() ? 2 : 1);
+  if (Idx + 1 >= MI.getNumOperands() || !MI.getOperand(Idx).isImm() ||
+      !MI.getOperand(Idx + 1).isImm())
+    return std::nullopt;
+  return MI.getOperand(Idx).getImm();
+}
+
+bool IA64InstrInfo::getMemOperandsWithOffsetWidth(
+    const MachineInstr &MI, SmallVectorImpl<const MachineOperand *> &BaseOps,
+    int64_t &Offset, bool &OffsetIsScalable, LocationSize &Width,
+    const TargetRegisterInfo *TRI) const {
+  const MachineOperand *Base = getMemBaseOp(MI);
+  if (!Base)
+    return false;
+  // With no offset in the access, an unrolled loop forms each address with
+  // an add to a common register. In SSA form, report the access as one at an
+  // offset from that register.
+  Offset = 0;
+  const MachineRegisterInfo &MRI = MI.getMF()->getRegInfo();
+  if (MRI.isSSA() && Base->getReg().isVirtual())
+    if (const MachineInstr *Def = MRI.getUniqueVRegDef(Base->getReg()))
+      if (Def->getOpcode() == IA64::ADDS && !isPredicated(*Def) &&
+          Def->getOperand(1).isImm() && Def->getOperand(2).isReg() &&
+          Def->getOperand(2).getReg().isVirtual()) {
+        Base = &Def->getOperand(2);
+        Offset = Def->getOperand(1).getImm();
+      }
+  BaseOps.push_back(Base);
+  OffsetIsScalable = false;
+  Width = (*MI.memoperands_begin())->getSize();
+  return true;
+}
+
+bool IA64InstrInfo::getIncrementValue(const MachineInstr &MI,
+                                      int &Value) const {
+  if (isPredicated(MI))
+    return false;
+  if (MI.getOpcode() == IA64::ADDS) {
+    Value = MI.getOperand(1).getImm();
+    return true;
+  }
+  std::optional<int64_t> Inc = getPostIncrement(MI);
+  if (!Inc)
+    return false;
+  Value = *Inc;
+  return true;
+}
+
 // Summing four values takes three adds, either chained or as two in parallel
 // followed by a third. The machine combiner reassociates the chain into the
 // parallel form when that shortens the critical path, which on a six-issue
