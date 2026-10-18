@@ -57,6 +57,7 @@ unsigned IA64::getOpcodeForUnit(unsigned Opcode, IA64II::Unit Unit) {
         IA64::BREAK_X}},
       {IA64::CHK_S, {IA64::CHK_S_M, IA64::CHK_S_I, 0, 0, 0}},
       {IA64::MOV_AR, {IA64::MOV_M_AR, IA64::MOV_I_AR, 0, 0, 0}},
+      {IA64::MOV_AR_RESTORE, {IA64::MOV_M_AR, IA64::MOV_I_AR, 0, 0, 0}},
       {IA64::MOV_ARi, {IA64::MOV_M_ARi, IA64::MOV_I_ARi, 0, 0, 0}},
       {IA64::MOV_FROM_AR, {IA64::MOV_M_FROM_AR, IA64::MOV_I_FROM_AR, 0, 0, 0}},
   };
@@ -117,6 +118,7 @@ unsigned IA64::getSlotUnits(const MCInst &MI, const MCInstrInfo &MCII,
     break;
   case IA64::MOV_AR:
   case IA64::MOV_ARi:
+  case IA64::MOV_AR_RESTORE:
     Units &= getARUnits(MRI.getEncodingValue(MI.getOperand(0).getReg()));
     break;
   case IA64::MOV_FROM_AR:

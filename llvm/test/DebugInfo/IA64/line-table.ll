@@ -25,8 +25,10 @@
 ; CHECK-NEXT: 0x0000000000000031      5     16
 ; CHECK-NEXT: 0x0000000000000032      4      3 {{.*}} is_stmt
 ; CHECK-NEXT: 0x0000000000000040      5     16 {{.*}} is_stmt
-; CHECK:      0x0000000000000061      5      3 {{.*}} epilogue_begin
-; CHECK-NEXT: 0x0000000000000080      5      3 {{.*}} end_sequence
+; CHECK:      0x0000000000000041      5      3 {{.*}} epilogue_begin
+; CHECK-NEXT: 0x0000000000000051      5     16
+; CHECK-NEXT: 0x0000000000000061      5      3
+; CHECK-NEXT: 0x0000000000000070      5      3 {{.*}} end_sequence
 
 define i32 @f(i32 %a, i32 %b) !dbg !8 {
 entry:

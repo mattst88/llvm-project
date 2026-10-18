@@ -44,10 +44,10 @@ define i64 @call(i64 %a) {
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .body
-; CHECK:       .restore sp
-; CHECK-NEXT:  adds r12 = 16, r12
-; CHECK-NEXT:  mov b0 = r35
+; CHECK:       mov b0 = r35
 ; CHECK-NEXT:  mov ar.pfs = r34
+; CHECK-NEXT:  .restore sp
+; CHECK-NEXT:  adds r12 = 16, r12
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %p = alloca i64
   store i64 %a, ptr %p
@@ -64,8 +64,9 @@ define i64 @large(i64 %a) {
 ; CHECK:       .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
-; CHECK:       mov r2 = 800000 ;;
-; CHECK-NEXT:  mov b0 = r34
+; CHECK:       mov b0 = r34
+; CHECK-NEXT:  mov ar.pfs = r33
+; CHECK-NEXT:  mov r2 = 800000 ;;
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  add r12 = r2, r12
   %p = alloca [100000 x i64]
@@ -193,6 +194,8 @@ define i64 @saves(i64 %a) {
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
 ; CHECK-NEXT:  adds r2 = 64, r12 ;;
 ; CHECK-NEXT:  ldf.fill f16 = [r2]
+; CHECK-NEXT:  mov b0 = r34
+; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  mov ar.unat = r35
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 64, r12

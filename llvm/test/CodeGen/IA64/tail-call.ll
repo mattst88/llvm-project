@@ -77,12 +77,11 @@ define i64 @frame(i64 %a) {
 ; CHECK-NEXT:    mov r35 = b0
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = fill ;;
-; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    mov r33 = 3
-; CHECK-NEXT:    .restore sp
-; CHECK-NEXT:    adds r12 = 800, r12
 ; CHECK-NEXT:    mov b0 = r35
-; CHECK-NEXT:    mov ar.pfs = r34 ;;
+; CHECK-NEXT:    mov ar.pfs = r34
+; CHECK-NEXT:    .restore sp
+; CHECK-NEXT:    adds r12 = 800, r12 ;;
 ; CHECK-NEXT:    .prologue
 ; CHECK-NEXT:    alloc r2 = ar.pfs, 0, 0, 2, 0
 ; CHECK-NEXT:    br.cond.sptk.many local ;;
@@ -101,8 +100,8 @@ define i64 @middle(i64 %a) {
 ; CHECK:         (p6) br.cond.dpnt.few .LBB4_2 ;;
 ; CHECK-NEXT:  // %bb.1: // %t
 ; CHECK-NEXT:    mov r33 = 3
-; CHECK-NEXT:    mov b0 = r35
-; CHECK-NEXT:    mov ar.pfs = r34 ;;
+; CHECK-NEXT:  mov ar.pfs = r34
+; CHECK-NEXT:  mov b0 = r35 ;;
 ; CHECK-NEXT:    .label_state 1
 ; CHECK-NEXT:    .prologue
 ; CHECK-NEXT:    alloc r2 = ar.pfs, 0, 0, 2, 0

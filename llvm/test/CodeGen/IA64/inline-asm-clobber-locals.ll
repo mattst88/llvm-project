@@ -22,9 +22,9 @@ define i64 @last(i64 %a, i64 %b) {
 ; CHECK:       mov r[[RP:3[4-9]]] = b0
 ; CHECK:       br.call.sptk.many b0 = ext
 ; CHECK:       br.call.sptk.many b0 = ext
-; CHECK:       mov b0 = r[[RP]]
-; CHECK-NEXT:  mov ar.pfs = r[[PFS]]
-; CHECK-NEXT:  br.ret.sptk.many b0
+; CHECK-DAG:   mov b0 = r[[RP]]
+; CHECK-DAG:   mov ar.pfs = r[[PFS]]
+; CHECK:       br.ret.sptk.many b0
   %r = call i64 @ext(i64 %a, i64 %b)
   call void asm sideeffect "nop 0", "~{r119}"()
   %s = call i64 @ext(i64 %b, i64 %a)
@@ -38,9 +38,9 @@ define i64 @next_to_last(i64 %a, i64 %b) {
 ; CHECK-LABEL: next_to_last:
 ; CHECK:       alloc r119 = ar.pfs, 2, 86, 2, 0
 ; CHECK:       mov r[[RP:3[4-9]]] = b0
-; CHECK:       mov b0 = r[[RP]]
-; CHECK-NEXT:  mov ar.pfs = r119
-; CHECK-NEXT:  br.ret.sptk.many b0
+; CHECK-DAG:   mov b0 = r[[RP]]
+; CHECK-DAG:   mov ar.pfs = r119
+; CHECK:       br.ret.sptk.many b0
   %r = call i64 @ext(i64 %a, i64 %b)
   call void asm sideeffect "nop 0", "~{r118}"()
   %s = call i64 @ext(i64 %b, i64 %a)
@@ -56,9 +56,9 @@ define i64 @operand(i64 %a) {
 ; CHECK:       mov r119 = r{{[0-9]+}}
 ; CHECK:       mov r[[RP:3[3-9]]] = b0
 ; CHECK:       adds r{{[0-9]+}} = 1, r119
-; CHECK:       mov b0 = r[[RP]]
-; CHECK-NEXT:  mov ar.pfs = r[[PFS]]
-; CHECK-NEXT:  br.ret.sptk.many b0
+; CHECK-DAG:   mov b0 = r[[RP]]
+; CHECK-DAG:   mov ar.pfs = r[[PFS]]
+; CHECK:       br.ret.sptk.many b0
   %r = call i64 asm sideeffect "adds $0 = 1, $1", "=r,{r119}"(i64 %a)
   %s = call i64 @ext(i64 %r, i64 %r)
   ret i64 %s
@@ -72,9 +72,9 @@ define i32 @twice(ptr %buf) {
 ; CHECK:       alloc r[[PFS:3[3-9]]] = ar.pfs, 1, 87, 1, 0
 ; CHECK:       mov r[[RP:3[3-9]]] = b0
 ; CHECK:       br.call.sptk.many b0 = setjmp
-; CHECK:       mov b0 = r[[RP]]
-; CHECK-NEXT:  mov ar.pfs = r[[PFS]]
-; CHECK-NEXT:  br.ret.sptk.many b0
+; CHECK-DAG:   mov b0 = r[[RP]]
+; CHECK-DAG:   mov ar.pfs = r[[PFS]]
+; CHECK:       br.ret.sptk.many b0
   call void asm sideeffect "nop 0", "~{r119}"()
   %r = call i32 @setjmp(ptr %buf)
   ret i32 %r

@@ -413,6 +413,7 @@ static bool isRegisterMove(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   case IA64::MOV_BR:
   case IA64::MOV_FROM_BR:
+  case IA64::MOV_AR_RESTORE:
     return true;
   case IA64::MOV_AR:
   case IA64::MOV_FROM_AR: {

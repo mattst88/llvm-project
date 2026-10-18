@@ -81,11 +81,11 @@ define void @all() {
 ; CHECK:       mov r34 = b0
 ; CHECK:       .body
 ; CHECK:       br.call.sptk.many b0 = g
-; CHECK:       mov pr = r35, 65598
-; CHECK-NEXT:  mov ar.lc = r36
+; CHECK:  mov ar.lc = r36
 ; CHECK-NEXT:  mov b2 = r37
 ; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  mov ar.pfs = r33
+; CHECK-NEXT:  mov pr = r35, 65598
 ; CHECK-NEXT:  br.ret.sptk.many b0
   call void asm sideeffect "nop 0", "~{b2},~{p2},~{ar.lc}"()
   call void @g()

@@ -49,6 +49,7 @@ define i64 @indirect(ptr %f, i64 %a) {
 ; CHECK-NEXT:  mov b6 = r14 ;;
 ; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
+; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  mov r1 = r34
   %r = call i64 %f(i64 %a)
   ret i64 %r

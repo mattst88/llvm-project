@@ -54,8 +54,10 @@ define i64 @local_dynamic() {
 ; PIC-NEXT:    .body
 ; PIC-NEXT:    br.call.sptk.many b0 = __tls_get_addr ;;
 ; PIC-NEXT:    mov r3 = r8
+; PIC-NEXT:    mov b0 = r34
 ; PIC-NEXT:    mov r1 = r32 ;;
-; PIC-NEXT:    addl r14 = @dtprel(ld), r3 ;;
+; PIC-NEXT:    addl r14 = @dtprel(ld), r3
+; PIC-NEXT:    mov ar.pfs = r33 ;;
 ; PIC-NEXT:    adds r14 = 16, r14 ;;
 ; PIC-NEXT:    ld8 r8 = [r14]
 ; EXEC:        mov r3 = r13 ;;
@@ -80,6 +82,7 @@ define ptr @general_dynamic() {
 ; PIC-NEXT:    mov r34 = b0
 ; PIC-NEXT:    .body
 ; PIC-NEXT:    br.call.sptk.many b0 = __tls_get_addr ;;
+; PIC-NEXT:    mov b0 = r34
 ; PIC-NEXT:    mov r1 = r32
 ; EXEC:        addl r14 = @ltoff(@tprel(gd)), r1 ;;
 ; EXEC-NEXT:   ld8 r14 = [r14] ;;

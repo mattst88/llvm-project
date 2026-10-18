@@ -587,8 +587,10 @@ foreach H = [MovBRHint<"",      1, 0>, MovBRHint<".imp",      1, 1>,
              MovBRHint<".sptk", 0, 0>, MovBRHint<".sptk.imp", 0, 1>,
              MovBRHint<".dptk", 2, 0>, MovBRHint<".dptk.imp", 2, 1>] in {
   defvar Suffix = !toupper(!subst(".", "_", H.Name));
+  let hasSideEffects = 0 in {
   def MOV_BR#Suffix     : I21<0, H.wh, H.ih, "mov"#H.Name>;
   def MOV_RET_BR#Suffix : I21<1, H.wh, H.ih, "mov.ret"#H.Name>;
+  }
 }
 
 def MOV_FROM_BR : I22<"mov">;
@@ -984,6 +986,8 @@ let Uses = [AR65], Defs = [AR65] in
 def BR_CLOOP : B2<5, "br.cloop">;
 def BR_CEXIT : B2<6, "br.cexit">;
 def BR_CTOP  : B2<7, "br.ctop">;
+// A call saves the frame marker in ar.pfs.
+let Defs = [AR64] in
 def BR_CALL  : B3<"br.call">;
 
 let isBranch = 1, isIndirectBranch = 1 in {
@@ -992,6 +996,7 @@ let isBranch = 1, isIndirectBranch = 1 in {
 }
 let isReturn = 1, isBarrier = 1 in
 def BR_RET    : B4<0x21, 4, "br.ret">;
+let Defs = [AR64] in
 def BR_CALL_B : B5<"br.call">;
 
 // Branch predict hints for IP-relative and indirect branches: the whether
@@ -1040,6 +1045,7 @@ let isReMaterializable = 1, isMoveImm = 1 in
 def MOVL : X2<"movl">;
 
 def BRL_COND : X3<0, "brl.cond">;
+let Defs = [AR64] in
 def BRL_CALL : X4<"brl.call">;
 
 def BREAK_X : X1<"break.x">;
@@ -1068,5 +1074,11 @@ def MOV_ARi     : IA64AnyUnit<(outs AR:$ar3), (ins simm8:$imm), "mov",
 let SchedRW = [WriteFromAR] in
 def MOV_FROM_AR : IA64AnyUnit<(outs GR:$r1), (ins AR:$ar3), "mov",
                               "$r1 = $ar3">;
+// An epilogue's move back to ar.pfs or ar.lc. What reads those registers
+// names them, unlike what the other application registers control, so this
+// has no side effects and may be scheduled among the epilogue's block.
+let SchedRW = [WriteToAR], hasSideEffects = 0, isCodeGenOnly = 1 in
+def MOV_AR_RESTORE : IA64AnyUnit<(outs AR:$ar3), (ins GR:$r2), "mov",
+                                 "$ar3 = $r2">;
 
 include "IA64InstrAliases.td"

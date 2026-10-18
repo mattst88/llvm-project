@@ -282,6 +282,32 @@ void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   const auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  // The restores of ar.lc, ar.pfs and the branch registers come first, so
+  // that the scheduler can move them up among the block's instructions
+  // rather than leave the I0-only moves to compete in its last group.
+  if (FI->getSavedLC())
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR_RESTORE), IA64::AR65)
+        .addReg(FI->getSavedLC(), RegState::Kill)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
+  for (unsigned I = 0; I != 5; ++I)
+    if (FI->getSavedBR(I))
+      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B1 + I)
+          .addReg(FI->getSavedBR(I), RegState::Kill)
+          .addImm(0)
+          .addReg(IA64::P0)
+          .setMIFlag(MachineInstr::FrameDestroy);
+  if (FI->getSavedRP())
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B0)
+        .addReg(FI->getSavedRP(), RegState::Kill)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
+  if (FI->restoresPFS())
+    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR_RESTORE), IA64::AR64)
+        .addReg(FI->getSavedPFS(), RegState::Kill)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::FrameDestroy);
   // All GR fills are done by now, which was the last use of the NaT bits of
   // this function's spills.
   if (FI->getSavedUNAT())
@@ -311,30 +337,6 @@ void IA64FrameLowering::emitEpilogue(MachineFunction &MF,
       if (I <= 5 || I >= 16)
         MIB.addReg(IA64::P0 + I, RegState::ImplicitDefine);
   }
-  if (FI->getSavedLC())
-    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR), IA64::AR65)
-        .addReg(FI->getSavedLC(), RegState::Kill)
-        .addReg(IA64::P0)
-        .setMIFlag(MachineInstr::FrameDestroy);
-  for (unsigned I = 0; I != 5; ++I)
-    if (FI->getSavedBR(I))
-      BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B1 + I)
-          .addReg(FI->getSavedBR(I), RegState::Kill)
-          .addImm(0)
-          .addReg(IA64::P0)
-          .setMIFlag(MachineInstr::FrameDestroy);
-  if (FI->getSavedRP())
-    BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_BR), IA64::B0)
-        .addReg(FI->getSavedRP(), RegState::Kill)
-        .addImm(0)
-        .addReg(IA64::P0)
-        .setMIFlag(MachineInstr::FrameDestroy);
-  if (!FI->restoresPFS())
-    return;
-  BuildMI(MBB, MBBI, DL, TII.get(IA64::MOV_AR), IA64::AR64)
-      .addReg(FI->getSavedPFS(), RegState::Kill)
-      .addReg(IA64::P0)
-      .setMIFlag(MachineInstr::FrameDestroy);
 }
 
 // Adjust sp in a single instruction, so it is never in an intermediate

@@ -19,8 +19,8 @@ define void @rp() {
 ; CHECK-LABEL: rp:
 ; CHECK:       alloc r32 = ar.pfs, 0, 2, 0, 0
 ; CHECK:       mov r33 = b0
-; CHECK:       mov b0 = r33
-; CHECK-NEXT:  mov ar.pfs = r32
+; CHECK:       mov ar.pfs = r32
+; CHECK-NEXT:  mov b0 = r33
 ; CHECK-NEXT:  br.ret.sptk.many b0
   call void asm sideeffect "nop 0", "~{rp}"()
   ret void

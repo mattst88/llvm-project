@@ -883,12 +883,16 @@ bool IA64InstrInfo::isPredicated(const MachineInstr &MI) const {
 // alloc must not move: it has to precede the first write of a register it
 // adds to the frame and follow the last read of one it removes, which its
 // operands do not express. Frame setup and destroy instructions also stay
-// put, since the unwind directives describe them by position.
+// put, since the unwind directives describe them by position, except for
+// the restores of ar.pfs, ar.lc and the branch registers, which they do not
+// describe.
 bool IA64InstrInfo::isSchedulingBoundary(const MachineInstr &MI,
                                          const MachineBasicBlock *MBB,
                                          const MachineFunction &MF) const {
-  if (MI.getOpcode() == IA64::ALLOC || MI.getFlag(MachineInstr::FrameSetup) ||
-      MI.getFlag(MachineInstr::FrameDestroy))
+  if (MI.getOpcode() == IA64::ALLOC || MI.getFlag(MachineInstr::FrameSetup))
+    return true;
+  if (MI.getFlag(MachineInstr::FrameDestroy) &&
+      MI.getOpcode() != IA64::MOV_AR_RESTORE && MI.getOpcode() != IA64::MOV_BR)
     return true;
   return TargetInstrInfo::isSchedulingBoundary(MI, MBB, MF);
 }

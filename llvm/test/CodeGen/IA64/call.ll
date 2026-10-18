@@ -26,10 +26,9 @@ define i64 @args(i64 %a, i64 %b) {
 ; CHECK-NEXT:  mov r36 = b0 ;;
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext ;;
-; CHECK-NEXT:  .mmi
-; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  add r8 = r8, r32
 ; CHECK-NEXT:  mov b0 = r36
+; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = call i64 @ext(i64 %b, i64 %a)
@@ -71,12 +70,11 @@ define i64 @frame(i64 %a) {
 ; CHECK-NEXT:  mov r1 = r33 ;;
 ; CHECK-NEXT:  st8 [r14] = r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext ;;
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r33
-; CHECK-NEXT:  .restore sp
-; CHECK-NEXT:  adds r12 = 16, r12
 ; CHECK-NEXT:  mov b0 = r35
 ; CHECK-NEXT:  mov ar.pfs = r34
+; CHECK-NEXT:  .restore sp
+; CHECK-NEXT:  adds r12 = 16, r12
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   call void @vext()
   %p = alloca i64
@@ -115,8 +113,8 @@ define void @tail() {
 ; CHECK-NEXT:  mov r34 = b0 ;;
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = vext ;;
-; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  mov b0 = r34
+; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   tail call void @vext()
@@ -138,8 +136,8 @@ define i64 @indirect(ptr %f, i64 %a) {
 ; CHECK-NEXT:  mov b6 = r14 ;;
 ; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
-; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  mov b0 = r36
+; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = call i64 %f(i64 %a)

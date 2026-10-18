@@ -49,8 +49,8 @@ define double @fp(i64 %a, double %d) {
 define i64 @after_call(i64 %a) {
 ; CHECK-LABEL: after_call:
 ; CHECK:       br.call.sptk.many b0 = extern ;;
-; CHECK:       mov b0 = r{{[0-9]+}}
-; CHECK:       mov ar.pfs = r{{[0-9]+}}
+; CHECK-DAG:   mov b0 = r{{[0-9]+}}
+; CHECK-DAG:   mov ar.pfs = r{{[0-9]+}}
 ; CHECK:       alloc r2 = ar.pfs, 0, 0, 2, 0
 ; CHECK-NEXT:  br.cond.sptk.many local ;;
   %b = call i64 @extern(i64 %a)

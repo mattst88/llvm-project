@@ -8,7 +8,7 @@
 # CHECK-LABEL: name: entry_is_argument
 # CHECK:      $b6 = MOV_BR $r120, 0, $p0
 # CHECK-NEXT: $r1 = ADDS 0, killed $r14, $p0
-# CHECK-NEXT: $b0 = BR_CALL_B killed $b6, 0, 1, 0, $p0, csr_ia64_call, implicit $r120
+# CHECK-NEXT: $b0 = BR_CALL_B killed $b6, 0, 1, 0, $p0, csr_ia64_call, implicit-def $ar64, implicit $r120
 
 # CHECK-LABEL: name: entry_is_gp
 # CHECK:      $b6 = MOV_BR $r14, 0, $p0
@@ -17,7 +17,7 @@
 # CHECK-LABEL: name: gp_is_argument
 # CHECK:      $b6 = MOV_BR killed $r15, 0, $p0
 # CHECK-NEXT: $r1 = ADDS 0, $r120, $p0
-# CHECK-NEXT: $b0 = BR_CALL_B killed $b6, 0, 1, 0, $p0, csr_ia64_call, implicit killed $r120
+# CHECK-NEXT: $b0 = BR_CALL_B killed $b6, 0, 1, 0, $p0, csr_ia64_call, implicit-def $ar64, implicit killed $r120
 
 # CHECK-LABEL: name: separate
 # CHECK:      $b6 = MOV_BR killed $r15, 0, $p0

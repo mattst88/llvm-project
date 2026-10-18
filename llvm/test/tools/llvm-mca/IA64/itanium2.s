@@ -77,7 +77,7 @@ nop.i 0
 # CHECK-NEXT:  1      1     1.00                        dep	r8 = r32, r33, 8, 4
 # CHECK-NEXT:  1      1     1.00                        tbit.z	p6, p7 = r32, 3
 # CHECK-NEXT:  1      1     0.50                        sxt4	r8 = r32
-# CHECK-NEXT:  1      1     1.00                  U     mov	b6 = r32
+# CHECK-NEXT:  1      1     1.00                        mov	b6 = r32
 # CHECK-NEXT:  1      2     1.00                  U     mov	r8 = b6
 # CHECK-NEXT:  1      1     1.00                  U     mov	pr = r32, -1
 # CHECK-NEXT:  1      2     1.00                  U     mov	r8 = pr

@@ -43,20 +43,20 @@ define ptr @local_dynamic() {
 ; SIZE14-LABEL: local_dynamic:
 ; SIZE14:       addl r14 = @ltoff(@dtpmod(ld)), r1
 ; SIZE14:       br.call.sptk.many b0 = __tls_get_addr ;;
-; SIZE14-NEXT:  .mmi
-; SIZE14-NEXT:  mov r1 = r32
 ; SIZE14-NEXT:  adds r8 = @dtprel(ld), r8
 ;
 ; SIZE22-LABEL: local_dynamic:
 ; SIZE22:       br.call.sptk.many b0 = __tls_get_addr ;;
 ; SIZE22-NEXT:  mov r3 = r8
-; SIZE22-NEXT:  mov r1 = r32 ;;
 ; SIZE22-NEXT:  mov b0 = r34
+; SIZE22-NEXT:  mov r1 = r32 ;;
 ; SIZE22-NEXT:  addl r8 = @dtprel(ld), r3
 ;
 ; SIZE64-LABEL: local_dynamic:
 ; SIZE64:       br.call.sptk.many b0 = __tls_get_addr ;;
-; SIZE64-NEXT:  mov r1 = r32 ;;
+; SIZE64-NEXT:  mov r1 = r32
+; SIZE64-NEXT:  mov b0 = r34 ;;
+; SIZE64-NEXT:  mov ar.pfs = r33
 ; SIZE64-NEXT:  addl r14 = @ltoff(@dtprel(ld)), r1 ;;
 ; SIZE64-NEXT:  ld8 r14 = [r14] ;;
 ; SIZE64-NEXT:  add r8 = r14, r8

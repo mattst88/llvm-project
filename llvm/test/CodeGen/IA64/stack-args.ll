@@ -36,8 +36,9 @@ define i64 @outgoing(i64 %a) {
 ; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = incoming ;;
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r33
+; CHECK-NEXT:  mov b0 = r35
+; CHECK-NEXT:  mov ar.pfs = r34
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 16, r12
   %r = call i64 @incoming(i64 1, i64 2, i64 3, i64 4, i64 5, i64 6, i64 7,

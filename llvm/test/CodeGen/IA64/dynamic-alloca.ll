@@ -20,12 +20,11 @@ define void @f(i64 %n) {
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r32
-; CHECK-NEXT:  .restore sp
-; CHECK-NEXT:  mov r12 = r35
 ; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  mov ar.pfs = r33
+; CHECK-NEXT:  .restore sp
+; CHECK-NEXT:  mov r12 = r35
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %a = alloca i8, i64 %n
   call void @g(ptr %a, i64 %n)
@@ -51,6 +50,9 @@ define i64 @fixed(i64 %n, i64 %m) {
 ; CHECK-NEXT:  adds r39 = 16, r12
 ; CHECK-NEXT:  mov r40 = r32
 ; CHECK:       ld8 r8 = [r34]
+; CHECK-NEXT:  mov b0 = r37
+; CHECK-NEXT:  mov ar.pfs = r36
+; CHECK-NEXT:  mov r1 = r35
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r38
   %x = alloca i64

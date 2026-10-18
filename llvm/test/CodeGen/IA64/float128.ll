@@ -26,8 +26,10 @@ define fp128 @add(i32 %x, fp128 %a, fp128 %b) {
 define i32 @less(fp128 %a, fp128 %b) {
 ; CHECK-LABEL: less:
 ; CHECK:         br.call.sptk.many b0 = __lttf2 ;;
+; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    cmp4.lt p7, p6 = -1, r8
 ; CHECK-NEXT:    mov r8 = r0
+; CHECK-NEXT:    mov b0 = r38
 ; CHECK-NEXT:    mov r1 = r36 ;;
   %c = fcmp olt fp128 %a, %b
   %r = zext i1 %c to i32

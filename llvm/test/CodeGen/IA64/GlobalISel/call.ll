@@ -26,9 +26,10 @@ define signext i32 @narrow(i32 signext %a, double %b, ptr %p, i8 zeroext %c) {
 ; CHECK-NEXT:  zxt1 r14 = r35
 ; CHECK-NEXT:  sxt2 r15 = r8
 ; CHECK-NEXT:  mov r1 = r33 ;;
-; CHECK-NEXT:  add r14 = r32, r14 ;;
-; CHECK-NEXT:  add r14 = r14, r15 ;;
-; CHECK-NEXT:  mov b0 = r37
+; CHECK-NEXT:  add r14 = r32, r14
+; CHECK-NEXT:  mov b0 = r37 ;;
+; CHECK-NEXT:  add r14 = r14, r15
+; CHECK-NEXT:  mov ar.pfs = r36 ;;
 ; CHECK-NEXT:  sxt4 r8 = r14
 ; CHECK:       br.ret.sptk.many b0 ;;
   %r = call i32 @g(i32 %a, double %b, ptr %p)
@@ -55,6 +56,7 @@ define i64 @indirect(ptr %fp, i64 %a) {
 ; CHECK-NEXT:  mov b6 = r14 ;;
 ; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
+; CHECK-NEXT:  mov b0 = r35
 ; CHECK-NEXT:  mov r1 = r32
   %r = call i64 %fp(i64 %a)
   ret i64 %r
