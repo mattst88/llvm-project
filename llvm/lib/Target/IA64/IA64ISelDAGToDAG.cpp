@@ -260,6 +260,25 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
         LHS.getConstantOperandAPInt(1).logBase2(), DL, MVT::i64));
     return Immediate;
   }
+  // A test of the sign of a value shifted left, which is what a sign test of
+  // a narrower value becomes, is a test of one of its bits.
+  if (LHS.getOpcode() == ISD::SHL && isa<ConstantSDNode>(LHS.getOperand(1)) &&
+      LHS.getConstantOperandVal(1) < 64 && isa<ConstantSDNode>(RHS)) {
+    int64_t C = cast<ConstantSDNode>(RHS)->getSExtValue();
+    std::optional<bool> Negative;
+    if ((CC == ISD::SETLT && C == 0) || (CC == ISD::SETLE && C == -1))
+      Negative = true;
+    else if ((CC == ISD::SETGE && C == 0) || (CC == ISD::SETGT && C == -1))
+      Negative = false;
+    if (Negative) {
+      Ops.push_back(CurDAG->getTargetConstant(
+          *Negative ? IA64CC::BitSet : IA64CC::BitClear, DL, MVT::i64));
+      Ops.push_back(LHS.getOperand(0));
+      Ops.push_back(CurDAG->getTargetConstant(63 - LHS.getConstantOperandVal(1),
+                                              DL, MVT::i64));
+      return Immediate;
+    }
+  }
   IA64CC::CondCode IACC = getIA64CC(CC);
   // Two 32-bit values extended the same way compare as their low words do,
   // and cmp4 compares just those, so an extension that is a node of its own

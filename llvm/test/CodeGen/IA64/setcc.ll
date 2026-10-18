@@ -239,9 +239,12 @@ define i64 @mixed32(i32 %a, i32 %b) {
 }
 
 ; Parallel compares of words accumulate into the same predicates in one
-; instruction group.
+; instruction group. The sign test, which the combiner makes a test of the
+; value shifted up to the top, is a test of the sign bit.
 define i64 @or32(i32 %a, i32 %b, i32 %c) {
 ; CHECK-LABEL: or32:
+; CHECK:       tbit.z p7, p6 = r34, 31
+; CHECK-NOT:   shl
 ; CHECK:       cmp4.eq.or.andcm p6, p7 = 1, r32{{$}}
 ; CHECK-NEXT:  cmp4.eq.or.andcm p6, p7 = 2, r33 ;;
   %x = icmp eq i32 %a, 1
@@ -250,5 +253,28 @@ define i64 @or32(i32 %a, i32 %b, i32 %c) {
   %o = or i1 %x, %y
   %p = or i1 %o, %z
   %r = zext i1 %p to i64
+  ret i64 %r
+}
+
+define i64 @and_sign16(i16 %c, i64 %d) {
+; CHECK-LABEL: and_sign16:
+; CHECK:       cmp.eq p6, p7 = 0, r33
+; CHECK-NOT:   shl
+; CHECK:       tbit.nz.or.andcm p7, p6 = r32, 15 ;;
+  %z = icmp sgt i16 %c, -1
+  %y = icmp eq i64 %d, 0
+  %p = and i1 %y, %z
+  %r = zext i1 %p to i64
+  ret i64 %r
+}
+
+; Only a test of the sign is a test of one bit.
+define i64 @shl_not_sign(i64 %a) {
+; CHECK-LABEL: shl_not_sign:
+; CHECK:       shl [[S:r[0-9]+]] = r32, 32 ;;
+; CHECK-NEXT:  cmp.lt p7, p6 = 4, [[S]]
+  %s = shl i64 %a, 32
+  %c = icmp slt i64 %s, 5
+  %r = zext i1 %c to i64
   ret i64 %r
 }
