@@ -23,9 +23,10 @@
 //     memory keep their order. It moves one instruction at a time while
 //     that lowers the cycles, then the bundles, that the group and its
 //     neighbors take.
-//   - It chooses the template of each bundle by the cost of the next two
-//     groups, and where that differs from the assembler's choice it has the
-//     asm printer emit a template directive.
+//   - It chooses the template of each bundle, together with that of the
+//     bundle after it, by the cost of the next two groups, and where that
+//     differs from the assembler's choice it has the asm printer emit a
+//     template directive.
 //
 // A label starts a bundle, so the replay restarts at each block that has
 // one. Blocks with anything the replay does not model are left alone.
@@ -230,7 +231,9 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D) {
 
 /// Choose the template of each bundle of \p Items, which start a bundle, by
 /// the cost of the bundles up to the end of the next two groups, and set a
-/// directive where the choice is not the assembler's. Return the dispersal of
+/// directive where the choice is not the assembler's. Each bundle is chosen
+/// together with the next, since a group of two bundles may issue in one
+/// cycle only if both change, as MII,MII to MMI,MMI. Return the dispersal of
 /// the whole.
 static Dispersal plan(MutableArrayRef<Item> Items) {
   for (Item &It : Items)
@@ -256,21 +259,46 @@ static Dispersal plan(MutableArrayRef<Item> Items) {
       } while (I < Horizon);
       return true;
     };
-    int Best = -1;
+    // The templates to try for a bundle starting at \p At: the assembler's,
+    // as -1, and the others that it does not choose.
+    auto Choices = [&](size_t At) {
+      SmallVector<int, 16> Result = {-1};
+      unsigned Assembler = assemblerTemplate(Items.drop_front(At));
+      for (unsigned I = 0; I != std::size(IA64II::BundleTemplates); ++I) {
+        const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
+        if (T.Name && T.MidStop == -1 && I != Assembler)
+          Result.push_back(I);
+      }
+      return Result;
+    };
+    // A choice for the next bundle too must do strictly better than leaving
+    // it to the assembler.
+    int Best = -2;
     Dispersal BestCost;
-    if (!Try(-1, BestCost)) {
-      Best = -2;
-      BestCost.Cycles = ~0u;
-    }
-    unsigned Assembler = assemblerTemplate(Items.drop_front(Next));
-    for (unsigned I = 0; I != std::size(IA64II::BundleTemplates); ++I) {
-      const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
-      if (!T.Name || T.MidStop != -1 || I == Assembler)
-        continue;
-      Dispersal Cost;
-      if (Try(I, Cost) && Cost < BestCost) {
-        Best = I;
-        BestCost = Cost;
+    BestCost.Cycles = ~0u;
+    for (bool Pairs : {false, true}) {
+      for (int First : Choices(Next)) {
+        Items[Next].Template = First;
+        Dispersal Bundle = D;
+        size_t Second = Next + packBundle(Items.drop_front(Next), Bundle);
+        if (Second == Next || (Pairs && Second >= Horizon))
+          continue;
+        SmallVector<int, 16> Seconds = {-1};
+        if (Pairs)
+          Seconds = Choices(Second);
+        for (int Then : Seconds) {
+          if (Pairs && Then == -1)
+            continue;
+          if (Pairs)
+            Items[Second].Template = Then;
+          Dispersal Cost;
+          if (Try(First, Cost) && Cost < BestCost) {
+            Best = First;
+            BestCost = Cost;
+          }
+        }
+        if (Pairs)
+          Items[Second].Template = -1;
       }
     }
     assert(Best != -2 && "no template holds the instruction");

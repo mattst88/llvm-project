@@ -53,6 +53,7 @@ define void @large(ptr %p, i64 %x) {
 ; CHECK-NEXT:  mov r46 = 960
 ; CHECK:       ld8 r{{[0-9]+}} = [r45], 64 ;;
 ; CHECK:       br.call.sptk.many b0 = memcpy ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 976, r12
 ; CHECK:       st8 [r14] = r33
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_big ;;

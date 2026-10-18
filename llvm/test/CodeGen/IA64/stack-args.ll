@@ -26,10 +26,11 @@ define i64 @outgoing(i64 %a) {
 ; CHECK-NEXT:  .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  .mmf
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  mov r15 = 10
 ; CHECK-NEXT:  adds r16 = 16, r12
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r36 = 1
 ; CHECK:       mov r43 = 8
 ; CHECK-NEXT:  mov r33 = r1 ;;

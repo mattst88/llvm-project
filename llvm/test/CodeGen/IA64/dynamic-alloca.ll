@@ -86,7 +86,7 @@ declare void @h(i64, i64, i64, i64, i64, i64, i64, i64, i64, ptr)
 define void @stack_arguments(i64 %n) {
 ; CHECK-LABEL: stack_arguments:
 ; CHECK:       sub r12 = r12, r14 ;;
-; CHECK-NEXT:  .mmf
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 32, r12
 ; CHECK-NEXT:  adds r15 = 24, r12
 ; CHECK:       st8 [r15] = r14

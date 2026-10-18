@@ -57,6 +57,27 @@ define void @six_adds(ptr %p, i64 %a, i64 %b, i64 %c) {
   ret void
 }
 
+; The moves to the out registers fill two bundles after the one that saves
+; the frame. The assembler would choose MII for both, so the second waits for
+; an I port. Neither MMI alone issues them in one cycle, so the templates of
+; the two are chosen together.
+declare void @g(i64, i64, i64, i64, i64, i64)
+define void @six_moves(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) {
+; CHECK-LABEL: six_moves:
+; CHECK:       mov r41 = r37
+; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  mov r42 = r36
+; CHECK-NEXT:  mov r43 = r35
+; CHECK-NEXT:  mov r44 = r34
+; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  mov r45 = r33
+; CHECK-NEXT:  mov r46 = r32
+; CHECK-NEXT:  mov r38 = r1 ;;
+; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
+  call void @g(i64 %f, i64 %e, i64 %d, i64 %c, i64 %b, i64 %a)
+  ret void
+}
+
 ; The assembler's MMI holds both loads, and nothing does better, so there is
 ; no directive. A template that leaves its last bundle emptier is no cheaper
 ; for it.
