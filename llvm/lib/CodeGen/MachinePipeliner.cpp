@@ -3025,6 +3025,10 @@ static Register findUniqueOperandDefinedInLoop(const MachineInstr &MI) {
   Register Result;
   for (const MachineOperand &Use : MI.all_uses()) {
     Register Reg = Use.getReg();
+    // A constant register, such as an always-true qualifying predicate, is
+    // the same in every iteration.
+    if (Reg.isPhysical() && MRI.isConstantPhysReg(Reg))
+      continue;
     if (!Reg.isVirtual())
       return Register();
     if (MRI.getDefBlock(Reg) != MI.getParent())
