@@ -12,8 +12,11 @@
 // a block would otherwise violate that rule (SDM volume 1, section 3.4, and
 // volume 2, section 3.3 of the instruction reference).
 //
-// It is deliberately simple and conservative at the cost of density: a group
-// never spans blocks.
+// A taken branch ends the instruction group, but execution that falls
+// through to the next block continues it, so a block that may fall through
+// leaves its group open and the next block starts with what it wrote. A
+// group that a taken branch enters is new, and assuming otherwise only adds
+// stops.
 //
 // There are two exceptions. Instructions under predicates that exclude each
 // other never both take effect, so they may share a group even when they
@@ -42,6 +45,8 @@ using namespace llvm;
 
 static cl::opt<bool> EnableDisjoint("ia64-disjoint-groups", cl::Hidden,
                                     cl::init(true));
+static cl::opt<bool> EnableFallThrough("ia64-fallthrough-groups", cl::Hidden,
+                                       cl::init(true));
 
 namespace {
 
@@ -100,6 +105,19 @@ static bool isParallelCompare(unsigned Opcode) {
   }
 }
 
+// Whether the group open at the end of \p MBB may continue into the next
+// block. \p Last is the last instruction that emits code, if any.
+static bool continuesGroup(const MachineBasicBlock &MBB,
+                           const MachineInstr *Last) {
+  if (!EnableFallThrough || (Last && Last->isBarrier()))
+    return false;
+  // An alignment or a section change ends the group in the assembler, and
+  // nothing falls through into a landing pad.
+  const MachineBasicBlock *Next = MBB.getNextNode();
+  return Next && !Next->isEHPad() && !Next->isBeginSection() &&
+         !MBB.isEndSection() && Next->getAlignment() == Align(1);
+}
+
 bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
 
@@ -115,32 +133,34 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   // the group, the qualifying predicate of its writes (P0 if they differ).
   IA64ExclusivePredicates Exclusive(TRI);
   std::vector<MCRegister> WriterQP(TRI.getNumRegs());
+  // The last instruction of the current group.
+  MachineInstr *Last = nullptr;
+  // Whether the current group contains an alloc. No register models the
+  // current frame marker, which calls and returns replace.
+  bool NewFrame = false;
+  // Whether the current group may have raised an FP exception. The flags
+  // are part of ar.fpsr, but the instructions that set them only declare a
+  // read of it (for the rounding mode), so any number may share a group.
+  bool RaisedFlags = false;
 
-  for (MachineBasicBlock &MBB : MF) {
-    Exclusive.clear();
+  auto EndGroup = [&] {
+    if (Last)
+      Last->setAsmPrinterFlag(IA64::StopAfter);
+    Last = nullptr;
     Written.reset();
     WrittenByF.reset();
     OnlySet.reset();
     OnlyCleared.reset();
-    MachineInstr *Last = nullptr;
-    // Whether the current group contains an alloc. No register models the
-    // current frame marker, which calls and returns replace.
-    bool NewFrame = false;
-    // Whether the current group may have raised an FP exception. The flags
-    // are part of ar.fpsr, but the instructions that set them only declare a
-    // read of it (for the rounding mode), so any number may share a group.
-    bool RaisedFlags = false;
+    NewFrame = false;
+    RaisedFlags = false;
+  };
 
-    auto EndGroup = [&] {
-      if (Last)
-        Last->setAsmPrinterFlag(IA64::StopAfter);
-      Written.reset();
-      WrittenByF.reset();
-      OnlySet.reset();
-      OnlyCleared.reset();
-      NewFrame = false;
-      RaisedFlags = false;
-    };
+  for (MachineBasicBlock &MBB : MF) {
+    // Which predicates exclude each other depends on the path, so only the
+    // writes carry over from the block before.
+    Exclusive.clear();
+    // The last instruction of the block that emits code.
+    MachineInstr *BlockLast = nullptr;
 
     for (MachineInstr &MI : MBB) {
       if (MI.isMetaInstruction())
@@ -150,7 +170,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       if (MI.isInlineAsm()) {
         Exclusive.step(MI);
         EndGroup();
-        Last = nullptr;
+        BlockLast = &MI;
         continue;
       }
       IA64II::Unit Unit = IA64II::getUnit(MI.getDesc().TSFlags);
@@ -250,7 +270,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         if (Unit == IA64II::UnitF)
           WrittenByF.set(MO.getReg().id());
       }
-      Last = &MI;
+      Last = BlockLast = &MI;
 
       Exclusive.step(MI);
 
@@ -260,8 +280,10 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       if (MI.isCall() || MI.getOpcode() == IA64::FLUSHRS)
         EndGroup();
     }
-    EndGroup();
+    if (!continuesGroup(MBB, BlockLast))
+      EndGroup();
   }
+  EndGroup();
   return true;
 }
 

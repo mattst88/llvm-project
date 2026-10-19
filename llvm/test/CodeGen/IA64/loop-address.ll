@@ -23,7 +23,7 @@ define void @schedule(ptr %w) {
 ; CHECK-NEXT:  add r19 = r19, r20 ;;
 ; CHECK-NEXT:  st4 [r14] = r19, 4
 ; CHECK-NEXT:  cmp.eq p7, p6 = 0, r18
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_1 ;;
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_1{{$}}
 entry:
   br label %loop
 
@@ -59,7 +59,7 @@ define void @stride(ptr %d, i64 %n, i8 %c) {
 ; CHECK:       adds r14 = 2, r14
 ; CHECK-NEXT:  st1 [r32] = r34, 2 ;;
 ; CHECK-NEXT:  cmp.lt p6, p7 = r14, r33
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_2 ;;
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_2{{$}}
 entry:
   %some = icmp sgt i64 %n, 0
   br i1 %some, label %loop, label %exit

@@ -1,0 +1,70 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# An instruction group continues into the block a branch falls through to,
+# so the packer must not move an instruction into a group that holds
+# instructions of another block it does not see.
+
+---
+# The first group of bb.1 continues the one bb.0 ends with, which writes b0.
+# CHECK-LABEL: open_before:
+# CHECK:       mov b0 = r38
+# CHECK:       // %bb.1:
+# CHECK-NOT:   b0
+# CHECK:       sub r15 = r34, r35 ;;
+# CHECK:       mov b0 = r39
+name: open_before
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.2, %bb.1
+    liveins: $r32, $r33, $r34, $r35, $r37, $r38, $r39
+
+    $b0 = MOV_BR $r38, 0, $p0
+    $p6, $p7 = CMP_EQi 0, $r34, $p0
+    BR_COND %bb.2, 3, 0, 0, $p6
+
+  bb.1:
+    liveins: $r32, $r33, $r34, $r35, $r37, $r39
+
+    renamable $r14 = LD8 killed renamable $r32, 0, $p0
+    renamable $r15 = SUB killed renamable $r34, killed renamable $r35, $p0
+    $b0 = MOV_BR killed $r39, 0, $p0
+    renamable $r14 = ADDS -8, killed renamable $r14, $p0
+    renamable $r16 = LD8 killed renamable $r33, 0, $p0
+    $ar64 = MOV_AR_RESTORE killed $r37, $p0
+    renamable $r14 = LD8 killed renamable $r14, 0, $p0
+    renamable $r15 = ADD killed renamable $r15, killed renamable $r16, $p0
+    renamable $r8 = ADD killed renamable $r14, killed renamable $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+
+  bb.2:
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# The last group of bb.0 continues into bb.1, which writes b0 first.
+# CHECK-LABEL: open_after:
+# CHECK:       mov b0 = r38
+# CHECK:       mov ar.pfs = r37 ;;
+# CHECK-NOT:   b0
+# CHECK:       // %bb.1:
+# CHECK-NEXT:  mov b0 = r36 ;;
+name: open_after
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1
+    liveins: $r32, $r33, $r36, $r37, $r38
+
+    renamable $r14 = LD8 killed renamable $r32, 0, $p0
+    $b0 = MOV_BR killed $r38, 0, $p0
+    $ar64 = MOV_AR_RESTORE killed $r37, $p0
+    renamable $r14 = ADDS -8, killed renamable $r14, $p0
+
+  bb.1:
+    liveins: $r14, $r33, $r36
+
+    $b0 = MOV_BR killed $r36, 0, $p0
+    renamable $r8 = ADD killed renamable $r14, killed renamable $r33, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...

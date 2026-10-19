@@ -250,7 +250,7 @@ define void @early_branch(i32 %a, i32 %n, i64 %t) {
 ; CHECK:       shl r14 = r32, 1 ;;
 ; CHECK:       cmp4.lt p7, p6 = r14, r33 ;;
 ; CHECK-NEXT:  cmp.ne.or.andcm p6, p7 = 0, r34
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB{{[0-9]+}}_3 ;;
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB{{[0-9]+}}_3{{$}}
 ; CHECK:       br.call.sptk.many b0 = f ;;
 entry:
   %c = icmp eq i64 %t, 0

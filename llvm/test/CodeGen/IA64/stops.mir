@@ -137,10 +137,11 @@ body: |
     BR_RET $b0, 0, 1, 0, $p0
 ...
 ---
-# A group does not run from one block into the next.
+# A group runs on into the block that execution falls through to.
 # CHECK-LABEL: blocks:
-# CHECK:       mov r14 = r32 ;;
-# CHECK:       mov r8 = r33
+# CHECK:       mov r14 = r32{{$}}
+# CHECK-NEXT:  // %bb.1:
+# CHECK-NEXT:  mov r8 = r33
 # CHECK-NEXT:  br.ret.sptk.many b0 ;;
 name: blocks
 body: |
@@ -151,6 +152,95 @@ body: |
   bb.1:
     liveins: $r33
     $r8 = ADDS 0, $r33, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# So a read there of what the group wrote needs a stop before it.
+# CHECK-LABEL: blocks_read:
+# CHECK:       mov r14 = r32 ;;
+# CHECK-NEXT:  // %bb.1:
+# CHECK-NEXT:  mov r8 = r14
+name: blocks_read
+body: |
+  bb.0:
+    liveins: $r32
+    $r14 = ADDS 0, $r32, $p0
+
+  bb.1:
+    liveins: $r14
+    $r8 = ADDS 0, $r14, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# Past a conditional branch too, which then takes the stop.
+# CHECK-LABEL: branch_read:
+# CHECK:       mov r14 = r32
+# CHECK-NEXT:  cmp.eq p6, p7 = 0, r33{{$}}
+# CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB{{[0-9]+}}_2 ;;
+# CHECK-NEXT:  // %bb.1:
+# CHECK-NEXT:  mov r8 = r14
+# CHECK-LABEL: branch_independent:
+# CHECK:       cmp.eq p6, p7 = 0, r33{{$}}
+# CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB{{[0-9]+}}_2{{$}}
+# CHECK-NEXT:  // %bb.1:
+# CHECK-NEXT:  mov r8 = r32
+name: branch_read
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33
+    $r14 = ADDS 0, $r32, $p0
+    $p6, $p7 = CMP_EQi 0, $r33, $p0
+    BR_COND %bb.2, 3, 0, 0, $p6
+
+  bb.1:
+    liveins: $r14
+    $r8 = ADDS 0, $r14, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.2:
+    $r8 = ADDS 0, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+name: branch_independent
+body: |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33
+    $p6, $p7 = CMP_EQi 0, $r33, $p0
+    BR_COND %bb.2, 3, 0, 0, $p6
+
+  bb.1:
+    liveins: $r32
+    $r8 = ADDS 0, $r32, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.2:
+    $r8 = ADDS 0, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A taken branch ends the group, so the block after an unconditional one
+# starts a new group, and so does one that the group cannot continue into.
+# CHECK-LABEL: after_jump:
+# CHECK:       br.cond.sptk.few .LBB{{[0-9]+}}_2 ;;
+# CHECK:       mov r8 = r14
+name: after_jump
+body: |
+  bb.0:
+    successors: %bb.2
+    liveins: $r32
+    $r14 = ADDS 0, $r32, $p0
+    BRUNCOND %bb.2
+
+  bb.1:
+    liveins: $r14
+    $r8 = ADDS 0, $r14, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.2:
+    $r8 = ADDS 0, $r0, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
 ...
 ---

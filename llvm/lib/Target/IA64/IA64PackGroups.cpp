@@ -516,6 +516,9 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
     Run.clear();
   };
 
+  // Whether the instruction group open at the end of the last block may
+  // continue into this one.
+  bool OpenBefore = false;
   for (MachineBasicBlock &MBB : MF) {
     if (startsBundle(MBB))
       PlanRun();
@@ -573,6 +576,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
     }
     if (Opaque) {
       PlanRun();
+      OpenBefore = true;
       continue;
     }
     if (Movable && GroupStart < Items.size())
@@ -694,8 +698,12 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         return false;
       };
       bool Moved = false;
+      // A group that continues from the block before or into the block after
+      // has instructions this does not see.
+      bool OpenAfter = !Items.back().Stop;
       // Down, to the start of the second group.
-      for (unsigned From = Begin; From != Mid && !Moved && Mid - Begin > 1;
+      for (unsigned From = Begin; From != Mid && !Moved && Mid - Begin > 1 &&
+                                  !(OpenAfter && End == Items.size());
            ++From) {
         if (!crossesGroups(Items[From]))
           continue;
@@ -717,7 +725,8 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
           Moved = Try(From, Mid - 1, Mid - 1);
       }
       // Up, to the end of the first group.
-      for (unsigned From = Mid; From != End && !Moved && End - Mid > 1;
+      for (unsigned From = Mid; From != End && !Moved && End - Mid > 1 &&
+                                !(OpenBefore && Begin == 0);
            ++From) {
         if (!crossesGroups(Items[From]))
           continue;
@@ -761,6 +770,8 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         recomputeLivenessFlags(MBB);
       Changed = true;
     }
+    if (!Items.empty())
+      OpenBefore = !Items.back().Stop;
     Run.append(Items.begin(), Items.end());
   }
   PlanRun();

@@ -12,7 +12,7 @@ define i64 @sum(ptr %p, i64 %n) {
 ; CHECK:       .save ar.lc, [[LC:r[0-9]+]]
 ; CHECK-NEXT:  mov [[LC]] = ar.lc
 ; CHECK:       adds [[N:r[0-9]+]] = -1, r33
-; CHECK:       mov ar.lc = [[N]] ;;
+; CHECK:       mov ar.lc = [[N]]{{$}}
 ; CHECK-NEXT:  .LBB0_2:
 ; CHECK-NOT:   cmp
 ; CHECK:       br.cloop.sptk.few .LBB0_2 ;;
@@ -42,7 +42,7 @@ exit:
 declare void @g(i64)
 define void @calls(i64 %n) {
 ; CHECK-LABEL: calls:
-; CHECK:       mov ar.lc = {{r[0-9]+}} ;;
+; CHECK:       mov ar.lc = {{r[0-9]+}}{{$}}
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; CHECK:       br.cloop.sptk.few .LBB1_
 entry:
@@ -62,9 +62,9 @@ exit:
 define void @nest(ptr %p, i64 %n, i64 %m) {
 ; CHECK-LABEL: nest:
 ; CHECK:       .LBB2_[[OUTER:[0-9]+]]:
-; CHECK:       mov ar.lc = {{r[0-9]+}} ;;
+; CHECK:       mov ar.lc = {{r[0-9]+}}{{$}}
 ; CHECK:       .LBB2_[[INNER:[0-9]+]]:
-; CHECK:       br.cloop.sptk.few .LBB2_[[INNER]] ;;
+; CHECK:       br.cloop.sptk.few .LBB2_[[INNER]]{{$}}
 ; CHECK:       br.cond.{{.*}} .LBB2_[[OUTER]]
 ; CHECK-NOT:   br.cloop
 ; CHECK:       .endp nest
@@ -112,7 +112,7 @@ declare void @llvm.set.loop.iterations.i64(i64)
 declare i1 @llvm.loop.decrement.i64(i64)
 define void @inverted(i64 %n, ptr %p) {
 ; CHECK-LABEL: inverted:
-; CHECK:       mov ar.lc = {{r[0-9]+}} ;;
+; CHECK:       mov ar.lc = {{r[0-9]+}}{{$}}
 ; CHECK-NEXT:  .LBB4_[[LOOP:[0-9]+]]:
 ; CHECK:       br.cloop.sptk.few .LBB4_[[LOOP]] ;;
 ; CHECK-NEXT:  // %bb

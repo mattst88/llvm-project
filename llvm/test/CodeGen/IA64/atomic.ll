@@ -113,7 +113,7 @@ define i32 @add_relaxed(ptr %p) {
 
 define i64 @add_other(ptr %p) {
 ; CHECK-LABEL: add_other:
-; CHECK:       ld8.acq r8 = [r32] ;;
+; CHECK:       ld8.acq r8 = [r32]{{$}}
 ; CHECK:       mov ar.ccv = r8
 ; CHECK-NEXT:  adds r15 = 3, r8
 ; CHECK-NEXT:  mov r14 = r8 ;;
