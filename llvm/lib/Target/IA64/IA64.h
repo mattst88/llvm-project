@@ -31,6 +31,7 @@ FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
 FunctionPass *createIA64ExpandBranchesPass();
 FunctionPass *createIA64ExpandSpeculationPass();
+FunctionPass *createIA64HoistRestoresPass();
 FunctionPass *createIA64IfConversionPass();
 FunctionPass *createIA64InsertStopsPass();
 FunctionPass *createIA64LocalDynamicTLSPass();
@@ -43,6 +44,7 @@ createIA64InstructionSelector(const IA64TargetMachine &TM,
 
 void initializeIA64ExpandBranchesPass(PassRegistry &);
 void initializeIA64ExpandSpeculationPass(PassRegistry &);
+void initializeIA64HoistRestoresPass(PassRegistry &);
 void initializeIA64IfConversionPass(PassRegistry &);
 void initializeIA64InsertStopsPass(PassRegistry &);
 void initializeIA64LocalDynamicTLSPass(PassRegistry &);

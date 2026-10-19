@@ -16,13 +16,9 @@ define i32 @returns(i64 %a, i64 %b) {
 ; CHECK:       cmp.eq p6, p7 = 0, r33
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB0_4 ;;
 ; CHECK:       mov r8 = r0
-; CHECK-NEXT:  mov b0 = r36
-; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ; CHECK:       .LBB0_3:
 ; CHECK-NEXT:  mov r8 = r0
-; CHECK-NEXT:  mov b0 = r36
-; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ; CHECK-NEXT:  .LBB0_4:
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;

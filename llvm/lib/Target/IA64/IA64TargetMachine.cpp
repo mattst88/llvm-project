@@ -40,6 +40,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeGlobalISel(PR);
   initializeIA64ExpandBranchesPass(PR);
   initializeIA64ExpandSpeculationPass(PR);
+  initializeIA64HoistRestoresPass(PR);
   initializeIA64IfConversionPass(PR);
   initializeIA64InsertStopsPass(PR);
   initializeIA64LocalDynamicTLSPass(PR);
@@ -191,6 +192,7 @@ void IA64PassConfig::addPreSched2() {
 // again, so that the copy and the code it joins share instruction groups.
 void IA64PassConfig::addBlockPlacement() {
   TargetPassConfig::addBlockPlacement();
+  addPass(createIA64HoistRestoresPass());
   addPass(&PostMachineSchedulerID);
 }
 

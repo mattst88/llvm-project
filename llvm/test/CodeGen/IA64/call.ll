@@ -93,7 +93,8 @@ define void @later(i64 %a) {
 ; CHECK-NEXT:  mov r35 = b0
 ; CHECK:       br.call.sptk.many b0 = vext ;;
 ; CHECK:       mov b0 = r35
-; CHECK-NEXT:  mov ar.pfs = r34
+; CHECK-NEXT:  mov ar.pfs = r34 ;;
+; CHECK-NEXT:  .LBB4_2:
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %c = icmp eq i64 %a, 0
   br i1 %c, label %skip, label %do

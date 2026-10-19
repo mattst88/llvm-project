@@ -28,8 +28,10 @@ define i32 @catch_int() personality ptr @__gxx_personality_v0 {
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:  .Ltmp0:
 ; CHECK-NEXT:    br.call.sptk.many b0 = may_throw ;;
-; CHECK-NEXT:    mov r1 = r33 ;;
+; CHECK-NEXT:    mov r1 = r33
 ; CHECK-NEXT:  .Ltmp1:
+; CHECK-NEXT:    mov b0 = r35
+; CHECK-NEXT:    mov ar.pfs = r34 ;;
 ; CHECK:       .Ltmp2:
 ; CHECK-NEXT:    mov r1 = r33
 ; CHECK-NEXT:    cmp4.eq p7, p6 = 1, r16

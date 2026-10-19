@@ -25,6 +25,7 @@ add_llvm_target(IA64CodeGen
   IA64AsmPrinter.cpp
   IA64FrameLowering.cpp
   IA64ExpandBranches.cpp
+  IA64HoistRestores.cpp
   IA64IfConversion.cpp
   IA64LoopAliasVersioning.cpp
   IA64InsertStops.cpp

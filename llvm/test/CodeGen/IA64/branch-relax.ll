@@ -26,7 +26,7 @@ define i64 @forward(i64 %a) {
 ; CHECK-NEXT:  .LBB0_3:
 ;
 ; OBJ-LABEL: <forward>:
-; OBJ:       brl.cond.sptk.few 0x1312d60 ;;
+; OBJ:       brl.cond.sptk.few 0x1312d70 ;;
 entry:
   %c = icmp eq i64 %a, 0
   br i1 %c, label %far, label %near
