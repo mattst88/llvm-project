@@ -197,5 +197,78 @@ latch:
   br label %loop
 }
 
+; The store's address and value are computed above the likely branch, which
+; leaves the store alone in its block to be predicated.
+define void @early_store(ptr %p, i32 %a, i64 %v, i64 %t) {
+; CHECK-LABEL: early_store:
+; CHECK:       adds r14 = 1, r33
+; CHECK-NEXT:  adds r15 = 3, r34
+; CHECK-NEXT:  cmp.eq p7, p6 = 0, r35 ;;
+; CHECK-NEXT:  zxt4 r14 = r14 ;;
+; CHECK-NEXT:  shladd r14 = r14, 2, r32 ;;
+; CHECK-NEXT:  (p7) st4 [r14] = r15
+entry:
+  %c = icmp eq i64 %t, 0
+  br i1 %c, label %next, label %out, !prof !0
+next:
+  %a1 = add i32 %a, 1
+  %za1 = zext i32 %a1 to i64
+  %pa1 = getelementptr i32, ptr %p, i64 %za1
+  %v1 = trunc i64 %v to i32
+  %v2 = add i32 %v1, 3
+  store i32 %v2, ptr %pa1
+  ret void
+out:
+  ret void
+}
+
+; Behind an unlikely branch they stay put.
+define void @rare_store(ptr %p, i32 %a, i64 %v, i64 %t) {
+; CHECK-LABEL: rare_store:
+; CHECK:       (p6) br.ret.dptk.many b0 ;;
+; CHECK-NEXT:  .LBB{{[0-9]+}}_1:
+; CHECK-NEXT:  adds r14 = 1, r33
+entry:
+  %c = icmp eq i64 %t, 0
+  br i1 %c, label %next, label %out, !prof !1
+next:
+  %a1 = add i32 %a, 1
+  %za1 = zext i32 %a1 to i64
+  %pa1 = getelementptr i32, ptr %p, i64 %za1
+  %v1 = trunc i64 %v to i32
+  %v2 = add i32 %v1, 3
+  store i32 %v2, ptr %pa1
+  ret void
+out:
+  ret void
+}
+
+; The second branch's compare operand is computed above the first branch, so
+; the two compares combine into one parallel compare.
+define void @early_branch(i32 %a, i32 %n, i64 %t) {
+; CHECK-LABEL: early_branch:
+; CHECK:       shl r14 = r32, 1 ;;
+; CHECK:       cmp4.lt p7, p6 = r14, r33 ;;
+; CHECK-NEXT:  cmp.ne.or.andcm p6, p7 = 0, r34
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB{{[0-9]+}}_3 ;;
+; CHECK:       br.call.sptk.many b0 = f ;;
+entry:
+  %c = icmp eq i64 %t, 0
+  br i1 %c, label %next, label %out, !prof !0
+next:
+  %a1 = shl i32 %a, 1
+  %c1 = icmp slt i32 %a1, %n
+  br i1 %c1, label %x, label %out
+x:
+  call void @f()
+  ret void
+out:
+  call void @g()
+  ret void
+}
+
+declare void @f()
+declare void @g()
+
 !0 = !{!"branch_weights", i32 100, i32 1}
 !1 = !{!"branch_weights", i32 1, i32 100}

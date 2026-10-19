@@ -61,6 +61,7 @@ STATISTIC(NumSpeculated, "Number of loads issued early with ld.sa");
 STATISTIC(NumChecked, "Number of ld.sa and ld.c.clr pairs emitted");
 STATISTIC(NumUndone, "Number of pairs that became the plain load again");
 STATISTIC(NumAddresses, "Number of load addresses computed early");
+STATISTIC(NumOperands, "Number of store or branch operands computed early");
 
 static cl::opt<bool> EnableSpeculation(
     "ia64-load-speculation", cl::init(true), cl::Hidden,
@@ -92,6 +93,19 @@ static cl::opt<unsigned> AddressMinUse(
     cl::desc("How often, in percent, the address of a load that is not "
              "issued early must be used where it is computed"));
 
+static cl::opt<unsigned> OperandMinUse(
+    "ia64-early-operand-min-use", cl::init(60), cl::Hidden,
+    cl::desc("How often, in percent, the operands of a store or branch must "
+             "be used where they are computed"));
+
+static cl::opt<bool> EarlyStoreOperands(
+    "ia64-early-store-operands", cl::init(true), cl::Hidden,
+    cl::desc("Compute the address and value of a store early"));
+
+static cl::opt<bool> EarlyBranchOperands(
+    "ia64-early-branch-operands", cl::init(true), cl::Hidden,
+    cl::desc("Compute the operands of a conditional branch's compare early"));
+
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
     cl::desc("How many instructions back from the address a load may be"));
@@ -121,6 +135,20 @@ static std::optional<Forms> getForms(unsigned Opcode) {
     return Forms{IA64::LDFS_SA, IA64::LDFS_C_CLR};
   case IA64::LDFD:
     return Forms{IA64::LDFD_SA, IA64::LDFD_C_CLR};
+  }
+}
+
+static bool isPlainStore(unsigned Opcode) {
+  switch (Opcode) {
+  default:
+    return false;
+  case IA64::ST1:
+  case IA64::ST2:
+  case IA64::ST4:
+  case IA64::ST8:
+  case IA64::STFS:
+  case IA64::STFD:
+    return true;
   }
 }
 
@@ -157,7 +185,18 @@ public:
 private:
   bool isMovable(const MachineInstr &MI) const;
   bool chases(Register Addr, const MachineLoop *L) const;
+  struct Walk {
+    MachineBasicBlock *MBB = nullptr;
+    MachineBasicBlock::iterator At;
+    SmallVector<MachineInstr *, 4> Chain;
+    bool Crossed = false;
+    unsigned Distance = 0;
+  };
+  Walk walkUp(MachineInstr &User, ArrayRef<Register> Regs, unsigned MinUse,
+              const MachineInstr *Load) const;
+  bool moveChain(Walk &W, const MachineInstr &User);
   bool speculate(MachineInstr &Load, unsigned Pair);
+  bool hoistOperands(MachineInstr &User);
 
   const IA64InstrInfo *TII;
   MachineRegisterInfo *MRI;
@@ -237,38 +276,30 @@ bool IA64SpeculateLoads::chases(Register Addr, const MachineLoop *L) const {
   return false;
 }
 
-bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
-  std::optional<Forms> F = getForms(Load.getOpcode());
-  if (!F || Load.getOperand(3).getReg() != IA64::P0 ||
-      !Load.hasOneMemOperand() || !(*Load.memoperands_begin())->isUnordered())
-    return false;
-  Register Addr = Load.getOperand(1).getReg();
-  if (!Addr.isVirtual())
-    return false;
-
-  const MachineLoop *L = MLI->getLoopFor(Load.getParent());
-  // Whether only the address is computed early.
-  bool AddressOnly = OnlyChases && !chases(Addr, L);
-  unsigned MinUse = AddressOnly ? AddressMinUse : MinUsePercent;
-
-  // Walk up from the load to the address's definition, or to a block that
-  // other paths also enter, or that is entered too often for the load to be
-  // worth issuing there. The address is often computed just before the load,
-  // after the branches it could move past, so the few instructions that
-  // compute it from values available earlier move with it.
-  SmallVector<MachineInstr *, 4> Chain;
+// Walk up from User to the definitions of Regs, or to a block that other
+// paths also enter, or that is entered too often for User to be reached at
+// least MinUse percent of the time. Regs are often computed just before
+// User, after the branches they could move past, so the few instructions
+// that compute them from values available earlier are collected to move.
+// Whether the walk crossed anything the scheduler could not move User past
+// is recorded: a branch, or a store that Load, if given, may alias.
+IA64SpeculateLoads::Walk
+IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
+                           unsigned MinUse, const MachineInstr *Load) const {
+  Walk W;
   SmallSet<Register, 8> Needed;
-  Needed.insert(Addr);
+  Needed.insert_range(Regs);
   auto DefinesNeeded = [&](const MachineInstr &MI) {
     return any_of(MI.all_defs(), [&](const MachineOperand &MO) {
       return Needed.count(MO.getReg());
     });
   };
-  MachineBasicBlock *Use = Load.getParent();
-  MachineBasicBlock *MBB = Use;
-  MachineBasicBlock::iterator At = Load.getIterator();
-  // How likely the load is to be reached from where the walk is.
+  const MachineLoop *L = MLI->getLoopFor(User.getParent());
+  MachineBasicBlock *MBB = User.getParent();
+  MachineBasicBlock::iterator At = User.getIterator();
+  // How likely User is to be reached from where the walk is.
   BranchProbability Reach = BranchProbability::getOne();
+  SmallVector<MachineInstr *, 4> &Chain = W.Chain;
   bool Crossed = false;
   unsigned Distance = 0;
   // Where the walk entered the current block, to go back to if it stops
@@ -298,12 +329,12 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
               Needed.insert(MO.getReg());
         }
         // A store the load cannot alias is no obstacle to the scheduler.
-        Crossed |= MI.isBranch() ||
-                   (MI.mayStore() && MI.mayAlias(AA, Load, /*UseTBAA=*/true));
+        Crossed |= MI.isBranch() || (Load && MI.mayStore() &&
+                                     MI.mayAlias(AA, *Load, /*UseTBAA=*/true));
       }
       --At;
     }
-    // A load placed after one of the terminators would sit between a
+    // Nothing placed after one of the terminators would sit between a
     // conditional branch and the branch that follows it.
     if (Stop && std::prev(At)->isTerminator()) {
       MBB = EntryMBB;
@@ -329,30 +360,60 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
     MBB = Pred;
     At = MBB->end();
   }
-  // Moving it within a block past nothing the scheduler cannot move it past
-  // gains nothing.
-  if (!Crossed || Distance < MinDistance)
+  W.MBB = MBB;
+  W.At = At;
+  W.Crossed = Crossed;
+  W.Distance = Distance;
+  return W;
+}
+
+// Move the chain to where the walk stopped, if that is in another block.
+bool IA64SpeculateLoads::moveChain(Walk &W, const MachineInstr &User) {
+  if (W.MBB == User.getParent() || W.Chain.empty() || !W.Crossed ||
+      W.Distance < MinDistance)
+    return false;
+  // The chain was found from User up, so the last found goes first.
+  for (MachineInstr *MI : reverse(W.Chain)) {
+    // The walk may have stopped just above the chain, which then begins
+    // where it stopped.
+    if (W.At != W.MBB->end() && &*W.At == MI)
+      ++W.At;
+    else
+      W.MBB->splice(W.At, MI->getParent(), MI->getIterator());
+    for (const MachineOperand &MO : MI->all_uses())
+      if (MO.getReg().isVirtual())
+        MRI->clearKillFlags(MO.getReg());
+  }
+  Changed = true;
+  return true;
+}
+
+bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
+  std::optional<Forms> F = getForms(Load.getOpcode());
+  if (!F || Load.getOperand(3).getReg() != IA64::P0 ||
+      !Load.hasOneMemOperand() || !(*Load.memoperands_begin())->isUnordered())
+    return false;
+  Register Addr = Load.getOperand(1).getReg();
+  if (!Addr.isVirtual())
     return false;
 
-  if (AddressOnly) {
-    if (MBB == Use || Chain.empty())
-      return false;
-    // The chain was found from the load up, so the last found goes first.
-    for (MachineInstr *MI : reverse(Chain)) {
-      // The walk may have stopped just above the chain, which then begins
-      // where it stopped.
-      if (At != MBB->end() && &*At == MI)
-        ++At;
-      else
-        MBB->splice(At, MI->getParent(), MI->getIterator());
-      for (const MachineOperand &MO : MI->all_uses())
-        if (MO.getReg().isVirtual())
-          MRI->clearKillFlags(MO.getReg());
-    }
-    ++NumAddresses;
-    Changed = true;
+  const MachineLoop *L = MLI->getLoopFor(Load.getParent());
+  // Whether only the address is computed early.
+  if (OnlyChases && !chases(Addr, L)) {
+    Walk W = walkUp(Load, Addr, AddressMinUse, &Load);
+    NumAddresses += moveChain(W, Load);
     return false;
   }
+
+  Walk W = walkUp(Load, Addr, MinUsePercent, &Load);
+  // Moving it within a block past nothing the scheduler cannot move it past
+  // gains nothing.
+  if (!W.Crossed || W.Distance < MinDistance)
+    return false;
+  MachineBasicBlock *MBB = W.MBB;
+  MachineBasicBlock::iterator At = W.At;
+  MachineBasicBlock *Use = Load.getParent();
+  SmallVector<MachineInstr *, 4> &Chain = W.Chain;
 
   const TargetRegisterClass *RC = MRI->getRegClass(Load.getOperand(0).getReg());
   bool FP = IA64::FRRegClass.hasSubClassEq(RC);
@@ -385,6 +446,21 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   return true;
 }
 
+// A store's operands, and those of the compare a conditional branch becomes,
+// are needed when its group issues, which waits for them like any other.
+// Compute them early in the same way as a load's address.
+bool IA64SpeculateLoads::hoistOperands(MachineInstr &User) {
+  int QPIdx = User.findFirstPredOperandIdx();
+  SmallVector<Register, 2> Regs;
+  for (const MachineOperand &MO : User.all_uses())
+    if (MO.getReg().isVirtual() && (int)MO.getOperandNo() != QPIdx)
+      Regs.push_back(MO.getReg());
+  if (Regs.empty())
+    return false;
+  Walk W = walkUp(User, Regs, OperandMinUse, nullptr);
+  return moveChain(W, User);
+}
+
 bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
   if (!EnableSpeculation || skipFunction(MF.getFunction()))
     return false;
@@ -394,15 +470,22 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
   MLI = &getAnalysis<MachineLoopInfoWrapperPass>().getLI();
   AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
 
-  SmallVector<MachineInstr *, 32> Loads;
+  SmallVector<MachineInstr *, 32> Loads, Users;
   for (MachineBasicBlock &MBB : MF)
     for (MachineInstr &MI : MBB)
       if (getForms(MI.getOpcode()))
         Loads.push_back(&MI);
+      else if ((EarlyStoreOperands && isPlainStore(MI.getOpcode())) ||
+               (EarlyBranchOperands && (MI.getOpcode() == IA64::BRCC ||
+                                        MI.getOpcode() == IA64::BRCCi ||
+                                        MI.getOpcode() == IA64::BRCCf)))
+        Users.push_back(&MI);
   unsigned Pair = 0;
   Changed = false;
   for (MachineInstr *MI : Loads)
     Pair += speculate(*MI, Pair);
+  for (MachineInstr *MI : Users)
+    NumOperands += hoistOperands(*MI);
   return Changed || Pair != 0;
 }
 

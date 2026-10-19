@@ -28,8 +28,8 @@ join:
 
 define void @triangle_taken(i64 %a, ptr %p) {
 ; CHECK-LABEL: triangle_taken:
-; CHECK:       cmp.eq p6, p7 = 0, r32{{$}}
-; CHECK-NEXT:  mov r14 = 1 ;;
+; CHECK:       mov r14 = 1
+; CHECK-NEXT:  cmp.eq p6, p7 = 0, r32 ;;
 ; CHECK-NEXT:  (p7) st8 [r33] = r14
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %c = icmp eq i64 %a, 0
@@ -46,13 +46,13 @@ join:
 define void @diamond(i64 %a, ptr %p, ptr %q) {
 ; CHECK-LABEL: diamond:
 ; CHECK:       mov r35 = r1
+; CHECK-NEXT:  mov r14 = 2
 ; CHECK-NEXT:  .save rp, r37
 ; CHECK-NEXT:  mov r37 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  cmp.lt p6, p7 = -1, r32{{$}}
-; CHECK-NEXT:  mov r14 = 2 ;;
-; CHECK-NEXT:  (p6) st8 [r34] = r14
-; CHECK-NEXT:  mov r14 = 1 ;;
+; CHECK-NEXT:  cmp.lt p6, p7 = -1, r32 ;;
+; CHECK-NEXT:  (p7) mov r14 = 1
+; CHECK-NEXT:  (p6) st8 [r34] = r14 ;;
 ; CHECK-NEXT:  (p7) st8 [r33] = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = callee ;;
   %c = icmp slt i64 %a, 0
@@ -72,8 +72,8 @@ join:
 
 define void @returns(i64 %a, ptr %p, ptr %q) {
 ; CHECK-LABEL: returns:
-; CHECK:       cmp.lt p6, p7 = -1, r32 ;;
-; CHECK-NEXT:  (p6) mov r14 = 2
+; CHECK:       mov r14 = 2
+; CHECK-NEXT:  cmp.lt p6, p7 = -1, r32 ;;
 ; CHECK-NEXT:  (p7) mov r14 = 1 ;;
 ; CHECK-NEXT:  (p6) st8 [r34] = r14
 ; CHECK-NEXT:  (p7) st8 [r33] = r14
@@ -133,12 +133,11 @@ join:
 
 define i64 @join_live(i64 %a, i64 %b, ptr %p, ptr %q) {
 ; CHECK-LABEL: join_live:
-; CHECK:       cmp.lt p6, p7 = -1, r32{{$}}
-; CHECK-NEXT:  mov r14 = 2 ;;
-; CHECK-NEXT:  (p6) adds r32 = 7, r33
+; CHECK:       cmp.lt p6, p7 = -1, r32 ;;
+; CHECK-NEXT:  (p7) mov r14 = 1
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  (p6) st8 [r35] = r14
-; CHECK-NEXT:  mov r14 = 1
+; CHECK-NEXT:  (p6) adds r32 = 7, r33
 ; CHECK-NEXT:  (p7) adds r32 = 5, r32 ;;
 ; CHECK-NEXT:  (p7) st8 [r34] = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = callee ;;
@@ -165,9 +164,10 @@ define i64 @early(i64 %a, i64 %b, ptr %p) {
 ; CHECK-LABEL: early:
 ; CHECK:       cmp.eq p7, p6 = 0, r32{{$}}
 ; CHECK-NEXT:  mov r8 = r33
+; CHECK-NEXT:  mov r14 = 1
 ; CHECK-NEXT:  (p7) br.ret.dpnt.many b0 ;;
 ; CHECK-NEXT:  {{.LBB[0-9_]+}}:
-; CHECK-NEXT:  mov r14 = 1
+; CHECK-NEXT:  st8 [r34] = r14
 ;
 ; OFF-LABEL: early:
 ; OFF:       br.cond
