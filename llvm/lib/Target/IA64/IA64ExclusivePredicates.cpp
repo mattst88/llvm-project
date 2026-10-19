@@ -127,6 +127,13 @@ IA64ExclusivePredicates::qualifyingPredicate(const MachineInstr &MI) {
   return MI.getOperand(QPIdx).getReg();
 }
 
+bool IA64ExclusivePredicates::writesComplement(const MachineInstr &MI) {
+  bool Unc;
+  int QPIdx = MI.findFirstPredOperandIdx();
+  return isExclusiveCompare(MI.getOpcode(), Unc) && QPIdx >= 0 &&
+         MI.getOperand(QPIdx).getReg() == IA64::P0;
+}
+
 namespace {
 
 class ExclusivePredicatesMutation : public ScheduleDAGMutation {

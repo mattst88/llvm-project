@@ -32,6 +32,7 @@ FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
 FunctionPass *createIA64BreakAntiDepsPass();
 FunctionPass *createIA64ExpandBranchesPass();
 FunctionPass *createIA64ExpandSpeculationPass();
+FunctionPass *createIA64FoldPredicatedCopiesPass();
 FunctionPass *createIA64HoistFallThroughPass();
 FunctionPass *createIA64HoistRestoresPass();
 FunctionPass *createIA64IfConversionPass();
@@ -47,6 +48,7 @@ createIA64InstructionSelector(const IA64TargetMachine &TM,
 void initializeIA64BreakAntiDepsPass(PassRegistry &);
 void initializeIA64ExpandBranchesPass(PassRegistry &);
 void initializeIA64ExpandSpeculationPass(PassRegistry &);
+void initializeIA64FoldPredicatedCopiesPass(PassRegistry &);
 void initializeIA64HoistFallThroughPass(PassRegistry &);
 void initializeIA64HoistRestoresPass(PassRegistry &);
 void initializeIA64IfConversionPass(PassRegistry &);

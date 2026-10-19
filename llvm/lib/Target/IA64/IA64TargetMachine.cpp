@@ -48,6 +48,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64BreakAntiDepsPass(PR);
   initializeIA64ExpandBranchesPass(PR);
   initializeIA64ExpandSpeculationPass(PR);
+  initializeIA64FoldPredicatedCopiesPass(PR);
   initializeIA64HoistFallThroughPass(PR);
   initializeIA64HoistRestoresPass(PR);
   initializeIA64IfConversionPass(PR);
@@ -204,6 +205,7 @@ void IA64PassConfig::addPreSched2() {
   if (getOptLevel() != CodeGenOptLevel::None) {
     addPass(createIA64IfConversionPass());
     addPass(createIA64BreakAntiDepsPass());
+    addPass(createIA64FoldPredicatedCopiesPass());
   }
 }
 

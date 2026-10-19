@@ -1,0 +1,234 @@
+# RUN: llc -mtriple=ia64 -run-pass=ia64-fold-predicated-copies \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# A select's copy "(p6) mov r32 = r14" read once, by an add at which r32
+# dies, becomes the add under p7 and a copy of it under p6 that reads r14.
+# Either may come first, so an implicit def makes r17 live before both.
+
+# CHECK-LABEL: name: fold
+# CHECK:      $p7, $p6 = CMP4_LTi -1, $r15, $p0
+# CHECK-NEXT: $r16 = SXT4 $r15, $p0
+# CHECK-NEXT: $r17 = IMPLICIT_DEF
+# CHECK-NEXT: $r17 = ADD $r32, $r16, $p7, implicit $r17
+# CHECK-NEXT: $r17 = ADD $r14, killed $r16, $p6, implicit $r17
+# CHECK-NEXT: $r8 = LD1 killed $r17, 0, $p0
+---
+name: fold
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    $r16 = SXT4 $r15, $p0
+    $r17 = ADD killed $r32, killed $r16, $p0
+    $r8 = LD1 killed $r17, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# When the add overwrites the copy's source, the copy under p6 goes first,
+# so that it reads the source rather than the add's result.
+
+# CHECK-LABEL: name: user_writes_source
+# CHECK:      $p7, $p6 = CMP4_LTi -1, $r15, $p0
+# CHECK-NEXT: $r14 = ADD $r14, $r16, $p6, implicit $r14
+# CHECK-NEXT: $r14 = ADD killed $r32, killed $r16, $p7, implicit $r14
+---
+name: user_writes_source
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r16, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, killed $r14, $p6, implicit $r32
+    $r14 = ADD killed $r32, killed $r16, $p0
+    $r8 = LD1 killed $r14, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# An add that overwrites the copy's destination ends its value, whatever
+# reads the register later.
+
+# CHECK-LABEL: name: user_writes_destination
+# CHECK:      $r14 = ADD $r14, $r15, $p7, implicit $r14
+# CHECK-NEXT: $r14 = ADD $r32, killed $r15, $p6, implicit $r14
+---
+name: user_writes_destination
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r32
+
+    $p6, $p7 = CMP4_LTU $r15, $r32, $p0
+    $r14 = ADDS 0, $r32, $p6, implicit $r14
+    $r14 = ADD killed $r14, killed $r15, $p0
+    $r8 = LD1 killed $r14, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# A debug value of the copy's destination no longer describes it.
+
+# CHECK-LABEL: name: debug_value
+# CHECK:      DBG_VALUE $noreg
+# CHECK-NEXT: $r17 = IMPLICIT_DEF
+# CHECK-NEXT: $r17 = ADD $r32, $r16, $p7, implicit $r17
+# CHECK-NEXT: $r17 = ADD $r14, killed $r16, $p6, implicit $r17
+---
+name: debug_value
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r16, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    DBG_VALUE $r32, $noreg
+    $r17 = ADD killed $r32, killed $r16, $p0
+    $r8 = LD1 killed $r17, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# The copy's destination is read again after the add.
+
+# CHECK-LABEL: name: destination_live
+# CHECK:      $r32 = ADDS 0, $r14, $p6, implicit $r32
+# CHECK-NEXT: $r17 = ADD $r32, killed $r16, $p0
+---
+name: destination_live
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r16, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    $r17 = ADD $r32, killed $r16, $p0
+    $r8 = ADD killed $r17, killed $r32, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# The copy's source is overwritten before the add.
+
+# CHECK-LABEL: name: source_overwritten
+# CHECK:      $r32 = ADDS 0, $r14, $p6, implicit $r32
+# CHECK-NEXT: $r14 = SXT4 $r15, $p0
+# CHECK-NEXT: $r17 = ADD killed $r32, killed $r14, $p0
+---
+name: source_overwritten
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    $r14 = SXT4 $r15, $p0
+    $r17 = ADD killed $r32, killed $r14, $p0
+    $r8 = LD1 killed $r17, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# A load cannot take the other predicate without a second access.
+
+# CHECK-LABEL: name: load_user
+# CHECK:      $r32 = ADDS 0, $r14, $p6, implicit $r32
+# CHECK-NEXT: $r8 = LD1 killed $r32, 0, $p0
+---
+name: load_user
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    $r8 = LD1 killed $r32, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# A compare under a predicate other than p0 may write neither predicate, and
+# then neither add would run.
+
+# CHECK-LABEL: name: predicated_compare
+# CHECK:      $r32 = ADDS 0, $r14, $p6, implicit $r32
+# CHECK-NEXT: $r17 = ADD killed $r32, killed $r16, $p0
+---
+name: predicated_compare
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $p8, $r14, $r15, $r16, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p8
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    $r17 = ADD killed $r32, killed $r16, $p0
+    $r8 = LD1 killed $r17, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# The complement is overwritten between the compare and the add.
+
+# CHECK-LABEL: name: complement_overwritten
+# CHECK:      $r32 = ADDS 0, $r14, $p6, implicit $r32
+# CHECK-NEXT: $p7, $p8 = CMP_EQ $r16, $r0, $p0
+# CHECK-NEXT: $r17 = ADD killed $r32, killed $r16, $p0
+---
+name: complement_overwritten
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r16, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    $p7, $p8 = CMP_EQ $r16, $r0, $p0
+    $r17 = ADD killed $r32, killed $r16, $p0
+    $r8 = LD1 killed $r17, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# An instruction between the copy and the add that read the copy's source
+# last no longer does.
+
+# CHECK-LABEL: name: source_read_between
+# CHECK:      $r15 = EXTR $r14, 63, 1, $p0
+# CHECK-NEXT: $r17 = IMPLICIT_DEF
+# CHECK-NEXT: $r17 = AND $r15, $r32, $p7, implicit $r17
+# CHECK-NEXT: $r17 = AND killed $r15, $r14, $p6, implicit $r17
+---
+name: source_read_between
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r32
+
+    $p7, $p6 = CMP4_LTi -1, $r15, $p0
+    $r32 = ADDS 0, $r14, $p6, implicit $r32
+    $r15 = EXTR killed $r14, 63, 1, $p0
+    $r17 = AND killed $r15, killed $r32, $p0
+    $r8 = ADDS 0, killed $r17, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# A user that copies the copy's destination back into the copy's source
+# leaves only that copy, under the complement.
+
+# CHECK-LABEL: name: user_copies_to_source
+# CHECK:      $p7, $p6 = CMP_EQ $r15, $r0, $p0
+# CHECK-NEXT: $r14 = ADDS 0, killed $r16, $p7, implicit $r14
+# CHECK-NEXT: $r8 = LD1 killed $r14, 0, $p0
+---
+name: user_copies_to_source
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r14, $r15, $r16
+
+    $p7, $p6 = CMP_EQ $r15, $r0, $p0
+    $r16 = ADDS 0, $r14, $p6, implicit $r16
+    $r14 = ADDS 0, killed $r16, $p0
+    $r8 = LD1 killed $r14, 0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

@@ -56,6 +56,10 @@ public:
   /// The predicate that qualifies all of \p MI's effects, or P0 if some of
   /// them do not depend on one, as a branch's or an .unc compare's.
   static MCRegister qualifyingPredicate(const MachineInstr &MI);
+
+  /// Whether \p MI always writes a predicate to its first target and the
+  /// complement to its second, so that exactly one of them is then true.
+  static bool writesComplement(const MachineInstr &MI);
 };
 
 /// A post-RA scheduling mutation that drops the dependencies between
