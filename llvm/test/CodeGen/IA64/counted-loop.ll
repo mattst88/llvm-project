@@ -62,7 +62,7 @@ exit:
 define void @nest(ptr %p, i64 %n, i64 %m) {
 ; CHECK-LABEL: nest:
 ; CHECK:       .LBB2_[[OUTER:[0-9]+]]:
-; CHECK:       mov ar.lc = {{r[0-9]+}}{{$}}
+; CHECK:       mov ar.lc = {{r[0-9]+}} ;;
 ; CHECK:       .LBB2_[[INNER:[0-9]+]]:
 ; CHECK:       br.cloop.sptk.few .LBB2_[[INNER]]{{$}}
 ; CHECK:       br.cond.{{.*}} .LBB2_[[OUTER]]
@@ -112,7 +112,7 @@ declare void @llvm.set.loop.iterations.i64(i64)
 declare i1 @llvm.loop.decrement.i64(i64)
 define void @inverted(i64 %n, ptr %p) {
 ; CHECK-LABEL: inverted:
-; CHECK:       mov ar.lc = {{r[0-9]+}}{{$}}
+; CHECK:       mov ar.lc = {{r[0-9]+}} ;;
 ; CHECK-NEXT:  .LBB4_[[LOOP:[0-9]+]]:
 ; CHECK:       br.cloop.sptk.few .LBB4_[[LOOP]] ;;
 ; CHECK-NEXT:  // %bb

@@ -35,7 +35,10 @@
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/CodeGen/LazyMachineBlockFrequencyInfo.h"
+#include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 
 using namespace llvm;
@@ -47,6 +50,8 @@ static cl::opt<bool> EnableDisjoint("ia64-disjoint-groups", cl::Hidden,
                                     cl::init(true));
 static cl::opt<bool> EnableFallThrough("ia64-fallthrough-groups", cl::Hidden,
                                        cl::init(true));
+static cl::opt<bool> StopBeforeJoin("ia64-stop-before-join", cl::Hidden,
+                                    cl::init(true));
 
 namespace {
 
@@ -60,6 +65,12 @@ public:
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.setPreservesAll();
+    AU.addRequired<LazyMachineBlockFrequencyInfoPass>();
+    MachineFunctionPass::getAnalysisUsage(AU);
+  }
+
   MachineFunctionProperties getRequiredProperties() const override {
     return MachineFunctionProperties().setNoVRegs();
   }
@@ -69,7 +80,9 @@ public:
 
 char IA64InsertStops::ID = 0;
 
-INITIALIZE_PASS(IA64InsertStops, DEBUG_TYPE, PASS_NAME, false, false)
+INITIALIZE_PASS_BEGIN(IA64InsertStops, DEBUG_TYPE, PASS_NAME, false, false)
+INITIALIZE_PASS_DEPENDENCY(LazyMachineBlockFrequencyInfoPass)
+INITIALIZE_PASS_END(IA64InsertStops, DEBUG_TYPE, PASS_NAME, false, false)
 
 // Registers whose value is constant regardless of writes.
 static bool isConstantReg(MCRegister Reg) {
@@ -120,6 +133,8 @@ static bool continuesGroup(const MachineBasicBlock &MBB,
 
 bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+  // Computed only for a block that needs it.
+  auto &LazyMBFI = getAnalysis<LazyMachineBlockFrequencyInfoPass>();
 
   // Registers written in the current group, and those written by an F-unit
   // instruction.
@@ -135,6 +150,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   std::vector<MCRegister> WriterQP(TRI.getNumRegs());
   // The last instruction of the current group.
   MachineInstr *Last = nullptr;
+  // Whether the current group started in an earlier block.
+  bool Joined = false;
   // Whether the current group contains an alloc. No register models the
   // current frame marker, which calls and returns replace.
   bool NewFrame = false;
@@ -153,9 +170,13 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     OnlyCleared.reset();
     NewFrame = false;
     RaisedFlags = false;
+    Joined = false;
   };
 
-  for (MachineBasicBlock &MBB : MF) {
+  // Records the stops of MBB, and returns how many there are and whether
+  // the group open from the block before needed one.
+  auto Scan = [&](MachineBasicBlock &MBB) -> std::pair<unsigned, bool> {
+    bool JoinStop = false;
     // Which predicates exclude each other depends on the path, so only the
     // writes carry over from the block before.
     Exclusive.clear();
@@ -246,8 +267,10 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
               return !(MO.getOperandNo() == 0 ? OnlySet : OnlyCleared)
                           .test(MO.getReg().id());
             return true;
-          }))
+          })) {
+        JoinStop |= Joined;
         EndGroup();
+      }
       NewFrame |= MI.getOpcode() == IA64::ALLOC;
       RaisedFlags |= Unit == IA64II::UnitF && UsesFPSR && !ReadsFlags;
 
@@ -282,6 +305,63 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     }
     if (!continuesGroup(MBB, BlockLast))
       EndGroup();
+    return {count_if(MBB,
+                     [](const MachineInstr &MI) {
+                       return MI.getAsmPrinterFlag(IA64::StopAfter);
+                     }),
+            JoinStop};
+  };
+
+  for (MachineBasicBlock &MBB : MF) {
+    MachineInstr *Before = Last;
+    Joined = Last != nullptr;
+    if (!Joined || !StopBeforeJoin || MBB.pred_size() < 2) {
+      Scan(MBB);
+      continue;
+    }
+    BitVector Written0 = Written, WrittenByF0 = WrittenByF,
+              OnlySet0 = OnlySet, OnlyCleared0 = OnlyCleared;
+    std::vector<MCRegister> WriterQP0 = WriterQP;
+    bool NewFrame0 = NewFrame, RaisedFlags0 = RaisedFlags;
+    auto Restore = [&] {
+      for (MachineInstr &MI : MBB)
+        MI.clearAsmPrinterFlag(IA64::StopAfter);
+      Before->clearAsmPrinterFlag(IA64::StopAfter);
+      Written = Written0;
+      WrittenByF = WrittenByF0;
+      OnlySet = OnlySet0;
+      OnlyCleared = OnlyCleared0;
+      WriterQP = WriterQP0;
+      NewFrame = NewFrame0;
+      RaisedFlags = RaisedFlags0;
+      Last = Before;
+      Joined = true;
+    };
+    auto [Stops, JoinStop] = Scan(MBB);
+    if (!JoinStop)
+      continue;
+    // A branch also enters the block, starting a group of its own there, so
+    // the stop the group from the block before needs may split the block's
+    // first group on every path. A stop at the end of the block before
+    // instead costs a group only where the block before falls through.
+    Restore();
+    EndGroup();
+    unsigned StopsAlone = Scan(MBB).first;
+    const MachineBlockFrequencyInfo &MBFI = LazyMBFI.getBFI();
+    uint64_t Freq = MBFI.getBlockFreq(&MBB).getFrequency();
+    // The group may come from a block before a block of no code, and on no
+    // path at all after a call that does not return.
+    const MachineBasicBlock *Prev = MBB.getPrevNode();
+    uint64_t FallFreq =
+        Prev->isSuccessor(&MBB)
+            ? (MBFI.getBlockFreq(Prev) *
+               MBFI.getMBPI()->getEdgeProbability(Prev, &MBB))
+                  .getFrequency()
+            : 0;
+    if (StopsAlone < Stops && Freq > FallFreq / (Stops - StopsAlone))
+      continue;
+    Restore();
+    Scan(MBB);
   }
   EndGroup();
   return true;
