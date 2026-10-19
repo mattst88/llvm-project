@@ -3,10 +3,13 @@
 
 ; The table holds the distance from itself to each block, in eight bytes. Its
 ; address is in the linkage table, the entry is added to it, and the branch
-; goes through b6.
+; goes through b6. The linkage table entry's address is computed before the
+; range check.
 define i64 @f(i64 %a) {
 ; CHECK-LABEL: f:
 ; CHECK:       addl r15 = @ltoff(.LJTI0_0), r1 ;;
+; CHECK-NEXT:  cmp.ltu p6, p7 = 4, r14 ;;
+; CHECK:       .LBB0_1:
 ; CHECK-NEXT:  ld8 r15 = [r15] ;;
 ; CHECK-NEXT:  shladd r14 = r14, 3, r15 ;;
 ; CHECK-NEXT:  ld8 r14 = [r14] ;;

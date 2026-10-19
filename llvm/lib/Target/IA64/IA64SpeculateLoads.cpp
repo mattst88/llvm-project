@@ -23,6 +23,11 @@
 // allocation the pair is SPEC_LD and CHECK_LD, with the check's result tied
 // to the early load's.
 //
+// Other loads stay, but the instructions that compute their address move up
+// in the same way, if the load is reached often enough. Integer operations
+// cannot fault, and in the earlier blocks they take slots that would be left
+// empty, so the address is ready once the branches before the load resolve.
+//
 // The check finds its entry by register number, so it is sound only if the
 // register it reads is the one ld.sa wrote, with no other write between.
 // Register allocation may break that by copying or spilling the value, and
@@ -41,7 +46,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
+#include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -55,6 +60,7 @@ using namespace llvm;
 STATISTIC(NumSpeculated, "Number of loads issued early with ld.sa");
 STATISTIC(NumChecked, "Number of ld.sa and ld.c.clr pairs emitted");
 STATISTIC(NumUndone, "Number of pairs that became the plain load again");
+STATISTIC(NumAddresses, "Number of load addresses computed early");
 
 static cl::opt<bool> EnableSpeculation(
     "ia64-load-speculation", cl::init(true), cl::Hidden,
@@ -80,6 +86,11 @@ static cl::opt<unsigned> MaxChain(
 static cl::opt<bool> OnlyChases(
     "ia64-speculate-only-chases", cl::init(true), cl::Hidden,
     cl::desc("Issue early only loads whose address comes from a load"));
+
+static cl::opt<unsigned> AddressMinUse(
+    "ia64-early-address-min-use", cl::init(40), cl::Hidden,
+    cl::desc("How often, in percent, the address of a load that is not "
+             "issued early must be used where it is computed"));
 
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
@@ -134,7 +145,7 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
     AU.addRequired<AAResultsWrapperPass>();
-    AU.addRequired<MachineBlockFrequencyInfoWrapperPass>();
+    AU.addRequired<MachineBranchProbabilityInfoWrapperPass>();
     AU.addRequired<MachineLoopInfoWrapperPass>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
@@ -150,9 +161,10 @@ private:
 
   const IA64InstrInfo *TII;
   MachineRegisterInfo *MRI;
-  MachineBlockFrequencyInfo *MBFI;
+  const MachineBranchProbabilityInfo *MBPI;
   MachineLoopInfo *MLI;
   AAResults *AA;
+  bool Changed;
 };
 
 } // end anonymous namespace
@@ -162,7 +174,7 @@ char IA64SpeculateLoads::ID = 0;
 INITIALIZE_PASS_BEGIN(IA64SpeculateLoads, DEBUG_TYPE, "IA64 load speculation",
                       false, false)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(MachineBlockFrequencyInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(MachineBranchProbabilityInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(MachineLoopInfoWrapperPass)
 INITIALIZE_PASS_END(IA64SpeculateLoads, DEBUG_TYPE, "IA64 load speculation",
                     false, false)
@@ -235,8 +247,9 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
     return false;
 
   const MachineLoop *L = MLI->getLoopFor(Load.getParent());
-  if (OnlyChases && !chases(Addr, L))
-    return false;
+  // Whether only the address is computed early.
+  bool AddressOnly = OnlyChases && !chases(Addr, L);
+  unsigned MinUse = AddressOnly ? AddressMinUse : MinUsePercent;
 
   // Walk up from the load to the address's definition, or to a block that
   // other paths also enter, or that is entered too often for the load to be
@@ -254,7 +267,8 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   MachineBasicBlock *Use = Load.getParent();
   MachineBasicBlock *MBB = Use;
   MachineBasicBlock::iterator At = Load.getIterator();
-  uint64_t UseFreq = MBFI->getBlockFreq(Use).getFrequency();
+  // How likely the load is to be reached from where the walk is.
+  BranchProbability Reach = BranchProbability::getOne();
   bool Crossed = false;
   unsigned Distance = 0;
   // Where the walk entered the current block, to go back to if it stops
@@ -297,11 +311,16 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
       Chain.truncate(EntryChain);
       Crossed = EntryCrossed;
     }
-    if (Stop || MBB->pred_size() != 1 || MBB->isEHPad())
+    // A block with one predecessor may still have PHIs.
+    if (Stop || MBB->pred_size() != 1 || MBB->isEHPad() ||
+        any_of(MBB->phis(), DefinesNeeded))
       break;
+    // Block frequencies at this point can rate a block above its only
+    // predecessor, so follow the edges instead.
     MachineBasicBlock *Pred = *MBB->pred_begin();
-    uint64_t PredFreq = MBFI->getBlockFreq(Pred).getFrequency();
-    if (MLI->getLoopFor(Pred) != L || UseFreq * 100 < PredFreq * MinUsePercent)
+    Reach *= MBPI->getEdgeProbability(Pred, MBB);
+    if (MLI->getLoopFor(Pred) != L || MinUse > 100 ||
+        Reach < BranchProbability(MinUse, 100))
       break;
     EntryMBB = MBB;
     EntryAt = Begin;
@@ -314,6 +333,26 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   // gains nothing.
   if (!Crossed || Distance < MinDistance)
     return false;
+
+  if (AddressOnly) {
+    if (MBB == Use || Chain.empty())
+      return false;
+    // The chain was found from the load up, so the last found goes first.
+    for (MachineInstr *MI : reverse(Chain)) {
+      // The walk may have stopped just above the chain, which then begins
+      // where it stopped.
+      if (At != MBB->end() && &*At == MI)
+        ++At;
+      else
+        MBB->splice(At, MI->getParent(), MI->getIterator());
+      for (const MachineOperand &MO : MI->all_uses())
+        if (MO.getReg().isVirtual())
+          MRI->clearKillFlags(MO.getReg());
+    }
+    ++NumAddresses;
+    Changed = true;
+    return false;
+  }
 
   const TargetRegisterClass *RC = MRI->getRegClass(Load.getOperand(0).getReg());
   bool FP = IA64::FRRegClass.hasSubClassEq(RC);
@@ -351,7 +390,7 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
     return false;
   TII = MF.getSubtarget<IA64Subtarget>().getInstrInfo();
   MRI = &MF.getRegInfo();
-  MBFI = &getAnalysis<MachineBlockFrequencyInfoWrapperPass>().getMBFI();
+  MBPI = &getAnalysis<MachineBranchProbabilityInfoWrapperPass>().getMBPI();
   MLI = &getAnalysis<MachineLoopInfoWrapperPass>().getLI();
   AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
 
@@ -361,9 +400,10 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
       if (getForms(MI.getOpcode()))
         Loads.push_back(&MI);
   unsigned Pair = 0;
+  Changed = false;
   for (MachineInstr *MI : Loads)
     Pair += speculate(*MI, Pair);
-  return Pair != 0;
+  return Changed || Pair != 0;
 }
 
 FunctionPass *llvm::createIA64SpeculateLoadsPass() {

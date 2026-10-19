@@ -105,5 +105,97 @@ entry:
   ret i64 %r
 }
 
+; The bytes are not chases, so they are loaded where they were, but the
+; addresses of the second pair are computed before the branch, beside the first
+; pair's.
+define i32 @early_address(ptr %p, i32 %a, i32 %b) {
+; CHECK-LABEL: early_address:
+; CHECK-DAG:   adds {{r[0-9]+}} = 1, r33
+; CHECK-DAG:   adds {{r[0-9]+}} = 1, r34
+; CHECK:       br.ret.dptk.many b0 ;;
+; CHECK-NEXT:  .LBB{{[0-9]+}}_1:
+; CHECK-NEXT:  ld1
+entry:
+  %za = zext i32 %a to i64
+  %pa = getelementptr i8, ptr %p, i64 %za
+  %x = load i8, ptr %pa
+  %zb = zext i32 %b to i64
+  %pb = getelementptr i8, ptr %p, i64 %zb
+  %y = load i8, ptr %pb
+  %c = icmp eq i8 %x, %y
+  br i1 %c, label %next, label %out
+next:
+  %a1 = add i32 %a, 1
+  %za1 = zext i32 %a1 to i64
+  %pa1 = getelementptr i8, ptr %p, i64 %za1
+  %x1 = load i8, ptr %pa1
+  %b1 = add i32 %b, 1
+  %zb1 = zext i32 %b1 to i64
+  %pb1 = getelementptr i8, ptr %p, i64 %zb1
+  %y1 = load i8, ptr %pb1
+  %c1 = icmp ult i8 %x1, %y1
+  %r = zext i1 %c1 to i32
+  ret i32 %r
+out:
+  ret i32 -1
+}
+
+; Not if the branch usually leaves.
+define i32 @rare_address(ptr %p, i32 %a, i32 %b) {
+; CHECK-LABEL: rare_address:
+; CHECK-NOT:   adds
+; CHECK:       .LBB{{[0-9]+}}_1:
+; CHECK-NEXT:  adds {{r[0-9]+}} = 1, r33
+entry:
+  %za = zext i32 %a to i64
+  %pa = getelementptr i8, ptr %p, i64 %za
+  %x = load i8, ptr %pa
+  %zb = zext i32 %b to i64
+  %pb = getelementptr i8, ptr %p, i64 %zb
+  %y = load i8, ptr %pb
+  %c = icmp eq i8 %x, %y
+  br i1 %c, label %next, label %out, !prof !1
+next:
+  %a1 = add i32 %a, 1
+  %za1 = zext i32 %a1 to i64
+  %pa1 = getelementptr i8, ptr %p, i64 %za1
+  %x1 = load i8, ptr %pa1
+  %b1 = add i32 %b, 1
+  %zb1 = zext i32 %b1 to i64
+  %pb1 = getelementptr i8, ptr %p, i64 %zb1
+  %y1 = load i8, ptr %pb1
+  %c1 = icmp ult i8 %x1, %y1
+  %r = zext i1 %c1 to i32
+  ret i32 %r
+out:
+  ret i32 -1
+}
+
+; The walk ends at the top of the loop, which the shladd begins. The adds
+; moves up to it and stays after it.
+define void @shared_address(ptr %t, i1 %c) {
+; CHECK-LABEL: shared_address:
+; CHECK:       shladd [[E:r[0-9]+]] = {{r[0-9]+}}, 2, r32 ;;
+; CHECK-NEXT:  adds {{r[0-9]+}} = 4, [[E]]
+; CHECK-NEXT:  tbit.z
+; CHECK-NEXT:  (p6) br.cond
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ 1, %latch ]
+  %e = getelementptr [4 x i8], ptr %t, i64 %i
+  br i1 %c, label %check, label %latch
+check:
+  %f = getelementptr i8, ptr %e, i64 4
+  %v = load i32, ptr %f
+  %pos = icmp sgt i32 %v, 0
+  br i1 %pos, label %exit, label %latch
+exit:
+  ret void
+latch:
+  store i32 0, ptr %e
+  br label %loop
+}
+
 !0 = !{!"branch_weights", i32 100, i32 1}
 !1 = !{!"branch_weights", i32 1, i32 100}
