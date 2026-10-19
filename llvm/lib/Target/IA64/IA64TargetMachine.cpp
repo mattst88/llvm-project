@@ -24,6 +24,7 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/PassRegistry.h"
 #include "llvm/Passes/PassBuilder.h"
+#include "llvm/Transforms/Scalar.h"
 
 using namespace llvm;
 
@@ -34,6 +35,10 @@ static cl::opt<bool>
 static cl::opt<bool> EnableAliasVersioning(
     "ia64-alias-versioning", cl::Hidden, cl::init(true),
     cl::desc("Version small loops on whether their pointers overlap"));
+
+static cl::opt<bool>
+    EnableLoopPrefetch("ia64-loop-prefetch", cl::Hidden, cl::init(true),
+                       cl::desc("Prefetch strided loads in loops with lfetch"));
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   RegisterTargetMachine<IA64TargetMachine> X(getTheIA64Target());
@@ -145,6 +150,8 @@ void IA64PassConfig::addIRPasses() {
   addPass(createAtomicExpandLegacyPass());
   if (getOptLevel() != CodeGenOptLevel::None && EnableCountedLoops)
     addPass(createHardwareLoopsLegacyPass());
+  if (getOptLevel() != CodeGenOptLevel::None && EnableLoopPrefetch)
+    addPass(createLoopDataPrefetchPass());
   TargetPassConfig::addIRPasses();
 }
 

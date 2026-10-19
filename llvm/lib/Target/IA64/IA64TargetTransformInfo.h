@@ -87,6 +87,19 @@ public:
                                 AssumptionCache &AC, TargetLibraryInfo *LibInfo,
                                 HardwareLoopInfo &HWLoopInfo) const override;
 
+  // Loads that step a line of L1D or more each iteration are prefetched about
+  // 100 instructions ahead, enough to hide a hit in L3; farther ahead was
+  // slower in bzip2. Prefetching a line in every iteration of a loop that
+  // steps less than one cost more than it saved.
+  unsigned getCacheLineSize() const override { return 64; }
+  unsigned getPrefetchDistance() const override { return 100; }
+  unsigned getMinPrefetchStride(unsigned NumMemAccesses,
+                                unsigned NumStridedMemAccesses,
+                                unsigned NumPrefetches,
+                                bool HasCall) const override {
+    return 64;
+  }
+
   bool supportsTailCallFor(const CallBase *CB) const override {
     return TLI->supportsTailCallFor(CB);
   }
