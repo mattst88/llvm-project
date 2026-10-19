@@ -78,6 +78,14 @@ public:
   bool isCheapToSpeculateCttz(Type *Ty) const override { return true; }
   bool isCheapToSpeculateCtlz(Type *Ty) const override { return true; }
 
+  // A select of an operation and one of its operands is the operation under
+  // a predicate.
+  bool shouldFoldSelectWithIdentityConstant(unsigned BinOpcode, EVT VT,
+                                            unsigned SelectOpcode, SDValue X,
+                                            SDValue Y) const override {
+    return SelectOpcode == ISD::SELECT && VT.isScalarInteger();
+  }
+
   unsigned getJumpTableEncoding() const override;
 
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;

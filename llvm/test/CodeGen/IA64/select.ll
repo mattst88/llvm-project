@@ -65,3 +65,33 @@ define i64 @select_constants(i64 %a) {
   %r = select i1 %c, i64 10, i64 20
   ret i64 %r
 }
+
+; An operation of which one operand is selected against the identity is
+; done anyway, and its result replaces the other operand under the
+; predicate, rather than the identity being selected and then operated on.
+
+define i32 @select_add_zero(i32 %j, i32 %n) {
+; CHECK-LABEL: select_add_zero:
+; CHECK:       mov r8 = r32
+; CHECK-NEXT:  add [[S:r[0-9]+]] = r32, r33
+; CHECK-NEXT:  cmp4.lt p7, p6 = -1, r32 ;;
+; CHECK-NEXT:  (p6) mov r8 = [[S]]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %c = icmp slt i32 %j, 0
+  %a = select i1 %c, i32 %n, i32 0
+  %r = add nsw i32 %a, %j
+  ret i32 %r
+}
+
+define i64 @select_or_zero(i64 %x, i64 %a, i64 %b) {
+; CHECK-LABEL: select_or_zero:
+; CHECK:       mov r8 = r32
+; CHECK-NEXT:  or [[S:r[0-9]+]] = 16, r32
+; CHECK-NEXT:  cmp.eq p6, p7 = r33, r34 ;;
+; CHECK-NEXT:  (p6) mov r8 = [[S]]
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %c = icmp eq i64 %a, %b
+  %m = select i1 %c, i64 16, i64 0
+  %r = or i64 %x, %m
+  ret i64 %r
+}
