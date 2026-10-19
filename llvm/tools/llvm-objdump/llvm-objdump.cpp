@@ -1366,8 +1366,10 @@ static void addPltEntries(const MCSubtargetInfo &STI, const ObjectFile &Obj,
 
 // Normally the disassembly output will skip blocks of zeroes. This function
 // returns the number of zero bytes that can be skipped when dumping the
-// disassembly of the instructions in Buf.
-static size_t countSkippableZeroBytes(ArrayRef<uint8_t> Buf) {
+// disassembly of the instructions in Buf. Granule is the size of the units
+// that may be skipped.
+static size_t countSkippableZeroBytes(ArrayRef<uint8_t> Buf,
+                                      size_t Granule = 4) {
   // Find the number of leading zeroes.
   size_t N = 0;
   while (N < Buf.size() && !Buf[N])
@@ -1380,7 +1382,7 @@ static size_t countSkippableZeroBytes(ArrayRef<uint8_t> Buf) {
 
   // We skip zeroes in multiples of 4 because do not want to truncate an
   // instruction if it starts with a zero byte.
-  return N & ~0x3;
+  return N - N % Granule;
 }
 
 // Returns a map from sections to their relocations.
@@ -2487,8 +2489,16 @@ disassembleObject(ObjectFile &Obj, const ObjectFile &DbgObj,
             MaxOffset = std::min(RelCur->getOffset() - RelAdjustment - Index,
                                  MaxOffset);
 
-          if (size_t N =
-                  countSkippableZeroBytes(Bytes.slice(Index, MaxOffset))) {
+          // An IA-64 bundle's instructions are not byte aligned, and nop.x
+          // is mostly zeros, so only whole bundles are skipped.
+          size_t Granule = 4;
+          if (DT->TheTriple.isIA64()) {
+            Granule = 16;
+            if ((SectionAddr + Index) % Granule)
+              MaxOffset = 0;
+          }
+          if (size_t N = countSkippableZeroBytes(Bytes.slice(Index, MaxOffset),
+                                                 Granule)) {
             FOS << "\t\t..." << '\n';
             Index += N;
             continue;
