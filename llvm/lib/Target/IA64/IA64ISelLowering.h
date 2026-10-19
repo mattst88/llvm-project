@@ -58,6 +58,11 @@ public:
   // passed to them as it was loaded, not sign-extended for signed compares.
   bool isZExtFree(SDValue Val, EVT VT2) const override;
   ISD::NodeType getPreferredExtendForValue(const Instruction *I) const override;
+  // addl takes a signed immediate, so a negative 32-bit constant sign
+  // extended needs no movl.
+  bool signExtendConstant(const ConstantInt *C) const override {
+    return C->getType()->isIntegerTy(32);
+  }
   Register getRegisterByName(const char *RegName, LLT Ty,
                              const MachineFunction &MF) const override;
   ConstraintType getConstraintType(StringRef Constraint) const override;

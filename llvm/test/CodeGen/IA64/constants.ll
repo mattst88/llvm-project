@@ -160,3 +160,34 @@ define i64 @and_too_large(i64 %a) {
   %r = and i64 %a, 128
   ret i64 %r
 }
+
+; A 32-bit constant that crosses blocks is extended to 64 bits. Sign
+; extended a negative one still fits addl.
+define i32 @phi_negative_i32(ptr %p, i32 %x) {
+; CHECK-LABEL: phi_negative_i32:
+; CHECK-NOT:   movl
+; CHECK:       mov r8 = -4
+; CHECK-NOT:   movl
+; CHECK:       .endp phi_negative_i32
+entry:
+  %c = icmp sgt i32 %x, 3
+  br i1 %c, label %done, label %store
+
+store:
+  store i32 %x, ptr %p
+  br label %done
+
+done:
+  %r = phi i32 [ 0, %store ], [ -4, %entry ]
+  ret i32 %r
+}
+
+; cmp4 reads only the low 32 bits, so a negative constant too wide for the
+; compare's immediate is materialized sign extended.
+define i1 @cmp4_negative(i32 %x) {
+; CHECK-LABEL: cmp4_negative:
+; CHECK:       mov [[T:r[0-9]+]] = -1000999
+; CHECK:       cmp4.eq p{{[0-9]+}}, p{{[0-9]+}} = r32, [[T]]
+  %c = icmp eq i32 %x, -1000999
+  ret i1 %c
+}

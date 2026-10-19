@@ -309,6 +309,15 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     Ops.push_back(CurDAG->getTargetConstant(Imm, DL, MVT::i64));
     return Immediate;
   }
+  // Only the low 32 bits of a word compare's constant matter, and sign
+  // extended, a negative one may fit addl's immediate rather than need movl.
+  if (C && IA64CC::isWord(IACC) && Imm != C->getSExtValue() && isInt<22>(Imm))
+    RHS = SDValue(
+        CurDAG->getMachineNode(IA64::ADDL, DL, MVT::i64,
+                               CurDAG->getTargetConstant(Imm, DL, MVT::i64),
+                               CurDAG->getRegister(IA64::R0, MVT::i64),
+                               CurDAG->getRegister(IA64::P0, MVT::i1)),
+        0);
   Ops.push_back(RHS);
   return Register;
 }
