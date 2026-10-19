@@ -588,6 +588,14 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
     if (Movable && GroupStart < Items.size())
       Groups.push_back({GroupStart, Items.size()});
 
+    // Where the block's first group continues one of the block before, the
+    // start of that group, which the block's first group shares cycles with.
+    unsigned OpenStart = Run.size();
+    if (OpenBefore && !Run.empty()) {
+      OpenStart = Run.size() - 1;
+      while (OpenStart != 0 && !Run[OpenStart - 1].Stop)
+        --OpenStart;
+    }
     // The cost of the instructions from Begin to End, and of the groups
     // before and after them.
     auto CostAround = [&](unsigned Begin, unsigned End) {
@@ -598,7 +606,10 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       while (End != Items.size() && !Items[End].Stop)
         ++End;
       End = std::min<unsigned>(End + 1, Items.size());
-      SmallVector<Item, 16> Window(Items.begin() + Begin, Items.begin() + End);
+      SmallVector<Item, 16> Window;
+      if (Begin == 0)
+        Window.append(Run.begin() + OpenStart, Run.end());
+      Window.append(Items.begin() + Begin, Items.begin() + End);
       return plan(Window);
     };
     auto Rotate = [&](unsigned From, unsigned To) {
@@ -682,21 +693,28 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       Dispersal Current = CostAround(Begin, End);
       // Move the instruction at From to To, with the first group ending
       // before NewMid, and keep that if it costs less.
+      // The first group may move entirely into the second where it
+      // continues one of the block before, which then ends instead.
+      auto StopBefore = [&](unsigned NewMid) -> bool & {
+        return NewMid ? Items[NewMid - 1].Stop : Run.back().Stop;
+      };
       auto Try = [&](unsigned From, unsigned To, unsigned NewMid) {
         bool FirstStop = Items[Mid - 1].Stop, SecondStop = Items[End - 1].Stop;
         Rotate(From, To);
         Items[Mid - 1].Stop = false;
         Items[End - 1].Stop = SecondStop;
-        Items[NewMid - 1].Stop = FirstStop;
+        StopBefore(NewMid) = FirstStop;
         Dispersal Cost = CostAround(Begin, End);
         if (Cost < Current) {
           Current = Cost;
           Mid = Groups[G].second = Groups[G + 1].first = NewMid;
+          if (NewMid == 0)
+            Run.back().MI->setAsmPrinterFlag(IA64::StopAfter);
           Reordered = true;
           ++NumCrossed;
           return true;
         }
-        Items[NewMid - 1].Stop = false;
+        StopBefore(NewMid) = false;
         Items[End - 1].Stop = false;
         Rotate(To, From);
         Items[Mid - 1].Stop = FirstStop;
@@ -707,9 +725,11 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       // A group that continues from the block before or into the block after
       // has instructions this does not see.
       bool OpenAfter = !Items.back().Stop;
+      bool Empties = Begin == 0 && OpenStart != Run.size() && !Run.back().Stop;
       // Down, to the start of the second group.
-      for (unsigned From = Begin; From != Mid && !Moved && Mid - Begin > 1 &&
-                                  !(OpenAfter && End == Items.size());
+      for (unsigned From = Begin;
+           From != Mid && !Moved && (Mid - Begin > 1 || Empties) &&
+           !(OpenAfter && End == Items.size());
            ++From) {
         if (!crossesGroups(Items[From]))
           continue;
