@@ -167,7 +167,7 @@ define i64 @early(i64 %a, i64 %b, ptr %p) {
 ; CHECK-NEXT:  mov r14 = 1
 ; CHECK-NEXT:  (p7) br.ret.dpnt.many b0 ;;
 ; CHECK-NEXT:  {{.LBB[0-9_]+}}:
-; CHECK-NEXT:  st8 [r34] = r14
+; CHECK:       st8 [r34] = r14 ;;
 ;
 ; OFF-LABEL: early:
 ; OFF:       br.cond

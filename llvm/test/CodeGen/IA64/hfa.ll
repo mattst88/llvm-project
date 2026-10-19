@@ -96,11 +96,11 @@ declare double @take_none_left([8 x float], double, x86_fp80)
 
 define float @pass_odd([3 x float] %h) {
 ; CHECK-LABEL: pass_odd:
+; CHECK:       mov f6 = f10
+; CHECK:       adds [[A:r[0-9]+]] = 16, r12
 ; CHECK:       getf.s r42 = f9
-; CHECK-NEXT:  mov f6 = f10
 ; CHECK:       mov f15 = f8
-; CHECK:       adds r14 = 16, r12 ;;
-; CHECK-NEXT:  stfs [r14] = f6
+; CHECK:       stfs [[[A]]] = f6
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
@@ -112,12 +112,11 @@ define float @pass_odd([3 x float] %h) {
 define float @pass_four([4 x float] %h) {
 ; CHECK-LABEL: pass_four:
 ; CHECK:       getf.s r14 = f11
-; CHECK-NEXT:  mov f15 = f9
-; CHECK-NEXT:  mov r32 = r1
-; CHECK-NEXT:  mov f14 = f8
+; CHECK:       mov f15 = f9
 ; CHECK-NEXT:  getf.s r15 = f10
-; CHECK-NEXT:  mov f8 = f1 ;;
-; CHECK-NEXT:  shl r14 = r14, 32
+; CHECK:       mov f14 = f8
+; CHECK:       mov f8 = f1
+; CHECK:       shl r14 = r14, 32
 ; CHECK-NEXT:  zxt4 r15 = r15 ;;
 ; CHECK-NEXT:  or r42 = r15, r14
 ; CHECK:       br.call.sptk.many b0 = take_four ;;
@@ -172,12 +171,15 @@ define void @maybe_named([2 x double] %d, [3 x float] %h) {
 
 define double @pass_none_left([8 x float] %h, double %d, x86_fp80 %l) {
 ; CHECK-LABEL: pass_none_left:
+; CHECK:       adds [[A:r[0-9]+]] = 16, r12
 ; CHECK:       mov r46 = r36
-; CHECK:       .save rp, r41
-; CHECK-NEXT:  mov r41 = b0 ;;
+; CHECK:       or [[B:r[0-9]+]] = 8, [[A]]
+; CHECK:       stfe [[[A]]] = f6
+; CHECK-NEXT:  ld8 r49 = [[[B]]]
+; CHECK-NEXT:  ld8 r48 = [[[A]]]
+; CHECK-NEXT:  .save rp, r41
+; CHECK-NEXT:  mov r41 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  ld8 r49 = [r15]
-; CHECK-NEXT:  ld8 r48 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_none_left ;;
   %r = call double @take_none_left([8 x float] %h, double %d, x86_fp80 %l)
   ret double %r
@@ -328,10 +330,11 @@ define void @pass_unaligned_variable([1 x x86_fp80] %a) {
 define void @pass_unaligned_memory([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned_memory:
 ; CHECK:       adds r14 = 48, r12
+; CHECK-NEXT:  adds [[A:r[0-9]+]] = 24, r12
 ; CHECK:       stfe [r14] = f8
 ; CHECK-NOT:   stfe
-; CHECK:       adds r15 = 24, r12
-; CHECK:       st8 [r15] = r14
+; CHECK:       ld8 r14 = [r14]
+; CHECK:       st8 [[[A]]] = r14
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body

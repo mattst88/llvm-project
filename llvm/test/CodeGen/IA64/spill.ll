@@ -47,8 +47,8 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    st8 [r33] = r15
 ; CHECK-NEXT:    adds r14 = 8, r12
 ; CHECK:         st8 [r33] = r7 ;;
-; CHECK-NEXT:    ld8 r14 = [r14] ;;
-; CHECK-NEXT:    st8 [r33] = r14
+; CHECK-NEXT:    ld8 [[V:r[0-9]+]] = [r14] ;;
+; CHECK-NEXT:    st8 [r33] = [[V]]
 ; CHECK-NEXT:    adds r4 = 16, r12
 ; CHECK-NEXT:    st8 [r33] = r32 ;;
 ; CHECK-NEXT:    ld8.fill r4 = [r4]

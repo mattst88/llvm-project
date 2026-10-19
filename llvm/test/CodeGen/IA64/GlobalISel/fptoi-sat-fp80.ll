@@ -5,12 +5,12 @@
 ; converted.
 
 ; CHECK-LABEL: signed:
-; CHECK:      movl r14 = @gprel(.LCPI0_1) ;;
-; CHECK-NEXT: add r14 = r14, r1 ;;
+; CHECK:      movl r14 = @gprel(.LCPI0_1)
+; CHECK-NEXT: movl r15 = @gprel(.LCPI0_0) ;;
+; CHECK-NEXT: add r14 = r14, r1
+; CHECK-NEXT: add r16 = r15, r1 ;;
 ; CHECK-NEXT: ldfe f6 = [r14]
-; CHECK-NEXT: movl r14 = @gprel(.LCPI0_0) ;;
-; CHECK-NEXT: add r14 = r14, r1 ;;
-; CHECK-NEXT: ldfe f7 = [r14]
+; CHECK-NEXT: ldfe f7 = [r16] ;;
 ; CHECK-NEXT: fcmp.lt p6, p7 = f6, f8 ;;
 ; CHECK-NEXT: (p6) mov f6 = f8 ;;
 ; CHECK-NEXT: fcmp.lt p6, p7 = f6, f7 ;;
@@ -26,12 +26,12 @@ define i64 @signed(x86_fp80 %a) {
 }
 
 ; CHECK-LABEL: unsigned:
-; CHECK:      movl r14 = @gprel(.LCPI1_1) ;;
-; CHECK-NEXT: add r14 = r14, r1 ;;
+; CHECK:      movl r14 = @gprel(.LCPI1_1)
+; CHECK-NEXT: movl r15 = @gprel(.LCPI1_0) ;;
+; CHECK-NEXT: add r14 = r14, r1
+; CHECK-NEXT: add r16 = r15, r1 ;;
 ; CHECK-NEXT: ldfe f6 = [r14]
-; CHECK-NEXT: movl r14 = @gprel(.LCPI1_0) ;;
-; CHECK-NEXT: add r14 = r14, r1 ;;
-; CHECK-NEXT: ldfe f7 = [r14]
+; CHECK-NEXT: ldfe f7 = [r16] ;;
 ; CHECK-NEXT: fcmp.lt p6, p7 = f6, f8 ;;
 ; CHECK-NEXT: (p6) mov f6 = f8 ;;
 ; CHECK-NEXT: fcmp.lt p6, p7 = f6, f7 ;;

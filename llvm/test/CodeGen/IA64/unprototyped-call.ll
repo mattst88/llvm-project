@@ -88,7 +88,7 @@ define double @named(double %a, float %b, x86_fp80 %c, ...) {
 ; CHECK:         st8.spill [r15] = r39
 ; CHECK-NOT:     r35
 ; CHECK:         fma.d f6 = f8, f1, f6 ;;
-; CHECK:         fma.d f8 = f6, f1, f7 ;;
+; CHECK:         fma.d f8 = f6, f1, f7
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
   %x = fpext float %b to double

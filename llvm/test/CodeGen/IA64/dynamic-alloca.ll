@@ -173,8 +173,8 @@ declare void @take(ptr byval(%big) align 8, ptr)
 define void @big_area(ptr %b, i64 %n) {
 ; CHECK-LABEL: big_area:
 ; CHECK:       sub r12 = r12, r14
-; CHECK:       mov r41 = 19968 ;;
-; CHECK:       add r41 = r41, r12 ;;
+; CHECK:       mov r41 = 19968
+; CHECK:       add r41 = r41, r12
 ; CHECK:       st8 [r14] = r41
 ; CHECK-NEXT:  br.call.sptk.many b0 = take ;;
   %a = alloca i8, i64 %n, align 16

@@ -58,12 +58,12 @@ define void @large(ptr %p, i64 %x) {
 ; CHECK-NEXT:  adds r14 = 56, r32
 ; CHECK-NEXT:  mov r41 = r1 ;;
 ; CHECK-NEXT:  adds r44 = 16, r12
-; CHECK-NEXT:  mov r46 = 960
+; CHECK:       mov r46 = 960
 ; CHECK:       .save rp, r43
 ; CHECK-NEXT:  mov r43 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  ld8 r{{[0-9]+}} = [r14]
-; CHECK-NEXT:  ld8 r{{[0-9]+}} = [r45], 64
+; CHECK:       ld8 r{{[0-9]+}} = [r14]
+; CHECK:       ld8 r{{[0-9]+}} = [r45], 64
 ; CHECK-NEXT:  br.call.sptk.many b0 = memcpy ;;
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 976, r12
@@ -76,14 +76,17 @@ define void @large(ptr %p, i64 %x) {
 ; One that is aligned to sixteen bytes begins at an even slot.
 define void @aligned(ptr %p) {
 ; CHECK-LABEL: aligned:
+; CHECK:       mov r14 = r32
+; CHECK-NEXT:  adds r15 = 16, r32
+; CHECK:       adds r16 = 8, r32
 ; CHECK:       mov r35 = r0 ;;
-; CHECK-NEXT:  ld8 r37 = [r14], 24 ;;
+; CHECK-NEXT:  ld8 r37 = [r14], 24
+; CHECK-NEXT:  ld8 r39 = [r15] ;;
 ; CHECK-NEXT:  ld8 r40 = [r14]
-; CHECK:       ld8 r39 = [r15] ;;
-; CHECK-NEXT:  ld8 r38 = [r14]
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  ld8 r38 = [r16]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_al ;;
   call void @take_al(i64 0, ptr byval(%struct.al) align 16 %p)
   ret void
@@ -92,13 +95,14 @@ define void @aligned(ptr %p) {
 ; It may be partly in registers and partly in memory.
 define void @split(ptr %p) {
 ; CHECK-LABEL: split:
+; CHECK:       adds [[HI:r[0-9]+]] = 24, r12
+; CHECK:       ld8 [[X:r[0-9]+]] = [r16]
 ; CHECK:       ld8 r42 = [r14]
-; CHECK-NEXT:  adds r15 = 16, r12
-; CHECK:       ld8 r41 = [r32], 24 ;;
-; CHECK-NEXT:  st8 [r15] = r14
-; CHECK-NEXT:  adds r15 = 24, r12
-; CHECK-NEXT:  ld8 r14 = [r32]
-; CHECK:       st8 [r15] = r14
+; CHECK-NEXT:  ld8 r41 = [r32], 24
+; CHECK-NEXT:  adds [[LO:r[0-9]+]] = 16, r12 ;;
+; CHECK-NEXT:  st8 [[[LO]]] = [[X]]
+; CHECK-NEXT:  ld8 [[Y:r[0-9]+]] = [r32]
+; CHECK:       st8 [[[HI]]] = [[Y]]
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
@@ -147,9 +151,9 @@ define ptr @callee_big(ptr byval(%struct.big) align 8 %p, i64 %x) {
 ; CHECK-LABEL: callee_big:
 ; CHECK:       adds r12 = -48, r12 ;;
 ; CHECK:       mov r8 = r12 ;;
-; CHECK-NEXT:  adds r14 = 56, r8
-; CHECK-NEXT:  or r15 = 8, r8
-; CHECK-NEXT:  st8 [r8] = r32 ;;
+; CHECK:       or r15 = 8, r8
+; CHECK-NEXT:  st8 [r8] = r32
+; CHECK-NEXT:  adds r14 = 56, r8 ;;
 ; CHECK-NEXT:  st8 [r14] = r39
 ; CHECK:       adds r12 = 48, r12
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;

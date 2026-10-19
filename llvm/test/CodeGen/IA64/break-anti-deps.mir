@@ -1,0 +1,107 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-break-anti-deps \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# The second address reuses r14 after the first load reads it, so it could
+# not be computed in the same group. It moves to a scratch register the
+# block does not use, and the load that reads it follows.
+# CHECK-LABEL: name: reuse
+# CHECK:         $r14 = ADDS 8, $r32, $p0
+# CHECK-NEXT:    $r16 = LD8 $r14, 0, $p0
+# CHECK-NEXT:    $[[R:r[0-9]+]] = ADDS 16, $r32, $p0
+# CHECK-NEXT:    $r17 = LD8 $[[R]], 0, $p0
+# CHECK-NEXT:    $r8 = ADD $r16, $r17, $p0
+---
+name: reuse
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32
+
+    $r14 = ADDS 8, $r32, $p0
+    $r16 = LD8 $r14, 0, $p0
+    $r14 = ADDS 16, $r32, $p0
+    $r17 = LD8 $r14, 0, $p0
+    $r8 = ADD $r16, $r17, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The value is read after a call, which clobbers every scratch register.
+# That the call clobbers r17 is no reason to move the load after it.
+# CHECK-LABEL: name: across_call
+# CHECK:         $r35 = ADDS 16, $r32, $p0
+# CHECK:         $r17 = LD8 $r35, 0, $p0
+name: across_call
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $b6
+
+    $r35 = ADDS 8, $r32, $p0
+    $r36 = LD8 $r35, 0, $p0
+    $r35 = ADDS 16, $r32, $p0
+    $b0 = BR_CALL_B $b6, 0, 1, 0, $p0, csr_ia64_call, implicit-def $ar64
+    $r17 = LD8 $r35, 0, $p0
+    $r8 = ADD $r36, $r17, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The immediate form of addl reads only r0 to r3, and the others of those
+# are reserved, so the value stays.
+# CHECK-LABEL: name: operand_class
+# CHECK:         $r3 = ADDS 0, $r33, $p0
+# CHECK-NEXT:    $r9 = ADDL 6, $r3, $p0
+name: operand_class
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33
+
+    $r3 = ADDS 0, $r32, $p0
+    $r8 = ADDL 5, $r3, $p0
+    $r3 = ADDS 0, $r33, $p0
+    $r9 = ADDL 6, $r3, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...
+---
+# The second write already waits for the load through what it reads, so
+# moving it gains nothing.
+# CHECK-LABEL: name: chain
+# CHECK:         $r14 = ADDS 1, $r16, $p0
+# CHECK-NEXT:    $r17 = LD8 $r14, 0, $p0
+name: chain
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32
+
+    $r14 = ADDS 8, $r32, $p0
+    $r16 = LD8 $r14, 0, $p0
+    $r14 = ADDS 1, $r16, $p0
+    $r17 = LD8 $r14, 0, $p0
+    $r8 = ADD $r16, $r17, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The block leaves the value in r14 for its successor.
+# CHECK-LABEL: name: live_out
+# CHECK:         $r14 = ADDS 16, $r32, $p0
+# CHECK-NEXT:    $r17 = LD8 $r14, 0, $p0
+name: live_out
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1
+    liveins: $r32
+
+    $r14 = ADDS 8, $r32, $p0
+    $r16 = LD8 $r14, 0, $p0
+    $r14 = ADDS 16, $r32, $p0
+    $r17 = LD8 $r14, 0, $p0
+
+  bb.1:
+    liveins: $r14, $r16, $r17
+
+    $r8 = ADD $r16, $r17, $p0
+    $r8 = ADD $r8, $r14, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

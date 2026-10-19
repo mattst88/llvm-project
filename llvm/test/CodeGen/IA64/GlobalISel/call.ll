@@ -26,9 +26,9 @@ define signext i32 @narrow(i32 signext %a, double %b, ptr %p, i8 zeroext %c) {
 ; CHECK-NEXT:  zxt1 r14 = r35
 ; CHECK-NEXT:  sxt2 r15 = r8
 ; CHECK-NEXT:  mov r1 = r33 ;;
-; CHECK-NEXT:  add r14 = r32, r14
+; CHECK-NEXT:  add [[S:r[0-9]+]] = r32, r14
 ; CHECK-NEXT:  mov b0 = r37 ;;
-; CHECK-NEXT:  add r14 = r14, r15
+; CHECK-NEXT:  add r14 = [[S]], r15
 ; CHECK-NEXT:  mov ar.pfs = r36 ;;
 ; CHECK-NEXT:  sxt4 r8 = r14
 ; CHECK:       br.ret.sptk.many b0 ;;
@@ -144,9 +144,9 @@ define void @call_big(ptr %p) {
 ; CHECK:       adds r12 = -32, r12
 ; CHECK:       mov r46 = 32
 ; CHECK-NEXT:  adds r45 = 64, r32 ;;
-; CHECK-NEXT:  adds r44 = 16, r12
-; CHECK-NEXT:  ld8 r33 = [r14]
-; CHECK:       ld8 r40 = [r14]
+; CHECK:       adds r44 = 16, r12
+; CHECK:       ld8 r33 = [r14]
+; CHECK:       ld8 r40 = [r{{[0-9]+}}]
 ; CHECK-NEXT:  .save rp, r43
 ; CHECK-NEXT:  mov r43 = b0
 ; CHECK-NEXT:  .body

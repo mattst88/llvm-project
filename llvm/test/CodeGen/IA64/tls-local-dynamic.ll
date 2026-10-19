@@ -102,7 +102,7 @@ end:
 
 ; CHECK-LABEL: general:
 ; CHECK: addl r14 = @ltoff(@dtpmod(c)), r1
-; CHECK: addl r14 = @ltoff(@dtprel(c)), r1
+; CHECK: addl {{r[0-9]+}} = @ltoff(@dtprel(c)), r1
 ; CHECK: br.call.sptk.many b0 = __tls_get_addr
 ; CHECK: addl r14 = @ltoff(@dtpmod(a)), r1
 ; CHECK: br.call.sptk.many b0 = __tls_get_addr

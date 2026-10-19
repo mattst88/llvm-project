@@ -23,6 +23,7 @@ add_llvm_target(IA64CodeGen
   GISel/IA64LegalizerInfo.cpp
   GISel/IA64RegisterBankInfo.cpp
   IA64AsmPrinter.cpp
+  IA64BreakAntiDeps.cpp
   IA64FrameLowering.cpp
   IA64ExclusivePredicates.cpp
   IA64ExpandBranches.cpp

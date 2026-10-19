@@ -18,28 +18,31 @@ define i64 @first(i32 %n, ...) {
 ; CHECK-NEXT:  .fframe 48
 ; CHECK-NEXT:  adds r12 = -48, r12 ;;
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 8, r12
 ; CHECK-NEXT:  mov r17 = r12 ;;
-; CHECK-NEXT:  adds r15 = 48, r14
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r16 = 8, r14
-; CHECK-NEXT:  st8.spill [r14] = r33 ;;
-; CHECK-NEXT:  st8.spill [r15] = r39
-; CHECK-NEXT:  adds r15 = 40, r14 ;;
-; CHECK-NEXT:  st8.spill [r15] = r38
-; CHECK-NEXT:  adds r15 = 32, r14 ;;
-; CHECK-NEXT:  st8.spill [r15] = r37
-; CHECK-NEXT:  adds r15 = 24, r14 ;;
-; CHECK-NEXT:  st8.spill [r15] = r36
+; CHECK-NEXT:  adds r18 = 40, r14
+; CHECK-NEXT:  adds r19 = 32, r14
+; CHECK-NEXT:  adds r20 = 24, r14
+; CHECK-NEXT:  adds r21 = 16, r14 ;;
 ; CHECK-NEXT:  st8 [r17] = r16
-; CHECK-NEXT:  adds r15 = 16, r14 ;;
-; CHECK-NEXT:  st8.spill [r15] = r35
-; CHECK-NEXT:  ld8 r15 = [r17] ;;
+; CHECK-NEXT:  st8.spill [r14] = r33
+; CHECK-NEXT:  adds r15 = 48, r14
+; CHECK-NEXT:  ld8 r22 = [r17] ;;
+; CHECK-NEXT:  st8.spill [r15] = r39 ;;
+; CHECK-NEXT:  st8.spill [r18] = r38
+; CHECK-NEXT:  adds r23 = 8, r22 ;;
+; CHECK-NEXT:  st8.spill [r19] = r37 ;;
+; CHECK-NEXT:  st8.spill [r20] = r36 ;;
+; CHECK-NEXT:  .mii
+; CHECK-NEXT:  st8.spill [r21] = r35 ;;
 ; CHECK-NEXT:  st8.spill [r16] = r34
 ; CHECK-NEXT:  ld8 r14 = [r14]
-; CHECK-NEXT:  adds r16 = 8, r15 ;;
-; CHECK-NEXT:  st8 [r17] = r16
-; CHECK-NEXT:  ld8 r15 = [r15] ;;
-; CHECK-NEXT:  add r8 = r14, r15
+; CHECK-NEXT:  st8 [r17] = r23
+; CHECK-NEXT:  ld8 r24 = [r22] ;;
+; CHECK-NEXT:  add r8 = r14, r24
 ; CHECK-NEXT:  mov ar.unat = r41
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 48, r12
@@ -59,13 +62,13 @@ define double @fp(i64 %a, double %b, ...) {
 ; CHECK-LABEL: fp:
 ; CHECK:       adds r12 = -48, r12 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  adds r14 = 16, r12 ;;
-; CHECK-NEXT:  st8.spill [r14] = r34
-; CHECK-NEXT:  adds r15 = 40, r14
-; CHECK-NEXT:  ldfd f6 = [r14] ;;
-; CHECK:       or r14 = 8, r14 ;;
+; CHECK-NEXT:  adds r14 = 16, r12
+; CHECK-NEXT:  adds [[AP:r[0-9]+]] = 8, r12 ;;
+; CHECK:       st8.spill [r14] = r34
+; CHECK:       ldfd f6 = [r14]
+; CHECK:       or r14 = 8, r14
 ; CHECK:       st8.spill [r14] = r35
-; CHECK-NEXT:  st8 [r15] = r14
+; CHECK-NEXT:  st8 [[[AP]]] = r14
 ; CHECK-NEXT:  fma.d f8 = f6, f1, f8 ;;
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
@@ -93,13 +96,12 @@ define i128 @wide(i64 %a, ...) {
 ; CHECK-LABEL: wide:
 ; CHECK:       adds r14 = 8, r12
 ; CHECK:       adds r16 = 15, r14
-; CHECK-NEXT:  st8.spill [r14] = r33 ;;
-; CHECK:       and r16 = -16, r16 ;;
-; CHECK:       or r15 = 8, r16 ;;
-; CHECK-NEXT:  .mmf
-; CHECK-NEXT:  st8.spill [r14] = r34
-; CHECK:       ld8 r8 = [r16] ;;
-; CHECK:       ld8 r9 = [r15]
+; CHECK:       st8.spill [r14] = r33
+; CHECK:       and r16 = -16, r16
+; CHECK:       or [[HI:r[0-9]+]] = 8, r16
+; CHECK:       st8.spill [r14] = r34
+; CHECK:       ld8 r8 = [r16]
+; CHECK:       ld8 r9 = [[[HI]]]
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
   %v = va_arg ptr %ap, i128
@@ -112,12 +114,14 @@ define i32 @forward(ptr %f, ...) {
 ; CHECK-LABEL: forward:
 ; CHECK:       alloc r40 = ar.pfs, 8, 3, 2, 0
 ; CHECK:       adds r14 = 40, r12
+; CHECK-NEXT:  adds [[AP:r[0-9]+]] = 24, r12
+; CHECK:       st8 [[[AP]]] = r14
 ; CHECK:       st8.spill [r14] = r33
 ; CHECK:       .save rp, r41
 ; CHECK-NEXT:  mov r41 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  st8 [r15] = r14
-; CHECK-NEXT:  ld8 r44 = [r15]
+; CHECK-NEXT:  st8 [r16] = r14
+; CHECK-NEXT:  ld8 r44 = [[[AP]]]
 ; CHECK-NEXT:  br.call.sptk.many b0 = vf ;;
   %ap = alloca ptr
   %aq = alloca ptr

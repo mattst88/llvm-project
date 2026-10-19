@@ -74,10 +74,10 @@ define i64 @local_dynamic() {
 define ptr @general_dynamic() {
 ; CHECK-LABEL: general_dynamic:
 ; PIC:         addl r14 = @ltoff(@dtpmod(gd)), r1
+; PIC-NEXT:    addl r15 = @ltoff(@dtprel(gd)), r1
 ; PIC-NEXT:    mov r32 = r1 ;;
 ; PIC-NEXT:    ld8 r35 = [r14]
-; PIC-NEXT:    addl r14 = @ltoff(@dtprel(gd)), r1 ;;
-; PIC-NEXT:    ld8 r36 = [r14]
+; PIC-NEXT:    ld8 r36 = [r15]
 ; PIC-NEXT:    .save rp, r34
 ; PIC-NEXT:    mov r34 = b0
 ; PIC-NEXT:    .body

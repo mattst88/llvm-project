@@ -248,19 +248,19 @@ define void @call_variadic(ptr %f, x86_fp80 %a) {
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = r32
 ; CHECK-NEXT:  mov r40 = 7 ;;
+; CHECK-NEXT:  adds r18 = 16, r12
 ; CHECK-NEXT:  stfe [r14] = f8
 ; CHECK-NEXT:  stfe [r15] = f8
 ; CHECK-NEXT:  or r16 = 8, r14
-; CHECK-NEXT:  ld8 r38 = [r14]
-; CHECK-NEXT:  or r14 = 8, r15 ;;
-; CHECK-NEXT:  ld8 r43 = [r14]
-; CHECK-NEXT:  adds r14 = 16, r12
+; CHECK-NEXT:  or r17 = 8, r15 ;;
 ; CHECK-NEXT:  ld8 r39 = [r16]
-; CHECK-NEXT:  ld8 r42 = [r15] ;;
-; CHECK-NEXT:  stfe [r14] = f8
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  ld8 r38 = [r14]
+; CHECK-NEXT:  ld8 r43 = [r17]
+; CHECK-NEXT:  ld8 r42 = [r15]
+; CHECK-NEXT:  stfe [r18] = f8
 ; CHECK-NEXT:  br.call.sptk.many b0 = v ;;
   call void (ptr, ...) @v(ptr %f, x86_fp80 %a, i64 7, x86_fp80 %a, x86_fp80 %a)
   ret void

@@ -29,6 +29,7 @@ class PassRegistry;
 
 FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
+FunctionPass *createIA64BreakAntiDepsPass();
 FunctionPass *createIA64ExpandBranchesPass();
 FunctionPass *createIA64ExpandSpeculationPass();
 FunctionPass *createIA64HoistFallThroughPass();
@@ -43,6 +44,7 @@ createIA64InstructionSelector(const IA64TargetMachine &TM,
                               const IA64Subtarget &STI,
                               const IA64RegisterBankInfo &RBI);
 
+void initializeIA64BreakAntiDepsPass(PassRegistry &);
 void initializeIA64ExpandBranchesPass(PassRegistry &);
 void initializeIA64ExpandSpeculationPass(PassRegistry &);
 void initializeIA64HoistFallThroughPass(PassRegistry &);

@@ -56,8 +56,8 @@ define i64 @late(ptr %p, i64 %b, i64 %c) {
 ; CHECK-LABEL: late:
 ; CHECK:       ld8 r14 = [r32]
 ; CHECK-NEXT:  add r15 = r33, r34 ;;
-; CHECK:       getf.sig r14 = f6 ;;
-; CHECK-NEXT:  add r8 = r14, r15
+; CHECK:       getf.sig [[M:r[0-9]+]] = f6 ;;
+; CHECK-NEXT:  add r8 = [[M]], r15
   %a = load i64, ptr %p
   %m = mul i64 %a, %a
   %x = add i64 %m, %b

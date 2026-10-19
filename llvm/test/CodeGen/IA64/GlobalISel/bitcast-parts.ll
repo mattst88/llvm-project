@@ -31,8 +31,8 @@ define <2 x i7> @sevens(i14 %a) {
 ; CHECK-NEXT: shl r14 = r14, 8
 ; CHECK-NEXT: zxt1 r16 = r34 ;;
 ; CHECK-NEXT: or r14 = r15, r14
-; CHECK-NEXT: shl r15 = r16, 16 ;;
-; CHECK-NEXT: or r8 = r14, r15
+; CHECK-NEXT: shl r17 = r16, 16 ;;
+; CHECK-NEXT: or r8 = r14, r17
 ; CHECK-NEXT: br.ret.sptk.many b0 ;;
 define i24 @bytes(<3 x i8> %a) {
   %x = bitcast <3 x i8> %a to i24

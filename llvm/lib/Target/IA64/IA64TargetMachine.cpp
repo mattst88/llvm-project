@@ -45,6 +45,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
 
   PassRegistry &PR = *PassRegistry::getPassRegistry();
   initializeGlobalISel(PR);
+  initializeIA64BreakAntiDepsPass(PR);
   initializeIA64ExpandBranchesPass(PR);
   initializeIA64ExpandSpeculationPass(PR);
   initializeIA64HoistFallThroughPass(PR);
@@ -200,8 +201,10 @@ void IA64PassConfig::addPreRegAlloc() {
 }
 
 void IA64PassConfig::addPreSched2() {
-  if (getOptLevel() != CodeGenOptLevel::None)
+  if (getOptLevel() != CodeGenOptLevel::None) {
     addPass(createIA64IfConversionPass());
+    addPass(createIA64BreakAntiDepsPass());
+  }
 }
 
 // Placement copies small blocks, epilogues among them, into their
@@ -211,6 +214,7 @@ void IA64PassConfig::addBlockPlacement() {
   TargetPassConfig::addBlockPlacement();
   addPass(createIA64HoistRestoresPass());
   addPass(createIA64HoistFallThroughPass());
+  addPass(createIA64BreakAntiDepsPass());
   addPass(&PostMachineSchedulerID);
 }
 
