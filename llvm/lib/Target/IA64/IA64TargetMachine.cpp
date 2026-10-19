@@ -8,6 +8,7 @@
 
 #include "IA64TargetMachine.h"
 #include "IA64.h"
+#include "IA64ExclusivePredicates.h"
 #include "IA64MachineFunctionInfo.h"
 #include "IA64TargetObjectFile.h"
 #include "IA64TargetTransformInfo.h"
@@ -16,6 +17,7 @@
 #include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
 #include "llvm/CodeGen/GlobalISel/Legalizer.h"
 #include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
+#include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/InitializePasses.h"
@@ -96,6 +98,13 @@ IA64TargetMachine::getSubtargetImpl(const Function &F) const {
   if (!I)
     I = std::make_unique<IA64Subtarget>(TargetTriple, CPU, TuneCPU, FS, *this);
   return I.get();
+}
+
+ScheduleDAGInstrs *
+IA64TargetMachine::createPostMachineScheduler(MachineSchedContext *C) const {
+  ScheduleDAGMI *DAG = createSchedPostRA(C);
+  DAG->addMutation(createIA64ExclusivePredicatesMutation());
+  return DAG;
 }
 
 namespace {

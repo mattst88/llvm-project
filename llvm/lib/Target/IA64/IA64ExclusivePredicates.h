@@ -18,11 +18,13 @@
 #define LLVM_LIB_TARGET_IA64_IA64EXCLUSIVEPREDICATES_H
 
 #include "llvm/MC/MCRegister.h"
+#include <memory>
 #include <vector>
 
 namespace llvm {
 
 class MachineInstr;
+class ScheduleDAGMutation;
 class TargetRegisterInfo;
 
 /// Tracks, along a block, which predicates exclude each other.
@@ -55,6 +57,10 @@ public:
   /// them do not depend on one, as a branch's or an .unc compare's.
   static MCRegister qualifyingPredicate(const MachineInstr &MI);
 };
+
+/// A post-RA scheduling mutation that drops the dependencies between
+/// instructions under predicates that exclude each other.
+std::unique_ptr<ScheduleDAGMutation> createIA64ExclusivePredicatesMutation();
 
 } // end namespace llvm
 

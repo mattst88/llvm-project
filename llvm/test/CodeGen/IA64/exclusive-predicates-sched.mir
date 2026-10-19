@@ -1,0 +1,93 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=postmisched \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# Of two instructions under predicates that a compare made the complement of
+# each other, at most one takes effect, so the dependencies between them do
+# not order them.
+
+---
+# The second side's constant need not wait for the first side's store.
+# CHECK-LABEL: name: sides
+# CHECK:       $p6, $p7 = CMP_LTi -1, killed $r32, $p0
+# CHECK-NEXT:  $r14 = ADDL 2, $r0, $p6
+# CHECK-NEXT:  $r14 = ADDL 1, $r0, $p7
+# CHECK-NEXT:  ST8 killed $r34, $r14, 0, killed $p6
+# CHECK-NEXT:  ST8 killed $r33, killed $r14, 0, killed $p7
+name: sides
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34
+    $p6, $p7 = CMP_LTi -1, $r32, $p0
+    $r14 = ADDL 2, $r0, $p6
+    ST8 $r34, $r14, 0, $p6 :: (store (s64))
+    $r14 = ADDL 1, $r0, $p7
+    ST8 $r33, $r14, 0, $p7 :: (store (s64))
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# What comes after both sides still waits for each, and what comes before
+# them still goes first.
+# CHECK-LABEL: name: around
+# CHECK:       $r14 = ADDS 3, killed $r32, $p0
+# CHECK-NEXT:  ST8 killed $r35, killed $r14, 0, $p0
+# CHECK-NEXT:  $r14 = ADDL 2, $r0, $p6
+# CHECK-NEXT:  $r14 = ADDL 1, $r0, $p7
+# CHECK-NEXT:  $r8 = ADD $r14, $r14, $p0
+name: around
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35
+    $p6, $p7 = CMP_LTi -1, $r32, $p0
+    $r14 = ADDS 3, $r32, $p0
+    ST8 $r35, $r14, 0, $p0 :: (store (s64))
+    $r14 = ADDL 2, $r0, $p6
+    ST8 $r34, $r14, 0, $p6 :: (store (s64))
+    $r14 = ADDL 1, $r0, $p7
+    ST8 $r33, $r14, 0, $p7 :: (store (s64))
+    $r8 = ADD $r14, $r14, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# An instruction under one of them that writes the other ends the pair, so
+# what reads that predicate before it stays before it.
+# CHECK-LABEL: name: rewrite
+# CHECK:       $r8 = ADDS 1, killed $r34, killed $p7
+# CHECK-NEXT:  $p7, $p9 = CMP_EQ killed $r35, killed $r36, killed $p6
+name: rewrite
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35, $r36, $r37
+    $p6, $p7 = CMP_EQ $r32, $r33, $p0
+    $r8 = ADDS 1, $r34, $p7
+    $p7, $p9 = CMP_EQ $r35, $r36, $p6
+    $r9 = LD8 $r37, 0, $p9 :: (load (s64))
+    $r10 = ADD $r9, $r9, $p0
+    $r11 = ADD $r10, $r10, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r11
+...
+---
+# The add reads r26 from the load under the same predicate, but the graph
+# as built has its edge only from the move, the last write before it. The
+# load must still go first once the move is no longer between them.
+# CHECK-LABEL: name: hidden
+# CHECK:       $r27 = ADDS 1, killed $r26, $p0
+# CHECK:       $r26 = LD4 $r15, 0, $p7
+# CHECK:       $r26 = ADDS 1, killed $r26, $p7
+name: hidden
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r15, $r16, $r23
+    $p6, $p7 = TBIT_Z $r23, 0, $p0
+    $r26 = LD4 $r16, 0, $p6 :: (load (s32))
+    $r27 = ADDS 1, $r26, $p0
+    $r26 = LD4 $r15, 0, $p7 :: (load (s32))
+    $r26 = ADDS 0, $r0, $p6
+    $r26 = ADDS 1, $r26, $p7
+    ST4 $r16, $r27, 0, $p6 :: (store (s32))
+    ST4 $r15, $r26, 0, $p7 :: (store (s32))
+    BR_RET $b0, 0, 1, 0, $p0
+...

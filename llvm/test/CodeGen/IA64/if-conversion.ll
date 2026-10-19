@@ -73,9 +73,9 @@ join:
 define void @returns(i64 %a, ptr %p, ptr %q) {
 ; CHECK-LABEL: returns:
 ; CHECK:       cmp.lt p6, p7 = -1, r32 ;;
-; CHECK-NEXT:  (p6) mov r14 = 2 ;;
-; CHECK-NEXT:  (p6) st8 [r34] = r14
+; CHECK-NEXT:  (p6) mov r14 = 2
 ; CHECK-NEXT:  (p7) mov r14 = 1 ;;
+; CHECK-NEXT:  (p6) st8 [r34] = r14
 ; CHECK-NEXT:  (p7) st8 [r33] = r14
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %c = icmp slt i64 %a, 0
@@ -135,11 +135,12 @@ define i64 @join_live(i64 %a, i64 %b, ptr %p, ptr %q) {
 ; CHECK-LABEL: join_live:
 ; CHECK:       cmp.lt p6, p7 = -1, r32{{$}}
 ; CHECK-NEXT:  mov r14 = 2 ;;
-; CHECK-NEXT:  (p6) st8 [r35] = r14
 ; CHECK-NEXT:  (p6) adds r32 = 7, r33
-; CHECK-NEXT:  mov r14 = 1 ;;
+; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  (p6) st8 [r35] = r14
+; CHECK-NEXT:  mov r14 = 1
+; CHECK-NEXT:  (p7) adds r32 = 5, r32 ;;
 ; CHECK-NEXT:  (p7) st8 [r34] = r14
-; CHECK-NEXT:  (p7) adds r32 = 5, r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = callee ;;
   %c = icmp slt i64 %a, 0
   br i1 %c, label %then, label %else
