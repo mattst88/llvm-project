@@ -258,12 +258,11 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D) {
 /// the cost of the bundles up to the end of the next two groups, and set a
 /// directive where the choice is not the assembler's. Each bundle is chosen
 /// together with the next, since a group of two bundles may issue in one
-/// cycle only if both change, as MII,MII to MMI,MMI. Return the dispersal of
-/// the whole.
-static Dispersal plan(MutableArrayRef<Item> Items) {
+/// cycle only if both change, as MII,MII to MMI,MMI. \p D is the dispersal
+/// of what comes before. Return the dispersal of the whole.
+static Dispersal plan(MutableArrayRef<Item> Items, Dispersal D) {
   for (Item &It : Items)
     It.Template = -1;
-  Dispersal D;
   size_t Next = 0;
   while (Next != Items.size()) {
     size_t Horizon = Next;
@@ -518,10 +517,13 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
   // is not modeled, the assembler may pack them with the instructions before,
   // which only makes the plan less accurate.
   SmallVector<Item> Run;
+  // The dispersal before the run. A group left open where a block falls
+  // through to a label continues in the block's first bundle.
+  Dispersal Before;
   auto PlanRun = [&] {
     if (Run.empty())
       return;
-    plan(Run);
+    Before = plan(Run, Before);
     for (const Item &It : Run)
       if (It.Template != -1) {
         Templates[It.MI] = It.Template;
@@ -556,8 +558,12 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
   // continue into this one.
   bool OpenBefore = false;
   for (MachineBasicBlock &MBB : MF) {
-    if (startsBundle(MBB))
+    if (startsBundle(MBB)) {
       PlanRun();
+      MachineBasicBlock *Prev = MBB.getPrevNode();
+      if (!Prev || !Prev->isSuccessor(&MBB) || !Prev->canFallThrough())
+        Before = Dispersal();
+    }
 
     // The block as items, and its groups as ranges of them that may be
     // reordered. Instructions that emit no code move with the one they
@@ -605,6 +611,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
     }
     if (Opaque) {
       PlanRun();
+      Before = Dispersal();
       OpenBefore = true;
       continue;
     }
@@ -663,7 +670,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       Window.append(Items.begin() + Begin, Items.begin() + End);
       if (End == Items.size())
         Window.append(Next.begin(), Next.begin() + NextMid);
-      return plan(Window);
+      return plan(Window, Dispersal());
     };
     auto Rotate = [&](unsigned From, unsigned To) {
       auto Move = [&](auto &V) {
