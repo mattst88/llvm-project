@@ -189,7 +189,7 @@ declare void @g()
 ; operands without an order.
 define void @branch(double %a, double %b) {
 ; CHECK-LABEL: branch:
-; CHECK:       fcmp.lt p7, p6 = f9, f8 ;;
+; CHECK:       fcmp.lt p7, p6 = f9, f8{{$}}
 ; CHECK:       (p6) br.cond.dptk.few .LBB{{[0-9_]+}} ;;
 ; CHECK:       br.call.sptk.many b0 = g ;;
   %c = fcmp ogt double %a, %b

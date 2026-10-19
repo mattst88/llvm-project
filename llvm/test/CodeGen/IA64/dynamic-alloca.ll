@@ -8,11 +8,11 @@ declare void @g(ptr, i64)
 define void @f(i64 %n) {
 ; CHECK-LABEL: f:
 ; CHECK:       alloc r33 = ar.pfs, 1, 3, 2, 0
-; CHECK-NEXT:  mov r37 = r32
-; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  .vframe r35
 ; CHECK-NEXT:  mov r35 = r12
-; CHECK-NEXT:  adds r14 = 15, r37 ;;
+; CHECK-NEXT:  adds r14 = 15, r32
+; CHECK-NEXT:  mov r37 = r32
+; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  and r14 = -16, r14 ;;
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
 ; CHECK-NEXT:  adds r36 = 16, r12

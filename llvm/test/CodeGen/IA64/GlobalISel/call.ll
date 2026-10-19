@@ -78,9 +78,8 @@ define x86_fp80 @extended_slots([8 x float] %a, x86_fp80 %b) {
 ; slot.
 define float @members_slot([10 x float] %a) {
 ; CHECK-LABEL: members_slot:
-; CHECK:       mov r14 = r36
-; CHECK-NEXT:  shr.u r15 = r36, 32 ;;
-; CHECK-NEXT:  setf.s f6 = r14
+; CHECK:       shr.u r15 = r36, 32
+; CHECK-NEXT:  setf.s f6 = r36 ;;
 ; CHECK-NEXT:  setf.s f7 = r15 ;;
 ; CHECK-NEXT:  fma.s f8 = f6, f1, f7
   %a8 = extractvalue [10 x float] %a, 8

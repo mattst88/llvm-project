@@ -108,6 +108,7 @@ define i64 @middle(i64 %a) {
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    .copy_state 1
 ; CHECK-NEXT:    mov r36 = r32
+; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:    br.call.sptk.many b0 = extern ;;
   %c = icmp eq i64 %a, 0
   br i1 %c, label %t, label %e, !prof !0

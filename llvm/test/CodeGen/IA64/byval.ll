@@ -55,6 +55,7 @@ define void @large(ptr %p, i64 %x) {
 ; CHECK-LABEL: large:
 ; CHECK:       adds r12 = -976, r12
 ; CHECK:       mov r45 = r32
+; CHECK-NEXT:  adds r14 = 56, r32
 ; CHECK-NEXT:  mov r41 = r1 ;;
 ; CHECK-NEXT:  adds r44 = 16, r12
 ; CHECK-NEXT:  mov r46 = 960

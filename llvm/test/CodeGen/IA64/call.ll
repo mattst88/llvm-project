@@ -88,10 +88,10 @@ define i64 @frame(i64 %a) {
 define void @later(i64 %a) {
 ; CHECK-LABEL: later:
 ; CHECK:       alloc r34 = ar.pfs, 1, 3, 0, 0
-; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0
-; CHECK:       br.call.sptk.many b0 = vext ;;
+; CHECK:       mov r33 = r1
+; CHECK-NEXT:  br.call.sptk.many b0 = vext ;;
 ; CHECK:       mov b0 = r35
 ; CHECK-NEXT:  mov ar.pfs = r34 ;;
 ; CHECK-NEXT:  .LBB4_2:

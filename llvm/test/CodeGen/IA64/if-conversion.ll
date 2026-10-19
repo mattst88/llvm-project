@@ -92,8 +92,8 @@ else:
 
 define i64 @keeps(i64 %a, i64 %b, ptr %p) {
 ; CHECK-LABEL: keeps:
-; CHECK:       mov r8 = r32 ;;
-; CHECK-NEXT:  cmp.ltu p7, p6 = r8, r33 ;;
+; CHECK:       cmp.ltu p7, p6 = r32, r33
+; CHECK-NEXT:  mov r8 = r32 ;;
 ; CHECK-NEXT:  (p7) ld8 r14 = [r34] ;;
 ; CHECK-NEXT:  (p7) add r8 = r14, r33
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;

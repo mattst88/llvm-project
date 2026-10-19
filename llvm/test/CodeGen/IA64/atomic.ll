@@ -114,8 +114,9 @@ define i32 @add_relaxed(ptr %p) {
 define i64 @add_other(ptr %p) {
 ; CHECK-LABEL: add_other:
 ; CHECK:       ld8.acq r8 = [r32] ;;
-; CHECK:       mov ar.ccv = r14
-; CHECK-NEXT:  adds r15 = 3, r14 ;;
+; CHECK:       mov ar.ccv = r8
+; CHECK-NEXT:  adds r15 = 3, r8
+; CHECK-NEXT:  mov r14 = r8 ;;
 ; CHECK-NEXT:  cmpxchg8.acq r8 = [r32], r15, ar.ccv ;;
 ; CHECK-NEXT:  cmp.eq p7, p6 = r8, r14
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB
@@ -133,7 +134,7 @@ define i16 @add_narrow(ptr %p) {
 
 define i32 @maximum(ptr %p, i32 %v) {
 ; CHECK-LABEL: maximum:
-; CHECK:       cmp4.lt p6, p7 = {{r[0-9]+}}, r14 ;;
+; CHECK:       cmp4.lt p6, p7 = r33, r8 ;;
 ; CHECK:       cmpxchg4.acq r8 = [r32], {{r[0-9]+}}, ar.ccv ;;
 ; CHECK-NEXT:  cmp4.eq p7, p6 = r8, r14
   %o = atomicrmw max ptr %p, i32 %v seq_cst

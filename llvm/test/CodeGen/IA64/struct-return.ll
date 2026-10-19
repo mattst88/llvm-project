@@ -82,8 +82,8 @@ declare void @construct(ptr sret(%big) inreg, i64)
 
 define void @constructed(ptr sret(%big) inreg %res, i64 %a) {
 ; CHECK-LABEL: constructed:
-; CHECK:         mov r8 = r32 ;;
-; CHECK-NEXT:    st8 [r8] = r33
+; CHECK:         mov r8 = r32
+; CHECK-NEXT:    st8 [r32] = r33
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   store i64 %a, ptr %res
   ret void

@@ -6,8 +6,8 @@
 ; back into the one it had started from, without end.
 
 ; CHECK-LABEL: bits:
-; CHECK:      mov r8 = r32 ;;
-; CHECK-NEXT: shr.u r9 = r8, 1
+; CHECK:      mov r8 = r32
+; CHECK-NEXT: shr.u r9 = r32, 1
 ; CHECK-NEXT: br.ret.sptk.many b0 ;;
 define <2 x i1> @bits(i2 %a) {
   %x = bitcast i2 %a to <2 x i1>
@@ -15,9 +15,9 @@ define <2 x i1> @bits(i2 %a) {
 }
 
 ; CHECK-LABEL: sevens:
-; CHECK:      mov r8 = r32
-; CHECK-NEXT: mov r14 = 16383 ;;
-; CHECK-NEXT: and r14 = r8, r14 ;;
+; CHECK:      mov r14 = 16383
+; CHECK-NEXT: mov r8 = r32 ;;
+; CHECK-NEXT: and r14 = r32, r14 ;;
 ; CHECK-NEXT: shr.u r9 = r14, 7
 ; CHECK-NEXT: br.ret.sptk.many b0 ;;
 define <2 x i7> @sevens(i14 %a) {

@@ -20,10 +20,10 @@ define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[REST:[0-9]+]] ;;
 ; CHECK:       ld8 [[V:r[0-9]+]] = [r32], 8 ;;
 ; CHECK-NEXT:  .LBB0_[[KERNEL:[0-9]+]]:
-; CHECK:       add [[S:r[0-9]+]] = [[S]], [[V]]
-; CHECK-NEXT:  ld8 [[V]] = [r32], 8
-; CHECK-NEXT:  mov [[LEFT:r[0-9]+]] = [[REM]] ;;
-; CHECK-NEXT:  adds [[REM]] = -1, [[LEFT]]
+; CHECK:       mov [[LEFT:r[0-9]+]] = [[REM]]
+; CHECK-NEXT:  add [[S:r[0-9]+]] = [[S]], [[V]]
+; CHECK-NEXT:  adds [[REM]] = -1, [[REM]]
+; CHECK-NEXT:  ld8 [[V]] = [r32], 8 ;;
 ; CHECK-NEXT:  cmp.ltu p6, p7 = 0, [[LEFT]]
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[KERNEL]] ;;
 ; CHECK:       adds [[LC2:r[0-9]+]] = -1, [[LEFT]]

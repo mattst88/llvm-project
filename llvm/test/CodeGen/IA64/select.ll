@@ -26,8 +26,8 @@ define i64 @select_slt_constant(i64 %a, i64 %x, i64 %y) {
 
 define i64 @max(i64 %a, i64 %b) {
 ; CHECK-LABEL: max:
-; CHECK:       mov r8 = r33 ;;
-; CHECK-NEXT:  cmp.lt p6, p7 = r8, r32 ;;
+; CHECK:       mov r8 = r33
+; CHECK-NEXT:  cmp.lt p6, p7 = r33, r32 ;;
 ; CHECK-NEXT:  (p6) mov r8 = r32
   %c = icmp sgt i64 %a, %b
   %r = select i1 %c, i64 %a, i64 %b

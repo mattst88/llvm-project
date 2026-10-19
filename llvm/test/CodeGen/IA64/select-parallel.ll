@@ -71,9 +71,9 @@ define i64 @sel_two_plain(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %x,
 ; Only one compare can lack a parallel form, so the chain stops at the second,
 ; whose select gives the value selected.
 ; CHECK-LABEL: sel_two_plain:
-; CHECK:       mov r8 = r38
-; CHECK-NEXT:  cmp.ltu p6, p7 = r35, r36 ;;
-; CHECK-NEXT:  mov r14 = r8 ;;
+; CHECK:       mov r14 = r38
+; CHECK-NEXT:  cmp.ltu p6, p7 = r35, r36
+; CHECK-NEXT:  mov r8 = r38 ;;
 ; CHECK-NEXT:  (p6) mov r14 = r37
 ; CHECK-NEXT:  cmp.ltu p6, p7 = r34, r35 ;;
 ; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = r32, r33 ;;
@@ -122,9 +122,9 @@ define double @sel_fp_inverted(double %a, double %b, i64 %c, double %x,
 define i64 @sel_two_fp(double %a, double %b, double %c, i64 %x, i64 %y) {
 ; The chain stops at a second FP compare.
 ; CHECK-LABEL: sel_two_fp:
-; CHECK:       mov r8 = r36
-; CHECK-NEXT:  fcmp.lt p6, p7 = f9, f10 ;;
-; CHECK-NEXT:  mov r14 = r8 ;;
+; CHECK:       mov r14 = r36
+; CHECK-NEXT:  fcmp.lt p6, p7 = f9, f10
+; CHECK-NEXT:  mov r8 = r36 ;;
 ; CHECK-NEXT:  (p6) mov r14 = r35
 ; CHECK-NEXT:  fcmp.lt p6, p7 = f8, f9 ;;
 ; CHECK-NEXT:  (p6) mov r8 = r14
@@ -140,9 +140,9 @@ define i64 @sel_shared(i64 %a, i64 %b, i64 %c, i64 %d, i64 %x, i64 %y,
                        ptr %p) {
 ; An inner select with another user is selected on its own.
 ; CHECK-LABEL: sel_shared:
-; CHECK:       mov r8 = r37
-; CHECK-NEXT:  cmp.eq p6, p7 = r34, r35 ;;
-; CHECK-NEXT:  mov r14 = r8 ;;
+; CHECK:       mov r14 = r37
+; CHECK-NEXT:  cmp.eq p6, p7 = r34, r35
+; CHECK-NEXT:  mov r8 = r37 ;;
 ; CHECK-NEXT:  (p6) mov r14 = r36
 ; CHECK-NEXT:  cmp.eq p6, p7 = r32, r33 ;;
 ; CHECK-NEXT:  (p6) mov r8 = r14

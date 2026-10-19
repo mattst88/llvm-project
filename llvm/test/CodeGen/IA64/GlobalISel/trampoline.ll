@@ -17,12 +17,12 @@ define ptr @make(ptr %tramp, ptr %chain) {
 ; CHECK-DAG:   mov r8 = r32
 ; CHECK-DAG:   ld8 [[ENTRY:r[0-9]+]] = {{\[}}[[E]]{{\]}}
 ; CHECK-DAG:   ld8 [[FUNC:r[0-9]+]] = {{\[}}[[F]]{{\]}}
-; CHECK-DAG:   adds [[THIRD:r[0-9]+]] = 16, r8
-; CHECK-DAG:   st8 [r8] = [[ENTRY]]
-; CHECK-DAG:   adds [[SECOND:r[0-9]+]] = 8, r8
+; CHECK-DAG:   adds [[THIRD:r[0-9]+]] = 16, r32
+; CHECK-DAG:   st8 [r32] = [[ENTRY]]
+; CHECK-DAG:   adds [[SECOND:r[0-9]+]] = 8, r32
 ; CHECK-DAG:   st8 {{\[}}[[SECOND]]{{\]}} = [[THIRD]]
 ; CHECK-DAG:   st8 {{\[}}[[THIRD]]{{\]}} = [[FUNC]]
-; CHECK-DAG:   adds [[FOURTH:r[0-9]+]] = 24, r8
+; CHECK-DAG:   adds [[FOURTH:r[0-9]+]] = 24, r32
 ; CHECK:       st8 {{\[}}[[FOURTH]]{{\]}} = r33
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   call void @llvm.init.trampoline(ptr %tramp, ptr @nested, ptr %chain)

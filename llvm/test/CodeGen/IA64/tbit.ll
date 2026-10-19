@@ -14,6 +14,7 @@ define void @branch_clear(i64 %x) {
 ; CHECK:       tbit.z p7, p6 = r32, 3
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2 ;;
 ; CHECK-NEXT:  // %bb.1:
+; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = f
   %a = and i64 %x, 8
   %c = icmp eq i64 %a, 0
@@ -30,6 +31,7 @@ define void @branch_set(i64 %x) {
 ; CHECK:       tbit.z p6, p7 = r32, 3
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_2 ;;
 ; CHECK-NEXT:  // %bb.1:
+; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = f
   %a = and i64 %x, 8
   %c = icmp ne i64 %a, 0

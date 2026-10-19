@@ -150,16 +150,17 @@ define void @unnamed([3 x float] %h, [2 x double] %d) {
 ; was declared without its parameters, is in both.
 define void @maybe_named([2 x double] %d, [3 x float] %h) {
 ; CHECK-LABEL: maybe_named:
+; CHECK:       mov f7 = f9
 ; CHECK:       mov f6 = f8
-; CHECK-NEXT:  mov f7 = f9
-; CHECK:       mov f8 = f10
-; CHECK-NEXT:  mov f9 = f11
 ; CHECK-NEXT:  getf.s r36 = f12
-; CHECK-NEXT:  mov f10 = f12 ;;
-; CHECK-NEXT:  getf.d r37 = f6
-; CHECK-NEXT:  mov f12 = f7
-; CHECK:       getf.d r38 = f7
+; CHECK-NEXT:  getf.d r37 = f8
+; CHECK-NEXT:  mov f8 = f10
+; CHECK-NEXT:  mov f10 = f12
+; CHECK-NEXT:  getf.d r38 = f9
+; CHECK-NEXT:  mov f9 = f11 ;;
 ; CHECK-NEXT:  mov f11 = f6
+; CHECK-NEXT:  shl r14 = r14, 32
+; CHECK-NEXT:  mov f12 = f7
 ; CHECK:       or r35 = r15, r14
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
@@ -365,8 +366,7 @@ define float @pass_odd_variadic([3 x float] %h) {
 define float @pass_one_variadic([1 x float] %h) {
 ; CHECK-LABEL: pass_one_variadic:
 ; CHECK:       mov f15 = f8
-; CHECK:       getf.s r42 = f15
-; CHECK-NEXT:       movl r41 = 4619567317775286272 ;;
+; CHECK-NEXT:  getf.s r42 = f8
 ; CHECK:       br.call.sptk.many b0 = take_odd_variadic ;;
   %r = call float (double, double, double, double, double, double, double, [1 x float], ...) @take_odd_variadic(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [1 x float] %h)
   ret float %r

@@ -57,4 +57,5 @@ def IA64 : Target {
   let AssemblyParsers = [IA64AsmParser];
   let AssemblyParserVariants = [IA64AsmParserVariant];
   let AssemblyWriters = [IA64InstPrinter];
+  let AllowRegisterRenaming = 1;
 }

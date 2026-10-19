@@ -20,6 +20,7 @@ declare i32 @h()
 define i32 @both(i64 %a, i64 %b) {
 ; CHECK-LABEL: both:
 ; CHECK:       cmp.eq p7, p6 = 5, r32 ;;
+; CHECK-NEXT:  mov r8 = r0
 ; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 0, r33
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_3 ;;
 ; CHECK:       br.call.sptk.many b0 = g ;;
@@ -78,6 +79,7 @@ return:
 define i32 @order(i64 %a, i64 %b, i64 %c) {
 ; CHECK-LABEL: order:
 ; CHECK:       cmp.lt p7, p6 = r32, r33 ;;
+; CHECK-NEXT:  mov r8 = 1
 ; CHECK-NEXT:  cmp.gt.or.andcm p6, p7 = r0, r34
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB2_3 ;;
 ; OBJ-LABEL: <order>:
@@ -226,10 +228,10 @@ end:
 define void @target_both(i64 %a, i64 %b) {
 ; CHECK-LABEL: target_both:
 ; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
-; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = 0, r33
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB8_3 ;;
 ; CHECK:       .LBB8_3:
+; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 entry:
   %cmp = icmp eq i64 %a, 5
@@ -251,10 +253,10 @@ return:
 define void @target_opposite(i64 %a, i64 %b) {
 ; CHECK-LABEL: target_opposite:
 ; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
-; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = 0, r33
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB9_3 ;;
 ; CHECK:       .LBB9_3:
+; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 entry:
   %cmp = icmp eq i64 %a, 5
