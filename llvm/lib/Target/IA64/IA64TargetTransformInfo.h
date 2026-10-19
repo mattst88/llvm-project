@@ -87,6 +87,11 @@ public:
                                 AssumptionCache &AC, TargetLibraryInfo *LibInfo,
                                 HardwareLoopInfo &HWLoopInfo) const override;
 
+  // An inner loop split out of one with several backedges is set up again
+  // each time the outer one goes round, for which it pays a branch and its
+  // preheader.
+  bool shouldSeparateNestedLoops() const override { return false; }
+
   // Loads that step a line of L1D or more each iteration are prefetched about
   // 100 instructions ahead, enough to hide a hit in L3; farther ahead was
   // slower in bzip2. Prefetching a line in every iteration of a loop that

@@ -779,6 +779,12 @@ public:
                                          TargetLibraryInfo *LibInfo,
                                          HardwareLoopInfo &HWLoopInfo) const;
 
+  /// Whether LoopSimplify should split a loop whose header has several
+  /// backedges into an outer and an inner loop, where a PHI in the header
+  /// shows that some of the backedges keep its value. Otherwise they are
+  /// merged into one backedge block.
+  LLVM_ABI bool shouldSeparateNestedLoops() const;
+
   // Query the target for which minimum vectorization factor epilogue
   // vectorization should be considered.
   LLVM_ABI unsigned getEpilogueVectorizationMinVF() const;

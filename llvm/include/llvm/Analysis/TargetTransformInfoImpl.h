@@ -274,6 +274,8 @@ public:
     return false;
   }
 
+  virtual bool shouldSeparateNestedLoops() const { return true; }
+
   virtual unsigned getEpilogueVectorizationMinVF() const { return 16; }
 
   virtual bool preferTailFoldingOverEpilogue(TailFoldingInfo *TFI) const {

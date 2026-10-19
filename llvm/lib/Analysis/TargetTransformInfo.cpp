@@ -377,6 +377,10 @@ bool TargetTransformInfo::isHardwareLoopProfitable(
   return TTIImpl->isHardwareLoopProfitable(L, SE, AC, LibInfo, HWLoopInfo);
 }
 
+bool TargetTransformInfo::shouldSeparateNestedLoops() const {
+  return TTIImpl->shouldSeparateNestedLoops();
+}
+
 unsigned TargetTransformInfo::getEpilogueVectorizationMinVF() const {
   return TTIImpl->getEpilogueVectorizationMinVF();
 }
