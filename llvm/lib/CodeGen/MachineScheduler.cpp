@@ -2662,11 +2662,20 @@ SchedBoundary::getNextResourceCycle(const MCSchedClassDesc *SC, unsigned PIdx,
     // ignored entirely.
     for (const MCWriteProcResEntry &PE :
          make_range(SchedModel->getWriteProcResBegin(SC),
-                    SchedModel->getWriteProcResEnd(SC)))
+                    SchedModel->getWriteProcResEnd(SC))) {
       if (ResourceGroupSubUnitMasks[PIdx][PE.ProcResourceIdx])
         return std::make_pair(getNextResourceCycleByInstance(
                                   StartIndex, ReleaseAtCycle, AcquireAtCycle),
                               StartIndex);
+      // The instruction also uses a smaller group within this one, which
+      // TableGen implies this one from. Booking a subunit for each would
+      // take more units than the instruction issues to, so the smaller
+      // group's subunit records alone decide the hazard.
+      const APInt &Sub = ResourceGroupSubUnitMasks[PE.ProcResourceIdx];
+      if (PE.ProcResourceIdx != PIdx && !Sub.isZero() &&
+          Sub.isSubsetOf(ResourceGroupSubUnitMasks[PIdx]))
+        return std::make_pair(CurrCycle, StartIndex);
+    }
 
     auto SubUnits = SchedModel->getProcResource(PIdx)->SubUnitsIdxBegin;
     for (unsigned I = 0, End = NumberOfInstances; I < End; ++I) {

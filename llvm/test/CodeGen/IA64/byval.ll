@@ -36,8 +36,8 @@ define void @odd(ptr %p) {
 ; CHECK:       adds r14 = 8, r32
 ; CHECK-NEXT:  ld8 r35 = [r32], 10 ;;
 ; CHECK-NEXT:  ld1 r15 = [r32]
-; CHECK-NEXT:  mov r32 = r1
-; CHECK-NEXT:  ld2 r14 = [r14] ;;
+; CHECK-NEXT:  ld2 r14 = [r14]
+; CHECK-NEXT:  mov r32 = r1 ;;
 ; CHECK-NEXT:  shl r15 = r15, 16 ;;
 ; CHECK-NEXT:  or r36 = r14, r15
 ; CHECK-NEXT:  .save rp, r34
@@ -81,11 +81,11 @@ define void @aligned(ptr %p) {
 ; CHECK:       adds r16 = 8, r32
 ; CHECK:       mov r35 = r0 ;;
 ; CHECK-NEXT:  ld8 r37 = [r14], 24
-; CHECK-NEXT:  ld8 r39 = [r15] ;;
-; CHECK-NEXT:  ld8 r40 = [r14]
+; CHECK-NEXT:  ld8 r39 = [r15]
 ; CHECK-NEXT:  .save rp, r34
-; CHECK-NEXT:  mov r34 = b0
+; CHECK-NEXT:  mov r34 = b0 ;;
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  ld8 r40 = [r14]
 ; CHECK-NEXT:  ld8 r38 = [r16]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_al ;;
   call void @take_al(i64 0, ptr byval(%struct.al) align 16 %p)
@@ -96,10 +96,11 @@ define void @aligned(ptr %p) {
 define void @split(ptr %p) {
 ; CHECK-LABEL: split:
 ; CHECK:       adds [[HI:r[0-9]+]] = 24, r12
-; CHECK:       ld8 [[X:r[0-9]+]] = [r16]
-; CHECK:       ld8 r42 = [r14]
-; CHECK-NEXT:  ld8 r41 = [r32], 24
-; CHECK-NEXT:  adds [[LO:r[0-9]+]] = 16, r12 ;;
+; CHECK:       ld8 [[X:r[0-9]+]] = [r14]
+; CHECK-NEXT:  ld8 r42 = [r15]
+; CHECK-NEXT:  adds [[LO:r[0-9]+]] = 16, r12
+; CHECK:       ld8 r41 = [r32], 24
+; CHECK-NEXT:  mov r36 = 1 ;;
 ; CHECK-NEXT:  st8 [[[LO]]] = [[X]]
 ; CHECK-NEXT:  ld8 [[Y:r[0-9]+]] = [r32]
 ; CHECK:       st8 [[[HI]]] = [[Y]]
@@ -151,7 +152,7 @@ define ptr @callee_big(ptr byval(%struct.big) align 8 %p, i64 %x) {
 ; CHECK-LABEL: callee_big:
 ; CHECK:       adds r12 = -48, r12 ;;
 ; CHECK:       mov r8 = r12 ;;
-; CHECK:       or r15 = 8, r8
+; CHECK:       or r20 = 8, r8
 ; CHECK-NEXT:  st8 [r8] = r32
 ; CHECK-NEXT:  adds r14 = 56, r8 ;;
 ; CHECK-NEXT:  st8 [r14] = r39

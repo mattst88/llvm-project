@@ -11,25 +11,25 @@
 ; Eight A-unit instructions fill three bundles either way. The assembler
 ; would choose MII for all three, and two MII bundles have four I slots for
 ; two I ports, so the second waits a cycle. With MMI first, the first two
-; bundles issue together. After the stop, the add that would sit between the
-; first two stores goes after the second, so that the stores pair up in MMI
-; bundles.
+; bundles issue together. After the stop, of the two adds that would follow
+; the first two stores, one goes after the next two, so that the stores pair
+; up in MMI bundles.
 define void @six_adds(ptr %p, i64 %a, i64 %b, i64 %c) {
 ; CHECK-LABEL: six_adds:
 ; CHECK:       .mmi
 ; CHECK-NEXT:  adds r14 = 1, r33
 ; CHECK-NEXT:  adds r15 = 2, r34
-; CHECK-NEXT:  adds r18 = 8, r32
+; CHECK-NEXT:  adds r17 = 8, r32
 ; CHECK-NEXT:  adds r16 = 3, r35
-; CHECK-NEXT:  add r17 = r33, r34
+; CHECK-NEXT:  add r18 = r33, r34
 ; CHECK-NEXT:  adds r19 = 16, r32
 ; CHECK-NEXT:  adds r20 = 24, r32
 ; CHECK-NEXT:  adds r21 = 32, r32 ;;
 ; CHECK-NEXT:  st8 [r32] = r14, 40
-; CHECK-NEXT:  st8 [r18] = r15
+; CHECK-NEXT:  st8 [r17] = r15
 ; CHECK-NEXT:  add r15 = r33, r35
 ; CHECK-NEXT:  st8 [r19] = r16
-; CHECK-NEXT:  st8 [r20] = r17
+; CHECK-NEXT:  st8 [r20] = r18
 ; CHECK-NEXT:  add r14 = r34, r35 ;;
 ; CHECK-NEXT:  st8 [r21] = r14
 ; CHECK-NEXT:  st8 [r32] = r15
@@ -37,8 +37,9 @@ define void @six_adds(ptr %p, i64 %a, i64 %b, i64 %c) {
 ; OFF-LABEL: six_adds:
 ; OFF-NOT:     .mmi
 ; OFF:         st8 [r32] = r14, 40
+; OFF-NEXT:    st8 [r17] = r15
 ; OFF-NEXT:    add r14 = r34, r35
-; OFF-NEXT:    st8 [r18] = r15
+; OFF-NEXT:    add r15 = r33, r35
   %x1 = add i64 %a, 1
   %x2 = add i64 %b, 2
   %x3 = add i64 %c, 3
@@ -130,10 +131,12 @@ define i64 @restores(ptr %p, ptr %q) {
 ; CHECK-LABEL: restores:
 ; CHECK:       br.call.sptk.many b0 = h ;;
 ; CHECK:       ld8 r14 = [r32]
-; CHECK-NOT:   b0
-; CHECK:       mov ar.pfs = r35 ;;
-; CHECK-NEXT:  mov b0 = r36
-; CHECK-NEXT:  cmp.lt p6, p7 = r14, r15 ;;
+; CHECK-NOT:   ar.pfs
+; CHECK:       mov b0 = r36
+; CHECK-NOT:   ar.pfs
+; CHECK:       mov r1 = r34 ;;
+; CHECK-NEXT:  cmp.lt p6, p7 = r14, r15
+; CHECK-NEXT:  mov ar.pfs = r35 ;;
   call void @h()
   %x = load i64, ptr %p
   %y = load i64, ptr %q

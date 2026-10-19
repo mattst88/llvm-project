@@ -16,7 +16,7 @@
 ; CODE-NEXT: 2c: br.call.sptk.many b0 =
 ; CODE-NEXT: 30: setf.sig f6 = r32
 ; CODE-NEXT: 36: mov r1 = r34
-; CODE-NEXT: 3c: mov.i ar.pfs = r35
+; CODE-NEXT: 3c: mov b0 = r36
 ; CODE-NEXT: 40: ld4 r14 = [r33] ;;
 
 ; CHECK: min_inst_length: 1

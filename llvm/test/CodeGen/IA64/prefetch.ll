@@ -56,15 +56,15 @@ define void @element(ptr %p, i64 %i) {
   ret void
 }
 
-; A prefetch reads nothing into a register and writes no memory, so loads
-; and arithmetic move across it.
+; A prefetch reads nothing into a register and writes no memory, so the
+; arithmetic moves across it, and it shares a group with the first load.
 
 define i64 @reorder(ptr %p, ptr %q) {
 ; CHECK-LABEL: reorder:
-; CHECK:         ld8 r14 = [r33], 8 ;;
+; CHECK:         ld8 r14 = [r33], 8
+; CHECK-NEXT:    lfetch [r32] ;;
 ; CHECK-NEXT:    ld8 r15 = [r33] ;;
 ; CHECK-NEXT:    add r8 = r14, r15, 1
-; CHECK-NEXT:    lfetch [r32]
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %x = load i64, ptr %q
   %y = add i64 %x, 1

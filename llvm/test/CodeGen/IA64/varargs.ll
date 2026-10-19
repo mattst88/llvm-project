@@ -23,20 +23,19 @@ define i64 @first(i32 %n, ...) {
 ; CHECK-NEXT:  mov r17 = r12 ;;
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r16 = 8, r14
-; CHECK-NEXT:  adds r18 = 40, r14
-; CHECK-NEXT:  adds r19 = 32, r14
-; CHECK-NEXT:  adds r20 = 24, r14
+; CHECK-NEXT:  adds r19 = 40, r14
+; CHECK-NEXT:  adds r20 = 32, r14
+; CHECK-NEXT:  adds r18 = 24, r14
 ; CHECK-NEXT:  adds r21 = 16, r14 ;;
 ; CHECK-NEXT:  st8 [r17] = r16
 ; CHECK-NEXT:  st8.spill [r14] = r33
 ; CHECK-NEXT:  adds r15 = 48, r14
 ; CHECK-NEXT:  ld8 r22 = [r17] ;;
 ; CHECK-NEXT:  st8.spill [r15] = r39 ;;
-; CHECK-NEXT:  st8.spill [r18] = r38
+; CHECK-NEXT:  st8.spill [r19] = r38 ;;
+; CHECK-NEXT:  st8.spill [r20] = r37
 ; CHECK-NEXT:  adds r23 = 8, r22 ;;
-; CHECK-NEXT:  st8.spill [r19] = r37 ;;
-; CHECK-NEXT:  st8.spill [r20] = r36 ;;
-; CHECK-NEXT:  .mii
+; CHECK-NEXT:  st8.spill [r18] = r36 ;;
 ; CHECK-NEXT:  st8.spill [r21] = r35 ;;
 ; CHECK-NEXT:  st8.spill [r16] = r34
 ; CHECK-NEXT:  ld8 r14 = [r14]
@@ -95,12 +94,12 @@ define i64 @many(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g, i64 %h,
 define i128 @wide(i64 %a, ...) {
 ; CHECK-LABEL: wide:
 ; CHECK:       adds r14 = 8, r12
-; CHECK:       adds r16 = 15, r14
 ; CHECK:       st8.spill [r14] = r33
-; CHECK:       and r16 = -16, r16
-; CHECK:       or [[HI:r[0-9]+]] = 8, r16
+; CHECK-NEXT:  adds [[P:r[0-9]+]] = 15, r14
+; CHECK:       and [[A:r[0-9]+]] = -16, [[P]]
+; CHECK:       or [[HI:r[0-9]+]] = 8, [[A]]
 ; CHECK:       st8.spill [r14] = r34
-; CHECK:       ld8 r8 = [r16]
+; CHECK:       ld8 r8 = [[[A]]]
 ; CHECK:       ld8 r9 = [[[HI]]]
   %ap = alloca ptr
   call void @llvm.va_start(ptr %ap)
@@ -115,13 +114,15 @@ define i32 @forward(ptr %f, ...) {
 ; CHECK:       alloc r40 = ar.pfs, 8, 3, 2, 0
 ; CHECK:       adds r14 = 40, r12
 ; CHECK-NEXT:  adds [[AP:r[0-9]+]] = 24, r12
+; CHECK-NEXT:  adds [[AQ:r[0-9]+]] = 32, r12
 ; CHECK:       st8 [[[AP]]] = r14
 ; CHECK:       st8.spill [r14] = r33
+; CHECK:       ld8 r44 = [[[AP]]]
 ; CHECK:       .save rp, r41
-; CHECK-NEXT:  mov r41 = b0
+; CHECK-NEXT:  mov r41 = b0 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  st8 [r16] = r14
-; CHECK-NEXT:  ld8 r44 = [[[AP]]]
+; CHECK-NEXT:  st8.spill [{{r[0-9]+}}] = r34
+; CHECK-NEXT:  st8 [[[AQ]]] = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = vf ;;
   %ap = alloca ptr
   %aq = alloca ptr

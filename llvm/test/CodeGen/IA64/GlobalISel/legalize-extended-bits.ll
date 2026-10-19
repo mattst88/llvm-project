@@ -88,11 +88,11 @@ define i1 @isnan(x86_fp80 %x) {
 
 ; CHECK-LABEL: wide:
 ; CHECK:      mov r14 = r12 ;;
-; CHECK-NEXT: adds r15 = 8, r14
-; CHECK-NEXT: stfe [r14] = f8 ;;
-; CHECK-NEXT: ld2 r15 = [r15] ;;
-; CHECK-NEXT: sxt2 r9 = r15
+; CHECK-NEXT: stfe [r14] = f8
+; CHECK-NEXT: adds r15 = 8, r14 ;;
+; CHECK-NEXT: ld2 r15 = [r15]
 ; CHECK-NEXT: ld8 r8 = [r14] ;;
+; CHECK-NEXT: sxt2 r9 = r15 ;;
 ; CHECK-NEXT: shr r10 = r9, 63 ;;
 ; CHECK-NEXT: mov r11 = r10
 ; CHECK-NEXT: br.ret.sptk.many b0 ;;

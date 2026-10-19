@@ -56,9 +56,9 @@ define i64 @both(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 ; CHECK:       adds r12 = -48, r12
 ; CHECK:       adds r14 = 64, r12
 ; CHECK:       adds r15 = 72, r12
-; CHECK-NEXT:  mov r34 = r1
+; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  adds r37 = 40, r12 ;;
-; CHECK-NEXT:  ld8 r33 = [r14]
+; CHECK-NEXT:  ld8 r34 = [r14]
 ; CHECK-NEXT:  ld8 r32 = [r15]
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
@@ -68,7 +68,7 @@ define i64 @both(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12
 ; CHECK:       st8 [r14] = r32
-; CHECK-NEXT:  st8 [r15] = r33
+; CHECK-NEXT:  st8 [r15] = r34
 ; CHECK-NEXT:  br.call.sptk.many b0 = incoming ;;
 ; CHECK:       adds r12 = 48, r12
   %p = alloca [3 x i64]

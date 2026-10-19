@@ -45,19 +45,19 @@ define signext i32 @narrow(i32 signext %a, double %b, ptr %p, i8 zeroext %c) {
 ; and the callee's global pointer the second.
 define i64 @indirect(ptr %fp, i64 %a) {
 ; CHECK-LABEL: indirect:
-; CHECK:       adds r15 = 8, r32
-; CHECK-NEXT:  ld8 r14 = [r32]
-; CHECK-NEXT:  mov r32 = r1
-; CHECK-NEXT:  mov r36 = r33 ;;
-; CHECK-NEXT:  ld8 r15 = [r15]
-; CHECK-NEXT:  .save rp, r35
-; CHECK-NEXT:  mov r35 = b0
+; CHECK:       adds r14 = 8, r32
+; CHECK-NEXT:  mov r34 = r1
+; CHECK-NEXT:  mov r37 = r33
+; CHECK-NEXT:  ld8 r15 = [r32] ;;
+; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  .save rp, r36
+; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov b6 = r14 ;;
-; CHECK-NEXT:  mov r1 = r15
+; CHECK-NEXT:  mov b6 = r15 ;;
+; CHECK-NEXT:  mov r1 = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
-; CHECK-NEXT:  mov b0 = r35
-; CHECK-NEXT:  mov r1 = r32
+; CHECK-NEXT:  mov b0 = r36
+; CHECK-NEXT:  mov r1 = r34
   %r = call i64 %fp(i64 %a)
   ret i64 %r
 }
@@ -113,8 +113,8 @@ define void @call_any(x86_fp80 %a) {
 ; CHECK-LABEL: call_any:
 ; CHECK:       stfe [r14] = f8
 ; CHECK-NEXT:  ld8 r37 = [r14]
-; CHECK-NEXT:  adds r14 = 8, r14 ;;
-; CHECK-NEXT:  ld8 r38 = [r14]
+; CHECK-NEXT:  adds [[P:r[0-9]+]] = 8, r14 ;;
+; CHECK-NEXT:  ld8 r38 = [[[P]]]
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body

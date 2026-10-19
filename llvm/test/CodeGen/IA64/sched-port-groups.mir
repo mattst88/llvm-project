@@ -1,0 +1,29 @@
+# REQUIRES: asserts
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=postmisched \
+# RUN:   -debug-only=machine-scheduler -o /dev/null %s 2>&1 | FileCheck %s
+
+# Loads take a port of M0 and M1, stores one of M2 and M3, and the groups of
+# all four memory ports and of all six M and I ports contain both. Each
+# instruction takes one port, not one in each group, so two loads and two
+# stores issue in one cycle.
+# CHECK-LABEL: two_loads_two_stores:%bb.0
+# CHECK:       Scheduling SU(0) $r8 = LD4
+# CHECK-NOT:   Cycle:
+# CHECK:       Scheduling SU(1) $r9 = LD4
+# CHECK-NOT:   Cycle:
+# CHECK:       Scheduling SU(2) ST4
+# CHECK-NOT:   Cycle:
+# CHECK:       Scheduling SU(3) ST4
+---
+name: two_loads_two_stores
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35, $r36, $r37
+
+    $r8 = LD4 $r35, 0, $p0 :: (load (s32))
+    $r9 = LD4 $r34, 0, $p0 :: (load (s32))
+    ST4 $r32, $r36, 0, $p0 :: (store (s32))
+    ST4 $r33, $r37, 0, $p0 :: (store (s32))
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...

@@ -21,8 +21,8 @@ define i32 @get() {
 define void @set(i32 %m) {
 ; CHECK-LABEL: set:
 ; CHECK:         mov r14 = ar.fpsr
-; CHECK-NEXT:    mov r16 = 99
-; CHECK-NEXT:    dep.z r15 = r32, 1, 2 ;;
+; CHECK-NEXT:    dep.z r15 = r32, 1, 2
+; CHECK-NEXT:    mov r16 = 99 ;;
 ; CHECK-NEXT:    shr.u r15 = r16, r15 ;;
 ; CHECK-NEXT:    dep r14 = r15, r14, 10, 2 ;;
 ; CHECK-NEXT:    mov ar.fpsr = r14

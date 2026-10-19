@@ -69,5 +69,5 @@ define void @store(ptr %p, x86_fp80 %v) {
 ; CHECK:       stfe {{\[}}[[SLOT]]{{\]}} = f8
 ; CHECK:       ld8 [[LOW:r[0-9]+]] = {{\[}}[[SLOT]]{{\]}}
 ; CHECK:       st4 [r32] = [[LOW]]
-; CHECK:       st4
-; CHECK:       st2
+; CHECK-DAG:   st4
+; CHECK-DAG:   st2

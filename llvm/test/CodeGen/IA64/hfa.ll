@@ -112,8 +112,8 @@ define float @pass_odd([3 x float] %h) {
 define float @pass_four([4 x float] %h) {
 ; CHECK-LABEL: pass_four:
 ; CHECK:       getf.s r14 = f11
+; CHECK:       getf.s r15 = f10
 ; CHECK:       mov f15 = f9
-; CHECK-NEXT:  getf.s r15 = f10
 ; CHECK:       mov f14 = f8
 ; CHECK:       mov f8 = f1
 ; CHECK:       shl r14 = r14, 32
@@ -311,12 +311,12 @@ define void @pass_unaligned([1 x x86_fp80] %a) {
 define void @pass_unaligned_variable([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned_variable:
 ; CHECK:       adds r14 = 32, r12
-; CHECK:       adds r15 = 16, r12
+; CHECK:       adds r17 = 16, r12
 ; CHECK:       stfe [r14] = f8
-; CHECK:       ld8 r42 = [r14]
-; CHECK-NEXT:  or r14 = 8, r14
-; CHECK:       ld8 r14 = [r14] ;;
-; CHECK-NEXT:  st8 [r15] = r14
+; CHECK-NEXT:  or r15 = 8, r14
+; CHECK:       ld8 r16 = [r15]
+; CHECK-NEXT:  ld8 r42 = [r14] ;;
+; CHECK-NEXT:  st8 [r17] = r16
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
@@ -330,7 +330,7 @@ define void @pass_unaligned_variable([1 x x86_fp80] %a) {
 define void @pass_unaligned_memory([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned_memory:
 ; CHECK:       adds r14 = 48, r12
-; CHECK-NEXT:  adds [[A:r[0-9]+]] = 24, r12
+; CHECK:       adds [[A:r[0-9]+]] = 24, r12
 ; CHECK:       stfe [r14] = f8
 ; CHECK-NOT:   stfe
 ; CHECK:       ld8 r14 = [r14]

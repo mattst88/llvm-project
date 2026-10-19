@@ -53,8 +53,8 @@ define i64 @indirect(ptr %f, ptr %chain, i64 %a) {
 define void @make(ptr %chain) {
 ; CHECK-LABEL: make:
 ; CHECK:       .fframe 32
-; CHECK-NEXT:  adds r12 = -32, r12 ;;
-; CHECK:       adds r[[T:[0-9]+]] = 16, r12
+; CHECK-NEXT:  adds r12 = -32, r12
+; CHECK-DAG:   adds r[[T:[0-9]+]] = 16, r12
 ; CHECK-DAG:   addl r[[F:[0-9]+]] = @ltoff(@fptr(callee)), r1
 ; CHECK-DAG:   addl r[[E:[0-9]+]] = @ltoff(__ia64_trampoline), r1
 ; CHECK-DAG:   adds r[[P3:[0-9]+]] = 24, r[[T]]

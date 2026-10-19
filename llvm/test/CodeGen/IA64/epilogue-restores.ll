@@ -51,12 +51,12 @@ define i64 @copied(ptr %p, ptr %q, i64 %c) {
 ; CHECK-NEXT:  mov ar.pfs = r36
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ; CHECK-NEXT:  .LBB1_2:
-; CHECK:       ld8 r14 = [r32]
+; CHECK:       ld8 r15 = [r33]
 ; CHECK-NEXT:  mov r8 = r0
-; CHECK-NEXT:  ld8 r15 = [r33]
-; CHECK-NEXT:  mov ar.pfs = r36 ;;
 ; CHECK-NEXT:  mov b0 = r37
-; CHECK-NEXT:  cmp.lt p6, p7 = r14, r15 ;;
+; CHECK-NEXT:  ld8 r14 = [r32] ;;
+; CHECK-NEXT:  cmp.lt p6, p7 = r14, r15
+; CHECK-NEXT:  mov ar.pfs = r36 ;;
 ; CHECK-NEXT:  (p6) mov r8 = 1
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 entry:
