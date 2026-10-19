@@ -94,6 +94,9 @@ struct Item {
   bool IsStore;
   /// Whether only port I0 executes it.
   bool I0Only;
+  /// Whether it is a conditional branch, after which the code that runs may
+  /// end.
+  bool IsExit;
   /// Whether its group ends after it.
   bool Stop;
   /// The template of a directive before it, or -1.
@@ -103,6 +106,8 @@ struct Item {
 /// The dispersal of bundles into issue cycles, and its cost so far.
 struct Dispersal {
   unsigned Cycles = 0;
+  /// The sum of the cycles in which conditional branches issue.
+  unsigned ExitCycles = 0;
   unsigned Bundles = 0;
   unsigned BundlesNow = 0;
   unsigned Ports[8] = {};
@@ -139,6 +144,7 @@ struct Dispersal {
     ++Ports[Port];
     Loads += It.IsLoad;
     Stores += It.IsStore;
+    ExitCycles += It.IsExit ? Cycles : 0;
     EndCycle = It.Stop;
   }
 
@@ -147,9 +153,11 @@ struct Dispersal {
   /// with the last.
   bool full() const { return EndCycle || BundlesNow == 2; }
 
+  /// Of two that take as many cycles, the one whose conditional branches
+  /// issue sooner costs less where a branch is taken.
   bool operator<(const Dispersal &O) const {
-    return std::make_tuple(Cycles, Bundles, full()) <
-           std::make_tuple(O.Cycles, O.Bundles, O.full());
+    return std::make_tuple(Cycles, ExitCycles, Bundles, full()) <
+           std::make_tuple(O.Cycles, O.ExitCycles, O.Bundles, O.full());
   }
 };
 
@@ -540,6 +548,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
             MI.mayLoad(),
             MI.mayStore(),
             usesOnlyI0(MI, SM, PortI0),
+            MI.isConditionalBranch(),
             MI.getAsmPrinterFlag(IA64::StopAfter)};
   };
 
