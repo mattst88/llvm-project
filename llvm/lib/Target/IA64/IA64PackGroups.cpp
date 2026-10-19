@@ -142,8 +142,14 @@ struct Dispersal {
     EndCycle = It.Stop;
   }
 
+  /// Whether the next bundle starts a cycle. Where the group continues into
+  /// the next block, which starts a bundle, that bundle can otherwise issue
+  /// with the last.
+  bool full() const { return EndCycle || BundlesNow == 2; }
+
   bool operator<(const Dispersal &O) const {
-    return std::tie(Cycles, Bundles) < std::tie(O.Cycles, O.Bundles);
+    return std::make_tuple(Cycles, Bundles, full()) <
+           std::make_tuple(O.Cycles, O.Bundles, O.full());
   }
 };
 
