@@ -13,11 +13,12 @@
 // volume 2, section 3.3 of the instruction reference).
 //
 // It is deliberately simple and conservative at the cost of density: a group
-// never spans blocks, and two writes under mutually exclusive predicates,
-// which could legally share a group, do not.
+// never spans blocks.
 //
-// The one exception is parallel compares: compares that all set a predicate,
-// or all clear it, give the same result in any order and may share a group.
+// There are two exceptions. Instructions under predicates that exclude each
+// other never both take effect, so they may share a group even when they
+// touch the same register. And compares that all set a predicate, or all
+// clear it (parallel compares), give the same result in any order.
 //
 // A stop belongs to the instruction it follows, which is how the MC layer
 // represents it, so it is recorded as an asm printer flag on the
@@ -26,16 +27,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
+#include "IA64ExclusivePredicates.h"
 #include "IA64InstrInfo.h"
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "ia64-insert-stops"
 #define PASS_NAME "IA64 stop insertion"
+
+static cl::opt<bool> EnableDisjoint("ia64-disjoint-groups", cl::Hidden,
+                                    cl::init(true));
 
 namespace {
 
@@ -105,8 +111,13 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   // by whether those compares would set or clear them.
   BitVector OnlySet(TRI.getNumRegs());
   BitVector OnlyCleared(TRI.getNumRegs());
+  // Which predicates exclude each other, and for each register written in
+  // the group, the qualifying predicate of its writes (P0 if they differ).
+  IA64ExclusivePredicates Exclusive(TRI);
+  std::vector<MCRegister> WriterQP(TRI.getNumRegs());
 
   for (MachineBasicBlock &MBB : MF) {
+    Exclusive.clear();
     Written.reset();
     WrittenByF.reset();
     OnlySet.reset();
@@ -137,6 +148,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       // Inline asm may read and write anything, so it gets a group of its
       // own. The asm printer emits the stop after it.
       if (MI.isInlineAsm()) {
+        Exclusive.step(MI);
         EndGroup();
         Last = nullptr;
         continue;
@@ -168,6 +180,17 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       // read of the RSE registers sees the change only from a later group.
       bool Parallel = isParallelCompare(MI.getOpcode());
 
+      int QPIdx = MI.findFirstPredOperandIdx();
+      MCRegister QP = IA64ExclusivePredicates::qualifyingPredicate(MI);
+      // Whether MO, which the group has written, is written only under a
+      // predicate that excludes QP, so that MI and those writes never both
+      // take effect.
+      auto Disjoint = [&](const MachineOperand &MO) {
+        unsigned R = MO.getReg().id();
+        return QP != IA64::P0 && (int)MO.getOperandNo() != QPIdx &&
+               WriterQP[R] != IA64::P0 && Exclusive.partner(WriterQP[R]) == QP;
+      };
+
       auto ReadsRSE = [](const MachineInstr &MI) {
         if (MI.getOpcode() != IA64::MOV_FROM_AR)
           return false;
@@ -195,6 +218,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
           any_of(MI.operands(), [&](const MachineOperand &MO) {
             if (!Touches(MO) || !Written.test(MO.getReg().id()))
               return false;
+            if (EnableDisjoint && Disjoint(MO))
+              return false;
             // Another parallel compare writing the predicate the same way
             // as the others in the group.
             if (Parallel && MO.isDef())
@@ -218,11 +243,16 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
           OnlySet.reset(MO.getReg().id());
           OnlyCleared.reset(MO.getReg().id());
         }
-        Written.set(MO.getReg().id());
+        unsigned R = MO.getReg().id();
+        WriterQP[R] =
+            !Written.test(R) || WriterQP[R] == QP ? QP : MCRegister(IA64::P0);
+        Written.set(R);
         if (Unit == IA64II::UnitF)
           WrittenByF.set(MO.getReg().id());
       }
       Last = &MI;
+
+      Exclusive.step(MI);
 
       // A call returns to the next bundle, which starts a new group with or
       // without a stop, so record one. The rest of a flushrs's group would

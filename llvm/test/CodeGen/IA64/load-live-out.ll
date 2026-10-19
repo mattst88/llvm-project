@@ -7,7 +7,7 @@ declare void @g()
 
 define i64 @phi(ptr %p, ptr %q, i1 %c) {
 ; CHECK-LABEL: phi:
-; CHECK:       (p6) ld4 r8 = [r33] ;;
+; CHECK:       (p6) ld4 r8 = [r33]{{$}}
 ; CHECK-NEXT:  (p7) ld4 r8 = [r32]
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 entry:

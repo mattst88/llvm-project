@@ -24,6 +24,7 @@ add_llvm_target(IA64CodeGen
   GISel/IA64RegisterBankInfo.cpp
   IA64AsmPrinter.cpp
   IA64FrameLowering.cpp
+  IA64ExclusivePredicates.cpp
   IA64ExpandBranches.cpp
   IA64HoistRestores.cpp
   IA64IfConversion.cpp

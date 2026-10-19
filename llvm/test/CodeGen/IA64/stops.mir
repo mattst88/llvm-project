@@ -289,3 +289,75 @@ body: |
   bb.1:
     BR_RET $b0, 0, 1, 0, $p0
 ...
+---
+# Instructions under predicates that a compare made the complement of each
+# other never both take effect, so they may write the same register, or one
+# read what the other writes, in one group.
+# CHECK-LABEL: exclusive:
+# CHECK:       cmp.eq p6, p7 = r32, r33 ;;
+# CHECK-NEXT:  (p6) mov r8 = r32
+# CHECK-NEXT:  (p7) mov r8 = r33
+# CHECK-NEXT:  (p7) add r9 = r8, r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: exclusive
+body: |
+  bb.0:
+    liveins: $r32, $r33
+    $p6, $p7 = CMP_EQ $r32, $r33, $p0
+    $r8 = ADDS 0, $r32, $p6
+    $r8 = ADDS 0, $r33, $p7
+    $r9 = ADD $r8, $r33, $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r9
+...
+---
+# An .unc compare clears both targets under a false predicate, so they
+# exclude each other whatever its predicate.
+# CHECK-LABEL: exclusive_unc:
+# CHECK:       (p8) cmp.eq.unc p6, p7 = r32, r33 ;;
+# CHECK-NEXT:  (p6) mov r8 = r32
+# CHECK-NEXT:  (p7) mov r8 = r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: exclusive_unc
+body: |
+  bb.0:
+    liveins: $r32, $r33, $p8
+    $p6, $p7 = CMP_EQ_UNC $r32, $r33, $p8
+    $r8 = ADDS 0, $r32, $p6
+    $r8 = ADDS 0, $r33, $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# Another compare does not write them under a false predicate, and they may
+# both be true from before.
+# CHECK-LABEL: exclusive_predicated:
+# CHECK:       (p8) cmp.eq p6, p7 = r32, r33 ;;
+# CHECK-NEXT:  (p6) mov r8 = r32 ;;
+# CHECK-NEXT:  (p7) mov r8 = r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: exclusive_predicated
+body: |
+  bb.0:
+    liveins: $r32, $r33, $p6, $p7, $p8
+    $p6, $p7 = CMP_EQ $r32, $r33, $p8
+    $r8 = ADDS 0, $r32, $p6
+    $r8 = ADDS 0, $r33, $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A write of one of them ends the pair, even one that may not happen.
+# CHECK-LABEL: exclusive_ended:
+# CHECK:       cmp.eq p6, p7 = r32, r33 ;;
+# CHECK-NEXT:  (p8) cmp.eq p6, p9 = r32, r34 ;;
+# CHECK-NEXT:  (p6) mov r8 = r32 ;;
+# CHECK-NEXT:  (p7) mov r8 = r33
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+name: exclusive_ended
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $p8
+    $p6, $p7 = CMP_EQ $r32, $r33, $p0
+    $p6, $p9 = CMP_EQ $r32, $r34, $p8
+    $r8 = ADDS 0, $r32, $p6
+    $r8 = ADDS 0, $r33, $p7
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
