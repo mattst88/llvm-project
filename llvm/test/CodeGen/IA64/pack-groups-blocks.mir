@@ -6,7 +6,7 @@
 
 # An instruction group continues into the block a branch falls through to,
 # so the packer must not move an instruction into a group that holds
-# instructions of another block it does not see.
+# instructions of another block without checking them.
 
 ---
 # The first group of bb.1 continues the one bb.0 ends with, which writes b0.
@@ -138,5 +138,37 @@ body: |
     BR_RET $b0, 0, 1, 0, $p0
 
   bb.2:
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+# bb.0's last group continues into bb.1, whose return then shares its bundle
+# with the store and the branch once the compare moves up a group.
+# OBJ-LABEL: <open_next>:
+# OBJ:       add r19 = r19, r20 // [MII]
+# OBJ-NEXT:  cmp.eq p7, p6 = 0, r18 ;;
+# OBJ-NEXT:  nop.i 0
+# OBJ-NEXT:  st4 [r14] = r19, 4 // [MBB]
+# OBJ-NEXT:  (p6) br.cond.dptk.few
+# OBJ-NEXT:  br.ret.sptk.many b0 ;;
+name: open_next
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $r14, $r15, $r16, $r17, $r18, $r32
+
+    $r19, $r17 = LD4_i $r17, 4, 0, $p0
+    $r18 = ADDS -1, $r18, $p0
+    $r20, $r16 = LD4_i $r16, 4, 0, $p0
+    $r21, $r15 = LD4_i $r15, 4, 0, $p0
+    $r19 = ADD $r20, $r19, $p0
+    $r22, $r32 = LD4_i $r32, 4, 0, $p0
+    $r20 = ADD $r21, $r22, $p0
+    $r19 = ADD $r19, $r20, $p0
+    $r14 = ST4_i $r14, $r19, 4, 0, $p0
+    $p7, $p6 = CMP_EQi 0, $r18, $p0
+    BR_COND %bb.0, 2, 0, 0, $p6
+
+  bb.1:
     BR_RET $b0, 0, 1, 0, $p0
 ...

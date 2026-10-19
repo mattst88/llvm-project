@@ -522,6 +522,27 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
     Run.clear();
   };
 
+  auto emitsNothing = [](const MachineInstr &MI) {
+    return MI.isDebugInstr() || MI.getOpcode() == TargetOpcode::KILL ||
+           MI.getOpcode() == TargetOpcode::IMPLICIT_DEF;
+  };
+  // Anything else may emit a label, or code the packing does not know.
+  auto UnitsOf = [&](const MachineInstr &MI) -> unsigned {
+    return MI.isMetaInstruction() || MI.isInlineAsm() ||
+                   MI.getPreInstrSymbol() || MI.getPostInstrSymbol()
+               ? 0
+               : getUnits(MI, MCII, MRI);
+  };
+  auto MakeItem = [&](MachineInstr &MI, unsigned Units) -> Item {
+    return {&MI,
+            Units,
+            (MI.getDesc().TSFlags & IA64II::LastSlot) != 0,
+            MI.mayLoad(),
+            MI.mayStore(),
+            usesOnlyI0(MI, SM, PortI0),
+            MI.getAsmPrinterFlag(IA64::StopAfter)};
+  };
+
   // Whether the instruction group open at the end of the last block may
   // continue into this one.
   bool OpenBefore = false;
@@ -546,16 +567,11 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       Movable = true;
     };
     for (MachineInstr &MI : MBB) {
-      if (MI.isDebugInstr() || MI.getOpcode() == TargetOpcode::KILL ||
-          MI.getOpcode() == TargetOpcode::IMPLICIT_DEF) {
+      if (emitsNothing(MI)) {
         (Items.empty() ? Leading : Attached.back()).push_back(&MI);
         continue;
       }
-      // Anything else may emit a label, or code the packing does not know.
-      unsigned Units = MI.isMetaInstruction() || MI.isInlineAsm() ||
-                               MI.getPreInstrSymbol() || MI.getPostInstrSymbol()
-                           ? 0
-                           : getUnits(MI, MCII, MRI);
+      unsigned Units = UnitsOf(MI);
       if (Units == 0) {
         LLVM_DEBUG(dbgs() << "Not modeled in " << printMBBReference(MBB) << ": "
                           << MI);
@@ -572,9 +588,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         }
       }
       bool Stop = MI.getAsmPrinterFlag(IA64::StopAfter);
-      Items.push_back(
-          {&MI, Units, (MI.getDesc().TSFlags & IA64II::LastSlot) != 0,
-           MI.mayLoad(), MI.mayStore(), usesOnlyI0(MI, SM, PortI0), Stop});
+      Items.push_back(MakeItem(MI, Units));
       Attached.emplace_back();
       Movable &= !pinsGroup(MI);
       if (Stop)
@@ -596,6 +610,34 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       while (OpenStart != 0 && !Run[OpenStart - 1].Stop)
         --OpenStart;
     }
+    // Where the block's last group continues into the next one, the next
+    // block's instructions in that group, up to NextMid, and in the group
+    // after. Next is empty where they are not known.
+    SmallVector<Item> Next;
+    unsigned NextMid = 0;
+    // Whether Next holds the whole of the group after.
+    bool NextAfter = false;
+    MachineBasicBlock *NextMBB = MBB.getNextNode();
+    if (!Items.empty() && !Items.back().Stop && NextMBB &&
+        !startsBundle(*NextMBB)) {
+      for (MachineInstr &MI : *NextMBB) {
+        if (emitsNothing(MI))
+          continue;
+        unsigned Units = UnitsOf(MI);
+        if (Units == 0 || MI.getOpcode() == IA64::ALLOC)
+          break;
+        Next.push_back(MakeItem(MI, Units));
+        if (!Next.back().Stop)
+          continue;
+        if (NextMid) {
+          NextAfter = true;
+          break;
+        }
+        NextMid = Next.size();
+      }
+      if (!NextMid)
+        Next.clear();
+    }
     // The cost of the instructions from Begin to End, and of the groups
     // before and after them.
     auto CostAround = [&](unsigned Begin, unsigned End) {
@@ -610,6 +652,8 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       if (Begin == 0)
         Window.append(Run.begin() + OpenStart, Run.end());
       Window.append(Items.begin() + Begin, Items.begin() + End);
+      if (End == Items.size())
+        Window.append(Next.begin(), Next.begin() + NextMid);
       return plan(Window);
     };
     auto Rotate = [&](unsigned From, unsigned To) {
@@ -723,13 +767,14 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       };
       bool Moved = false;
       // A group that continues from the block before or into the block after
-      // has instructions this does not see.
+      // has instructions this does not see, unless they are in Next.
       bool OpenAfter = !Items.back().Stop;
+      bool IntoNext = OpenAfter && End == Items.size();
       bool Empties = Begin == 0 && OpenStart != Run.size() && !Run.back().Stop;
       // Down, to the start of the second group.
       for (unsigned From = Begin;
            From != Mid && !Moved && (Mid - Begin > 1 || Empties) &&
-           !(OpenAfter && End == Items.size());
+           !(IntoNext && Next.empty());
            ++From) {
         if (!crossesGroups(Items[From]))
           continue;
@@ -739,13 +784,20 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
           Legal = !isFixed(*Items[I].MI) && !mustPrecede(MI, *Items[I].MI, TRI);
         for (unsigned I = Mid; I != End && Legal; ++I)
           Legal = !dependsOn(*Items[I].MI, MI, TRI);
+        bool Quick = SM.computeInstrLatency(&MI) <= 1;
         // A result that takes more than a cycle would come later to the
         // group after.
         for (unsigned I = End; I != Items.size() && Legal; ++I) {
-          Legal = SM.computeInstrLatency(&MI) <= 1 ||
-                  !dependsOn(*Items[I].MI, MI, TRI);
+          Legal = Quick || !dependsOn(*Items[I].MI, MI, TRI);
           if (Items[I].Stop)
             break;
+        }
+        if (IntoNext) {
+          for (unsigned I = 0; I != NextMid && Legal; ++I)
+            Legal = !dependsOn(*Next[I].MI, MI, TRI);
+          Legal &= Quick || NextAfter;
+          for (unsigned I = NextMid; I != Next.size() && Legal; ++I)
+            Legal = Quick || !dependsOn(*Next[I].MI, MI, TRI);
         }
         if (Legal)
           Moved = Try(From, Mid - 1, Mid - 1);
