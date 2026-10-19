@@ -97,9 +97,9 @@ define i64 @frame(i64 %a) {
 
 define i64 @middle(i64 %a) {
 ; CHECK-LABEL: middle:
-; CHECK:         (p6) br.cond.dpnt.few .LBB4_2{{$}}
+; CHECK:         mov r33 = 3
+; CHECK:         (p6) br.cond.dpnt.few .LBB4_2 ;;
 ; CHECK-NEXT:  // %bb.1: // %t
-; CHECK-NEXT:    mov r33 = 3 ;;
 ; CHECK-NEXT:    .label_state 1
 ; CHECK-NEXT:    .prologue
 ; CHECK-NEXT:    alloc r2 = ar.pfs, 0, 0, 2, 0

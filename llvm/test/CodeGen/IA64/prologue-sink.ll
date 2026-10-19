@@ -13,7 +13,9 @@ define i64 @count(ptr %a, i32 %i, i32 %n) {
 ; CHECK-NEXT:  .save ar.lc, r36
 ; CHECK-NEXT:  mov r36 = ar.lc
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  zxt4 [[N:r[0-9]+]] = r34 ;;
+; CHECK-NEXT:  zxt4 [[N:r[0-9]+]] = r34
+; CHECK-NEXT:  zxt4 {{r[0-9]+}} = r33
+; CHECK-NEXT:  mov r8 = r0 ;;
 ; CHECK-NEXT:  cmp.lt p7, p6 = 0, [[N]]
 entry:
   %ie = zext i32 %i to i64

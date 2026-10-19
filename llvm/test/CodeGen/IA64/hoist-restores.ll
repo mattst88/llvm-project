@@ -45,8 +45,8 @@ define i64 @early(i64 %a, i64 %b) {
 ; CHECK-LABEL: early:
 ; CHECK:       mov r36 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  cmp.eq p6, p7 = 0, r32
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB1_2{{$}}
+; CHECK:       cmp.eq p6, p7 = 0, r32
+; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB1_2 ;;
 ; CHECK:       .LBB1_2:
 ; CHECK-NEXT:  mov r8 = 7
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
@@ -131,6 +131,7 @@ define void @counted(ptr %p, i64 %n) {
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  mov ar.pfs = r35
+; CHECK-NEXT:  mov r14 = r0
 ; CHECK-NEXT:  cmp.eq p6, p7 = 0, r8
 ; CHECK-NEXT:  mov b0 = r36
 ; CHECK:       br.cloop.sptk.few .LBB4_2{{$}}

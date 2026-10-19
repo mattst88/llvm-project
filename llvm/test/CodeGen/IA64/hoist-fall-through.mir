@@ -1,0 +1,134 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-hoist-fall-through \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# The start of the likelier way, which only the branch falls through to,
+# moves above the branch where it cannot fault and what it writes is dead
+# where the branch goes. The first add stays, as the branch reads what it
+# writes, and so do the load and what uses it.
+# CHECK-LABEL: name: hoist
+# CHECK:       bb.0:
+# CHECK:         $r37 = MOV_FROM_BR $b0, $p0
+# CHECK-NEXT:    $r35 = ADDS 0, $r1, $p0
+# CHECK-NEXT:    BRCCi %bb.2
+# CHECK:       bb.1:
+# CHECK-NEXT:    liveins: $r33, $r34, $r35, $r36, $r37
+# CHECK:         $r32 = ADDS 5, $r33, $p0
+# CHECK-NEXT:    $r14 = LD8 $r34, 0, $p0
+# CHECK-NEXT:    $r20 = ADD $r14, $r32, $p0
+# CHECK-NEXT:    $r8 = ADD $r20, $r35, $p0
+---
+name: hoist
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.2(0x0147ae14), %bb.1(0x7eb851ec)
+    liveins: $r1, $r32, $r33, $r34, $r36, $b0
+
+    $r37 = MOV_FROM_BR $b0, $p0
+    BRCCi %bb.2, 0, $r32, 0, implicit-def $p6, implicit-def $p7
+
+  bb.1:
+    liveins: $r1, $r33, $r34, $r36, $r37
+
+    $r32 = ADDS 5, $r33, $p0
+    $r14 = LD8 $r34, 0, $p0
+    $r35 = ADDS 0, $r1, $p0
+    $r20 = ADD $r14, $r32, $p0
+    $r8 = ADD $r20, $r35, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r36, implicit $r37
+
+  bb.2:
+    liveins: $r36, $r37
+
+    $r8 = ADDL 7, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8, implicit $r36, implicit $r37
+...
+---
+# r35 is live where the branch goes.
+# CHECK-LABEL: name: live_at_target
+# CHECK:       bb.1:
+# CHECK:         $r32 = ADDS 5, $r33, $p0
+# CHECK-NEXT:    $r35 = ADDS 0, $r1, $p0
+name: live_at_target
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.2(0x0147ae14), %bb.1(0x7eb851ec)
+    liveins: $r1, $r32, $r33, $r35
+
+    BRCCi %bb.2, 0, $r32, 0, implicit-def $p6, implicit-def $p7
+
+  bb.1:
+    liveins: $r1, $r33
+
+    $r32 = ADDS 5, $r33, $p0
+    $r35 = ADDS 0, $r1, $p0
+    $r8 = ADD $r32, $r35, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.2:
+    liveins: $r35
+
+    $r8 = ADDS 0, $r35, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The fall-through is the unlikelier way.
+# CHECK-LABEL: name: unlikely
+# CHECK:       bb.1:
+# CHECK:         $r35 = ADDS 0, $r1, $p0
+name: unlikely
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.2(0x7eb851ec), %bb.1(0x0147ae14)
+    liveins: $r1, $r32
+
+    BRCCi %bb.2, 0, $r32, 0, implicit-def $p6, implicit-def $p7
+
+  bb.1:
+    liveins: $r1
+
+    $r35 = ADDS 0, $r1, $p0
+    $r8 = ADDS 1, $r35, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.2:
+    $r8 = ADDL 7, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A block of nothing but a branch may yet join the branch before it in a
+# parallel compare.
+# CHECK-LABEL: name: branch_only
+# CHECK:       bb.1:
+# CHECK-NOT:     ADDS
+# CHECK:         BRCCi %bb.3
+# CHECK:       bb.2:
+# CHECK:         $r35 = ADDS 0, $r1, $p0
+name: branch_only
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.3(0x0147ae14), %bb.1(0x7eb851ec)
+    liveins: $r1, $r32, $r33
+
+    BRCCi %bb.3, 0, $r32, 0, implicit-def $p6, implicit-def $p7
+
+  bb.1:
+    successors: %bb.3(0x0147ae14), %bb.2(0x7eb851ec)
+    liveins: $r1, $r33
+
+    BRCCi %bb.3, 0, $r33, 0, implicit-def $p6, implicit-def $p7
+
+  bb.2:
+    liveins: $r1
+
+    $r35 = ADDS 0, $r1, $p0
+    $r8 = ADDS 1, $r35, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.3:
+    $r8 = ADDL 7, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
