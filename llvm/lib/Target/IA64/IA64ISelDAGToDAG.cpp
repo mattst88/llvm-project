@@ -743,11 +743,13 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     // The cache type (data or instruction) is not expressible.
     bool Write = Node->getConstantOperandVal(2);
     uint64_t Locality = Node->getConstantOperandVal(3);
-    CurDAG->SelectNodeTo(
+    MachineMemOperand *MMO = cast<MemSDNode>(Node)->getMemOperand();
+    SDNode *Fetch = CurDAG->SelectNodeTo(
         Node, Write ? IA64::LFETCH_EXCL : IA64::LFETCH, MVT::Other,
         {Node->getOperand(1),
          CurDAG->getTargetConstant(3 - Locality, DL, MVT::i64),
          CurDAG->getRegister(IA64::P0, MVT::i1), Node->getOperand(0)});
+    CurDAG->setNodeMemRefs(cast<MachineSDNode>(Fetch), {MMO});
     return;
   }
   case ISD::ConstantFP: {

@@ -720,11 +720,15 @@ multiclass Fetch<bits<6> x6, string mnemonic, bit hasCount = 0> {
   def _r : M14<x6, mnemonic>;
   def _i : M15<x6, mnemonic>;
 }
+// A prefetch changes no memory, but is kept as one that may write it, so that
+// nothing removes it for writing no register.
+let mayLoad = 1, mayStore = 1, hasSideEffects = 0 in {
 defm LFETCH            : Fetch<0x2c, "lfetch", /*hasCount=*/1>;
 defm LFETCH_EXCL       : Fetch<0x2d, "lfetch.excl">;
 defm LFETCH_FAULT      : Fetch<0x2e, "lfetch.fault">;
 defm LFETCH_FAULT_EXCL : Fetch<0x2f, "lfetch.fault.excl">;
 def LFETCH_COUNT : M13Count<0x2c, "lfetch.count">;
+}
 
 let mayLoad = 1, mayStore = 1 in {
 foreach S = IntSizes in {

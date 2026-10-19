@@ -55,3 +55,22 @@ define void @element(ptr %p, i64 %i) {
   call void @llvm.prefetch.p0(ptr %q, i32 0, i32 3, i32 1)
   ret void
 }
+
+; A prefetch reads nothing into a register and writes no memory, so loads
+; and arithmetic move across it.
+
+define i64 @reorder(ptr %p, ptr %q) {
+; CHECK-LABEL: reorder:
+; CHECK:         ld8 r14 = [r33], 8 ;;
+; CHECK-NEXT:    ld8 r15 = [r33] ;;
+; CHECK-NEXT:    add r8 = r14, r15, 1
+; CHECK-NEXT:    lfetch [r32]
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
+  %x = load i64, ptr %q
+  %y = add i64 %x, 1
+  call void @llvm.prefetch.p0(ptr %p, i32 0, i32 3, i32 1)
+  %r = getelementptr i64, ptr %q, i64 1
+  %z = load i64, ptr %r
+  %s = add i64 %y, %z
+  ret i64 %s
+}

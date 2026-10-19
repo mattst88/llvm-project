@@ -95,7 +95,7 @@ nop.i 0
 # CHECK-NEXT:  1      6     0.50    *                   ldfd	f6 = [r32], 8
 # CHECK-NEXT:  1      6     0.50    *                   ldfpd	f6, f7 = [r32]
 # CHECK-NEXT:  1      1     0.50           *            stfd	[r32] = f6
-# CHECK-NEXT:  1      1     0.50                  U     lfetch	[r32]
+# CHECK-NEXT:  1      1     0.50    *      *            lfetch	[r32]
 # CHECK-NEXT:  1      2     0.50    *      *      U     cmpxchg8.acq	r8 = [r32], r33, ar.ccv
 # CHECK-NEXT:  1      2     0.50    *      *      U     fetchadd8.acq	r8 = [r32], 1
 # CHECK-NEXT:  1      1     0.25                  U     chk.s.m	r32, again
