@@ -415,6 +415,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // Counted loops branch with br.cloop.
   setTargetDAGCombine({ISD::BRCOND, ISD::INTRINSIC_VOID});
+  setTargetDAGCombine(ISD::ADD);
 
   // va_list is a pointer to the next argument; each argument occupies one or
   // more 8-byte slots.
@@ -547,12 +548,78 @@ static SDValue combineLoopBranch(SDNode *N, SelectionDAG &DAG) {
                      DAG.getTargetConstant(Exit, DL, MVT::i64));
 }
 
+// B + ext(C ? K + M : K) as (C ? B + ext(M) : B) + ext(K), where the add
+// does not wrap for the extension: the wrap of an index into an array,
+// "if (k < 0) k += n; a[k]". The extension of K then runs beside the compare
+// instead of after the select, and B + ext(M) is often invariant. The add
+// may still be K + (C ? M : 0).
+static SDValue combineAddOfExtendedSelect(SDNode *N, SelectionDAG &DAG) {
+  EVT VT = N->getValueType(0);
+  if (VT != MVT::i64)
+    return SDValue();
+  for (unsigned I = 0; I != 2; ++I) {
+    SDValue B = N->getOperand(I), Ext = N->getOperand(1 - I);
+    unsigned ExtOpc = Ext.getOpcode();
+    if ((ExtOpc != ISD::SIGN_EXTEND && ExtOpc != ISD::ZERO_EXTEND) ||
+        !Ext.hasOneUse())
+      continue;
+    auto NoWrap = [&](SDValue Add) {
+      return Add.getOpcode() == ISD::ADD &&
+             (ExtOpc == ISD::SIGN_EXTEND ? Add->getFlags().hasNoSignedWrap()
+                                         : Add->getFlags().hasNoUnsignedWrap());
+    };
+    // The other operand of an add of X.
+    auto Other = [](SDValue Add, SDValue X) {
+      return Add.getOperand(0) == X   ? Add.getOperand(1)
+             : Add.getOperand(1) == X ? Add.getOperand(0)
+                                      : SDValue();
+    };
+    SDValue Sel = Ext.getOperand(0), K, M;
+    bool WhenTrue = false;
+    if (Sel.getOpcode() == ISD::SELECT && Sel.hasOneUse()) {
+      // C ? K + M : K, or C ? K : K + M.
+      for (unsigned Arm = 1; Arm != 3 && !M; ++Arm)
+        if (NoWrap(Sel.getOperand(Arm)) &&
+            (M = Other(Sel.getOperand(Arm), Sel.getOperand(3 - Arm)))) {
+          K = Sel.getOperand(3 - Arm);
+          WhenTrue = Arm == 1;
+        }
+    } else if (NoWrap(Sel) && Sel.hasOneUse()) {
+      // K + (C ? M : 0), or K + (C ? 0 : M).
+      for (unsigned Op = 0; Op != 2 && !M; ++Op) {
+        SDValue S = Sel.getOperand(Op);
+        if (S.getOpcode() != ISD::SELECT || !S.hasOneUse())
+          continue;
+        for (unsigned Arm = 1; Arm != 3 && !M; ++Arm)
+          if (isNullConstant(S.getOperand(3 - Arm))) {
+            M = S.getOperand(Arm);
+            K = Sel.getOperand(1 - Op);
+            WhenTrue = Arm == 1;
+          }
+        if (M)
+          Sel = S;
+      }
+    }
+    if (!M)
+      continue;
+    SDLoc DL(N);
+    SDValue Moved =
+        DAG.getNode(ISD::ADD, DL, VT, B, DAG.getNode(ExtOpc, DL, VT, M));
+    SDValue Base = DAG.getSelect(DL, VT, Sel.getOperand(0),
+                                 WhenTrue ? Moved : B, WhenTrue ? B : Moved);
+    return DAG.getNode(ISD::ADD, DL, VT, Base, DAG.getNode(ExtOpc, DL, VT, K));
+  }
+  return SDValue();
+}
+
 SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
   switch (N->getOpcode()) {
   case ISD::BRCOND:
     return combineLoopBranch(N, DAG);
+  case ISD::ADD:
+    return combineAddOfExtendedSelect(N, DAG);
   case ISD::INTRINSIC_VOID:
     if (N->getConstantOperandVal(1) == Intrinsic::set_loop_iterations) {
       SDLoc DL(N);
