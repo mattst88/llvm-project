@@ -135,13 +135,14 @@ define i32 @call(double %d, double %e) {
 ; CHECK-LABEL: call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 8, 0
 ; CHECK:       getf.d r37 = f8 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12
-; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  mov r36 = 1
 ; CHECK-NEXT:  mov r39 = 2
 ; CHECK-NEXT:  getf.d r38 = f9
 ; CHECK-NEXT:  mov r35 = r0 ;;
+; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  mov r40 = r37
 ; CHECK-NEXT:  stfd [r14] = f8
 ; CHECK-NEXT:  stfd [r15] = f8

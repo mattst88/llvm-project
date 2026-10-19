@@ -46,10 +46,10 @@ define i64 @large(i64 %a) {
 ; CHECK-LABEL: large:
 ; CHECK:         mov r2 = -15984 ;;
 ; CHECK-NEXT:    .fframe 15984
-; CHECK-NEXT:    add r12 = r2, r12 ;;
+; CHECK-NEXT:    add r12 = r2, r12
 ; CHECK-NEXT:    .body
-; CHECK-NEXT:    mov r14 = r12
 ; CHECK-NEXT:    mov r8 = r0 ;;
+; CHECK-NEXT:    mov r14 = r12 ;;
 ; CHECK-NEXT:    st8 [r14] = r32
 ; CHECK-NEXT:    mov r2 = 15984 ;;
 ; CHECK-NEXT:    .restore sp

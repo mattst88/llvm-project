@@ -23,9 +23,9 @@
 //     memory keep their order. It moves one instruction at a time while
 //     that lowers the cycles, then the bundles, that the group and its
 //     neighbors take.
-//   - It moves an instruction that only I0 executes into the group before
-//     or after its own, where that has a free I0 port. Two of them in a
-//     group take two cycles.
+//   - It moves an instruction into the group before or after its own where
+//     that costs less. Two instructions that only I0 executes take two
+//     cycles in one group, as do three loads or three stores.
 //   - It chooses the template of each bundle, together with that of the
 //     bundle after it, by the cost of the next two groups, and where that
 //     differs from the assembler's choice it has the asm printer emit a
@@ -451,11 +451,11 @@ static bool dependsOn(const MachineInstr &B, const MachineInstr &A,
   return false;
 }
 
-/// Whether \p It may move to the group before or after its own: an
-/// instruction that only I0 executes and that touches only registers.
+/// Whether \p It may move to the group before or after its own: neither a
+/// volatile or atomic access nor a write of sp.
 static bool crossesGroups(const Item &It) {
   const MachineInstr &MI = *It.MI;
-  return It.I0Only && !isFixed(MI) && !MI.mayLoadOrStore() &&
+  return !isFixed(MI) && !(MI.mayLoadOrStore() && MI.hasOrderedMemoryRef()) &&
          !MI.modifiesRegister(IA64::R12, nullptr);
 }
 
@@ -660,9 +660,10 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       ReorderGroup(G);
 
     // Two instructions that only I0 executes take two cycles in one group,
-    // and a group whose instructions wait for a load may hold several. Move
-    // one into the group before or after, in the same block, where nothing
-    // there keeps it out and that costs less.
+    // as do three loads or three stores, and a group whose instructions wait
+    // for a load may hold several. Move one into the group before or after,
+    // in the same block, where nothing there keeps it out and that costs
+    // less.
     for (unsigned G = 0; G + 1 < Groups.size(); ++G) {
       unsigned Begin = Groups[G].first, Mid = Groups[G].second;
       unsigned End = Groups[G + 1].second;

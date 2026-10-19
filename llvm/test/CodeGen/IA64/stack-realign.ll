@@ -59,7 +59,7 @@ define void @variable(i64 %n) {
 ; CHECK:         mov r35 = r12
 ; CHECK-NEXT:    adds r12 = -112, r12 ;;
 ; CHECK-NEXT:    and r12 = -64, r12 ;;
-; CHECK-NEXT:    mov r36 = r12
+; CHECK:         mov r36 = r12
 ; CHECK:         sub r12 = r12, r14 ;;
 ; CHECK-NEXT:    adds r37 = 16, r12
 ; CHECK-NEXT:    .save rp, r34

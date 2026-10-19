@@ -110,6 +110,7 @@ define i64 @select_and_clear(i64 %x, i64 %y, i64 %p, i64 %q) {
 define void @branch_chain(i64 %x, i64 %y) {
 ; CHECK-LABEL: branch_chain:
 ; CHECK:       tbit.z p7, p6 = r32, 3 ;;
+; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  tbit.z.or.andcm p6, p7 = r33, 4
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB7_3 ;;
   %a = and i64 %x, 8

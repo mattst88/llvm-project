@@ -59,10 +59,10 @@ define i64 @frame(i64 %a) {
 ; CHECK:       alloc r34 = ar.pfs, 1, 3, 2, 0
 ; CHECK-NEXT:  .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12
-; CHECK-NEXT:  mov r33 = r1 ;;
 ; CHECK-NEXT:  .save rp, r35
-; CHECK-NEXT:  mov r35 = b0
+; CHECK-NEXT:  mov r35 = b0 ;;
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = vext ;;
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  mov r36 = r32

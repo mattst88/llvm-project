@@ -117,7 +117,8 @@ define double @minus_zero() {
 define double @across(double %a) {
 ; CHECK-LABEL: across:
 ; CHECK:       adds r12 = -16, r12 ;;
-; CHECK-NEXT:  adds r2 = 16, r12 ;;
+; CHECK-NEXT:  adds r2 = 16, r12
+; CHECK-NEXT:  movl r14 = 1073741824 ;;
 ; CHECK-NEXT:  .save.f 0x1
 ; CHECK-NEXT:  stf.spill [r2] = f2
 ; CHECK:       mov f2 = f8

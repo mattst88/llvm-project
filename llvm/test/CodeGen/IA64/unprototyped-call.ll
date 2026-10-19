@@ -13,13 +13,13 @@ declare i32 @printf(ptr, ...)
 define void @both(i32 %a, double %d, float %f) {
 ; CHECK-LABEL: both:
 ; CHECK:         getf.d r37 = f8
-; CHECK-NEXT:    mov r33 = r1
 ; CHECK-NEXT:    mov r36 = r32
 ; CHECK-NEXT:    mov r39 = 7
 ; CHECK-NEXT:    getf.s r38 = f9
 ; CHECK-NEXT:    .save rp, r35
 ; CHECK-NEXT:    mov r35 = b0 ;;
 ; CHECK-NEXT:    .body
+; CHECK-NEXT:    mov r33 = r1
 ; CHECK-NEXT:    br.call.sptk.many b0 = kr ;;
   call i32 (i32, double, float, i32, ...) @kr(i32 %a, double %d, float %f, i32 7)
   ret void

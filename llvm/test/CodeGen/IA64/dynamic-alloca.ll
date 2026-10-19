@@ -8,10 +8,10 @@ declare void @g(ptr, i64)
 define void @f(i64 %n) {
 ; CHECK-LABEL: f:
 ; CHECK:       alloc r33 = ar.pfs, 1, 3, 2, 0
-; CHECK-NEXT:  .vframe r35
-; CHECK-NEXT:  mov r35 = r12
 ; CHECK-NEXT:  mov r37 = r32
 ; CHECK-NEXT:  mov r32 = r1 ;;
+; CHECK-NEXT:  .vframe r35
+; CHECK-NEXT:  mov r35 = r12
 ; CHECK-NEXT:  adds r14 = 15, r37 ;;
 ; CHECK-NEXT:  and r14 = -16, r14 ;;
 ; CHECK-NEXT:  sub r12 = r12, r14 ;;
@@ -73,8 +73,8 @@ define i8 @leaf(i64 %n) {
 ; CHECK-NEXT:  .vframe r34
 ; CHECK-NEXT:  mov r34 = r12
 ; CHECK:       sub r12 = r12, r14
-; CHECK:       mov r14 = r12
 ; CHECK-NEXT:  mov r15 = 1 ;;
+; CHECK-NEXT:  mov r14 = r12 ;;
 ; CHECK-NEXT:  st1 [r14] = r15
 ; CHECK-NEXT:  ld1 r8 = [r14]
 ; CHECK-NEXT:  .restore sp

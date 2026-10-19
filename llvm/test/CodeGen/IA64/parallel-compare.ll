@@ -47,6 +47,7 @@ return:
 define i32 @either(i64 %a, i64 %b) {
 ; CHECK-LABEL: either:
 ; CHECK:       cmp.lt p7, p6 = -1, r32 ;;
+; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 7, r33
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_3 ;;
 ; CHECK:       br.call.sptk.many b0 = h ;;
@@ -225,6 +226,7 @@ end:
 define void @target_both(i64 %a, i64 %b) {
 ; CHECK-LABEL: target_both:
 ; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
+; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = 0, r33
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB8_3 ;;
 ; CHECK:       .LBB8_3:
@@ -249,6 +251,7 @@ return:
 define void @target_opposite(i64 %a, i64 %b) {
 ; CHECK-LABEL: target_opposite:
 ; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
+; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = 0, r33
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB9_3 ;;
 ; CHECK:       .LBB9_3:

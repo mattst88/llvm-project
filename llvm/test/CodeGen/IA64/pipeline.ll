@@ -42,7 +42,7 @@ define i64 @sum(ptr %a, i64 %n) {
 ; the only element; the epilogue adds the last one.
 ; COPY-LABEL:  sum:
 ; COPY:        mov ar.lc = r{{[0-9]+}}
-; COPY:        ld8 [[V:r[0-9]+]] = [r32], 8 ;;
+; COPY:        ld8 [[V:r[0-9]+]] = [r32], 8{{$}}
 ; COPY-NEXT:   br.cloop.sptk.few .LBB0_[[KERNEL:[0-9]+]]
 ; COPY-NEXT:   br.cond.sptk.few .LBB0_[[EPILOGUE:[0-9]+]] ;;
 ; COPY-NEXT:   .LBB0_[[KERNEL]]:

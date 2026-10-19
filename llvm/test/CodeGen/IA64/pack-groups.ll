@@ -139,3 +139,25 @@ define i64 @restores(ptr %p, ptr %q) {
   %r = zext i1 %lt to i64
   ret i64 %r
 }
+
+; Only ports M0 and M1 load, so three loads take two cycles in one group. The
+; second add waits for the first, and the third load goes to its group.
+define i64 @three_loads(ptr %p, ptr %q, ptr %r) {
+; CHECK-LABEL: three_loads:
+; CHECK:       ld8 r14 = [r32]
+; CHECK-NEXT:  ld8 r15 = [r33] ;;
+; CHECK-NEXT:  ld8 r16 = [r34]
+; CHECK-NEXT:  add r14 = r14, r15 ;;
+; CHECK-NEXT:  add r8 = r14, r16
+; OFF-LABEL:   three_loads:
+; OFF:         ld8 r14 = [r32]
+; OFF-NEXT:    ld8 r15 = [r33]
+; OFF-NEXT:    ld8 r16 = [r34] ;;
+; OFF-NEXT:    add r14 = r14, r15 ;;
+  %a = load i64, ptr %p
+  %b = load i64, ptr %q
+  %c = load i64, ptr %r
+  %x = add i64 %a, %b
+  %y = add i64 %x, %c
+  ret i64 %y
+}

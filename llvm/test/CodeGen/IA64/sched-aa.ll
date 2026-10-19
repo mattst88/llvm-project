@@ -8,8 +8,8 @@ define void @add2(ptr noalias %y, ptr noalias %x, i64 %n) {
 ; CHECK-LABEL: add2:
 ; CHECK:       .LBB0_1:
 ; CHECK:       ld8 r16 = [r33], 16
-; CHECK-NEXT:  ld8 r17 = [r32]
-; CHECK-NEXT:  ld8 r18 = [r15], 16 ;;
+; CHECK-NEXT:  ld8 r17 = [r32] ;;
+; CHECK-NEXT:  ld8 r18 = [r15], 16
 ; CHECK-NEXT:  add r16 = r16, r17
 ; CHECK-NEXT:  ld8 r17 = [r14] ;;
 ; CHECK-NEXT:  st8 [r32] = r16
