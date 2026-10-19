@@ -7,8 +7,8 @@
 ; distances are eight bytes, so they need no sign extension.
 define i64 @f(i64 %a) {
 ; CHECK-LABEL: f:
-; CHECK:       cmp.ltu p6, p7 = 4, r32 ;;
-; CHECK-NEXT:  (p6) mov r8 = r0
+; CHECK:       cmp.ltu p6, p7 = 4, r32{{$}}
+; CHECK-NEXT:  mov r8 = r0
 ; CHECK-NEXT:  (p6) br.ret.dpnt.many b0 ;;
 ; CHECK:       addl r14 = @ltoffx(.LJTI0_0), r1 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], .LJTI0_0 ;;

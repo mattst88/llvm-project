@@ -78,7 +78,8 @@ private:
   MachineBasicBlock *getOnlySuccessor(MachineBasicBlock &MBB) const;
   bool canQualify(const MachineBasicBlock &MBB) const;
   void qualify(MachineBasicBlock &From, MachineBasicBlock &To, Register Pred,
-               const LivePhysRegs &Otherwise, bool KeepReturn) const;
+               const LivePhysRegs &Otherwise, const LivePhysRegs *JoinLive,
+               bool KeepReturn) const;
   bool convert(MachineBasicBlock &MBB) const;
   bool mergeWithSuccessor(MachineBasicBlock &MBB) const;
 };
@@ -149,13 +150,36 @@ bool IA64IfConversion::canQualify(const MachineBasicBlock &MBB) const {
   return true;
 }
 
+// Whether MI can run whether or not Pred holds: it cannot fault or change
+// anything but allocatable general registers, none of which is live on the
+// path that bypasses it (Otherwise) or into the join block (JoinLive). It
+// then need not wait for the compare.
+static bool canRunAnyway(const MachineInstr &MI, const LivePhysRegs &Otherwise,
+                         const LivePhysRegs &JoinLive) {
+  const MachineRegisterInfo &MRI = MI.getMF()->getRegInfo();
+  if (MI.mayLoadOrStore() || MI.hasUnmodeledSideEffects() || MI.isBranch() ||
+      MI.isReturn() || MI.mayRaiseFPException())
+    return false;
+  for (const MachineOperand &MO : MI.operands()) {
+    if (!MO.isReg() || !MO.isDef())
+      continue;
+    Register Reg = MO.getReg();
+    if (!IA64::GRRegClass.contains(Reg) || MRI.isReserved(Reg) ||
+        Otherwise.contains(Reg) || JoinLive.contains(Reg))
+      return false;
+  }
+  return true;
+}
+
 // Move From's instructions to the end of To, predicated on Pred, along with
-// From's return if KeepReturn.
+// From's return if KeepReturn. With JoinLive, those that canRunAnyway are
+// left unpredicated.
 // A register they write keeps its old value when Pred is false, so the
 // write is also a use of the register if it is live then: Otherwise holds
 // the registers live on the path that bypasses From.
 void IA64IfConversion::qualify(MachineBasicBlock &From, MachineBasicBlock &To,
                                Register Pred, const LivePhysRegs &Otherwise,
+                               const LivePhysRegs *JoinLive,
                                bool KeepReturn) const {
   MachineFunction &MF = *To.getParent();
   for (MachineInstr &MI : make_early_inc_range(From)) {
@@ -166,6 +190,11 @@ void IA64IfConversion::qualify(MachineBasicBlock &From, MachineBasicBlock &To,
     MI.removeFromParent();
     To.insert(To.end(), &MI);
     if (MI.isDebugInstr())
+      continue;
+    for (MachineOperand &MO : MI.operands())
+      if (MO.isReg() && MO.isUse())
+        MO.setIsKill(false);
+    if (JoinLive && canRunAnyway(MI, Otherwise, *JoinLive))
       continue;
     MI.getOperand(MI.findFirstPredOperandIdx()).setReg(Pred);
     SmallVector<Register, 2> Kept;
@@ -255,9 +284,13 @@ bool IA64IfConversion::convert(MachineBasicBlock &MBB) const {
     for (MachineInstr &MI : reverse(*Side))
       Live.stepBackward(MI);
   };
-  LivePhysRegs NotT, NotF;
+  LivePhysRegs NotT, NotF, JoinLive;
   LiveInto(FBB, QualifyF, NotT);
   LiveInto(TBB, QualifyT, NotF);
+  if (Join) {
+    JoinLive.init(*TRI);
+    JoinLive.addLiveIns(*Join);
+  }
 
   if (Returns)
     Return = TBB->back().removeFromParent();
@@ -266,7 +299,7 @@ bool IA64IfConversion::convert(MachineBasicBlock &MBB) const {
         std::tuple(FBB, IA64::P7, QualifyF, &NotF)}) {
     if (!Wanted)
       continue;
-    qualify(*Succ, MBB, Pred, *Otherwise, Early);
+    qualify(*Succ, MBB, Pred, *Otherwise, Join ? &JoinLive : nullptr, Early);
     if (Early)
       MBB.back().getOperand(1).setImm(MBPI->getEdgeProbability(&MBB, Succ) >=
                                               BranchProbability(1, 2)

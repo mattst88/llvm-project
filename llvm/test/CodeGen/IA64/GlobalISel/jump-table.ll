@@ -7,8 +7,10 @@
 ; range check.
 define i64 @f(i64 %a) {
 ; CHECK-LABEL: f:
-; CHECK:       addl r15 = @ltoff(.LJTI0_0), r1 ;;
-; CHECK-NEXT:  cmp.ltu p6, p7 = 4, r14 ;;
+; CHECK:       mov r8 = r0
+; CHECK-NEXT:  addl r15 = @ltoff(.LJTI0_0), r1 ;;
+; CHECK-NEXT:  cmp.ltu p6, p7 = 4, r14{{$}}
+; CHECK-NEXT:  (p6) br.ret.dpnt.many b0 ;;
 ; CHECK:       .LBB0_1:
 ; CHECK-NEXT:  ld8 r15 = [r15] ;;
 ; CHECK-NEXT:  shladd r14 = r14, 3, r15 ;;

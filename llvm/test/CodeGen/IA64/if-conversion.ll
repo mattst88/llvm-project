@@ -8,8 +8,8 @@ declare void @callee()
 
 define void @triangle(i64 %a, ptr %p) {
 ; CHECK-LABEL: triangle:
-; CHECK:       cmp.eq p7, p6 = 0, r32 ;;
-; CHECK-NEXT:  (p7) mov r14 = 1 ;;
+; CHECK:       cmp.eq p7, p6 = 0, r32{{$}}
+; CHECK-NEXT:  mov r14 = 1 ;;
 ; CHECK-NEXT:  (p7) st8 [r33] = r14
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ;
@@ -28,8 +28,8 @@ join:
 
 define void @triangle_taken(i64 %a, ptr %p) {
 ; CHECK-LABEL: triangle_taken:
-; CHECK:       cmp.eq p6, p7 = 0, r32 ;;
-; CHECK-NEXT:  (p7) mov r14 = 1 ;;
+; CHECK:       cmp.eq p6, p7 = 0, r32{{$}}
+; CHECK-NEXT:  mov r14 = 1 ;;
 ; CHECK-NEXT:  (p7) st8 [r33] = r14
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %c = icmp eq i64 %a, 0
@@ -49,10 +49,10 @@ define void @diamond(i64 %a, ptr %p, ptr %q) {
 ; CHECK-NEXT:  .save rp, r37
 ; CHECK-NEXT:  mov r37 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  cmp.lt p6, p7 = -1, r32 ;;
-; CHECK-NEXT:  (p6) mov r14 = 2 ;;
+; CHECK-NEXT:  cmp.lt p6, p7 = -1, r32{{$}}
+; CHECK-NEXT:  mov r14 = 2 ;;
 ; CHECK-NEXT:  (p6) st8 [r34] = r14
-; CHECK-NEXT:  (p7) mov r14 = 1 ;;
+; CHECK-NEXT:  mov r14 = 1 ;;
 ; CHECK-NEXT:  (p7) st8 [r33] = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = callee ;;
   %c = icmp slt i64 %a, 0
@@ -127,13 +127,43 @@ join:
   ret double %r
 }
 
+; An instruction that cannot fault runs whether or not its predicate holds,
+; unless the register it writes is live afterwards: here the sum, which the
+; join reads.
+
+define i64 @join_live(i64 %a, i64 %b, ptr %p, ptr %q) {
+; CHECK-LABEL: join_live:
+; CHECK:       cmp.lt p6, p7 = -1, r32{{$}}
+; CHECK-NEXT:  mov r14 = 2 ;;
+; CHECK-NEXT:  (p6) st8 [r35] = r14
+; CHECK-NEXT:  (p6) adds r32 = 7, r33
+; CHECK-NEXT:  mov r14 = 1 ;;
+; CHECK-NEXT:  (p7) st8 [r34] = r14
+; CHECK-NEXT:  (p7) adds r32 = 5, r32
+; CHECK-NEXT:  br.call.sptk.many b0 = callee ;;
+  %c = icmp slt i64 %a, 0
+  br i1 %c, label %then, label %else
+then:
+  store i64 1, ptr %p
+  %x = add i64 %a, 5
+  br label %join
+else:
+  store i64 2, ptr %q
+  %y = add i64 %b, 7
+  br label %join
+join:
+  %r = phi i64 [ %x, %then ], [ %y, %else ]
+  call void @callee()
+  ret i64 %r
+}
+
 ; A side that returns does so under the predicate, and the block goes on to
 ; the other side if it does not.
 
 define i64 @early(i64 %a, i64 %b, ptr %p) {
 ; CHECK-LABEL: early:
-; CHECK:       cmp.eq p7, p6 = 0, r32 ;;
-; CHECK-NEXT:  (p7) mov r8 = r33
+; CHECK:       cmp.eq p7, p6 = 0, r32{{$}}
+; CHECK-NEXT:  mov r8 = r33
 ; CHECK-NEXT:  (p7) br.ret.dpnt.many b0 ;;
 ; CHECK-NEXT:  {{.LBB[0-9_]+}}:
 ; CHECK-NEXT:  mov r14 = 1
