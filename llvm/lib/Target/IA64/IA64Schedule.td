@@ -64,6 +64,7 @@ def WriteFRecip : SchedWrite; // Reciprocal approximation.
 def WriteFRecipPred : SchedWrite; // The predicate that it writes.
 def WriteFCvt   : SchedWrite; // Convert to and from integer.
 def WriteFDiv   : SchedWrite; // The whole of a division.
+def WriteFDivConst : SchedWrite; // The same, by a constant.
 def WriteIDiv   : SchedWrite; // Integer division, from significand to
                               // significand.
 def WriteIDiv32 : SchedWrite; // The same, of integers that fit in 32 bits.

@@ -85,6 +85,11 @@ def SDTSigDiv32 : SDTypeProfile<1, 3, [SDTCisVT<0, f64>, SDTCisSameAs<0, 1>,
                                        SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>]>;
 def IA64sdiv32sig : SDNode<"IA64ISD::SDIV32_SIG", SDTSigDiv32>;
 def IA64udiv32sig : SDNode<"IA64ISD::UDIV32_SIG", SDTSigDiv32>;
+// Division by a constant, given the constant's reciprocal rounded to double.
+def IA64fdivconst
+    : SDNode<"IA64ISD::FDIV_CONST",
+             SDTypeProfile<1, 3, [SDTCisFP<0>, SDTCisSameAs<0, 1>,
+                                  SDTCisSameAs<0, 2>, SDTCisVT<3, f64>]>>;
 def IA64xmal
     : SDNode<"IA64ISD::XMA_L",
              SDTypeProfile<1, 3, [SDTCisVT<0, f64>, SDTCisSameAs<0, 1>,

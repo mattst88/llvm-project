@@ -417,7 +417,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // Counted loops branch with br.cloop.
   setTargetDAGCombine({ISD::BRCOND, ISD::INTRINSIC_VOID});
-  setTargetDAGCombine({ISD::ADD, ISD::SUB, ISD::MUL});
+  setTargetDAGCombine({ISD::ADD, ISD::SUB, ISD::MUL, ISD::FDIV});
 
   // va_list is a pointer to the next argument; each argument occupies one or
   // more 8-byte slots.
@@ -726,6 +726,38 @@ static SDValue combineMulByConstant(SDNode *N, SelectionDAG &DAG,
   return T;
 }
 
+// a / b for a constant b, as q + (a - b * q) * y with y = 1 / b rounded to
+// double and q = a * y in the 64-bit precision and wide exponent range of
+// status field 1. a - b * q is then about a * 2^-53 and the sum is within
+// 2^-105 of a / b relative to it, while a / b, unless it is a midpoint, is
+// further than that from every midpoint between results when b's significand
+// has at most 32 bits. a / b is a midpoint only if it is subnormal and b is a
+// multiple of 2, which is excluded. Only round-to-nearest gets the right
+// result from a value that close, which non-strict division may assume. frcpa
+// still screens out zeros, infinities and NaNs, which it divides itself.
+static SDValue combineFDivByConstant(SDNode *N, SelectionDAG &DAG) {
+  EVT VT = N->getValueType(0);
+  auto *CN = dyn_cast<ConstantFPSDNode>(N->getOperand(1));
+  if ((VT != MVT::f32 && VT != MVT::f64) || !CN)
+    return SDValue();
+  bool LosesInfo;
+  APFloat B = CN->getValueAPF();
+  B.convert(APFloat::IEEEdouble(), APFloat::rmNearestTiesToEven, &LosesInfo);
+  if (!B.isNormal())
+    return SDValue();
+  // The significand, with the integer bit, scaled to be an odd integer.
+  uint64_t Sig = B.bitcastToAPInt().getZExtValue() & ((1ULL << 52) - 1);
+  Sig |= 1ULL << 52;
+  unsigned Zeros = llvm::countr_zero(Sig);
+  if (53 - Zeros > 32 || ilogb(B) - 52 + int(Zeros) > 0)
+    return SDValue();
+  APFloat Y(1.0);
+  Y.divide(B, APFloat::rmNearestTiesToEven);
+  SDLoc DL(N);
+  return DAG.getNode(IA64ISD::FDIV_CONST, DL, VT, N->getOperand(0),
+                     N->getOperand(1), DAG.getConstantFP(Y, DL, MVT::f64));
+}
+
 // a - q * b, where q came out of the FP unit, as xma.l of q and -b plus a
 // there, rather than moving q back in for the multiply. This is how
 // DAGCombiner takes the remainder when the quotient is also wanted.
@@ -763,6 +795,8 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
     return combineSubOfMulBySignificand(N, DAG, DCI);
   case ISD::MUL:
     return combineMulByConstant(N, DAG, DCI);
+  case ISD::FDIV:
+    return combineFDivByConstant(N, DAG);
   case ISD::INTRINSIC_VOID:
     if (N->getConstantOperandVal(1) == Intrinsic::set_loop_iterations) {
       SDLoc DL(N);

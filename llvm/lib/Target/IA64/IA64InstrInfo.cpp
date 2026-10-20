@@ -629,6 +629,43 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
+  case IA64::FDIV_CONST_S:
+  case IA64::FDIV_CONST_D: {
+    Register R = MI.getOperand(0).getReg();
+    Register Q = MI.getOperand(1).getReg();
+    Register E = MI.getOperand(2).getReg();
+    Register A = MI.getOperand(3).getReg();
+    Register B = MI.getOperand(4).getReg();
+    Register Y = MI.getOperand(5).getReg();
+    BuildMI(MBB, MI, DL, get(IA64::FRCPA), R)
+        .addReg(IA64::P6, RegState::Define)
+        .addReg(A)
+        .addReg(B)
+        .addImm(0)
+        .addReg(IA64::P0);
+    // q and the remainder do not wait for frcpa's predicate.
+    BuildMI(MBB, MI, DL, get(IA64::FMA), Q)
+        .addReg(A)
+        .addReg(Y)
+        .addReg(IA64::F0)
+        .addImm(1)
+        .addReg(IA64::P0);
+    BuildMI(MBB, MI, DL, get(IA64::FNMA), E)
+        .addReg(B)
+        .addReg(Q)
+        .addReg(A)
+        .addImm(1)
+        .addReg(IA64::P0);
+    bool IsDouble = MI.getOpcode() == IA64::FDIV_CONST_D;
+    BuildMI(MBB, MI, DL, get(IsDouble ? IA64::FMA_D : IA64::FMA_S), R)
+        .addReg(E)
+        .addReg(Y)
+        .addReg(Q)
+        .addImm(0)
+        .addReg(IA64::P6);
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::SDIV_SIG:
   case IA64::UDIV_SIG:
   case IA64::SDIV32_SIG:

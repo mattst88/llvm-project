@@ -745,6 +745,15 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     ReplaceNode(Node, Div);
     return;
   }
+  case IA64ISD::FDIV_CONST: {
+    MVT VT = Node->getSimpleValueType(0);
+    SDNode *Div = CurDAG->getMachineNode(
+        VT == MVT::f32 ? IA64::FDIV_CONST_S : IA64::FDIV_CONST_D, DL,
+        {VT, MVT::f80, MVT::f80}, SmallVector<SDValue, 3>(Node->ops()));
+    setNoFPExcept(Div);
+    ReplaceNode(Node, Div);
+    return;
+  }
   case IA64ISD::SDIV_SIG:
   case IA64ISD::UDIV_SIG: {
     // As does integer division.

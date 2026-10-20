@@ -76,3 +76,84 @@ define double @div_power_of_two(double %a) {
   %r = fdiv double %a, 4.0
   ret double %r
 }
+
+; With a constant divisor b, y = 1 / b rounded to double gives q = a * y, and
+; q + (a - b * q) * y rounds to a / b: a chain of three steps, which need not
+; wait for frcpa. frcpa still divides zeros, infinities and NaNs.
+
+define double @div_const(double %a) {
+; CHECK-LABEL: div_const:
+; CHECK:         movl r14 = 4592670820000712476
+; CHECK-NEXT:    movl r15 = 4621256167635550208 ;;
+; CHECK-NEXT:    setf.d f7 = r14
+; CHECK-NEXT:    setf.d f9 = r15 ;;
+; CHECK-NEXT:    fma.s1 f10 = f8, f7, f0
+; CHECK-NEXT:    frcpa f6, p6 = f8, f9 ;;
+; CHECK-NEXT:    fnma.s1 f11 = f9, f10, f8 ;;
+; CHECK-NEXT:    (p6) fma.d f6 = f11, f7, f10 ;;
+; CHECK-NEXT:    mov f8 = f6
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
+  %r = fdiv double %a, 9.0
+  ret double %r
+}
+
+define float @div_const_float(float %a) {
+; CHECK-LABEL: div_const_float:
+; CHECK:         movl r14 = 4599676419421066581
+; CHECK-NEXT:    movl r15 = 1077936128 ;;
+; CHECK-NEXT:    setf.d f7 = r14
+; CHECK-NEXT:    setf.s f9 = r15 ;;
+; CHECK-NEXT:    fma.s1 f10 = f8, f7, f0
+; CHECK-NEXT:    frcpa f6, p6 = f8, f9 ;;
+; CHECK-NEXT:    fnma.s1 f11 = f9, f10, f8 ;;
+; CHECK-NEXT:    (p6) fma.s f6 = f11, f7, f10 ;;
+  %r = fdiv float %a, 3.0
+  ret float %r
+}
+
+; -1.5 is -3 * 2^-1.
+
+define double @div_const_fraction(double %a) {
+; CHECK-LABEL: div_const_fraction:
+; CHECK:         movl r14 = -4619192017806338731
+; CHECK-NEXT:    movl r15 = -4613937818241073152 ;;
+; CHECK:         fnma.s1 f11 = f9, f10, f8 ;;
+; CHECK-NEXT:    (p6) fma.d f6 = f11, f7, f10 ;;
+  %r = fdiv double %a, -1.5
+  ret double %r
+}
+
+; A subnormal quotient by a multiple of 2 can be a midpoint, as 5 * 2^-1074
+; divided by 10 is, and only the full sequence rounds that to even.
+
+define double @div_const_even(double %a) {
+; CHECK-LABEL: div_const_even:
+; CHECK:         frcpa f6, p6 = f8, f7 ;;
+; CHECK-NEXT:    (p6) fma.s1 f9 = f8, f6, f0
+; CHECK-NEXT:    (p6) fnma.s1 f10 = f7, f6, f1 ;;
+  %r = fdiv double %a, 10.0
+  ret double %r
+}
+
+; Nor is the sum close enough to a / b to be sure of rounding right when b's
+; significand has more than 32 bits, as that of 1/3 does.
+
+define double @div_const_long(double %a) {
+; CHECK-LABEL: div_const_long:
+; CHECK:         frcpa f6, p6 = f8, f7 ;;
+; CHECK-NEXT:    (p6) fma.s1 f9 = f8, f6, f0
+; CHECK-NEXT:    (p6) fnma.s1 f10 = f7, f6, f1 ;;
+  %r = fdiv double %a, 0x3FD5555555555555
+  ret double %r
+}
+
+; Strict division keeps the full sequence, which rounds in any mode.
+
+define double @div_const_strict(double %a) strictfp {
+; CHECK-LABEL: div_const_strict:
+; CHECK:         frcpa f6, p6 = f8, f7 ;;
+; CHECK-NEXT:    (p6) fma.s1 f9 = f8, f6, f0
+; CHECK-NEXT:    (p6) fnma.s1 f10 = f7, f6, f1 ;;
+  %r = call double @llvm.experimental.constrained.fdiv.f64(double %a, double 9.0, metadata !"round.dynamic", metadata !"fpexcept.strict") strictfp
+  ret double %r
+}

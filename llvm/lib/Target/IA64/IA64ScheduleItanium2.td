@@ -135,6 +135,11 @@ def : I2Write<WriteFDiv, I2PortF, 28> {
   let NumMicroOps = 13;
 }
 
+// A division by a constant is frcpa and three fmas with a chain of three.
+def : I2Write<WriteFDivConst, I2PortF, 12> {
+  let NumMicroOps = 4;
+}
+
 // An integer division is two conversions to FP, frcpa, seven fmas and the
 // conversion back, with a chain of nine instructions.
 def : I2Write<WriteIDiv, I2PortF, 36> {

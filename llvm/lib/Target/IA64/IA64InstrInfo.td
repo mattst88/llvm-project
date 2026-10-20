@@ -313,6 +313,20 @@ def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
                         (ins FRAddend:$a, FR:$b), "#FDIV_D", []>;
 }
 
+// Division by a constant $b, given $y, its reciprocal rounded to double:
+// frcpa for the special cases, then q = a * y, the remainder a - b * q and
+// q + (a - b * q) * y, rounded once.
+let hasSideEffects = 0, Defs = [P6], Uses = [AR40], mayRaiseFPException = 1,
+    Constraints = "@earlyclobber $f1,@earlyclobber $q,@earlyclobber $r",
+    SchedRW = [WriteFDivConst, WriteFMA, WriteFMA] in {
+def FDIV_CONST_S : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$r),
+                              (ins FRAddend:$a, FR:$b, FR:$y),
+                              "#FDIV_CONST_S", []>;
+def FDIV_CONST_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$r),
+                              (ins FRAddend:$a, FR:$b, FR:$y),
+                              "#FDIV_CONST_D", []>;
+}
+
 // Signed and unsigned 64-bit division of the integers in the significands of
 // $a and $b, leaving the quotient in the significand of $f1. The integers are
 // converted to FP values, which they fit exactly, and divided much as above,
