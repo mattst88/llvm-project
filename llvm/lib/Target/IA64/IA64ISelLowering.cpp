@@ -16,6 +16,7 @@
 #include "IA64TargetMachine.h"
 #include "IA64TargetObjectFile.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -415,7 +416,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // Counted loops branch with br.cloop.
   setTargetDAGCombine({ISD::BRCOND, ISD::INTRINSIC_VOID});
-  setTargetDAGCombine(ISD::ADD);
+  setTargetDAGCombine({ISD::ADD, ISD::MUL});
 
   // va_list is a pointer to the next argument; each argument occupies one or
   // more 8-byte slots.
@@ -612,6 +613,116 @@ static SDValue combineAddOfExtendedSelect(SDNode *N, SelectionDAG &DAG) {
   return SDValue();
 }
 
+namespace {
+// A step of a multiply by a constant: T becomes (T << Amt) + X, and so on,
+// where X is the multiplicand and T starts as X.
+struct MulStep {
+  enum Kind { Shl, AddX, SubX, AddT, SubT, Neg } K;
+  unsigned Amt;
+};
+} // namespace
+
+// The single-cycle ALU operations a step takes. shladd shifts by 1 to 4 and
+// adds in one; a longer shift, or a shift before a subtract, is one more.
+static unsigned mulStepCost(const MulStep &S) {
+  if (S.K == MulStep::AddX || S.K == MulStep::AddT)
+    return S.Amt <= 4 ? 1 : 2;
+  return S.K == MulStep::SubX || S.K == MulStep::SubT ? 2 : 1;
+}
+
+// Whether X * C takes at most Budget operations, appending the steps if it
+// does. Failed records the constants already found to need more.
+static bool synthMul(uint64_t C, unsigned Budget,
+                     SmallVectorImpl<MulStep> &Steps,
+                     DenseSet<std::pair<uint64_t, unsigned>> &Failed) {
+  if (C == 1)
+    return true;
+  if (C == 0 || Failed.contains({C, Budget}))
+    return false;
+  SmallVector<std::pair<MulStep, uint64_t>, 16> Preds;
+  if (int64_t(C) < 0 && C != -C)
+    Preds.push_back({{MulStep::Neg, 0}, -C});
+  if (!(C & 1)) {
+    unsigned M = llvm::countr_zero(C);
+    Preds.push_back({{MulStep::Shl, M}, C >> M});
+  } else {
+    unsigned TZ = llvm::countr_zero(C - 1);
+    for (unsigned K = 1; K <= std::min(TZ, 4u); ++K)
+      Preds.push_back({{MulStep::AddX, K}, (C - 1) >> K});
+    if (TZ > 4)
+      Preds.push_back({{MulStep::AddX, TZ}, (C - 1) >> TZ});
+    if (C + 1 != 0) {
+      unsigned M = llvm::countr_zero(C + 1);
+      Preds.push_back({{MulStep::SubX, M}, (C + 1) >> M});
+    }
+    for (unsigned K = 1; K < 63; ++K) {
+      uint64_t D = (uint64_t(1) << K) + 1;
+      if (C % D == 0)
+        Preds.push_back({{MulStep::AddT, K}, C / D});
+      D -= 2;
+      if (K > 1 && C % D == 0)
+        Preds.push_back({{MulStep::SubT, K}, C / D});
+    }
+  }
+  for (auto &[S, Pred] : Preds) {
+    unsigned Cost = mulStepCost(S);
+    if (Cost <= Budget && synthMul(Pred, Budget - Cost, Steps, Failed)) {
+      Steps.push_back(S);
+      return true;
+    }
+  }
+  Failed.insert({C, Budget});
+  return false;
+}
+
+// A multiply by a constant as shifts, shladds and subtracts, when that is
+// shorter than the round trip through the FP unit: setf.sig, xma.l and
+// getf.sig take 14 cycles. The steps form a chain, a cycle each, and up to
+// 12 of them beat fewer in mst. Done after legalization, where the multiply
+// is i64, like RISC-V's expansion, and with the same disregard for undef X.
+static SDValue combineMulByConstant(SDNode *N, SelectionDAG &DAG,
+                                    TargetLowering::DAGCombinerInfo &DCI) {
+  if (DCI.isBeforeLegalize() || DCI.isCalledByLegalizer() ||
+      N->getValueType(0) != MVT::i64 ||
+      DAG.getMachineFunction().getFunction().hasMinSize())
+    return SDValue();
+  auto *CN = dyn_cast<ConstantSDNode>(N->getOperand(1));
+  if (!CN)
+    return SDValue();
+  uint64_t C = CN->getZExtValue();
+  SmallVector<MulStep, 8> Steps;
+  DenseSet<std::pair<uint64_t, unsigned>> Failed;
+  unsigned Budget = 0;
+  while (!synthMul(C, Budget, Steps, Failed))
+    if (++Budget > 12)
+      return SDValue();
+  SDLoc DL(N);
+  SDValue X = N->getOperand(0), T = X;
+  for (const MulStep &S : Steps) {
+    if (S.K == MulStep::Neg) {
+      T = DAG.getNegative(T, DL, MVT::i64);
+      continue;
+    }
+    SDValue Shl = DAG.getNode(ISD::SHL, DL, MVT::i64, T,
+                              DAG.getShiftAmountConstant(S.Amt, MVT::i64, DL));
+    switch (S.K) {
+    case MulStep::Shl:
+      T = Shl;
+      break;
+    case MulStep::AddX:
+    case MulStep::AddT:
+      T = DAG.getNode(ISD::ADD, DL, MVT::i64, Shl,
+                      S.K == MulStep::AddX ? X : T);
+      break;
+    default:
+      T = DAG.getNode(ISD::SUB, DL, MVT::i64, Shl,
+                      S.K == MulStep::SubX ? X : T);
+      break;
+    }
+  }
+  return T;
+}
+
 SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -620,6 +731,8 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
     return combineLoopBranch(N, DAG);
   case ISD::ADD:
     return combineAddOfExtendedSelect(N, DAG);
+  case ISD::MUL:
+    return combineMulByConstant(N, DAG, DCI);
   case ISD::INTRINSIC_VOID:
     if (N->getConstantOperandVal(1) == Intrinsic::set_loop_iterations) {
       SDLoc DL(N);

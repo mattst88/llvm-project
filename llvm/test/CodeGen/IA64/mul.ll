@@ -84,3 +84,82 @@ loop:
 exit:
   ret i64 %s.next
 }
+
+; A product with a constant is a chain of shifts, shladds and subtracts
+; when that is shorter than the 14 cycles of setf.sig, xma.l and getf.sig.
+define i64 @by3(i64 %a) {
+; CHECK-LABEL: by3:
+; CHECK:       shladd r8 = r32, 1, r32
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = mul i64 %a, 3
+  ret i64 %r
+}
+
+define i64 @by10(i64 %a) {
+; CHECK-LABEL: by10:
+; CHECK:       shladd r14 = r32, 2, r32 ;;
+; CHECK-NEXT:  shl r8 = r14, 1
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = mul i64 %a, 10
+  ret i64 %r
+}
+
+define i64 @by15(i64 %a) {
+; CHECK-LABEL: by15:
+; CHECK:       shl r14 = r32, 4 ;;
+; CHECK-NEXT:  sub r8 = r14, r32
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = mul i64 %a, 15
+  ret i64 %r
+}
+
+define i64 @by_minus3(i64 %a) {
+; CHECK-LABEL: by_minus3:
+; CHECK:       shladd r14 = r32, 1, r32 ;;
+; CHECK-NEXT:  sub r8 = 0, r14
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = mul i64 %a, -3
+  ret i64 %r
+}
+
+; 10000 is ((((9 * 2 + 1) * 2 + 1) * 16 + 1) * 16, five steps.
+define i64 @by10000(i64 %a) {
+; CHECK-LABEL: by10000:
+; CHECK:       shladd r14 = r32, 3, r32 ;;
+; CHECK-NEXT:  shladd r14 = r14, 1, r32 ;;
+; CHECK-NEXT:  shladd r14 = r14, 1, r32 ;;
+; CHECK-NEXT:  shladd r14 = r14, 4, r32 ;;
+; CHECK-NEXT:  shl r8 = r14, 4
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = mul i64 %a, 10000
+  ret i64 %r
+}
+
+define i32 @by3141(i32 %a) {
+; CHECK-LABEL: by3141:
+; CHECK:       shladd r14 = r32, 1, r32 ;;
+; CHECK-NEXT:  shladd r14 = r14, 4, r32 ;;
+; CHECK-NEXT:  shladd r14 = r14, 4, r32 ;;
+; CHECK-NEXT:  shladd r8 = r14, 2, r32
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = mul i32 %a, 3141
+  ret i32 %r
+}
+
+; A constant that takes more than 12 steps is multiplied.
+define i64 @by_long(i64 %a) {
+; CHECK-LABEL: by_long:
+; CHECK:       movl r14 = 81985529216486895
+; CHECK:       xma.l f6 = f7, f6, f0 ;;
+  %r = mul i64 %a, 81985529216486895
+  ret i64 %r
+}
+
+; As is any, when optimizing for size.
+define i64 @by10_minsize(i64 %a) minsize {
+; CHECK-LABEL: by10_minsize:
+; CHECK:       mov r14 = 10
+; CHECK:       xma.l f6 = f7, f6, f0 ;;
+  %r = mul i64 %a, 10
+  ret i64 %r
+}
