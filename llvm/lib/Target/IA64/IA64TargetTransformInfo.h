@@ -108,6 +108,11 @@ public:
   bool supportsTailCallFor(const CallBase *CB) const override {
     return TLI->supportsTailCallFor(CB);
   }
+
+  // A relative lookup table lives in .rodata, in the text segment, and its
+  // 32-bit entries may point into the data segment, which is a region of the
+  // address space 2^61 bytes away.
+  bool shouldBuildRelLookupTables() const override { return false; }
 };
 
 } // end namespace llvm
