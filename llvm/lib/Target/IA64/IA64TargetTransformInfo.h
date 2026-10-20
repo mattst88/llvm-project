@@ -87,6 +87,17 @@ public:
                                 AssumptionCache &AC, TargetLibraryInfo *LibInfo,
                                 HardwareLoopInfo &HWLoopInfo) const override;
 
+  // Count instructions in a loop before registers, as PowerPC does. This
+  // often gives each stream a pointer of its own, which the pipeliner
+  // relates by the constant distance between their start addresses.
+  bool isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
+                     const TargetTransformInfo::LSRCost &C2) const override {
+    return std::tie(C1.Insns, C1.NumRegs, C1.AddRecCost, C1.NumIVMuls,
+                    C1.NumBaseAdds, C1.ScaleCost, C1.ImmCost, C1.SetupCost) <
+           std::tie(C2.Insns, C2.NumRegs, C2.AddRecCost, C2.NumIVMuls,
+                    C2.NumBaseAdds, C2.ScaleCost, C2.ImmCost, C2.SetupCost);
+  }
+
   // An inner loop split out of one with several backedges is set up again
   // each time the outer one goes round, for which it pays a branch and its
   // preheader.
