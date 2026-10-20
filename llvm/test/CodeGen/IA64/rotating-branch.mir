@@ -1,0 +1,28 @@
+# RUN: llc -mtriple=ia64 -run-pass=branch-folder -verify-machineinstrs \
+# RUN:   -o - %s | FileCheck %s
+
+# A br.ctop is left unanalyzed, since it cannot be rebuilt with the rotating
+# registers it renames, but a branch after it to the next block, as moving
+# its block leaves behind, goes.
+
+# CHECK-LABEL: name: ctop
+# CHECK:       BR_CTOP %bb.1, 0, 0, 0, implicit-def $ar65, implicit-def $ar66
+# CHECK-NOT:   BRUNCOND
+# CHECK:       CLRRRB
+
+---
+name: ctop
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    BR_CTOP %bb.1, 0, 0, 0, implicit-def $ar65, implicit-def $ar66, implicit $ar65, implicit $ar66
+    BRUNCOND %bb.2
+
+  bb.2:
+    CLRRRB
+    BR_RET $b0, 0, 1, 0, $p0
+...

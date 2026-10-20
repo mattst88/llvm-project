@@ -1045,6 +1045,7 @@ def BR_WTOP  : B1<3, "br.wtop">;
 let Uses = [AR65], Defs = [AR65] in
 def BR_CLOOP : B2<5, "br.cloop">;
 def BR_CEXIT : B2<6, "br.cexit">;
+let Uses = [AR65, AR66], Defs = [AR65, AR66] in
 def BR_CTOP  : B2<7, "br.ctop">;
 // A call saves the frame marker in ar.pfs.
 let Defs = [AR64] in

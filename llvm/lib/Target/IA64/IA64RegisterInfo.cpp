@@ -72,6 +72,9 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // It is callee-saved, and the prologue saves it when anything writes it.
   Reserved.set(IA64::AR65);
 
+  // ar.ec, which only software-pipelined loops use.
+  Reserved.set(IA64::AR66);
+
   // RSE state: ar.rsc, ar.bsp, ar.bspstore and ar.rnat.
   Reserved.set(IA64::AR16);
   Reserved.set(IA64::AR17);

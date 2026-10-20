@@ -933,6 +933,17 @@ bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     return false;
   }
 
+  // A br.ctop cannot be rebuilt with its rotating registers, so it is left
+  // unanalyzed, but a branch after it to the block it falls through to, which
+  // moving its block leaves behind, can go.
+  if (SecondLast->getOpcode() == IA64::BR_CTOP &&
+      Last->getOpcode() == IA64::BRUNCOND &&
+      MBB.isLayoutSuccessor(Last->getOperand(0).getMBB())) {
+    if (AllowModify)
+      Last->eraseFromParent();
+    return true;
+  }
+
   // Nothing reaches the second of two unconditional branches.
   if (SecondLast->getOpcode() == IA64::BRUNCOND &&
       Last->getOpcode() == IA64::BRUNCOND) {
