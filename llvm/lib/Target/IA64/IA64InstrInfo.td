@@ -300,30 +300,39 @@ def SET_FPSR : IA64Pseudo<(outs), (ins GR:$r2), "#SET_FPSR", []>;
 // q + (a - b * q) * y is closer to a / b than a / b is to any other rounding
 // candidate, so the final step rounds once, in the program's rounding mode
 // and raising the flags a true division would.
-// The temporaries are written before the operands' last reads, hence the
-// earlyclobbers.
-let hasSideEffects = 0, Defs = [P6], Uses = [AR40], mayRaiseFPException = 1,
-    Constraints = "@earlyclobber $f1,@earlyclobber $q,@earlyclobber $e,"
-                  "@earlyclobber $t" in {
-let SchedRW = [WriteFDiv, WriteFMA, WriteFMA, WriteFMA] in
-def FDIV_S : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
-                        (ins FRAddend:$a, FR:$b), "#FDIV_S", []>;
-let SchedRW = [WriteFDiv, WriteFMA, WriteFMA, WriteFMA] in
-def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
-                        (ins FRAddend:$a, FR:$b), "#FDIV_D", []>;
+// The steps are expanded before register allocation, so that each gets
+// registers of its own and the steps of separate divisions can interleave.
+let hasSideEffects = 0, Uses = [AR40], mayRaiseFPException = 1,
+    usesCustomInserter = 1, SchedRW = [WriteFDiv] in {
+def FDIV_S : IA64Pseudo<(outs FR:$f1), (ins FRAddend:$a, FR:$b), "#FDIV_S",
+                        []>;
+def FDIV_D : IA64Pseudo<(outs FR:$f1), (ins FRAddend:$a, FR:$b), "#FDIV_D",
+                        []>;
+}
+
+// The final, rounding step of a division: $f1 is tied to $old, frcpa's
+// result, and overwritten with $f3 * $f4 + $f2 under frcpa's predicate $p.
+let hasSideEffects = 0, Uses = [AR40], mayRaiseFPException = 1,
+    Constraints = "$old = $f1", SchedRW = [WriteFMA] in {
+def FMA_S_MERGE : IA64Pseudo<(outs FR:$f1),
+                             (ins FR:$old, FR:$f3, FR:$f4, FR:$f2,
+                                  sfield:$sf, PR:$p),
+                             "#FMA_S_MERGE", []>;
+def FMA_D_MERGE : IA64Pseudo<(outs FR:$f1),
+                             (ins FR:$old, FR:$f3, FR:$f4, FR:$f2,
+                                  sfield:$sf, PR:$p),
+                             "#FMA_D_MERGE", []>;
 }
 
 // Division by a constant $b, given $y, its reciprocal rounded to double:
 // frcpa for the special cases, then q = a * y, the remainder a - b * q and
-// q + (a - b * q) * y, rounded once.
-let hasSideEffects = 0, Defs = [P6], Uses = [AR40], mayRaiseFPException = 1,
-    Constraints = "@earlyclobber $f1,@earlyclobber $q,@earlyclobber $r",
-    SchedRW = [WriteFDivConst, WriteFMA, WriteFMA] in {
-def FDIV_CONST_S : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$r),
-                              (ins FRAddend:$a, FR:$b, FR:$y),
+// q + (a - b * q) * y, rounded once. Expanded before register allocation, as
+// is FDIV_S.
+let hasSideEffects = 0, Uses = [AR40], mayRaiseFPException = 1,
+    usesCustomInserter = 1, SchedRW = [WriteFDivConst] in {
+def FDIV_CONST_S : IA64Pseudo<(outs FR:$f1), (ins FRAddend:$a, FR:$b, FR:$y),
                               "#FDIV_CONST_S", []>;
-def FDIV_CONST_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$r),
-                              (ins FRAddend:$a, FR:$b, FR:$y),
+def FDIV_CONST_D : IA64Pseudo<(outs FR:$f1), (ins FRAddend:$a, FR:$b, FR:$y),
                               "#FDIV_CONST_D", []>;
 }
 
@@ -333,28 +342,25 @@ def FDIV_CONST_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$r),
 // with all of it in status field 1, whose flags programs do not see. Two
 // steps after frcpa give a reciprocal accurate enough that the quotient,
 // corrected once by its remainder, truncates to the integer quotient. This
-// is the sequence of Intel's application note, which gcc also uses.
-let hasSideEffects = 0, Defs = [P6], Uses = [AR40],
-    Constraints = "@earlyclobber $f1,@earlyclobber $fa,@earlyclobber $fb,"
-                  "@earlyclobber $e,@earlyclobber $t",
-    SchedRW = [WriteIDiv, WriteFMA, WriteFMA, WriteFMA, WriteFMA] in {
-def SDIV_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$t),
-                          (ins FR:$a, FR:$b), "#SDIV_SIG", []>;
-def UDIV_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$t),
-                          (ins FR:$a, FR:$b), "#UDIV_SIG", []>;
+// is the sequence of Intel's application note, which gcc also uses, but for
+// the predicate: of integers, frcpa gives the quotient itself only when the
+// dividend is 0, and then every step gives 0 too. The steps are expanded
+// before register allocation, as are FDIV_S's.
+let hasSideEffects = 0, Uses = [AR40], usesCustomInserter = 1,
+    SchedRW = [WriteIDiv] in {
+def SDIV_SIG : IA64Pseudo<(outs FR:$f1), (ins FR:$a, FR:$b), "#SDIV_SIG", []>;
+def UDIV_SIG : IA64Pseudo<(outs FR:$f1), (ins FR:$a, FR:$b), "#UDIV_SIG", []>;
 }
 
 // The same for integers that fit in 32 bits, whose quotient needs less
 // accuracy: two steps after frcpa, the second adding $c = 2^-34 so that the
 // quotient does not fall short of an exact integer.
-let hasSideEffects = 0, Defs = [P6], Uses = [AR40],
-    Constraints = "@earlyclobber $f1,@earlyclobber $fa,@earlyclobber $fb,"
-                  "@earlyclobber $e,@earlyclobber $q",
-    SchedRW = [WriteIDiv32, WriteFMA, WriteFMA, WriteFMA, WriteFMA] in {
-def SDIV32_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$q),
-                            (ins FR:$a, FR:$b, FR:$c), "#SDIV32_SIG", []>;
-def UDIV32_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$q),
-                            (ins FR:$a, FR:$b, FR:$c), "#UDIV32_SIG", []>;
+let hasSideEffects = 0, Uses = [AR40], usesCustomInserter = 1,
+    SchedRW = [WriteIDiv32] in {
+def SDIV32_SIG : IA64Pseudo<(outs FR:$f1), (ins FR:$a, FR:$b, FR:$c),
+                            "#SDIV32_SIG", []>;
+def UDIV32_SIG : IA64Pseudo<(outs FR:$f1), (ins FR:$a, FR:$b, FR:$c),
+                            "#UDIV32_SIG", []>;
 }
 
 // Spills and reloads stay single pseudos until frame layout, so nothing can be
@@ -368,12 +374,18 @@ let SchedRW = [WriteStore] in
 def SPILL_GR : IA64Pseudo<(outs), (ins GR:$src, i64imm:$fi), "#SPILL_GR", []>;
 let SchedRW = [WriteFStore] in
 def SPILL_FR : IA64Pseudo<(outs), (ins FR:$src, i64imm:$fi), "#SPILL_FR", []>;
+let SchedRW = [WriteStore] in
+def SPILL_PR : IA64Pseudo<(outs), (ins PRValue:$src, i64imm:$fi), "#SPILL_PR",
+                          []>;
 }
 let mayLoad = 1 in {
 let SchedRW = [WriteLoad] in
 def RELOAD_GR : IA64Pseudo<(outs GR:$dst), (ins i64imm:$fi), "#RELOAD_GR", []>;
 let SchedRW = [WriteFLoad] in
 def RELOAD_FR : IA64Pseudo<(outs FR:$dst), (ins i64imm:$fi), "#RELOAD_FR", []>;
+let SchedRW = [WriteLoad] in
+def RELOAD_PR : IA64Pseudo<(outs PRValue:$dst), (ins i64imm:$fi), "#RELOAD_PR",
+                           []>;
 }
 }
 

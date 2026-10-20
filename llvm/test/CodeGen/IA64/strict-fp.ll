@@ -51,13 +51,15 @@ define void @unused(double %a, double %b) strictfp {
 
 define double @div(double %a, double %b) strictfp {
 ; CHECK-LABEL: div:
-; CHECK: frcpa [[Y:f[0-9]+]], p6 = f8, f9
-; CHECK: (p6) fma.s1
-; CHECK: (p6) fma.d {{f[0-9]+}} =
+; CHECK: frcpa [[Y:f[0-9]+]], [[P:p[0-9]+]] = f8, f9
+; CHECK: ([[P]]) fma.s1
+; CHECK: ([[P]]) fma.d {{f[0-9]+}} =
 ; CHECK-NOT: br.call
 ; MIR-LABEL: name: div
 ; MIR-NOT: nofpexcept
-; MIR: FDIV_D
+; MIR: FRCPA
+; MIR-NOT: nofpexcept
+; MIR: FMA_D_MERGE
   %r = call double @llvm.experimental.constrained.fdiv.f64(double %a, double %b, metadata !"round.dynamic", metadata !"fpexcept.strict")
   ret double %r
 }

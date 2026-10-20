@@ -188,6 +188,10 @@ private:
   SDValue LowerIS_FPCLASS(SDValue Op, SelectionDAG &DAG) const;
   SDValue loadLinkageTableEntry(SDValue Sym, const SDLoc &DL,
                                 SelectionDAG &DAG) const;
+  MachineBasicBlock *emitFDiv(MachineInstr &MI, MachineBasicBlock *MBB) const;
+  MachineBasicBlock *emitFDivConst(MachineInstr &MI,
+                                   MachineBasicBlock *MBB) const;
+  MachineBasicBlock *emitIDiv(MachineInstr &MI, MachineBasicBlock *MBB) const;
 };
 
 } // end namespace llvm

@@ -1079,17 +1079,13 @@ bool IA64InstructionSelector::selectInstruction(
     I.eraseFromParent();
     return true;
 
-  // The quotient plus three scratch registers for the iteration.
+  // A pseudo that the custom inserter expands into the iteration.
   case TargetOpcode::G_FDIV: {
     unsigned Size = MRI.getType(I.getOperand(0).getReg()).getSizeInBits();
     if (Size != 32 && Size != 64)
       return false;
     MachineInstrBuilder MIB = emit(I, Size == 32 ? IA64::FDIV_S : IA64::FDIV_D,
                                    I.getOperand(0).getReg());
-    for (unsigned N = 0; N != 3; ++N)
-      MIB.addDef(MRI.createVirtualRegister(&IA64::FRRegClass),
-                 RegState::EarlyClobber);
-    MIB->getOperand(0).setIsEarlyClobber();
     MIB.addReg(I.getOperand(1).getReg()).addReg(I.getOperand(2).getReg());
     MIB.setMIFlags(I.getFlags());
     I.eraseFromParent();

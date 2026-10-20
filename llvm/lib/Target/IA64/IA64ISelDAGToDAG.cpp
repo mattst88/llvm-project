@@ -733,14 +733,13 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     return;
   }
   case ISD::FDIV: {
-    // The division sequence needs its own registers for intermediate steps.
+    // There is no divide instruction; the pseudo becomes a sequence of steps.
     MVT VT = Node->getSimpleValueType(0);
     if (VT != MVT::f32 && VT != MVT::f64)
       break;
     SDNode *Div =
         CurDAG->getMachineNode(VT == MVT::f32 ? IA64::FDIV_S : IA64::FDIV_D, DL,
-                               {VT, MVT::f80, MVT::f80, MVT::f80},
-                               {Node->getOperand(0), Node->getOperand(1)});
+                               VT, Node->getOperand(0), Node->getOperand(1));
     setNoFPExcept(Div);
     ReplaceNode(Node, Div);
     return;
@@ -748,20 +747,18 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   case IA64ISD::FDIV_CONST: {
     MVT VT = Node->getSimpleValueType(0);
     SDNode *Div = CurDAG->getMachineNode(
-        VT == MVT::f32 ? IA64::FDIV_CONST_S : IA64::FDIV_CONST_D, DL,
-        {VT, MVT::f80, MVT::f80}, SmallVector<SDValue, 3>(Node->ops()));
+        VT == MVT::f32 ? IA64::FDIV_CONST_S : IA64::FDIV_CONST_D, DL, VT,
+        SmallVector<SDValue, 3>(Node->ops()));
     setNoFPExcept(Div);
     ReplaceNode(Node, Div);
     return;
   }
   case IA64ISD::SDIV_SIG:
   case IA64ISD::UDIV_SIG: {
-    // As does integer division.
     SDNode *Div = CurDAG->getMachineNode(
         Node->getOpcode() == IA64ISD::SDIV_SIG ? IA64::SDIV_SIG
                                                : IA64::UDIV_SIG,
-        DL, {MVT::f64, MVT::f80, MVT::f80, MVT::f80, MVT::f80},
-        {Node->getOperand(0), Node->getOperand(1)});
+        DL, MVT::f64, Node->getOperand(0), Node->getOperand(1));
     ReplaceNode(Node, Div);
     return;
   }
@@ -771,7 +768,7 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     SDNode *Div = CurDAG->getMachineNode(
         Node->getOpcode() == IA64ISD::SDIV32_SIG ? IA64::SDIV32_SIG
                                                  : IA64::UDIV32_SIG,
-        DL, {MVT::f64, MVT::f80, MVT::f80, MVT::f80, MVT::f80}, Ops);
+        DL, MVT::f64, Ops);
     ReplaceNode(Node, Div);
     return;
   }
@@ -781,12 +778,11 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     if (VT != MVT::f32 && VT != MVT::f64)
       break;
     SDNode *Div = CurDAG->getMachineNode(
-        VT == MVT::f32 ? IA64::FDIV_S : IA64::FDIV_D, DL,
-        {VT, MVT::f80, MVT::f80, MVT::f80, MVT::Other},
+        VT == MVT::f32 ? IA64::FDIV_S : IA64::FDIV_D, DL, {VT, MVT::Other},
         {Node->getOperand(1), Node->getOperand(2), Node->getOperand(0)});
     Div->setFlags(Node->getFlags());
     ReplaceUses(SDValue(Node, 0), SDValue(Div, 0));
-    ReplaceUses(SDValue(Node, 1), SDValue(Div, 4));
+    ReplaceUses(SDValue(Node, 1), SDValue(Div, 1));
     CurDAG->RemoveDeadNode(Node);
     return;
   }

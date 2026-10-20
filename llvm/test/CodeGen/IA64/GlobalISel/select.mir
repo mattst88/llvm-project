@@ -294,8 +294,8 @@ body:             |
 # CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D_SUM %{{[0-9]+}}, $f1, %{{[0-9]+}}, 0, $p0, implicit $ar40
 # CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D %{{[0-9]+}}, %{{[0-9]+}}, $f0, 0, $p0, implicit $ar40
 # CHECK: %{{[0-9]+}}:fraddend = nofpexcept FMS_D_SUM %{{[0-9]+}}, $f1, %{{[0-9]+}}, 0, $p0, implicit $ar40
-# CHECK: early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr = FDIV_D %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit $ar40
-# CHECK: early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr, early-clobber %{{[0-9]+}}:fr = FDIV_S %{{[0-9]+}}, %{{[0-9]+}}, implicit-def $p6, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = FDIV_D %{{[0-9]+}}, %{{[0-9]+}}, implicit $ar40
+# CHECK: %{{[0-9]+}}:fr = FDIV_S %{{[0-9]+}}, %{{[0-9]+}}, implicit $ar40
 # CHECK: %{{[0-9]+}}:fr = nofpexcept FMA_D_SUM %{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}, 0, $p0, implicit $ar40
 # CHECK: %{{[0-9]+}}:fr = FMERGE_NS %{{[0-9]+}}, %{{[0-9]+}}, $p0
 # CHECK: %{{[0-9]+}}:fr = FMERGE_S $f0, %{{[0-9]+}}, $p0

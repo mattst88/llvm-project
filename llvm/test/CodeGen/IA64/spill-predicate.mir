@@ -1,0 +1,50 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=prolog-epilog \
+# RUN:   -verify-machineinstrs -ia64-packing=false -o - %s | FileCheck %s
+
+# A predicate is spilled as a doubleword that is zero when the predicate is
+# clear: zero is stored, and then the address, which is never zero, is stored
+# under the predicate. The reload sets the predicate from a comparison with
+# zero.
+
+# CHECK-LABEL: spill:
+# CHECK:         adds r2 = 8, r12 ;;
+# CHECK-NEXT:    st8 [r2] = r0
+# CHECK-NEXT:    (p8) st8 [r2] = r2
+# CHECK-NEXT:    adds r2 = 8, r12 ;;
+# CHECK-NEXT:    ld8 r2 = [r2] ;;
+# CHECK-NEXT:    cmp.eq p0, p9 = r0, r2
+
+---
+name: spill
+tracksRegLiveness: true
+liveins:
+  - { reg: '$p8' }
+stack:
+  - { id: 0, size: 8, alignment: 8 }
+body: |
+  bb.0:
+    liveins: $p8
+
+    SPILL_PR killed $p8, %stack.0
+    $p9 = RELOAD_PR %stack.0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $p9
+...
+
+# A copy is a comparison that is always true, made under the source and
+# unconditional, so that it clears the destination when the source is clear.
+
+# CHECK-LABEL: copy:
+# CHECK:         (p8) cmp.eq.unc p10, p0 = r0, r0
+
+---
+name: copy
+tracksRegLiveness: true
+liveins:
+  - { reg: '$p8' }
+body: |
+  bb.0:
+    liveins: $p8
+
+    $p10 = COPY killed $p8
+    BR_RET $b0, 0, 1, 0, $p0, implicit $p10
+...

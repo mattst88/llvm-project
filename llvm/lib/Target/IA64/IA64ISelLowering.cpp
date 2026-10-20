@@ -1038,9 +1038,237 @@ IA64TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case TargetOpcode::STATEPOINT:
     reportFatalUsageError("stack maps, patch points and statepoints are not "
                           "supported on IA-64");
+  case IA64::FDIV_S:
+  case IA64::FDIV_D:
+    return emitFDiv(MI, MBB);
+  case IA64::FDIV_CONST_S:
+  case IA64::FDIV_CONST_D:
+    return emitFDivConst(MI, MBB);
+  case IA64::SDIV_SIG:
+  case IA64::UDIV_SIG:
+  case IA64::SDIV32_SIG:
+  case IA64::UDIV32_SIG:
+    return emitIDiv(MI, MBB);
   default:
     return TargetLowering::EmitInstrWithCustomInserter(MI, MBB);
   }
+}
+
+// Whether Reg holds 1.0, which f1 always does.
+static bool isOne(Register Reg, const MachineRegisterInfo &MRI) {
+  if (Reg.isVirtual()) {
+    const MachineInstr *Def = MRI.getVRegDef(Reg);
+    if (!Def || !Def->isCopy())
+      return false;
+    Reg = Def->getOperand(1).getReg();
+  }
+  return Reg == IA64::F1;
+}
+
+// Division in Newton-Raphson steps after frcpa, as described at FDIV_S. Every
+// step but frcpa is predicated on frcpa's predicate, which is clear when
+// frcpa's result is the quotient already; the last step leaves that result
+// in place then.
+MachineBasicBlock *IA64TargetLowering::emitFDiv(MachineInstr &MI,
+                                                MachineBasicBlock *MBB) const {
+  const TargetInstrInfo &TII = *Subtarget.getInstrInfo();
+  MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  bool IsDouble = MI.getOpcode() == IA64::FDIV_D;
+  Register Res = MI.getOperand(0).getReg();
+  Register A = MI.getOperand(1).getReg();
+  Register B = MI.getOperand(2).getReg();
+  Register P = MRI.createVirtualRegister(&IA64::PRValueRegClass);
+  auto NewFR = [&] { return MRI.createVirtualRegister(&IA64::FRRegClass); };
+  uint32_t Flags = MI.getFlags();
+  // Returns M1 * M2 + Addend (or Addend - M1 * M2) in status field 1.
+  auto Step = [&](unsigned Opcode, Register M1, Register M2, Register Addend) {
+    Register R = NewFR();
+    BuildMI(*MBB, MI, DL, TII.get(Opcode), R)
+        .addReg(M1)
+        .addReg(M2)
+        .addReg(Addend)
+        .addImm(1)
+        .addReg(P)
+        .setMIFlags(Flags);
+    return R;
+  };
+  Register Y0 = NewFR();
+  BuildMI(*MBB, MI, DL, TII.get(IA64::FRCPA), Y0)
+      .addReg(P, RegState::Define)
+      .addReg(A)
+      .addReg(B)
+      .addImm(0)
+      .addReg(IA64::P0)
+      .setMIFlags(Flags);
+  // With e = 1 - b * y, a / b is a * y / (1 - e), and 1 / (1 - e) is
+  // (1 + e) * (1 + e^2) * (1 + e^4) and so on. When a is 1, q = a * y is y
+  // and each step of q repeats that of y, so q is only formed when it is
+  // rounded.
+  bool Recip = isOne(A, MRI);
+  Register Y = Y0, Q;
+  if (!Recip)
+    Q = Step(IA64::FMA, A, Y, IA64::F0);
+  Register E = Step(IA64::FNMA, B, Y, IA64::F1);
+  if (!Recip)
+    Q = Step(IA64::FMA, E, Q, Q);
+  Register T = Step(IA64::FMA, E, E, IA64::F0);
+  Y = Step(IA64::FMA, E, Y, Y);
+  if (IsDouble) {
+    if (!Recip)
+      Q = Step(IA64::FMA, T, Q, Q);
+    Register T2 = Step(IA64::FMA, T, T, IA64::F0);
+    Y = Step(IA64::FMA, T, Y, Y);
+    T = T2;
+  }
+  Register QIn = Recip ? Y : Q;
+  Q = Step(IsDouble ? IA64::FMA_D : IA64::FMA_S, T, QIn, QIn);
+  Y = Step(IA64::FMA, T, Y, Y);
+  // The dividend is added, so it cannot be f0, which would make the step a
+  // multiply.
+  E = Step(IA64::FNMA_SUM, B, Q, A);
+  BuildMI(*MBB, MI, DL,
+          TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
+      .addReg(Y0)
+      .addReg(E)
+      .addReg(Y)
+      .addReg(Q)
+      .addImm(0)
+      .addReg(P)
+      .setMIFlags(Flags);
+  MI.eraseFromParent();
+  return MBB;
+}
+
+// Division by a constant, as described at FDIV_CONST_S: q and the remainder
+// do not wait for frcpa's predicate, and only the last step, which leaves
+// frcpa's result in place when it is the quotient, is predicated.
+MachineBasicBlock *
+IA64TargetLowering::emitFDivConst(MachineInstr &MI,
+                                  MachineBasicBlock *MBB) const {
+  const TargetInstrInfo &TII = *Subtarget.getInstrInfo();
+  MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  bool IsDouble = MI.getOpcode() == IA64::FDIV_CONST_D;
+  Register Res = MI.getOperand(0).getReg();
+  Register A = MI.getOperand(1).getReg();
+  Register B = MI.getOperand(2).getReg();
+  Register Y = MI.getOperand(3).getReg();
+  Register P = MRI.createVirtualRegister(&IA64::PRValueRegClass);
+  Register R = MRI.createVirtualRegister(&IA64::FRRegClass);
+  Register Q = MRI.createVirtualRegister(&IA64::FRRegClass);
+  Register E = MRI.createVirtualRegister(&IA64::FRRegClass);
+  uint32_t Flags = MI.getFlags();
+  BuildMI(*MBB, MI, DL, TII.get(IA64::FRCPA), R)
+      .addReg(P, RegState::Define)
+      .addReg(A)
+      .addReg(B)
+      .addImm(0)
+      .addReg(IA64::P0)
+      .setMIFlags(Flags);
+  BuildMI(*MBB, MI, DL, TII.get(IA64::FMA), Q)
+      .addReg(A)
+      .addReg(Y)
+      .addReg(IA64::F0)
+      .addImm(1)
+      .addReg(IA64::P0)
+      .setMIFlags(Flags);
+  // The dividend is added, so it cannot be f0.
+  BuildMI(*MBB, MI, DL, TII.get(IA64::FNMA_SUM), E)
+      .addReg(B)
+      .addReg(Q)
+      .addReg(A)
+      .addImm(1)
+      .addReg(IA64::P0)
+      .setMIFlags(Flags);
+  BuildMI(*MBB, MI, DL,
+          TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
+      .addReg(R)
+      .addReg(E)
+      .addReg(Y)
+      .addReg(Q)
+      .addImm(0)
+      .addReg(P)
+      .setMIFlags(Flags);
+  MI.eraseFromParent();
+  return MBB;
+}
+
+// Integer division, as described at SDIV_SIG. No step is predicated, and
+// none raises a flag the program sees, being in status field 1 (fcvt.xf
+// raises none), so the steps can be moved as freely as the pseudo could.
+MachineBasicBlock *IA64TargetLowering::emitIDiv(MachineInstr &MI,
+                                                MachineBasicBlock *MBB) const {
+  const TargetInstrInfo &TII = *Subtarget.getInstrInfo();
+  MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  unsigned Opc = MI.getOpcode();
+  bool Signed = Opc == IA64::SDIV_SIG || Opc == IA64::SDIV32_SIG;
+  auto NewFR = [&] { return MRI.createVirtualRegister(&IA64::FRRegClass); };
+  // Returns M1 * M2 + Addend (or Addend - M1 * M2) in status field 1.
+  auto Step = [&](unsigned Opcode, Register M1, Register M2, Register Addend,
+                  Register R = Register()) {
+    if (!R)
+      R = NewFR();
+    BuildMI(*MBB, MI, DL, TII.get(Opcode), R)
+        .addReg(M1)
+        .addReg(M2)
+        .addReg(Addend)
+        .addImm(1)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::NoFPExcept);
+    return R;
+  };
+  // A signed integer is converted with fcvt.xf; an unsigned one is a valid
+  // FP value as it is and only needs normalizing. The dividend is added to
+  // form the remainder, so it cannot be f0.
+  auto Convert = [&](Register S) {
+    Register R = MRI.createVirtualRegister(&IA64::FRAddendRegClass);
+    if (!Signed)
+      return Step(IA64::FMA, S, IA64::F1, IA64::F0, R);
+    BuildMI(*MBB, MI, DL, TII.get(IA64::FCVT_XF), R)
+        .addReg(S)
+        .addReg(IA64::P0)
+        .setMIFlag(MachineInstr::NoFPExcept);
+    return R;
+  };
+  Register FA = Convert(MI.getOperand(1).getReg());
+  Register FB = Convert(MI.getOperand(2).getReg());
+  Register Y = NewFR();
+  BuildMI(*MBB, MI, DL, TII.get(IA64::FRCPA), Y)
+      .addReg(MRI.createVirtualRegister(&IA64::PRValueRegClass),
+              RegState::Define | RegState::Dead)
+      .addReg(FA)
+      .addReg(FB)
+      .addImm(1)
+      .addReg(IA64::P0)
+      .setMIFlag(MachineInstr::NoFPExcept);
+  // With e = 1 - b * y, 1 / b is y * (1 + e) * (1 + e^2) and so on.
+  Register E = Step(IA64::FNMA, FB, Y, IA64::F1);
+  if (Opc == IA64::SDIV32_SIG || Opc == IA64::UDIV32_SIG) {
+    // q = a * y, then q * (1 + e) * (1 + 2^-34 + e^2).
+    Register Q = Step(IA64::FMA, FA, Y, IA64::F0);
+    Q = Step(IA64::FMA, Q, E, Q);
+    E = Step(IA64::FMA, E, E, MI.getOperand(3).getReg());
+    Y = Step(IA64::FMA, E, Q, Q);
+  } else {
+    // q = a * y, after two steps, and q + (a - b * q) * y.
+    Register T = Step(IA64::FMA, E, E, IA64::F0);
+    Y = Step(IA64::FMA, Y, E, Y);
+    Y = Step(IA64::FMA, Y, T, Y);
+    Register Q = Step(IA64::FMA, Y, FA, IA64::F0);
+    Register R = Step(IA64::FNMA_SUM, FB, Q, FA);
+    Y = Step(IA64::FMA, R, Y, Q);
+  }
+  BuildMI(*MBB, MI, DL,
+          TII.get(Signed ? IA64::FCVT_FX_TRUNC : IA64::FCVT_FXU_TRUNC),
+          MI.getOperand(0).getReg())
+      .addReg(Y)
+      .addImm(1)
+      .addReg(IA64::P0)
+      .setMIFlag(MachineInstr::NoFPExcept);
+  MI.eraseFromParent();
+  return MBB;
 }
 
 // The address of a symbol that may be preemptible is loaded from the linkage

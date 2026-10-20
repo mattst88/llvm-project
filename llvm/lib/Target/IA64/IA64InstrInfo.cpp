@@ -62,6 +62,17 @@ void IA64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
         .addReg(IA64::P0);
     return;
   }
+  // PR copy: (src) cmp.eq.unc dst, p0 = r0, r0, which clears dst when src
+  // is clear.
+  if (IA64::PRValueRegClass.contains(DestReg, SrcReg)) {
+    BuildMI(MBB, MI, DL, get(IA64::CMP_EQ_UNC))
+        .addReg(DestReg, RegState::Define)
+        .addReg(IA64::P0, RegState::Define)
+        .addReg(IA64::R0)
+        .addReg(IA64::R0)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+    return;
+  }
   report_fatal_error("IA64 cannot copy between these registers yet");
 }
 
@@ -78,6 +89,8 @@ void IA64InstrInfo::storeRegToStackSlot(
     Opc = IA64::SPILL_GR;
   else if (IA64::FRRegClass.hasSubClassEq(RC))
     Opc = IA64::SPILL_FR;
+  else if (IA64::PRValueRegClass.hasSubClassEq(RC))
+    Opc = IA64::SPILL_PR;
   else
     report_fatal_error("IA64 cannot spill a register of this class yet");
   BuildMI(MBB, MI, DebugLoc(), get(Opc))
@@ -97,6 +110,8 @@ void IA64InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     Opc = IA64::RELOAD_GR;
   else if (IA64::FRRegClass.hasSubClassEq(RC))
     Opc = IA64::RELOAD_FR;
+  else if (IA64::PRValueRegClass.hasSubClassEq(RC))
+    Opc = IA64::RELOAD_PR;
   else
     report_fatal_error("IA64 cannot reload a register of this class yet");
   BuildMI(MBB, MI, DebugLoc(), get(Opc), DestReg)
@@ -109,6 +124,7 @@ Register IA64InstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
   switch (MI.getOpcode()) {
   case IA64::RELOAD_GR:
   case IA64::RELOAD_FR:
+  case IA64::RELOAD_PR:
     FrameIndex = MI.getOperand(1).getIndex();
     return MI.getOperand(0).getReg();
   default:
@@ -121,6 +137,7 @@ Register IA64InstrInfo::isStoreToStackSlot(const MachineInstr &MI,
   switch (MI.getOpcode()) {
   case IA64::SPILL_GR:
   case IA64::SPILL_FR:
+  case IA64::SPILL_PR:
     FrameIndex = MI.getOperand(1).getIndex();
     return MI.getOperand(0).getReg();
   default:
@@ -581,168 +598,21 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
-  case IA64::FDIV_S:
-  case IA64::FDIV_D: {
-    bool IsDouble = MI.getOpcode() == IA64::FDIV_D;
-    unsigned Round = IsDouble ? IA64::FMA_D : IA64::FMA_S;
-    Register Y = MI.getOperand(0).getReg();
-    Register Q = MI.getOperand(1).getReg();
-    Register E = MI.getOperand(2).getReg();
-    Register T = MI.getOperand(3).getReg();
-    Register P = IA64::P6;
-    Register A = MI.getOperand(4).getReg();
-    Register B = MI.getOperand(5).getReg();
-    // R = M1 * M2 + Addend (or Addend - M1 * M2), predicated on frcpa having
-    // produced an approximation.
-    auto Step = [&](unsigned Opcode, Register R, Register M1, Register M2,
-                    Register Addend, unsigned StatusField = 1) {
-      BuildMI(MBB, MI, DL, get(Opcode), R)
-          .addReg(M1)
-          .addReg(M2)
-          .addReg(Addend)
-          .addImm(StatusField)
-          .addReg(P);
-    };
-    BuildMI(MBB, MI, DL, get(IA64::FRCPA), Y)
-        .addReg(P, RegState::Define)
-        .addReg(A)
-        .addReg(B)
-        .addImm(0)
-        .addReg(IA64::P0);
-    // With e = 1 - b * y, a / b is a * y / (1 - e), and 1 / (1 - e) is
-    // (1 + e) * (1 + e^2) * (1 + e^4) and so on. When a is 1, q = a * y is y
-    // and each step of q repeats that of y, so q is only formed when it is
-    // rounded.
-    bool Recip = A == IA64::F1;
-    Register QIn = Recip ? Y : Q;
-    if (!Recip)
-      Step(IA64::FMA, Q, A, Y, IA64::F0);
-    Step(IA64::FNMA, E, B, Y, IA64::F1);
-    if (!Recip)
-      Step(IA64::FMA, Q, E, Q, Q);
-    Step(IA64::FMA, T, E, E, IA64::F0);
-    Step(IA64::FMA, Y, E, Y, Y);
-    if (IsDouble) {
-      if (!Recip)
-        Step(IA64::FMA, Q, T, Q, Q);
-      Step(IA64::FMA, E, T, T, IA64::F0);
-      Step(IA64::FMA, Y, T, Y, Y);
-      std::swap(E, T);
-    }
-    Step(Round, Q, T, QIn, QIn);
-    Step(IA64::FMA, Y, T, Y, Y);
-    Step(IA64::FNMA, E, B, Q, A);
-    Step(Round, Y, E, Y, Q, 0);
+  case IA64::FMA_S_MERGE:
+  case IA64::FMA_D_MERGE:
+    BuildMI(
+        MBB, MI, DL,
+        get(MI.getOpcode() == IA64::FMA_D_MERGE ? IA64::FMA_D : IA64::FMA_S),
+        MI.getOperand(0).getReg())
+        .add(MI.getOperand(2))
+        .add(MI.getOperand(3))
+        .add(MI.getOperand(4))
+        .add(MI.getOperand(5))
+        .add(MI.getOperand(6))
+        .addReg(MI.getOperand(0).getReg(), RegState::Implicit)
+        .setMIFlags(MI.getFlags());
     MI.eraseFromParent();
     return true;
-  }
-  case IA64::FDIV_CONST_S:
-  case IA64::FDIV_CONST_D: {
-    Register R = MI.getOperand(0).getReg();
-    Register Q = MI.getOperand(1).getReg();
-    Register E = MI.getOperand(2).getReg();
-    Register A = MI.getOperand(3).getReg();
-    Register B = MI.getOperand(4).getReg();
-    Register Y = MI.getOperand(5).getReg();
-    BuildMI(MBB, MI, DL, get(IA64::FRCPA), R)
-        .addReg(IA64::P6, RegState::Define)
-        .addReg(A)
-        .addReg(B)
-        .addImm(0)
-        .addReg(IA64::P0);
-    // q and the remainder do not wait for frcpa's predicate.
-    BuildMI(MBB, MI, DL, get(IA64::FMA), Q)
-        .addReg(A)
-        .addReg(Y)
-        .addReg(IA64::F0)
-        .addImm(1)
-        .addReg(IA64::P0);
-    BuildMI(MBB, MI, DL, get(IA64::FNMA), E)
-        .addReg(B)
-        .addReg(Q)
-        .addReg(A)
-        .addImm(1)
-        .addReg(IA64::P0);
-    bool IsDouble = MI.getOpcode() == IA64::FDIV_CONST_D;
-    BuildMI(MBB, MI, DL, get(IsDouble ? IA64::FMA_D : IA64::FMA_S), R)
-        .addReg(E)
-        .addReg(Y)
-        .addReg(Q)
-        .addImm(0)
-        .addReg(IA64::P6);
-    MI.eraseFromParent();
-    return true;
-  }
-  case IA64::SDIV_SIG:
-  case IA64::UDIV_SIG:
-  case IA64::SDIV32_SIG:
-  case IA64::UDIV32_SIG: {
-    unsigned Opc = MI.getOpcode();
-    bool Signed = Opc == IA64::SDIV_SIG || Opc == IA64::SDIV32_SIG;
-    Register Y = MI.getOperand(0).getReg();
-    Register FA = MI.getOperand(1).getReg();
-    Register FB = MI.getOperand(2).getReg();
-    Register E = MI.getOperand(3).getReg();
-    Register T = MI.getOperand(4).getReg();
-    Register P = IA64::P6;
-    Register A = MI.getOperand(5).getReg();
-    Register B = MI.getOperand(6).getReg();
-    auto Step = [&](unsigned Opcode, Register D, Register M1, Register M2,
-                    Register Addend) {
-      BuildMI(MBB, MI, DL, get(Opcode), D)
-          .addReg(M1)
-          .addReg(M2)
-          .addReg(Addend)
-          .addImm(1)
-          .addReg(P);
-    };
-    // A signed integer is converted with fcvt.xf; an unsigned one is a valid
-    // FP value as it is and only needs normalizing.
-    for (auto [D, S] : {std::pair(FA, A), std::pair(FB, B)}) {
-      if (Signed)
-        BuildMI(MBB, MI, DL, get(IA64::FCVT_XF), D).addReg(S).addReg(IA64::P0);
-      else
-        BuildMI(MBB, MI, DL, get(IA64::FMA), D)
-            .addReg(S)
-            .addReg(IA64::F1)
-            .addReg(IA64::F0)
-            .addImm(1)
-            .addReg(IA64::P0);
-    }
-    BuildMI(MBB, MI, DL, get(IA64::FRCPA), Y)
-        .addReg(P, RegState::Define)
-        .addReg(FA)
-        .addReg(FB)
-        .addImm(1)
-        .addReg(IA64::P0);
-    // With e = 1 - b * y, 1 / b is y * (1 + e) * (1 + e^2) and so on.
-    if (Opc == IA64::SDIV32_SIG || Opc == IA64::UDIV32_SIG) {
-      // q = a * y, then q * (1 + e) * (1 + 2^-34 + e^2).
-      Register Q = T;
-      Register C = MI.getOperand(7).getReg();
-      Step(IA64::FNMA, E, FB, Y, IA64::F1);
-      Step(IA64::FMA, Q, FA, Y, IA64::F0);
-      Step(IA64::FMA, Q, Q, E, Q);
-      Step(IA64::FMA, E, E, E, C);
-      Step(IA64::FMA, Y, E, Q, Q);
-    } else {
-      // q = a * y, after two steps, and q + (a - b * q) * y.
-      Step(IA64::FNMA, E, FB, Y, IA64::F1);
-      Step(IA64::FMA, T, E, E, IA64::F0);
-      Step(IA64::FMA, Y, Y, E, Y);
-      Step(IA64::FMA, Y, Y, T, Y);
-      Step(IA64::FMA, E, Y, FA, IA64::F0);
-      Step(IA64::FNMA, T, FB, E, FA);
-      Step(IA64::FMA, Y, T, Y, E);
-    }
-    BuildMI(MBB, MI, DL,
-            get(Signed ? IA64::FCVT_FX_TRUNC : IA64::FCVT_FXU_TRUNC), Y)
-        .addReg(Y)
-        .addImm(1)
-        .addReg(IA64::P0);
-    MI.eraseFromParent();
-    return true;
-  }
   case IA64::ADJDYNALLOC: {
     const MachineFrameInfo &MFI = MBB.getParent()->getFrameInfo();
     uint64_t Offset = alignTo(MFI.getMaxCallFrameSize(), 16);

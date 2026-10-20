@@ -151,6 +151,14 @@ def PR : RegisterClass<"IA64", [i1], 8, (add
   let isAllocatable = 0;
 }
 
+// The exception is frcpa's predicate, which guards the steps of a division
+// that follow it. Values in these predicates are spilled as doublewords. p6
+// and p7 are left to the compares of pseudos expanded after register
+// allocation.
+def PRValue : RegisterClass<"IA64", [i1], 64, (sequence "P%u", 8, 15)> {
+  let Size = 64;
+}
+
 def BR : RegisterClass<"IA64", [i64], 64, (add
   (sequence "B%u", 6, 7),      // scratch
   (sequence "B%u", 1, 5),      // preserved

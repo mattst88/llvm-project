@@ -28,7 +28,8 @@ define i64 @less(double %a, double %b) {
 
 define double @quotient(double %a, double %b) {
 ; CHECK-LABEL: name: quotient
-; CHECK: nofpexcept FDIV_D {{.*}}, implicit $ar40
+; CHECK: nofpexcept FRCPA {{.*}}, implicit $ar40
+; CHECK: nofpexcept FMA_D_MERGE {{.*}}, implicit $ar40
   %r = fdiv double %a, %b
   ret double %r
 }

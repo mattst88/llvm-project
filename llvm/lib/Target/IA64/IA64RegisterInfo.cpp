@@ -172,6 +172,37 @@ bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
         .addReg(IA64::P0)
         .setMIFlag(Flags);
     break;
+  case IA64::SPILL_PR:
+    // Zero, then under the predicate the address, which is not zero.
+    FormAddress(IA64::R2);
+    BuildMI(MBB, II, DL, TII.get(IA64::ST8))
+        .addReg(IA64::R2)
+        .addReg(IA64::R0)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+    BuildMI(MBB, II, DL, TII.get(IA64::ST8))
+        .addReg(IA64::R2)
+        .addReg(IA64::R2)
+        .addImm(0)
+        .add(MI.getOperand(0))
+        .setMIFlag(Flags);
+    break;
+  case IA64::RELOAD_PR:
+    FormAddress(IA64::R2);
+    BuildMI(MBB, II, DL, TII.get(IA64::LD8), IA64::R2)
+        .addReg(IA64::R2, RegState::Kill)
+        .addImm(0)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+    BuildMI(MBB, II, DL, TII.get(IA64::CMP_EQ))
+        .addReg(IA64::P0, RegState::Define)
+        .add(MI.getOperand(0))
+        .addReg(IA64::R0)
+        .addReg(IA64::R2, RegState::Kill)
+        .addReg(IA64::P0)
+        .setMIFlag(Flags);
+    break;
   case IA64::RELOAD_GR:
   case IA64::RELOAD_FR: {
     // A GR being reloaded holds its own address first, which keeps reloads
