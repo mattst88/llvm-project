@@ -1,9 +1,10 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
-; RUN:   | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-pipeliner=false < %s | FileCheck %s
 
 ; The second iteration loads y[i + 1] after the first stores y[i]. Only alias
 ; analysis sees that the two differ, which lets both pairs of loads issue
-; before either store.
+; before either store. The pipeliner is off so that the scheduler's ordering
+; is what gets checked.
 define void @add2(ptr noalias %y, ptr noalias %x, i64 %n) {
 ; CHECK-LABEL: add2:
 ; CHECK:       .LBB0_1:

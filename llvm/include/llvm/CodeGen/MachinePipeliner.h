@@ -430,6 +430,7 @@ private:
   void initPolicy();
   LoopCarriedEdges addLoopCarriedDependences();
   void updatePhiDependences();
+  void removeDisjointMemoryDependences();
   void changeDependences();
   unsigned calculateResMII();
   unsigned calculateRecMII(NodeSetType &RecNodeSets);

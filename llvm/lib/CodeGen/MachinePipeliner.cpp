@@ -888,6 +888,7 @@ SwingSchedulerDAG::SwingSchedulerDAG(MachineFunction &MF,
 /// scheduling part of the Swing Modulo Scheduling algorithm.
 void SwingSchedulerDAG::schedule() {
   buildSchedGraph(AA);
+  removeDisjointMemoryDependences();
   const LoopCarriedEdges LCE = addLoopCarriedDependences();
   updatePhiDependences();
   Topo.InitDAGTopologicalSorting();
@@ -3270,6 +3271,134 @@ MachineInstr *SwingSchedulerDAG::findDefInLoop(Register Reg) {
   return Def;
 }
 
+namespace {
+/// Proves that two pointers are a constant distance apart wherever both are
+/// available, looking through constant offsets, through GEPs of the same
+/// indices in one block, and through pairs of phis in one block whose incoming
+/// values are the same distance apart on every edge. A pair of phis may refer
+/// to itself through the loop latch, so pointers that each step through a
+/// loop by the same amount from a constant distance apart are related.
+class PointerDistance {
+  const DataLayout &DL;
+  SmallVector<std::pair<const PHINode *, const PHINode *>, 4> Pending;
+
+  /// A distance that is either known, or that is the distance between the
+  /// phis of Pending[Assumed] plus Dist.
+  struct Result {
+    int64_t Dist;
+    int Assumed;
+  };
+
+  std::optional<Result> get(const Value *A, const Value *B) {
+    int64_t OffsetA = 0, OffsetB = 0;
+    A = GetPointerBaseWithConstantOffset(A, OffsetA, DL);
+    B = GetPointerBaseWithConstantOffset(B, OffsetB, DL);
+    std::optional<Result> R;
+    if (A == B)
+      R = Result{0, -1};
+    else if (const auto *PA = dyn_cast<PHINode>(A))
+      R = getPhis(PA, dyn_cast<PHINode>(B));
+    else if (const auto *GA = dyn_cast<GetElementPtrInst>(A))
+      R = getGEPs(GA, dyn_cast<GetElementPtrInst>(B));
+    if (R)
+      R->Dist += OffsetA - OffsetB;
+    return R;
+  }
+
+  std::optional<Result> getGEPs(const GetElementPtrInst *A,
+                                const GetElementPtrInst *B) {
+    if (!B || A->getParent() != B->getParent() ||
+        A->getSourceElementType() != B->getSourceElementType() ||
+        !std::equal(A->idx_begin(), A->idx_end(), B->idx_begin(), B->idx_end()))
+      return std::nullopt;
+    return get(A->getPointerOperand(), B->getPointerOperand());
+  }
+
+  std::optional<Result> getPhis(const PHINode *A, const PHINode *B) {
+    if (!B || A->getParent() != B->getParent())
+      return std::nullopt;
+    auto It = find(Pending, std::make_pair(A, B));
+    if (It != Pending.end())
+      return Result{0, int(It - Pending.begin())};
+    if (Pending.size() == 4)
+      return std::nullopt;
+    int Self = Pending.size();
+    Pending.push_back({A, B});
+    std::optional<int64_t> Known;
+    bool Valid = true;
+    for (const BasicBlock *Pred : A->blocks()) {
+      std::optional<Result> R = get(A->getIncomingValueForBlock(Pred),
+                                    B->getIncomingValueForBlock(Pred));
+      if (!R || (R->Assumed == Self && R->Dist != 0) ||
+          (R->Assumed != -1 && R->Assumed != Self) ||
+          (R->Assumed == -1 && Known && *Known != R->Dist)) {
+        Valid = false;
+        break;
+      }
+      if (R->Assumed == -1)
+        Known = R->Dist;
+    }
+    Pending.pop_back();
+    if (!Valid || !Known)
+      return std::nullopt;
+    return Result{*Known, -1};
+  }
+
+public:
+  PointerDistance(const DataLayout &DL) : DL(DL) {}
+
+  /// Return A - B, if it is a constant.
+  std::optional<int64_t> operator()(const Value *A, const Value *B) {
+    std::optional<Result> R = get(A, B);
+    if (!R || R->Assumed != -1)
+      return std::nullopt;
+    return R->Dist;
+  }
+};
+} // namespace
+
+/// Return the distance between the addresses that \p A and \p B access, if it
+/// is a constant.
+static std::optional<int64_t> getAccessDistance(const MachineMemOperand &A,
+                                                const MachineMemOperand &B,
+                                                const DataLayout &DL) {
+  if (!A.getValue() || !B.getValue())
+    return std::nullopt;
+  std::optional<int64_t> Dist = PointerDistance(DL)(A.getValue(), B.getValue());
+  if (!Dist)
+    return std::nullopt;
+  return *Dist + A.getOffset() - B.getOffset();
+}
+
+/// Remove the memory dependences between accesses a constant distance apart
+/// that do not overlap. IR alias analysis cannot separate a[i + 1] from
+/// a[i + 2] when loop strength reduction gives each its own pointer.
+void SwingSchedulerDAG::removeDisjointMemoryDependences() {
+  const DataLayout &DL = MF.getDataLayout();
+  for (SUnit &SU : SUnits) {
+    SmallVector<SDep, 4> Disjoint;
+    for (const SDep &Pred : SU.Preds) {
+      const MachineInstr *MIA = Pred.getSUnit()->getInstr();
+      const MachineInstr *MIB = SU.getInstr();
+      if (!Pred.isNormalMemory() || !MIA->hasOneMemOperand() ||
+          !MIB->hasOneMemOperand())
+        continue;
+      const MachineMemOperand &A = **MIA->memoperands_begin();
+      const MachineMemOperand &B = **MIB->memoperands_begin();
+      LocationSize SizeA = A.getSize(), SizeB = B.getSize();
+      if (!SizeA.hasValue() || SizeA.isScalable() || !SizeB.hasValue() ||
+          SizeB.isScalable())
+        continue;
+      std::optional<int64_t> Dist = getAccessDistance(A, B, DL);
+      if (Dist && (*Dist + (int64_t)SizeA.getValue() <= 0 ||
+                   (int64_t)SizeB.getValue() <= *Dist))
+        Disjoint.push_back(Pred);
+    }
+    for (const SDep &D : Disjoint)
+      SU.removePred(D);
+  }
+}
+
 /// Return false if there is no overlap between the region accessed by BaseMI in
 /// an iteration and the region accessed by OtherMI in subsequent iterations.
 bool SwingSchedulerDAG::mayOverlapInLaterIter(
@@ -3293,7 +3422,18 @@ bool SwingSchedulerDAG::mayOverlapInLaterIter(
   if (OffsetBIsScalable || OffsetOIsScalable)
     return true;
 
-  if (!BaseOpB->isIdenticalTo(*BaseOpO)) {
+  std::optional<int64_t> Dist;
+  if (!BaseOpB->isIdenticalTo(*BaseOpO))
+    Dist =
+        getAccessDistance(**BaseMI->memoperands_begin(),
+                          **OtherMI->memoperands_begin(), MF.getDataLayout());
+  if (Dist) {
+    // Pass cases with different base operands that step together from
+    // addresses a constant apart, such as a pointer to each of a[i] and
+    // a[i + 1].
+    OffsetB = *Dist;
+    OffsetO = 0;
+  } else if (!BaseOpB->isIdenticalTo(*BaseOpO)) {
     // Pass cases with different base operands but same initial values.
     // Typically for when pre/post increment is used.
 
