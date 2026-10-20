@@ -218,3 +218,72 @@ define i64 @few(i64 %x) {
   %r = and i64 %x, 15
   ret i64 %r
 }
+
+; A field scaled by 2 to 16 and added, as a table index is, is extracted
+; unscaled and shladd scales it, a step shorter than a shift, an and and an
+; add.
+
+define i64 @scaled_index(i64 %x, i64 %base) {
+; CHECK-LABEL: scaled_index:
+; CHECK:       extr.u r14 = r32, 24, 8 ;;
+; CHECK-NEXT:  shladd r8 = r14, 2, r33
+  %s = lshr i64 %x, 22
+  %m = and i64 %s, 1020
+  %r = add i64 %base, %m
+  ret i64 %r
+}
+
+define i32 @table(i32 %x, ptr %t) {
+; CHECK-LABEL: table:
+; CHECK:       extr.u r14 = r32, 16, 8 ;;
+; CHECK-NEXT:  shladd r14 = r14, 2, r33 ;;
+; CHECK-NEXT:  ld4 r8 = [r14]
+  %s = lshr i32 %x, 16
+  %b = and i32 %s, 255
+  %i = zext i32 %b to i64
+  %p = getelementptr i32, ptr %t, i64 %i
+  %r = load i32, ptr %p
+  ret i32 %r
+}
+
+define i64 @scaled_wide(i64 %x, i64 %base) {
+; CHECK-LABEL: scaled_wide:
+; CHECK:       extr.u r14 = r32, 3, 12 ;;
+; CHECK-NEXT:  shladd r8 = r14, 3, r33
+  %m = and i64 %x, 32760
+  %r = add i64 %m, %base
+  ret i64 %r
+}
+
+; A mask that fits and's immediate needs no I0 port.
+define i64 @scaled_small(i64 %x, i64 %base) {
+; CHECK-LABEL: scaled_small:
+; CHECK:       and r14 = 60, r32 ;;
+; CHECK-NEXT:  add r8 = r14, r33
+  %m = and i64 %x, 60
+  %r = add i64 %m, %base
+  ret i64 %r
+}
+
+; Scaling by 32 is beyond shladd.
+define i64 @scaled_too_far(i64 %x, i64 %base) {
+; CHECK-LABEL: scaled_too_far:
+; CHECK-NOT:   shladd
+; CHECK:       br.ret
+  %s = lshr i64 %x, 3
+  %m = and i64 %s, 8160
+  %r = add i64 %m, %base
+  ret i64 %r
+}
+
+; Where the masked value has another use, the and is kept.
+define i64 @scaled_shared(i64 %x, i64 %base, ptr %p) {
+; CHECK-LABEL: scaled_shared:
+; CHECK-NOT:   shladd
+; CHECK:       br.ret
+  %s = lshr i64 %x, 22
+  %m = and i64 %s, 1020
+  store i64 %m, ptr %p
+  %r = add i64 %base, %m
+  ret i64 %r
+}

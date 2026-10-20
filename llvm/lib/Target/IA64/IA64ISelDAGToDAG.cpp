@@ -55,6 +55,7 @@ public:
   enum CompareForm { Register, Immediate, FloatingPoint };
   bool selectMinMax(SDNode *Node);
   bool selectBitField(SDNode *Node);
+  bool selectScaledField(SDNode *Node);
   bool appendChainCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                           const SDLoc &DL, SmallVectorImpl<SDValue> &Ops,
                           unsigned First, bool &HasPlain);
@@ -648,6 +649,48 @@ bool IA64DAGToDAGISel::selectBitField(SDNode *Node) {
   }
 }
 
+// Select an add of a field scaled by 2 to 16, as table indexing computes it:
+// (x >> c) & (m << k) + base is shladd of the field extr.u takes at c + k.
+// DAGCombiner folds the scaling into the shift and mask, which otherwise
+// takes a shift, an and and an add, one step more than this; a mask too wide
+// for an immediate otherwise needs a register.
+bool IA64DAGToDAGISel::selectScaledField(SDNode *Node) {
+  if (Node->getValueType(0) != MVT::i64)
+    return false;
+  for (unsigned I : {0, 1}) {
+    SDValue Masked = Node->getOperand(I);
+    uint64_t Mask;
+    if (!isMaskedBy(Masked, Mask) || !Masked.hasOneUse())
+      continue;
+    unsigned Scale = llvm::countr_zero(Mask);
+    if (Scale < 1 || Scale > 4 || !isMask_64(Mask >> Scale))
+      continue;
+    SDValue Source = Masked.getOperand(0);
+    unsigned Pos = Scale, Amount;
+    if (isShiftBy(Source, ISD::SRL, Amount) && Amount + Scale < 64) {
+      Source = Source.getOperand(0);
+      Pos += Amount;
+    } else if (isInt<8>(Mask)) {
+      // An and with an immediate and an add are as short, and need no I0.
+      continue;
+    }
+    unsigned Len =
+        std::min<unsigned>(llvm::countr_one(Mask >> Scale), 64 - Pos);
+    SDLoc DL(Node);
+    SDValue P0 = CurDAG->getRegister(IA64::P0, MVT::i1);
+    SDNode *Field = CurDAG->getMachineNode(
+        IA64::EXTR_U, DL, MVT::i64,
+        {Source, CurDAG->getTargetConstant(Pos, DL, MVT::i64),
+         CurDAG->getTargetConstant(Len, DL, MVT::i64), P0});
+    CurDAG->SelectNodeTo(Node, IA64::SHLADD, MVT::i64,
+                         {SDValue(Field, 0),
+                          CurDAG->getTargetConstant(Scale, DL, MVT::i64),
+                          Node->getOperand(1 - I), P0});
+    return true;
+  }
+  return false;
+}
+
 void IA64DAGToDAGISel::Select(SDNode *Node) {
   if (Node->isMachineOpcode()) {
     Node->setNodeId(-1);
@@ -673,6 +716,10 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   case ISD::SRA:
   case ISD::SIGN_EXTEND_INREG:
     if (selectCompareChain(Node) || selectBitField(Node))
+      return;
+    break;
+  case ISD::ADD:
+    if (selectScaledField(Node))
       return;
     break;
   case ISD::FrameIndex: {
