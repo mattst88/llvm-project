@@ -259,6 +259,21 @@ foreach T = [["f32", "_S"], ["f64", "_D"]] in {
             (FMA (f64 (SETF_SIG GR:$r)), (f64 F1), (f64 F0), 0)>;
 }
 
+// An integer with no more significant bits than the target precision has is
+// exact in it already, and fcvt.xf's result needs no rounding.
+def sint_to_fp_exact_f32 : PatFrag<(ops node:$r), (sint_to_fp node:$r), [{
+  SDValue R = N->getOperand(0);
+  return CurDAG->ComputeNumSignBits(R) >= R.getScalarValueSizeInBits() - 24;
+}]>;
+def sint_to_fp_exact_f64 : PatFrag<(ops node:$r), (sint_to_fp node:$r), [{
+  SDValue R = N->getOperand(0);
+  return CurDAG->ComputeNumSignBits(R) >= R.getScalarValueSizeInBits() - 53;
+}]>;
+let AddedComplexity = 1 in {
+def : Pat<(f32 (sint_to_fp_exact_f32 GR:$r)), (FCVT_XF (f64 (SETF_SIG GR:$r)))>;
+def : Pat<(f64 (sint_to_fp_exact_f64 GR:$r)), (FCVT_XF (f64 (SETF_SIG GR:$r)))>;
+}
+
 // At extended precision no rounding is needed, and fcvt.xf yields a
 // normalized value for a signed integer.
 def : Pat<(f80 (any_sint_to_fp GR:$r)), (FCVT_XF (f64 (SETF_SIG GR:$r)))>;

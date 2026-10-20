@@ -89,15 +89,60 @@ define float @uitofps(i64 %a) {
   ret float %r
 }
 
+; An integer of no more bits than the result's significand is exact in it,
+; and needs no rounding.
 define double @sitofp32(i32 %a) {
 ; CHECK-LABEL: sitofp32:
 ; CHECK:       sxt4 r14 = r32 ;;
 ; CHECK-NEXT:  setf.sig f6 = r14 ;;
-; CHECK-NEXT:  fcvt.xf f6 = f6 ;;
-; CHECK-NEXT:  fma.d f8 = f6, f1, f0
+; CHECK-NEXT:  fcvt.xf f8 = f6
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = sitofp i32 %a to double
   ret double %r
+}
+
+define double @sitofp54(i64 %a) {
+; CHECK-LABEL: sitofp54:
+; CHECK:       shr r14 = r32, 10 ;;
+; CHECK-NEXT:  setf.sig f6 = r14 ;;
+; CHECK-NEXT:  fcvt.xf f8 = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %s = ashr i64 %a, 10
+  %r = sitofp i64 %s to double
+  ret double %r
+}
+
+define double @sitofp55(i64 %a) {
+; CHECK-LABEL: sitofp55:
+; CHECK:       shr r14 = r32, 9 ;;
+; CHECK-NEXT:  setf.sig f6 = r14 ;;
+; CHECK-NEXT:  fcvt.xf f6 = f6 ;;
+; CHECK-NEXT:  fma.d f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %s = ashr i64 %a, 9
+  %r = sitofp i64 %s to double
+  ret double %r
+}
+
+define float @sitofps16(i16 %a) {
+; CHECK-LABEL: sitofps16:
+; CHECK:       sxt2 r14 = r32 ;;
+; CHECK-NEXT:  setf.sig f6 = r14 ;;
+; CHECK-NEXT:  fcvt.xf f8 = f6
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = sitofp i16 %a to float
+  ret float %r
+}
+
+define float @sitofps32(i32 %a) {
+; CHECK-LABEL: sitofps32:
+; CHECK:       sxt4 r14 = r32 ;;
+; CHECK-NEXT:  setf.sig f6 = r14 ;;
+; CHECK-NEXT:  fcvt.xf f6 = f6 ;;
+; CHECK-NEXT:  fma.s f8 = f6, f1, f0
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = sitofp i32 %a to float
+  ret float %r
 }
 
 define double @uitofp32(i32 %a) {
