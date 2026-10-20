@@ -54,6 +54,13 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   // The sret pointer passed by the caller, which the function returns.
   Register SRetReg;
 
+  // The rotating registers that software-pipelined loops use: the first
+  // RotatingGRs of r32-r127, a multiple of eight, and the first RotatingFRs
+  // of f32-f127. Such loops also use the rotating predicates p16-p63.
+  unsigned RotatingGRs = 0;
+  unsigned RotatingFRs = 0;
+  bool Rotates = false;
+
   // The bundle templates chosen for the bundles that the instructions start,
   // where they differ from what the assembler would choose.
   DenseMap<const MachineInstr *, unsigned> Templates;
@@ -101,6 +108,14 @@ public:
   void setSRetReg(Register Reg) { SRetReg = Reg; }
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int FI) { VarArgsFrameIndex = FI; }
+  unsigned getRotatingGRs() const { return RotatingGRs; }
+  unsigned getRotatingFRs() const { return RotatingFRs; }
+  bool rotates() const { return Rotates; }
+  void addRotating(unsigned GRs, unsigned FRs) {
+    RotatingGRs = std::max(RotatingGRs, GRs);
+    RotatingFRs = std::max(RotatingFRs, FRs);
+    Rotates = true;
+  }
   DenseMap<const MachineInstr *, unsigned> &getTemplates() { return Templates; }
 };
 

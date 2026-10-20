@@ -17,11 +17,15 @@
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CodeGen.h"
+#include <optional>
 
 namespace llvm {
 
 class FunctionPass;
 class IA64RegisterBankInfo;
+class LiveIntervals;
+class MachineBasicBlock;
+class ModuloSchedule;
 class IA64Subtarget;
 class IA64TargetMachine;
 class InstructionSelector;
@@ -44,6 +48,14 @@ InstructionSelector *
 createIA64InstructionSelector(const IA64TargetMachine &TM,
                               const IA64Subtarget &STI,
                               const IA64RegisterBankInfo &RBI);
+
+/// The most stages Loop may have when pipelined with rotating registers, or
+/// 0 if it cannot or should not be. MaxTripCount bounds its iterations, if
+/// known.
+unsigned getIA64RotatingMaxStages(MachineBasicBlock *Loop,
+                                  std::optional<uint64_t> MaxTripCount);
+/// Expand MS into a kernel-only loop that rotates registers, if it can be.
+bool expandIA64RotatingSchedule(ModuloSchedule &MS, LiveIntervals &LIS);
 
 void initializeIA64BreakAntiDepsPass(PassRegistry &);
 void initializeIA64ExpandBranchesPass(PassRegistry &);

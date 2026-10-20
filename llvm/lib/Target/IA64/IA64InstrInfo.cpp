@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64InstrInfo.h"
+#include "IA64.h"
 #include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
@@ -1018,6 +1019,54 @@ bool IA64InstrInfo::reverseBranchCondition(
   return false;
 }
 
+// The most Reg can hold, as far as masks, extracts and small adds bound it,
+// such as the count of a remainder loop that loop unrolling leaves.
+static std::optional<uint64_t> getMaxValue(const MachineRegisterInfo &MRI,
+                                           Register Reg, unsigned Depth = 0) {
+  if (!Reg.isVirtual() || Depth > 4)
+    return std::nullopt;
+  const MachineInstr *MI = MRI.getUniqueVRegDef(Reg);
+  if (!MI)
+    return std::nullopt;
+  switch (MI->getOpcode()) {
+  case IA64::COPY:
+    return getMaxValue(MRI, MI->getOperand(1).getReg(), Depth + 1);
+  case IA64::ANDi:
+    if (MI->getOperand(1).getImm() >= 0)
+      return MI->getOperand(1).getImm();
+    return std::nullopt;
+  case IA64::EXTR_U:
+    return maskTrailingOnes<uint64_t>(MI->getOperand(3).getImm());
+  case IA64::ZXT1:
+    return 0xff;
+  case IA64::ZXT2:
+    return 0xffff;
+  case IA64::ZXT4:
+    return 0xffffffff;
+  case IA64::ADDS: {
+    // An add that cannot wrap past zero.
+    int64_t Imm = MI->getOperand(1).getImm();
+    std::optional<uint64_t> Max =
+        getMaxValue(MRI, MI->getOperand(2).getReg(), Depth + 1);
+    if (!Max || *Max > (uint64_t)INT64_MAX || (int64_t)*Max + Imm < 0)
+      return std::nullopt;
+    return *Max + Imm;
+  }
+  case IA64::PHI: {
+    uint64_t Max = 0;
+    for (unsigned I = 1, E = MI->getNumOperands(); I < E; I += 2) {
+      std::optional<uint64_t> In =
+          getMaxValue(MRI, MI->getOperand(I).getReg(), Depth + 1);
+      if (!In)
+        return std::nullopt;
+      Max = std::max(Max, *In);
+    }
+    return Max;
+  }
+  }
+  return std::nullopt;
+}
+
 namespace {
 // A loop counted in ar.lc is the only kind pipelined. The count is set in the
 // preheader, and each prologue closes with a br.cloop that leaves for its
@@ -1032,6 +1081,7 @@ namespace {
 class IA64PipelinerLoopInfo : public TargetInstrInfo::PipelinerLoopInfo {
   const IA64InstrInfo &TII;
   MachineRegisterInfo &MRI;
+  MachineBasicBlock *LoopBB;
   // One less than the number of iterations, which the preheader puts in
   // ar.lc.
   Register InitLC;
@@ -1076,8 +1126,8 @@ class IA64PipelinerLoopInfo : public TargetInstrInfo::PipelinerLoopInfo {
 
 public:
   IA64PipelinerLoopInfo(const IA64InstrInfo &TII, MachineRegisterInfo &MRI,
-                        Register InitLC)
-      : TII(TII), MRI(MRI), InitLC(InitLC) {}
+                        MachineBasicBlock *LoopBB, Register InitLC)
+      : TII(TII), MRI(MRI), LoopBB(LoopBB), InitLC(InitLC) {}
 
   bool shouldIgnoreForPipelining(const MachineInstr *MI) const override {
     return MI->isTerminator();
@@ -1095,6 +1145,20 @@ public:
 
   bool isMVEExpanderSupported() override { return InitLC.isValid(); }
   bool isMVEExpanderPreferred() override { return true; }
+
+  // A loop that can run its kernel alone, in rotating registers, may have
+  // more stages than one that must be unrolled. One that is not to rotate
+  // is left to the default expander, however few stages it has.
+  unsigned getMaxStages() override {
+    std::optional<uint64_t> MaxTripCount;
+    if (InitLC.isValid())
+      if (std::optional<uint64_t> MaxLC = getMaxValue(MRI, InitLC))
+        MaxTripCount = *MaxLC + 1;
+    return getIA64RotatingMaxStages(LoopBB, MaxTripCount);
+  }
+  bool expandSchedule(ModuloSchedule &MS, LiveIntervals &LIS) override {
+    return getMaxStages() && expandIA64RotatingSchedule(MS, LIS);
+  }
 
   // The expander asks first, before the prologue, whether the loop runs more
   // than the TC iterations that the prologue and one pass of the kernel
@@ -1153,7 +1217,7 @@ IA64InstrInfo::analyzeLoopForPipelining(MachineBasicBlock *LoopBB) const {
         break;
       }
   return std::make_unique<IA64PipelinerLoopInfo>(
-      *this, LoopBB->getParent()->getRegInfo(), InitLC);
+      *this, LoopBB->getParent()->getRegInfo(), LoopBB, InitLC);
 }
 
 // A load or store addresses memory by the register of its first input, with

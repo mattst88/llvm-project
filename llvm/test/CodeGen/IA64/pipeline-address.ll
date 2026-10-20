@@ -1,5 +1,6 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
-; RUN:   -pass-remarks-analysis=pipeliner -o /dev/null < %s 2>&1 | FileCheck %s
+; RUN:   -ia64-rotating-max-stages=0 -pass-remarks-analysis=pipeliner \
+; RUN:   -o /dev/null < %s 2>&1 | FileCheck %s
 
 ; The pipeliner tells how far apart the accesses of two iterations are from
 ; the base register of each and how much the loop steps it. That keeps the

@@ -75,6 +75,18 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // ar.ec, which only software-pipelined loops use.
   Reserved.set(IA64::AR66);
 
+  // The rotating registers that software-pipelined loops use. Their names
+  // change as the loop branch rotates them, so they hold nothing else.
+  auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  if (FI->rotates()) {
+    for (unsigned I = 0; I != FI->getRotatingGRs(); ++I)
+      Reserved.set(IA64::R32 + I);
+    for (unsigned I = 0; I != FI->getRotatingFRs(); ++I)
+      Reserved.set(IA64::F32 + I);
+    for (unsigned Reg = IA64::P16; Reg <= IA64::P63; ++Reg)
+      Reserved.set(Reg);
+  }
+
   // RSE state: ar.rsc, ar.bsp, ar.bspstore and ar.rnat.
   Reserved.set(IA64::AR16);
   Reserved.set(IA64::AR17);

@@ -63,10 +63,14 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   for (unsigned I = 0; I != 8; ++I)
     if (MRI.isPhysRegUsed(IA64::R120 + I, /*SkipRegMaskTest=*/true))
       Outputs = I + 1;
+  // The rotating registers of software-pipelined loops are locals, whether
+  // or not anything names the last ones.
+  auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  unsigned Rotating = FI->getRotatingGRs();
+  Locals = std::max(Locals, Rotating);
 
   // A call overwrites ar.pfs and b0, so a function with calls saves both and
   // needs a register stack frame to hold them.
-  auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   // So does a function whose inline asm clobbers them.
   bool SaveRP = MF.getFrameInfo().hasCalls() || !MRI.def_empty(IA64::B0);
@@ -83,7 +87,7 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   bool NeedsBP = Realign && MF.getFrameInfo().hasVarSizedObjects();
   bool SaveOthers = FI->changesPR() || FI->changesLC() || FI->getChangedBRs();
   if (Locals != Inputs || Outputs != 0 || RestorePFS || SaveUNAT ||
-      SaveOthers || hasFP(MF)) {
+      SaveOthers || hasFP(MF) || Rotating) {
     unsigned NumSaves = 1 + SaveRP + SaveUNAT + hasFP(MF) + NeedsBP +
                         FI->changesPR() + FI->changesLC() +
                         popcount(FI->getChangedBRs());
@@ -91,7 +95,8 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
     unsigned Used = Locals;
     for (; Locals != 88 && Saves.size() != NumSaves; ++Locals)
       Saves.push_back(IA64::R32 + Locals);
-    for (unsigned I = Inputs; I != Used && Saves.size() != NumSaves; ++I)
+    for (unsigned I = std::max(Inputs, Rotating);
+         I < Used && Saves.size() != NumSaves; ++I)
       if (!MRI.isPhysRegUsed(IA64::R32 + I, /*SkipRegMaskTest=*/true))
         Saves.push_back(IA64::R32 + I);
     // A register stack frame is limited to 96 registers, and there is no
@@ -149,7 +154,7 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
         .addImm(Inputs)
         .addImm(Locals - Inputs)
         .addImm(Outputs)
-        .addImm(0)
+        .addImm(Rotating)
         .addReg(IA64::P0)
         .setMIFlag(MachineInstr::FrameSetup);
     SmallVector<MachineInstr *, 6> Sinkable;

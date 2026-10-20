@@ -299,8 +299,10 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
 
       // A call returns to the next bundle, which starts a new group with or
       // without a stop, so record one. The rest of a flushrs's group would
-      // see the register stack state from before the flush.
-      if (MI.isCall() || MI.getOpcode() == IA64::FLUSHRS)
+      // see the register stack state from before the flush. br.ctop and
+      // clrrrb rename the rotating registers, and clrrrb must end its group.
+      if (MI.isCall() || MI.getOpcode() == IA64::FLUSHRS ||
+          MI.getOpcode() == IA64::BR_CTOP || MI.getOpcode() == IA64::CLRRRB)
         EndGroup();
     }
     if (!continuesGroup(MBB, BlockLast))

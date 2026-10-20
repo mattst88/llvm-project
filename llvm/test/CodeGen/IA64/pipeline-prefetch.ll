@@ -1,5 +1,6 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
-; RUN:   -pass-remarks-analysis=pipeliner -o - < %s 2>&1 | FileCheck %s
+; RUN:   -ia64-rotating-max-stages=0 -pass-remarks-analysis=pipeliner \
+; RUN:   -o - < %s 2>&1 | FileCheck %s
 
 ; lfetch is marked as a store so that nothing deletes it, but its memory
 ; operand only loads. The pipeliner orders it as a load, so the load of b[i + 1]
