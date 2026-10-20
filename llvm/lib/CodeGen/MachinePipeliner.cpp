@@ -1223,9 +1223,21 @@ static bool hasLoopCarriedMemDep(const SUnitWithMemInfo &Src,
   return false;
 }
 
+/// Returns true if \p MI may write memory. An instruction marked as a store
+/// whose memory operands only load, such as a prefetch kept from deletion,
+/// orders only as a load.
+static bool mayWriteMemory(const MachineInstr &MI) {
+  if (!MI.mayStore())
+    return false;
+  if (MI.memoperands_empty())
+    return true;
+  return any_of(MI.memoperands(),
+                [](const MachineMemOperand *MMO) { return MMO->isStore(); });
+}
+
 void LoopCarriedOrderDepsTracker::NoBarrierInstsChunk::append(SUnit *SU) {
   const MachineInstr *MI = SU->getInstr();
-  if (MI->mayStore())
+  if (mayWriteMemory(*MI))
     Stores.emplace_back(SU);
   else if (MI->mayLoad())
     Loads.emplace_back(SU);

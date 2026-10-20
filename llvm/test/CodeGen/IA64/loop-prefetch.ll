@@ -8,9 +8,9 @@
 
 define i64 @column(ptr %a) {
 ; CHECK-LABEL: column:
-; CHECK:       .LBB0_1:
+; CHECK:       .LBB0_[[LOOP:[0-9]+]]:
 ; CHECK:         lfetch [r{{[0-9]+}}]
-; CHECK:         br.cloop
+; CHECK:         br.cond.dptk.few .LBB0_[[LOOP]]
 ; OFF-LABEL:   column:
 ; OFF-NOT:       lfetch
 ; OFF:           br.ret
