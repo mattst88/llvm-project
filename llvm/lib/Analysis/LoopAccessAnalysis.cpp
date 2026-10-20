@@ -3071,6 +3071,17 @@ MemoryDepChecker::getDependenceDistanceStrideAndSize(
     // vectorize.
     if (!StrideAPtrInt && !StrideBPtrInt && Dist->isZero())
       return MemoryDepChecker::Dependence::InvariantUnsafe;
+    // Two loop-invariant accesses a constant distance apart overlap in every
+    // iteration or in none, even if the addresses wrap.
+    const APInt *APDist;
+    if (!StrideAPtrInt && !StrideBPtrInt && match(Dist, m_scev_APInt(APDist))) {
+      TypeSize ASz = DL.getTypeStoreSize(ATy);
+      TypeSize BSz = DL.getTypeStoreSize(BTy);
+      if (!ASz.isScalable() && !BSz.isScalable() &&
+          APDist->uge(ASz.getFixedValue()) &&
+          (-*APDist).uge(BSz.getFixedValue()))
+        return MemoryDepChecker::Dependence::NoDep;
+    }
     // Otherwise, we can generate a runtime check to disambiguate the accesses.
     return MemoryDepChecker::Dependence::Unknown;
   }
