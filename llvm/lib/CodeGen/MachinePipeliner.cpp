@@ -1011,8 +1011,10 @@ void SwingSchedulerDAG::schedule() {
     return;
   }
   // Check that the maximum stage count is less than user-defined limit.
-  if (SwpMaxStages > -1 && (int)numStages > SwpMaxStages) {
-    LLVM_DEBUG(dbgs() << "numStages:" << numStages << ">" << SwpMaxStages
+  auto TooManyStages = [&](int MaxStages) {
+    if (MaxStages < 0 || (int)numStages <= MaxStages)
+      return false;
+    LLVM_DEBUG(dbgs() << "numStages:" << numStages << ">" << MaxStages
                       << " : too many stages, abort\n");
     NumFailLargeMaxStage++;
     ORE->emit([&]() {
@@ -1020,17 +1022,20 @@ void SwingSchedulerDAG::schedule() {
                  DEBUG_TYPE, "schedule", Loop.getStartLoc(), Loop.getHeader())
              << "Too many stages in schedule: "
              << ore::NV("numStages", (int)numStages) << " > "
-             << ore::NV("SwpMaxStages", SwpMaxStages)
+             << ore::NV("SwpMaxStages", MaxStages)
              << ". Refer to -pipeliner-max-stages.";
     });
+    return true;
+  };
+  if (TooManyStages(getMaxStages()))
     return;
-  }
-
-  ORE->emit([&]() {
-    return MachineOptimizationRemark(DEBUG_TYPE, "schedule", Loop.getStartLoc(),
-                                     Loop.getHeader())
-           << "Pipelined succesfully!";
-  });
+  auto EmitPipelined = [&]() {
+    ORE->emit([&]() {
+      return MachineOptimizationRemark(DEBUG_TYPE, "schedule",
+                                       Loop.getStartLoc(), Loop.getHeader())
+             << "Pipelined succesfully!";
+    });
+  };
 
   // Generate the schedule as a ModuloSchedule.
   DenseMap<MachineInstr *, int> Cycles, Stages;
@@ -1055,12 +1060,24 @@ void SwingSchedulerDAG::schedule() {
   if (EmitTestAnnotations) {
     assert(NewInstrChanges.empty() &&
            "Cannot serialize a schedule with InstrChanges!");
+    EmitPipelined();
     ModuloScheduleTestAnnotater MSTI(MF, MS);
     MSTI.annotate();
     return;
   }
-  // The experimental code generator can't work if there are InstChanges.
-  if (ExperimentalCodeGen && NewInstrChanges.empty()) {
+  // Only the target expands a schedule with more stages than the generic
+  // expanders are allowed.
+  bool Expanded =
+      NewInstrChanges.empty() && LoopPipelinerInfo->expandSchedule(MS, LIS);
+  if (!Expanded && TooManyStages(SwpMaxStages))
+    return;
+
+  EmitPipelined();
+
+  if (Expanded) {
+    // The target expanded the schedule.
+  } else if (ExperimentalCodeGen && NewInstrChanges.empty()) {
+    // The experimental code generator can't work if there are InstChanges.
     PeelingModuloScheduleExpander MSE(MF, MS, &LIS);
     MSE.expand();
   } else if ((MVECodeGen.getNumOccurrences()
@@ -1077,6 +1094,12 @@ void SwingSchedulerDAG::schedule() {
     MSE.cleanup();
   }
   ++NumPipelined;
+}
+
+int SwingSchedulerDAG::getMaxStages() const {
+  if (SwpMaxStages.getNumOccurrences() || !LoopPipelinerInfo->getMaxStages())
+    return SwpMaxStages;
+  return LoopPipelinerInfo->getMaxStages();
 }
 
 /// Clean up after the software pipeliner runs.
@@ -2979,8 +3002,8 @@ bool SwingSchedulerDAG::schedulePipeline(SMSchedule &Schedule) {
       // Even if we find a schedule, make sure the schedule doesn't exceed the
       // allowable number of stages. We keep trying if this happens.
       if (scheduleFound)
-        if (SwpMaxStages > -1 &&
-            Schedule.getMaxStageCount() > (unsigned)SwpMaxStages)
+        if (getMaxStages() > -1 &&
+            Schedule.getMaxStageCount() > (unsigned)getMaxStages())
           scheduleFound = false;
 
       LLVM_DEBUG({

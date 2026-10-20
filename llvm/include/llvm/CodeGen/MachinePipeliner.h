@@ -382,6 +382,9 @@ public:
   /// an instruction may be scheduled.
   int getMOV(SUnit *Node) { return getALAP(Node) - getASAP(Node); }
 
+  /// The most stages a schedule may have, or -1 for no limit.
+  int getMaxStages() const;
+
   /// The depth, in the dependence graph, for a node.
   unsigned getDepth(SUnit *Node) { return Node->getDepth(); }
 

@@ -53,6 +53,7 @@ class MachineModuleInfo;
 class MachineRegisterInfo;
 class MCAsmInfo;
 class MCInst;
+class ModuloSchedule;
 struct MCSchedModel;
 class Module;
 class ScheduleDAG;
@@ -916,6 +917,19 @@ public:
     /// Return true if the target expands pipelined schedules with modulo
     /// variable expansion unless told otherwise.
     virtual bool isMVEExpanderPreferred() { return false; }
+
+    /// Return the most stages a schedule of the loop may have, or 0 for the
+    /// limit that -pipeliner-max-stages sets. The option overrides this when
+    /// given.
+    virtual unsigned getMaxStages() { return 0; }
+
+    /// Expand the schedule MS of the loop and return true, or return false
+    /// without changing anything for a generic expander to expand it. A
+    /// schedule with more stages than -pipeliner-max-stages allows is
+    /// expanded only by the target.
+    virtual bool expandSchedule(ModuloSchedule &MS, LiveIntervals &LIS) {
+      return false;
+    }
   };
 
   /// Analyze loop L, which must be a single-basic-block loop, and if the
