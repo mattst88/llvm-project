@@ -2933,6 +2933,24 @@ Value *LibCallSimplifier::optimizeSqrt(CallInst *CI, IRBuilderBase &B) {
        Callee->getIntrinsicID() == Intrinsic::sqrt))
     Ret = optimizeUnaryDoubleFP(CI, B, TLI, true);
 
+  // sqrt only sets errno for an argument less than zero, so if the argument
+  // cannot be one, the libcall is the intrinsic.
+  if (!Ret && !CI->doesNotAccessMemory() &&
+      Callee->getIntrinsicID() != Intrinsic::sqrt) {
+    SimplifyQuery SQ(DL, TLI, DT, AC, CI, true, true, DC);
+    KnownFPClass Known = computeKnownFPClass(
+        CI->getArgOperand(0), KnownFPClass::OrderedLessThanZeroMask, SQ);
+    if (Known.cannotBeOrderedLessThanZero()) {
+      Value *Sqrt =
+          B.CreateUnaryIntrinsic(Intrinsic::sqrt, CI->getArgOperand(0), CI);
+      if (auto *I = dyn_cast<Instruction>(Sqrt)) {
+        I->copyMetadata(*CI);
+        return copyFlags(*CI, I);
+      }
+      return Sqrt;
+    }
+  }
+
   if (Value *Opt = mergeSqrtToExp(CI, B))
     return Opt;
 

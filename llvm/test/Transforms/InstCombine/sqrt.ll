@@ -80,7 +80,7 @@ define double @sqrt_call_nnan_f64(double %x) {
 define float @sqrt_call_fabs_f32(float %x) {
 ; CHECK-LABEL: @sqrt_call_fabs_f32(
 ; CHECK-NEXT:    [[A:%.*]] = call float @llvm.fabs.f32(float [[X:%.*]])
-; CHECK-NEXT:    [[SQRT:%.*]] = tail call float @sqrtf(float [[A]])
+; CHECK-NEXT:    [[SQRT:%.*]] = tail call float @llvm.sqrt.f32(float [[A]])
 ; CHECK-NEXT:    ret float [[SQRT]]
 ;
   %a = call float @llvm.fabs.f32(float %x)
