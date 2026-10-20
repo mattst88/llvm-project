@@ -629,6 +629,76 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
+  case IA64::SDIV_SIG:
+  case IA64::UDIV_SIG:
+  case IA64::SDIV32_SIG:
+  case IA64::UDIV32_SIG: {
+    unsigned Opc = MI.getOpcode();
+    bool Signed = Opc == IA64::SDIV_SIG || Opc == IA64::SDIV32_SIG;
+    Register Y = MI.getOperand(0).getReg();
+    Register FA = MI.getOperand(1).getReg();
+    Register FB = MI.getOperand(2).getReg();
+    Register E = MI.getOperand(3).getReg();
+    Register T = MI.getOperand(4).getReg();
+    Register P = IA64::P6;
+    Register A = MI.getOperand(5).getReg();
+    Register B = MI.getOperand(6).getReg();
+    auto Step = [&](unsigned Opcode, Register D, Register M1, Register M2,
+                    Register Addend) {
+      BuildMI(MBB, MI, DL, get(Opcode), D)
+          .addReg(M1)
+          .addReg(M2)
+          .addReg(Addend)
+          .addImm(1)
+          .addReg(P);
+    };
+    // A signed integer is converted with fcvt.xf; an unsigned one is a valid
+    // FP value as it is and only needs normalizing.
+    for (auto [D, S] : {std::pair(FA, A), std::pair(FB, B)}) {
+      if (Signed)
+        BuildMI(MBB, MI, DL, get(IA64::FCVT_XF), D).addReg(S).addReg(IA64::P0);
+      else
+        BuildMI(MBB, MI, DL, get(IA64::FMA), D)
+            .addReg(S)
+            .addReg(IA64::F1)
+            .addReg(IA64::F0)
+            .addImm(1)
+            .addReg(IA64::P0);
+    }
+    BuildMI(MBB, MI, DL, get(IA64::FRCPA), Y)
+        .addReg(P, RegState::Define)
+        .addReg(FA)
+        .addReg(FB)
+        .addImm(1)
+        .addReg(IA64::P0);
+    // With e = 1 - b * y, 1 / b is y * (1 + e) * (1 + e^2) and so on.
+    if (Opc == IA64::SDIV32_SIG || Opc == IA64::UDIV32_SIG) {
+      // q = a * y, then q * (1 + e) * (1 + 2^-34 + e^2).
+      Register Q = T;
+      Register C = MI.getOperand(7).getReg();
+      Step(IA64::FNMA, E, FB, Y, IA64::F1);
+      Step(IA64::FMA, Q, FA, Y, IA64::F0);
+      Step(IA64::FMA, Q, Q, E, Q);
+      Step(IA64::FMA, E, E, E, C);
+      Step(IA64::FMA, Y, E, Q, Q);
+    } else {
+      // q = a * y, after two steps, and q + (a - b * q) * y.
+      Step(IA64::FNMA, E, FB, Y, IA64::F1);
+      Step(IA64::FMA, T, E, E, IA64::F0);
+      Step(IA64::FMA, Y, Y, E, Y);
+      Step(IA64::FMA, Y, Y, T, Y);
+      Step(IA64::FMA, E, Y, FA, IA64::F0);
+      Step(IA64::FNMA, T, FB, E, FA);
+      Step(IA64::FMA, Y, T, Y, E);
+    }
+    BuildMI(MBB, MI, DL,
+            get(Signed ? IA64::FCVT_FX_TRUNC : IA64::FCVT_FXU_TRUNC), Y)
+        .addReg(Y)
+        .addImm(1)
+        .addReg(IA64::P0);
+    MI.eraseFromParent();
+    return true;
+  }
   case IA64::ADJDYNALLOC: {
     const MachineFrameInfo &MFI = MBB.getParent()->getFrameInfo();
     uint64_t Offset = alignTo(MFI.getMaxCallFrameSize(), 16);

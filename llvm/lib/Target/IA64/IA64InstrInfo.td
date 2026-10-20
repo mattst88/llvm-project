@@ -313,6 +313,36 @@ def FDIV_D : IA64Pseudo<(outs FR:$f1, FR:$q, FR:$e, FR:$t),
                         (ins FRAddend:$a, FR:$b), "#FDIV_D", []>;
 }
 
+// Signed and unsigned 64-bit division of the integers in the significands of
+// $a and $b, leaving the quotient in the significand of $f1. The integers are
+// converted to FP values, which they fit exactly, and divided much as above,
+// with all of it in status field 1, whose flags programs do not see. Two
+// steps after frcpa give a reciprocal accurate enough that the quotient,
+// corrected once by its remainder, truncates to the integer quotient. This
+// is the sequence of Intel's application note, which gcc also uses.
+let hasSideEffects = 0, Defs = [P6], Uses = [AR40],
+    Constraints = "@earlyclobber $f1,@earlyclobber $fa,@earlyclobber $fb,"
+                  "@earlyclobber $e,@earlyclobber $t",
+    SchedRW = [WriteIDiv, WriteFMA, WriteFMA, WriteFMA, WriteFMA] in {
+def SDIV_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$t),
+                          (ins FR:$a, FR:$b), "#SDIV_SIG", []>;
+def UDIV_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$t),
+                          (ins FR:$a, FR:$b), "#UDIV_SIG", []>;
+}
+
+// The same for integers that fit in 32 bits, whose quotient needs less
+// accuracy: two steps after frcpa, the second adding $c = 2^-34 so that the
+// quotient does not fall short of an exact integer.
+let hasSideEffects = 0, Defs = [P6], Uses = [AR40],
+    Constraints = "@earlyclobber $f1,@earlyclobber $fa,@earlyclobber $fb,"
+                  "@earlyclobber $e,@earlyclobber $q",
+    SchedRW = [WriteIDiv32, WriteFMA, WriteFMA, WriteFMA, WriteFMA] in {
+def SDIV32_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$q),
+                            (ins FR:$a, FR:$b, FR:$c), "#SDIV32_SIG", []>;
+def UDIV32_SIG : IA64Pseudo<(outs FR:$f1, FR:$fa, FR:$fb, FR:$e, FR:$q),
+                            (ins FR:$a, FR:$b, FR:$c), "#UDIV32_SIG", []>;
+}
+
 // Spills and reloads stay single pseudos until frame layout, so nothing can be
 // scheduled between the address computation and the access. The address is
 // computed in r2, or for a GR reload in the destination register. r2 is

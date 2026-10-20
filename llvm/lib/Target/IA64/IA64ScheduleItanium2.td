@@ -135,6 +135,17 @@ def : I2Write<WriteFDiv, I2PortF, 28> {
   let NumMicroOps = 13;
 }
 
+// An integer division is two conversions to FP, frcpa, seven fmas and the
+// conversion back, with a chain of nine instructions.
+def : I2Write<WriteIDiv, I2PortF, 36> {
+  let NumMicroOps = 11;
+}
+
+// With 32-bit integers, four fmas with a chain of three.
+def : I2Write<WriteIDiv32, I2PortF, 24> {
+  let NumMicroOps = 8;
+}
+
 def : I2Write<WriteBr,  I2PortB, 1>;
 def : I2Write<WriteSys, I2PortM, 1>;
 

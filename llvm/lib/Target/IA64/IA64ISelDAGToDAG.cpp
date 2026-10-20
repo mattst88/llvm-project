@@ -698,6 +698,27 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     ReplaceNode(Node, Div);
     return;
   }
+  case IA64ISD::SDIV_SIG:
+  case IA64ISD::UDIV_SIG: {
+    // As does integer division.
+    SDNode *Div = CurDAG->getMachineNode(
+        Node->getOpcode() == IA64ISD::SDIV_SIG ? IA64::SDIV_SIG
+                                               : IA64::UDIV_SIG,
+        DL, {MVT::f64, MVT::f80, MVT::f80, MVT::f80, MVT::f80},
+        {Node->getOperand(0), Node->getOperand(1)});
+    ReplaceNode(Node, Div);
+    return;
+  }
+  case IA64ISD::SDIV32_SIG:
+  case IA64ISD::UDIV32_SIG: {
+    SmallVector<SDValue, 3> Ops(Node->ops());
+    SDNode *Div = CurDAG->getMachineNode(
+        Node->getOpcode() == IA64ISD::SDIV32_SIG ? IA64::SDIV32_SIG
+                                                 : IA64::UDIV32_SIG,
+        DL, {MVT::f64, MVT::f80, MVT::f80, MVT::f80, MVT::f80}, Ops);
+    ReplaceNode(Node, Div);
+    return;
+  }
   case ISD::STRICT_FDIV: {
     // The same, but chained with other operations that may raise exceptions.
     MVT VT = Node->getSimpleValueType(0);

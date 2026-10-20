@@ -31,6 +31,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/KnownBits.h"
 
 using namespace llvm;
 
@@ -416,7 +417,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // Counted loops branch with br.cloop.
   setTargetDAGCombine({ISD::BRCOND, ISD::INTRINSIC_VOID});
-  setTargetDAGCombine({ISD::ADD, ISD::MUL});
+  setTargetDAGCombine({ISD::ADD, ISD::SUB, ISD::MUL});
 
   // va_list is a pointer to the next argument; each argument occupies one or
   // more 8-byte slots.
@@ -484,10 +485,12 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::SMUL_LOHI, MVT::i64, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i64, Expand);
 
-  // There is no integer divide instruction; division is a libcall.
-  for (unsigned Opc :
-       {ISD::SDIV, ISD::UDIV, ISD::SREM, ISD::UREM, ISD::SDIVREM, ISD::UDIVREM})
-    setOperationAction(Opc, MVT::i64, Expand);
+  // There is no integer divide instruction. Division is done in the FP unit,
+  // or is a libcall when optimizing for size.
+  for (unsigned Opc : {ISD::SDIV, ISD::UDIV, ISD::SREM, ISD::UREM})
+    setOperationAction(Opc, MVT::i64, Custom);
+  setOperationAction(ISD::SDIVREM, MVT::i64, Expand);
+  setOperationAction(ISD::UDIVREM, MVT::i64, Expand);
 
   // No instruction sign-extends from i1; it takes two shifts.
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
@@ -723,6 +726,31 @@ static SDValue combineMulByConstant(SDNode *N, SelectionDAG &DAG,
   return T;
 }
 
+// a - q * b, where q came out of the FP unit, as xma.l of q and -b plus a
+// there, rather than moving q back in for the multiply. This is how
+// DAGCombiner takes the remainder when the quotient is also wanted.
+static SDValue
+combineSubOfMulBySignificand(SDNode *N, SelectionDAG &DAG,
+                             TargetLowering::DAGCombinerInfo &DCI) {
+  if (DCI.isBeforeLegalize() || N->getValueType(0) != MVT::i64)
+    return SDValue();
+  SDValue Mul = N->getOperand(1);
+  if (Mul.getOpcode() != ISD::MUL || !Mul.hasOneUse())
+    return SDValue();
+  SDValue Q = Mul.getOperand(0), B = Mul.getOperand(1);
+  if (Q.getOpcode() != IA64ISD::GETF_SIG)
+    std::swap(Q, B);
+  if (Q.getOpcode() != IA64ISD::GETF_SIG || isa<ConstantSDNode>(B))
+    return SDValue();
+  SDLoc DL(N);
+  SDValue NegB = DAG.getNode(IA64ISD::SETF_SIG, DL, MVT::f64,
+                             DAG.getNegative(B, DL, MVT::i64));
+  SDValue A = DAG.getNode(IA64ISD::SETF_SIG, DL, MVT::f64, N->getOperand(0));
+  return DAG.getNode(
+      IA64ISD::GETF_SIG, DL, MVT::i64,
+      DAG.getNode(IA64ISD::XMA_L, DL, MVT::f64, Q.getOperand(0), NegB, A));
+}
+
 SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -731,6 +759,8 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
     return combineLoopBranch(N, DAG);
   case ISD::ADD:
     return combineAddOfExtendedSelect(N, DAG);
+  case ISD::SUB:
+    return combineSubOfMulBySignificand(N, DAG, DCI);
   case ISD::MUL:
     return combineMulByConstant(N, DAG, DCI);
   case ISD::INTRINSIC_VOID:
@@ -767,6 +797,51 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return DAG.getNode(
         IA64ISD::SETF_S, SDLoc(Op), MVT::f32,
         DAG.getNode(ISD::ANY_EXTEND, SDLoc(Op), MVT::i64, Op.getOperand(0)));
+  case ISD::SDIV:
+  case ISD::UDIV:
+  case ISD::SREM:
+  case ISD::UREM: {
+    // The integers are divided as significands (see SDIV_SIG), and the
+    // remainder is a + q * -b, all without leaving the FP unit; the division
+    // and remainder of the same operands share the quotient. A call is
+    // smaller.
+    SDLoc DL(Op);
+    unsigned Opc = Op.getOpcode();
+    bool Signed = Opc == ISD::SDIV || Opc == ISD::SREM;
+    if (DAG.shouldOptForSize()) {
+      RTLIB::Libcall LC = Opc == ISD::SDIV   ? RTLIB::SDIV_I64
+                          : Opc == ISD::UDIV ? RTLIB::UDIV_I64
+                          : Opc == ISD::SREM ? RTLIB::SREM_I64
+                                             : RTLIB::UREM_I64;
+      MakeLibCallOptions CallOptions;
+      CallOptions.setIsSigned(Signed);
+      return makeLibCall(DAG, LC, MVT::i64,
+                         {Op.getOperand(0), Op.getOperand(1)}, CallOptions, DL)
+          .first;
+    }
+    SDValue A = DAG.getNode(IA64ISD::SETF_SIG, DL, MVT::f64, Op.getOperand(0));
+    SDValue B = DAG.getNode(IA64ISD::SETF_SIG, DL, MVT::f64, Op.getOperand(1));
+    // Integers that fit in 32 bits, as those promoted from i32 do, take a
+    // shorter sequence.
+    auto Fits32 = [&](SDValue V) {
+      return Signed ? DAG.ComputeNumSignBits(V) > 32
+                    : DAG.computeKnownBits(V).countMinLeadingZeros() >= 32;
+    };
+    SDValue Q;
+    if (Fits32(Op.getOperand(0)) && Fits32(Op.getOperand(1)))
+      Q = DAG.getNode(Signed ? IA64ISD::SDIV32_SIG : IA64ISD::UDIV32_SIG, DL,
+                      MVT::f64, A, B, DAG.getConstantFP(0x1p-34, DL, MVT::f64));
+    else
+      Q = DAG.getNode(Signed ? IA64ISD::SDIV_SIG : IA64ISD::UDIV_SIG, DL,
+                      MVT::f64, A, B);
+    if (Opc == ISD::SREM || Opc == ISD::UREM) {
+      SDValue NegB =
+          DAG.getNode(IA64ISD::SETF_SIG, DL, MVT::f64,
+                      DAG.getNegative(Op.getOperand(1), DL, MVT::i64));
+      Q = DAG.getNode(IA64ISD::XMA_L, DL, MVT::f64, Q, NegB, A);
+    }
+    return DAG.getNode(IA64ISD::GETF_SIG, DL, MVT::i64, Q);
+  }
   case ISD::BF16_TO_FP: {
     // A bf16 is the upper 16 bits of a float.
     SDLoc DL(Op);

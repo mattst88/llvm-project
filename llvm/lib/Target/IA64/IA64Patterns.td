@@ -68,6 +68,28 @@ def IA64setfs
     : SDNode<"IA64ISD::SETF_S",
              SDTypeProfile<1, 1, [SDTCisVT<0, f32>, SDTCisVT<1, i64>]>>;
 
+// Integer division in the FP unit: moves of an integer to and from the
+// significand of an FR, a division of two such integers, and xma.l to take a
+// remainder.
+def IA64setfsig
+    : SDNode<"IA64ISD::SETF_SIG",
+             SDTypeProfile<1, 1, [SDTCisVT<0, f64>, SDTCisVT<1, i64>]>>;
+def IA64getfsig
+    : SDNode<"IA64ISD::GETF_SIG",
+             SDTypeProfile<1, 1, [SDTCisVT<0, i64>, SDTCisVT<1, f64>]>>;
+def SDTSigBinOp : SDTypeProfile<1, 2, [SDTCisVT<0, f64>, SDTCisSameAs<0, 1>,
+                                       SDTCisSameAs<0, 2>]>;
+def IA64sdivsig : SDNode<"IA64ISD::SDIV_SIG", SDTSigBinOp>;
+def IA64udivsig : SDNode<"IA64ISD::UDIV_SIG", SDTSigBinOp>;
+def SDTSigDiv32 : SDTypeProfile<1, 3, [SDTCisVT<0, f64>, SDTCisSameAs<0, 1>,
+                                       SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>]>;
+def IA64sdiv32sig : SDNode<"IA64ISD::SDIV32_SIG", SDTSigDiv32>;
+def IA64udiv32sig : SDNode<"IA64ISD::UDIV32_SIG", SDTSigDiv32>;
+def IA64xmal
+    : SDNode<"IA64ISD::XMA_L",
+             SDTypeProfile<1, 3, [SDTCisVT<0, f64>, SDTCisSameAs<0, 1>,
+                                  SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>]>>;
+
 // A call: the callee, the register holding the GP to restore, and the
 // argument registers.
 def IA64call : SDNode<"IA64ISD::CALL",
@@ -137,6 +159,10 @@ def : Pat<(xor GR:$r2, GR:$r3), (XOR GR:$r2, GR:$r3)>;
 def : Pat<(mul GR:$a, GR:$b),
           (GETF_SIG (f64 (XMA_L (f64 (SETF_SIG GR:$a)),
                                 (f64 (SETF_SIG GR:$b)), (f64 F0))))>;
+
+def : Pat<(IA64setfsig GR:$r), (SETF_SIG GR:$r)>;
+def : Pat<(IA64getfsig FR:$f), (GETF_SIG FR:$f)>;
+def : Pat<(IA64xmal FR:$a, FR:$b, FR:$c), (XMA_L FR:$a, FR:$b, FR:$c)>;
 def : Pat<(mulhu GR:$a, GR:$b),
           (GETF_SIG (f64 (XMA_HU (f64 (SETF_SIG GR:$a)),
                                  (f64 (SETF_SIG GR:$b)), (f64 F0))))>;
