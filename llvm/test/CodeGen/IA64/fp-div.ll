@@ -49,6 +49,43 @@ define double @div_double(double %a, double %b) {
   ret double %r
 }
 
+; When the dividend is 1, q = a * y is y, and the steps that would make it
+; again from y's are left out until the one that rounds it.
+
+define double @recip_double(double %b) {
+; CHECK-LABEL: recip_double:
+; CHECK:         frcpa f6, p6 = f1, f8 ;;
+; CHECK-NEXT:    (p6) fnma.s1 f9 = f8, f6, f1 ;;
+; CHECK-NEXT:    (p6) fma.s1 f10 = f9, f9, f0
+; CHECK-NEXT:    (p6) fma.s1 f6 = f9, f6, f6 ;;
+; CHECK-NEXT:    (p6) fma.s1 f9 = f10, f10, f0
+; CHECK-NEXT:    (p6) fma.s1 f6 = f10, f6, f6 ;;
+; CHECK-NEXT:    (p6) fma.d.s1 f7 = f9, f6, f6
+; CHECK-NEXT:    (p6) fma.s1 f6 = f9, f6, f6 ;;
+; CHECK-NEXT:    (p6) fnma.s1 f10 = f8, f7, f1 ;;
+; CHECK-NEXT:    (p6) fma.d f6 = f10, f6, f7 ;;
+; CHECK-NEXT:    mov f8 = f6
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
+  %r = fdiv double 1.0, %b
+  ret double %r
+}
+
+define float @recip_float(float %b) {
+; CHECK-LABEL: recip_float:
+; CHECK:         frcpa f6, p6 = f1, f8 ;;
+; CHECK-NEXT:    (p6) fnma.s1 f9 = f8, f6, f1 ;;
+; CHECK-NEXT:    (p6) fma.s1 f10 = f9, f9, f0
+; CHECK-NEXT:    (p6) fma.s1 f6 = f9, f6, f6 ;;
+; CHECK-NEXT:    (p6) fma.s.s1 f7 = f10, f6, f6
+; CHECK-NEXT:    (p6) fma.s1 f6 = f10, f6, f6 ;;
+; CHECK-NEXT:    (p6) fnma.s1 f9 = f8, f7, f1 ;;
+; CHECK-NEXT:    (p6) fma.s f6 = f9, f6, f7 ;;
+; CHECK-NEXT:    mov f8 = f6
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
+  %r = fdiv float 1.0, %b
+  ret float %r
+}
+
 ; The predicate is the one a comparison writes, and the comparison comes after
 ; the quotient that the choice it makes is of.
 

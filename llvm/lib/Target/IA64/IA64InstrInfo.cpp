@@ -610,19 +610,26 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
         .addImm(0)
         .addReg(IA64::P0);
     // With e = 1 - b * y, a / b is a * y / (1 - e), and 1 / (1 - e) is
-    // (1 + e) * (1 + e^2) * (1 + e^4) and so on.
-    Step(IA64::FMA, Q, A, Y, IA64::F0);
+    // (1 + e) * (1 + e^2) * (1 + e^4) and so on. When a is 1, q = a * y is y
+    // and each step of q repeats that of y, so q is only formed when it is
+    // rounded.
+    bool Recip = A == IA64::F1;
+    Register QIn = Recip ? Y : Q;
+    if (!Recip)
+      Step(IA64::FMA, Q, A, Y, IA64::F0);
     Step(IA64::FNMA, E, B, Y, IA64::F1);
-    Step(IA64::FMA, Q, E, Q, Q);
+    if (!Recip)
+      Step(IA64::FMA, Q, E, Q, Q);
     Step(IA64::FMA, T, E, E, IA64::F0);
     Step(IA64::FMA, Y, E, Y, Y);
     if (IsDouble) {
-      Step(IA64::FMA, Q, T, Q, Q);
+      if (!Recip)
+        Step(IA64::FMA, Q, T, Q, Q);
       Step(IA64::FMA, E, T, T, IA64::F0);
       Step(IA64::FMA, Y, T, Y, Y);
       std::swap(E, T);
     }
-    Step(Round, Q, T, Q, Q);
+    Step(Round, Q, T, QIn, QIn);
     Step(IA64::FMA, Y, T, Y, Y);
     Step(IA64::FNMA, E, B, Q, A);
     Step(Round, Y, E, Y, Q, 0);
