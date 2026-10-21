@@ -194,6 +194,25 @@ struct Dispersal {
     return std::make_tuple(Cycles, ExitCycles, Bundles, full()) <
            std::make_tuple(O.Cycles, O.ExitCycles, O.Bundles, O.full());
   }
+
+  bool operator==(const Dispersal &O) const {
+    return Cycles == O.Cycles && ExitCycles == O.ExitCycles &&
+           Bundles == O.Bundles && BundlesNow == O.BundlesNow &&
+           std::equal(std::begin(Ports), std::end(Ports),
+                      std::begin(O.Ports)) &&
+           Loads == O.Loads && Stores == O.Stores && EndCycle == O.EndCycle &&
+           equal(Results, O.Results, [](const Pending &A, const Pending &B) {
+             return A.Reg == B.Reg && A.Issued == B.Issued &&
+                    A.Latency == B.Latency;
+           });
+  }
+
+  /// A cost that no other is less than.
+  static Dispersal worst() {
+    Dispersal D;
+    D.Cycles = ~0u;
+    return D;
+  }
 };
 
 } // end anonymous namespace
@@ -240,9 +259,11 @@ static unsigned assemblerTemplate(ArrayRef<Item> Items) {
 /// does, and disperse it into \p D. Return how many instructions it holds,
 /// or 0 if the first does not fit. A directive on the first instruction
 /// gives the template, and one on a later instruction ends the bundle.
-static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D) {
+/// \p Assembler is the template that the assembler chooses.
+static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
+                           unsigned Assembler) {
   bool Explicit = Items[0].Template != -1;
-  unsigned Index = Explicit ? Items[0].Template : assemblerTemplate(Items);
+  unsigned Index = Explicit ? Items[0].Template : Assembler;
   if (Index == ~0u)
     return 0;
   D.startBundle();
@@ -296,13 +317,33 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D) {
 /// cycle only if both change, as MII,MII to MMI,MMI. \p D is the dispersal
 /// of what comes before. Return the dispersal of the whole.
 static Dispersal plan(MutableArrayRef<Item> Items, Dispersal D) {
-  for (Item &It : Items)
-    It.Template = -1;
+  // The assembler's template for each bundle, which depends only on its
+  // first three instructions.
+  SmallVector<unsigned, 64> Assembler;
+  for (size_t I = 0; I != Items.size(); ++I) {
+    Items[I].Template = -1;
+    Assembler.push_back(assemblerTemplate(Items.drop_front(I)));
+  }
+  // Pack the bundle that starts at \p I, of the instructions before \p End.
+  auto Pack = [&](size_t I, size_t End, Dispersal &Out) {
+    ArrayRef<Item> Bundle = Items.slice(I, End - I);
+    return packBundle(Bundle, Out,
+                      End - I >= 3 ? Assembler[I] : assemblerTemplate(Bundle));
+  };
   size_t Next = 0;
   while (Next != Items.size()) {
     size_t Horizon = Next;
     for (unsigned Stops = 0; Horizon != Items.size() && Stops != 2;)
       Stops += Items[Horizon++].Stop;
+    // The bundles after those with a directive are the assembler's, so two
+    // choices that leave the same dispersal at the same place go on to cost
+    // the same. Tails holds what those bundles cost from where they start.
+    struct Tail {
+      size_t At;
+      Dispersal In, Out;
+      bool Fits;
+    };
+    SmallVector<Tail, 16> Tails;
     // The cost of the instructions before the horizon if this bundle has the
     // given template. Every choice packs the same ones, so that one that
     // fills its last bundle further does not look worse.
@@ -311,7 +352,26 @@ static Dispersal plan(MutableArrayRef<Item> Items, Dispersal D) {
       Items[Next].Template = Template;
       size_t I = Next;
       do {
-        unsigned Taken = packBundle(Items.slice(I, Horizon - I), Out);
+        if (I != Next && Items[I].Template == -1) {
+          for (const Tail &T : Tails) {
+            if (T.At == I && T.In == Out) {
+              Out = T.Out;
+              return T.Fits;
+            }
+          }
+          Tails.push_back({I, Out, Out, false});
+          size_t J = I;
+          do {
+            unsigned Taken = Pack(J, Horizon, Out);
+            if (Taken == 0)
+              return false;
+            J += Taken;
+          } while (J < Horizon);
+          Tails.back().Out = Out;
+          Tails.back().Fits = true;
+          return true;
+        }
+        unsigned Taken = Pack(I, Horizon, Out);
         if (Taken == 0)
           return false;
         I += Taken;
@@ -322,47 +382,62 @@ static Dispersal plan(MutableArrayRef<Item> Items, Dispersal D) {
     // as -1, and the others that it does not choose.
     auto Choices = [&](size_t At) {
       SmallVector<int, 16> Result = {-1};
-      unsigned Assembler = assemblerTemplate(Items.drop_front(At));
       for (unsigned I = 0; I != std::size(IA64II::BundleTemplates); ++I) {
         const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
-        if (T.Name && T.MidStop == -1 && I != Assembler)
+        if (T.Name && T.MidStop == -1 && I != Assembler[At])
           Result.push_back(I);
       }
       return Result;
     };
     // A choice for the next bundle too must do strictly better than leaving
-    // it to the assembler.
+    // it to the assembler. Thens holds the least that a choice for the next
+    // bundle costs, by where that starts.
+    struct Then {
+      size_t At;
+      Dispersal In, Least;
+    };
+    SmallVector<Then, 4> Thens;
     int Best = -2;
-    Dispersal BestCost;
-    BestCost.Cycles = ~0u;
+    Dispersal BestCost = Dispersal::worst();
     for (bool Pairs : {false, true}) {
       for (int First : Choices(Next)) {
         Items[Next].Template = First;
         Dispersal Bundle = D;
-        size_t Second = Next + packBundle(Items.drop_front(Next), Bundle);
+        size_t Second = Next + Pack(Next, Items.size(), Bundle);
         if (Second == Next || (Pairs && Second >= Horizon))
           continue;
-        SmallVector<int, 16> Seconds = {-1};
-        if (Pairs)
-          Seconds = Choices(Second);
-        for (int Then : Seconds) {
-          if (Pairs && Then == -1)
-            continue;
-          if (Pairs)
-            Items[Second].Template = Then;
+        if (!Pairs) {
           Dispersal Cost;
           if (Try(First, Cost) && Cost < BestCost) {
             Best = First;
             BestCost = Cost;
           }
+          continue;
         }
-        if (Pairs)
+        auto Seen = find_if(Thens, [&](const Then &T) {
+          return T.At == Second && T.In == Bundle;
+        });
+        if (Seen == Thens.end()) {
+          Dispersal Least = Dispersal::worst();
+          for (int Template : drop_begin(Choices(Second))) {
+            Items[Second].Template = Template;
+            Dispersal Cost;
+            if (Try(First, Cost) && Cost < Least)
+              Least = Cost;
+          }
           Items[Second].Template = -1;
+          Thens.push_back({Second, Bundle, Least});
+          Seen = std::prev(Thens.end());
+        }
+        if (Seen->Least < BestCost) {
+          Best = First;
+          BestCost = Seen->Least;
+        }
       }
     }
     assert(Best != -2 && "no template holds the instruction");
     Items[Next].Template = Best;
-    Next += packBundle(Items.drop_front(Next), D);
+    Next += Pack(Next, Items.size(), D);
   }
   return D;
 }
