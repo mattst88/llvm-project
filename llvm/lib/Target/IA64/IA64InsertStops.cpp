@@ -211,7 +211,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         if (MO.isDef())
           return !MO.isImplicit() || IA64::ARRegClass.contains(Reg);
         if (IA64::PRRegClass.contains(Reg))
-          return WrittenByF.test(Reg.id());
+          return !MO.isImplicit() && WrittenByF.test(Reg.id());
         if (IA64::ARRegClass.contains(Reg))
           return !(Reg == IA64::AR64 && MI.isReturn());
         return false;

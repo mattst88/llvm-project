@@ -109,6 +109,28 @@ body: |
     BR_RET $b0, 0, 1, 0, $p0
 ...
 ---
+# br.ctop does not read the rotating predicates it renames, so one that a
+# floating-point instruction writes may share its group.
+# CHECK-LABEL: branch_fp_rotating:
+# CHECK:       (p16) frcpa f33, p25 = f1, f8{{$}}
+# CHECK-NEXT:  br.ctop.sptk.few .LBB{{[0-9_]+}} ;;
+name: branch_fp_rotating
+body: |
+  bb.0:
+    successors: %bb.1
+    liveins: $f8
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $f8
+    $f33, $p25 = FRCPA $f1, $f8, 0, $p16, implicit $ar40
+    BR_CTOP %bb.1, 0, 0, 0, implicit-def $ar65, implicit-def $ar66, implicit $ar65, implicit $ar66, implicit-def $p25, implicit $p25, implicit-def $f33, implicit $f33
+
+  bb.2:
+    CLRRRB
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
 # A branch may also go through a register that its group has written, and a
 # return may follow the restoring of the previous function state.
 # CHECK-LABEL: link:
