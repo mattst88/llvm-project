@@ -105,3 +105,64 @@ body: |
     $r8 = ADD $r8, $r14, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
 ...
+---
+# A write under a predicate moves along with its reads under the same one,
+# here through a write of the register that reads it, which moves too.
+# CHECK-LABEL: name: predicated
+# CHECK:         $r16 = LD8 $r14, 0, $p16
+# CHECK-NEXT:    $r15 = ADDS 16, $r33, $p17
+# CHECK-NEXT:    $r18 = ZXT4 $r15, $p17
+# CHECK-NEXT:    $r17 = LD8 $r18, 0, $p17
+name: predicated
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $p16, $p17
+
+    $r14 = ADDS 8, $r32, $p16
+    $r16 = LD8 $r14, 0, $p16
+    $r14 = ADDS 16, $r33, $p17
+    $r14 = ZXT4 $r14, $p17
+    $r17 = LD8 $r14, 0, $p17
+    $r8 = ADD $r16, $r17, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# A read under another predicate may see the value from before the write.
+# CHECK-LABEL: name: other_predicate
+# CHECK:         $r14 = ADDS 16, $r33, $p17
+# CHECK-NEXT:    $r17 = LD8 $r14, 0, $p16
+name: other_predicate
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $p16, $p17
+
+    $r14 = ADDS 8, $r32, $p16
+    $r16 = LD8 $r14, 0, $p16
+    $r14 = ADDS 16, $r33, $p17
+    $r17 = LD8 $r14, 0, $p16
+    $r8 = ADD $r16, $r17, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+---
+# The read is under the predicate the compare writes, not the one the
+# write was under.
+# CHECK-LABEL: name: predicate_changes
+# CHECK:         $r14 = ADDS 16, $r33, $p17
+# CHECK-NEXT:    $p17, $p18 = CMP_EQ $r32, $r33, $p0
+# CHECK-NEXT:    $r17 = LD8 $r14, 0, $p17
+name: predicate_changes
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $p16, $p17
+
+    $r14 = ADDS 8, $r32, $p16
+    $r16 = LD8 $r14, 0, $p16
+    $r14 = ADDS 16, $r33, $p17
+    $p17, $p18 = CMP_EQ $r32, $r33, $p0
+    $r17 = LD8 $r14, 0, $p17
+    $r8 = ADD $r16, $r17, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

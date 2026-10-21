@@ -15,9 +15,10 @@
 // that nothing in the block holds over the same span, preferably one the
 // block refers to nowhere near.
 //
-// Only plain, unpredicated writes move, along with their plain reads. The
-// registers of a speculative load and its check stay together, since the
-// check holds only where they are the same.
+// Only plain writes move, along with their plain reads, which for a
+// predicated write must be under the same predicate. The registers of a
+// speculative load and its check stay together, since the check holds only
+// where they are the same.
 //
 //===----------------------------------------------------------------------===//
 
@@ -92,6 +93,12 @@ static bool hasRenamableReads(const MachineInstr &MI) {
          !MI.getFlag(MachineInstr::FrameDestroy);
 }
 
+/// The predicate register that guards \p MI, p0 where nothing does.
+static Register predicateOf(const MachineInstr &MI) {
+  int Idx = MI.findFirstPredOperandIdx();
+  return Idx >= 0 ? MI.getOperand(Idx).getReg() : Register(IA64::P0);
+}
+
 /// Whether \p MI refers to \p Reg, a call's clobber among the references.
 static bool refersTo(const MachineInstr &MI, Register Reg) {
   return any_of(MI.operands(), [&](const MachineOperand &MO) {
@@ -152,8 +159,11 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
   bool Changed = false;
   for (unsigned D = 1; D != N; ++D) {
     MachineInstr &Def = *Instrs[D];
-    if (!hasRenamableReads(Def) || TII->isPredicated(Def))
+    if (!hasRenamableReads(Def))
       continue;
+    // A predicated write moves only with reads under the same predicate,
+    // which see the value only where the write took place.
+    Register Pred = predicateOf(Def);
     for (MachineOperand &MO : Def.explicit_operands()) {
       if (!MO.isReg() || !MO.isDef() || MO.isTied() || MO.isDead())
         continue;
@@ -181,6 +191,8 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
       unsigned Last = D, I = D + 1;
       for (; Ok && I != N; ++I) {
         MachineInstr &MI = *Instrs[I];
+        if (Pred != IA64::P0 && MI.modifiesRegister(Pred, TRI))
+          Ok = false;
         if (!refersTo(MI, Reg))
           continue;
         bool Writes = false;
@@ -189,10 +201,11 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
             continue;
           if (Op.isDef()) {
             Writes = true;
-            if (Op.isImplicit() || Op.isTied() || TII->isPredicated(MI))
+            if (Op.isImplicit() || Op.isTied() || predicateOf(MI) != Pred)
               Ok = false;
           } else if (Op.isImplicit() || Op.isTied() || Op.isUndef() ||
-                     !hasRenamableReads(MI)) {
+                     !hasRenamableReads(MI) ||
+                     (Pred != IA64::P0 && predicateOf(MI) != Pred)) {
             Ok = false;
           } else {
             Uses.push_back(&Op);
