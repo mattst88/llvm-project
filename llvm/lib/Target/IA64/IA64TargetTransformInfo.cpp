@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64TargetTransformInfo.h"
+#include "llvm/Analysis/IVDescriptors.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MathExtras.h"
@@ -232,6 +233,26 @@ void IA64TTIImpl::getUnrollingPreferences(
 
   UP.Partial = UP.Runtime = UP.UpperBound = true;
   UP.PartialThreshold = UnrollThreshold;
+
+  // Unrolling cannot shorten an FP reduction that may not be reassociated:
+  // each copy still waits for the last.  The pipeliner overlaps the rest of
+  // the body without it, and a runtime remainder only adds a serial
+  // iteration ahead of the kernel.  A store in the loop can keep the
+  // pipeliner from overlapping loads, which unrolling still does.
+  for (BasicBlock *BB : L->blocks())
+    for (Instruction &I : *BB)
+      if (I.mayWriteToMemory())
+        return;
+  for (PHINode &Phi : L->getHeader()->phis()) {
+    RecurrenceDescriptor RD;
+    if (Phi.getType()->isFloatingPointTy() &&
+        RecurrenceDescriptor::isReductionPHI(&Phi, L, RD, nullptr, nullptr,
+                                             nullptr, &SE) &&
+        RD.hasExactFPMath()) {
+      UP.Runtime = false;
+      return;
+    }
+  }
 }
 
 bool IA64TTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,

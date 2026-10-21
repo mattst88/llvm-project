@@ -111,3 +111,66 @@ for.body:
 exit:
   ret void
 }
+
+; Unrolling cannot shorten an FP sum that may not be reassociated, so a loop
+; of unknown trip count is left for the pipeliner.
+define double @fsum(ptr %a, i64 %n) {
+; CHECK-LABEL: @fsum(
+; CHECK-COUNT-1: load double
+; CHECK-NOT:   load double
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %s = phi double [ 0.0, %entry ], [ %s.next, %for.body ]
+  %p = getelementptr double, ptr %a, i64 %i
+  %v = load double, ptr %p
+  %s.next = fadd double %s, %v
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %for.body
+exit:
+  ret double %s.next
+}
+
+; A sum that may be reassociated still unrolls.
+define double @fsum_reassoc(ptr %a, i64 %n) {
+; CHECK-LABEL: @fsum_reassoc(
+; CHECK:       for.body:
+; CHECK-COUNT-4: load double
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %s = phi double [ 0.0, %entry ], [ %s.next, %for.body ]
+  %p = getelementptr double, ptr %a, i64 %i
+  %v = load double, ptr %p
+  %s.next = fadd reassoc nsz double %s, %v
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %for.body
+exit:
+  ret double %s.next
+}
+
+; A store in the loop can keep the pipeliner from overlapping its loads, so
+; the sum still unrolls.
+define void @fsum_store(ptr %a, ptr %d, i64 %n) {
+; CHECK-LABEL: @fsum_store(
+; CHECK:       for.body:
+; CHECK-COUNT-4: load double
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %s = phi double [ 0.0, %entry ], [ %s.next, %for.body ]
+  %p = getelementptr double, ptr %a, i64 %i
+  %v = load double, ptr %p
+  %s.next = fadd double %s, %v
+  store double %s.next, ptr %d
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %for.body
+exit:
+  ret void
+}
