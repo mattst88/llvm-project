@@ -163,3 +163,72 @@ define i64 @by10_minsize(i64 %a) minsize {
   %r = mul i64 %a, 10
   ret i64 %r
 }
+
+; A product of two values that fit in a halfword is pmpy2.r, which reads
+; only the low halfword of each, so loaded values are not sign-extended first.
+define i32 @halfwords(ptr %a, ptr %b) {
+; CHECK-LABEL: halfwords:
+; CHECK:       ld2 r14 = [r32]
+; CHECK-NEXT:  ld2 r15 = [r33] ;;
+; CHECK-NEXT:  pmpy2.r r14 = r14, r15 ;;
+; CHECK-NEXT:  sxt4 r8 = r14
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %x = load i16, ptr %a
+  %y = load i16, ptr %b
+  %xs = sext i16 %x to i32
+  %ys = sext i16 %y to i32
+  %r = mul i32 %xs, %ys
+  ret i32 %r
+}
+
+; Its low word is the whole product.
+define i64 @halfwords_wide(i16 %a, i16 %b) {
+; CHECK-LABEL: halfwords_wide:
+; CHECK:       pmpy2.r r14 = r32, r33 ;;
+; CHECK-NEXT:  sxt4 r8 = r14
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %x = sext i16 %a to i64
+  %y = sext i16 %b to i64
+  %r = mul i64 %x, %y
+  ret i64 %r
+}
+
+; Nothing is extended where only the low word is used.
+define void @halfwords_stored(ptr %a, ptr %b, ptr %c, i32 %s) {
+; CHECK-LABEL: halfwords_stored:
+; CHECK:       pmpy2.r r14 = r14, r15 ;;
+; CHECK-NEXT:  add r14 = r14, r35 ;;
+; CHECK-NEXT:  st4 [r34] = r14
+  %x = load i16, ptr %a
+  %y = load i16, ptr %b
+  %xs = sext i16 %x to i32
+  %ys = sext i16 %y to i32
+  %m = mul i32 %xs, %ys
+  %r = add i32 %m, %s
+  store i32 %r, ptr %c
+  ret void
+}
+
+define i32 @fields(i32 %a) {
+; CHECK-LABEL: fields:
+; CHECK:       extr.u r14 = r32, 2, 4
+; CHECK-NEXT:  extr.u r15 = r32, 5, 7 ;;
+; CHECK-NEXT:  pmpy2.r r14 = r14, r15 ;;
+  %x = lshr i32 %a, 2
+  %xf = and i32 %x, 15
+  %y = lshr i32 %a, 5
+  %yf = and i32 %y, 127
+  %r = mul i32 %xf, %yf
+  ret i32 %r
+}
+
+; An unsigned halfword does not fit in a signed one.
+define i64 @unsigned_halfwords(i16 %a, i16 %b) {
+; CHECK-LABEL: unsigned_halfwords:
+; CHECK-NOT:   pmpy2.r
+; CHECK:       xma.l f6 = f7, f6, f0 ;;
+  %x = zext i16 %a to i64
+  %y = zext i16 %b to i64
+  %r = mul i64 %x, %y
+  ret i64 %r
+}

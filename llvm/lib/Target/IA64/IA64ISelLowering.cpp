@@ -732,6 +732,24 @@ static SDValue combineMulByConstant(SDNode *N, SelectionDAG &DAG,
   return T;
 }
 
+// A product of two values that fit in a halfword, as pmpy2.r, which
+// multiplies the signed low halfwords of its operands into the low word of its
+// result, rather than the round trip through the FP unit. It is an I0 op of 2
+// cycles against setf.sig, xma.l and getf.sig's 14, and the operands need not
+// be sign-extended first: see SimplifyDemandedBitsForTargetNode.
+static SDValue combineMulOfHalfwords(SDNode *N, SelectionDAG &DAG,
+                                     TargetLowering::DAGCombinerInfo &DCI) {
+  if (DCI.isBeforeLegalize() || N->getValueType(0) != MVT::i64)
+    return SDValue();
+  SDValue A = N->getOperand(0), B = N->getOperand(1);
+  if (DAG.ComputeNumSignBits(A) < 49 || DAG.ComputeNumSignBits(B) < 49)
+    return SDValue();
+  SDLoc DL(N);
+  return DAG.getNode(ISD::SIGN_EXTEND_INREG, DL, MVT::i64,
+                     DAG.getNode(IA64ISD::PMPY2_R, DL, MVT::i64, A, B),
+                     DAG.getValueType(MVT::i32));
+}
+
 // a / b for a constant b, as q + (a - b * q) * y with y = 1 / b rounded to
 // double and q = a * y in the 64-bit precision and wide exponent range of
 // status field 1. a - b * q is then about a * 2^-53 and the sum is within
@@ -800,7 +818,9 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::SUB:
     return combineSubOfMulBySignificand(N, DAG, DCI);
   case ISD::MUL:
-    return combineMulByConstant(N, DAG, DCI);
+    if (SDValue V = combineMulByConstant(N, DAG, DCI))
+      return V;
+    return combineMulOfHalfwords(N, DAG, DCI);
   case ISD::FDIV:
     return combineFDivByConstant(N, DAG);
   case ISD::INTRINSIC_VOID:
@@ -1770,6 +1790,34 @@ bool IA64TargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
     return false;
   AM = ISD::POST_INC;
   return true;
+}
+
+// pmpy2.r reads halfwords 0 and 2 of its operands, and its low word depends
+// only on halfword 0.
+bool IA64TargetLowering::SimplifyDemandedBitsForTargetNode(
+    SDValue Op, const APInt &DemandedBits, const APInt &DemandedElts,
+    KnownBits &Known, TargetLoweringOpt &TLO, unsigned Depth) const {
+  if (Op.getOpcode() != IA64ISD::PMPY2_R)
+    return TargetLowering::SimplifyDemandedBitsForTargetNode(
+        Op, DemandedBits, DemandedElts, Known, TLO, Depth);
+  APInt Halves(64,
+               DemandedBits.getActiveBits() <= 32 ? 0xffff : 0xffff0000ffffULL);
+  SDValue Ops[2];
+  for (unsigned I = 0; I != 2; ++I) {
+    KnownBits K;
+    if (SimplifyDemandedBits(Op.getOperand(I), Halves, DemandedElts, K, TLO,
+                             Depth + 1))
+      return true;
+    Ops[I] = SimplifyMultipleUseDemandedBits(Op.getOperand(I), Halves,
+                                             DemandedElts, TLO.DAG, Depth + 1);
+  }
+  Known = KnownBits(64);
+  if (!Ops[0] && !Ops[1])
+    return false;
+  return TLO.CombineTo(Op,
+                       TLO.DAG.getNode(IA64ISD::PMPY2_R, SDLoc(Op), MVT::i64,
+                                       Ops[0] ? Ops[0] : Op.getOperand(0),
+                                       Ops[1] ? Ops[1] : Op.getOperand(1)));
 }
 
 bool IA64TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {

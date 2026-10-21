@@ -90,6 +90,9 @@ def IA64fdivconst
     : SDNode<"IA64ISD::FDIV_CONST",
              SDTypeProfile<1, 3, [SDTCisFP<0>, SDTCisSameAs<0, 1>,
                                   SDTCisSameAs<0, 2>, SDTCisVT<3, f64>]>>;
+// pmpy2.r: the signed products of halfwords 0 and 2 of the operands, in
+// words 0 and 1.
+def IA64pmpy2r : SDNode<"IA64ISD::PMPY2_R", SDTIntBinOp>;
 def IA64xmal
     : SDNode<"IA64ISD::XMA_L",
              SDTypeProfile<1, 3, [SDTCisVT<0, f64>, SDTCisSameAs<0, 1>,
@@ -168,6 +171,7 @@ def : Pat<(mul GR:$a, GR:$b),
 def : Pat<(IA64setfsig GR:$r), (SETF_SIG GR:$r)>;
 def : Pat<(IA64getfsig FR:$f), (GETF_SIG FR:$f)>;
 def : Pat<(IA64xmal FR:$a, FR:$b, FR:$c), (XMA_L FR:$a, FR:$b, FR:$c)>;
+def : Pat<(IA64pmpy2r GR:$a, GR:$b), (PMPY2_R GR:$a, GR:$b)>;
 def : Pat<(mulhu GR:$a, GR:$b),
           (GETF_SIG (f64 (XMA_HU (f64 (SETF_SIG GR:$a)),
                                  (f64 (SETF_SIG GR:$b)), (f64 F0))))>;
