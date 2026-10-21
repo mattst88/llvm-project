@@ -192,6 +192,7 @@ private:
   SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerGET_DYNAMIC_AREA_OFFSET(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerIS_FPCLASS(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
   SDValue loadLinkageTableEntry(SDValue Sym, const SDLoc &DL,
                                 SelectionDAG &DAG) const;
   MachineBasicBlock *emitFDiv(MachineInstr &MI, MachineBasicBlock *MBB) const;

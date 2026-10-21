@@ -463,6 +463,9 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
   setOperationAction(ISD::DEBUGTRAP, MVT::Other, Legal);
 
+  // A misaligned doubleword is read from the two doublewords containing it.
+  setOperationAction(ISD::LOAD, MVT::i64, Custom);
+
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i64, Custom);
   setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
@@ -1012,6 +1015,8 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerGET_DYNAMIC_AREA_OFFSET(Op, DAG);
   case ISD::IS_FPCLASS:
     return LowerIS_FPCLASS(Op, DAG);
+  case ISD::LOAD:
+    return LowerLOAD(Op, DAG);
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -1722,6 +1727,51 @@ void IA64TargetLowering::getClassTests(unsigned Mask,
     Tests.push_back(NaNs | Pos | OfPos);
   if (OfNeg)
     Tests.push_back((OfPos ? 0 : NaNs) | Neg | OfNeg);
+}
+
+// Expanding a doubleword with byte or halfword alignment reads every byte or
+// halfword of it. Instead, read the aligned doublewords holding its first and
+// last bytes, which are the same doubleword when it is aligned, and shift the
+// bytes together. Neither read can leave the pages holding the doubleword.
+SDValue IA64TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
+  auto *LD = cast<LoadSDNode>(Op);
+  const DataLayout &Layout = DAG.getDataLayout();
+  if (allowsMemoryAccessForAlignment(*DAG.getContext(), Layout,
+                                     LD->getMemoryVT(), *LD->getMemOperand()))
+    return SDValue();
+  if (LD->getAlign() >= Align(4) || LD->isVolatile() || !LD->isUnindexed() ||
+      !Layout.isLittleEndian()) {
+    auto [Val, Chain] = expandUnalignedLoad(LD, DAG);
+    return DAG.getMergeValues({Val, Chain}, SDLoc(Op));
+  }
+
+  SDLoc DL(Op);
+  SDValue Chain = LD->getChain();
+  SDValue Ptr = LD->getBasePtr();
+  auto Word = [&](SDValue Addr) {
+    Addr = DAG.getNode(ISD::AND, DL, MVT::i64, Addr,
+                       DAG.getSignedConstant(-8, DL, MVT::i64));
+    return DAG.getLoad(MVT::i64, DL, Chain, Addr,
+                       MachinePointerInfo(LD->getAddressSpace()), Align(8),
+                       LD->getMemOperand()->getFlags() &
+                           ~MachineMemOperand::MODereferenceable,
+                       LD->getAAInfo());
+  };
+  SDValue Lo = Word(Ptr);
+  SDValue Hi = Word(DAG.getNode(ISD::ADD, DL, MVT::i64, Ptr,
+                                DAG.getConstant(7, DL, MVT::i64)));
+  SDValue Shift = DAG.getNode(ISD::SHL, DL, MVT::i64,
+                              DAG.getNode(ISD::AND, DL, MVT::i64, Ptr,
+                                          DAG.getConstant(7, DL, MVT::i64)),
+                              DAG.getConstant(3, DL, MVT::i64));
+  SDValue Val = DAG.getNode(
+      ISD::OR, DL, MVT::i64, DAG.getNode(ISD::SRL, DL, MVT::i64, Lo, Shift),
+      DAG.getNode(IA64ISD::SHL_WIDE, DL, MVT::i64, Hi,
+                  DAG.getNode(ISD::SUB, DL, MVT::i64,
+                              DAG.getConstant(64, DL, MVT::i64), Shift)));
+  SDValue Chains = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Lo.getValue(1),
+                               Hi.getValue(1));
+  return DAG.getMergeValues({Val, Chains}, DL);
 }
 
 SDValue IA64TargetLowering::LowerIS_FPCLASS(SDValue Op,
