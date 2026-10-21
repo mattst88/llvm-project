@@ -153,3 +153,31 @@ loop:
 exit:
   ret void
 }
+
+; The last step of a division writes its quotient over the reciprocal it
+; refines, which has rotated by then, so the quotient is written to the
+; register the reciprocal has rotated into rather than to one of its own
+; that would start each pass as a copy of it.
+define double @recip(ptr noalias %u, i64 %n) {
+; CHECK-LABEL: recip:
+; CHECK:       .LBB{{[0-9]+}}_[[LOOP:[0-9]+]]:
+; CHECK-NOT:   ) mov f
+; CHECK:       br.ctop.sptk.few .LBB{{[0-9]+}}_[[LOOP]] ;;
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  %s = phi double [ 0.0, %entry ], [ %s.next, %loop ]
+  %i.next = add nuw nsw i64 %i, 1
+  %c = sitofp i64 %i.next to double
+  %r = fdiv double 1.0, %c
+  %p = getelementptr inbounds double, ptr %u, i64 %i
+  %x = load double, ptr %p
+  %s.next = call double @llvm.fmuladd.f64(double %r, double %x, double %s)
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %loop
+exit:
+  ret double %s.next
+}
+
+declare double @llvm.fmuladd.f64(double, double, double)

@@ -334,12 +334,64 @@ bool RotatingExpander::classify() {
       // A predicate is only computed and used in the loop.
       if (V.Kind == RotatingValue::PR && (V.LiveOut || V.Phi || MI->isCopy()))
         return false;
-      unsigned &Num = V.Kind == RotatingValue::FR   ? NumFRs
-                      : V.Kind == RotatingValue::PR ? NumPRs
-                                                    : NumGRs;
-      V.Base = Num - V.Lo;
-      Num += V.Hi - V.Lo + 1;
       Rotating[Reg] = V;
+    }
+  }
+
+  // A result tied to the last read of a rotating input can be written to
+  // the register the input has rotated into by then, where it would
+  // otherwise start as a copy of it. Its registers then follow the
+  // input's.
+  DenseMap<Register, Register> Follower;
+  DenseSet<Register> Followers;
+  DenseMap<const MachineInstr *, unsigned> Position;
+  for (MachineInstr *MI : MS->getInstructions())
+    Position[MI] = Position.size();
+  for (MachineInstr *MI : MS->getInstructions()) {
+    if (MI->isPHI())
+      continue;
+    int S = stage(*MI);
+    for (unsigned I = 0, E = MI->getNumOperands(); I != E; ++I) {
+      const MachineOperand &Def = MI->getOperand(I);
+      unsigned UseIdx;
+      if (!Def.isReg() || !Def.isDef() ||
+          !MI->isRegTiedToUseOperand(I, &UseIdx))
+        continue;
+      Register D = Def.getReg(), U = MI->getOperand(UseIdx).getReg();
+      auto DI = Rotating.find(D), UI = Rotating.find(U);
+      if (DI == Rotating.end() || UI == Rotating.end() || Follower.count(U) ||
+          Followers.contains(D))
+        continue;
+      const RotatingValue &DV = DI->second, &UV = UI->second;
+      if (DV.Kind != UV.Kind || DV.Lo != 0 || DV.Phi || UV.Phi || UV.LiveOut ||
+          UV.Hi != S - UV.Stage)
+        continue;
+      // Nothing in the same pass may read the input after the result
+      // overwrites it.
+      if (any_of(MRI.use_nodbg_instructions(U), [&](MachineInstr &User) {
+            return &User != MI && inLoop(User) && stage(User) == S &&
+                   Position.lookup(&User) > Position.lookup(MI);
+          }))
+        continue;
+      Follower[U] = D;
+      Followers.insert(D);
+    }
+  }
+  for (auto &[Reg, V] : Rotating) {
+    if (Followers.contains(Reg))
+      continue;
+    unsigned &Num = V.Kind == RotatingValue::FR   ? NumFRs
+                    : V.Kind == RotatingValue::PR ? NumPRs
+                                                  : NumGRs;
+    V.Base = Num - V.Lo;
+    Num += V.Hi - V.Lo + 1;
+    for (Register Prev = Reg; Follower.count(Prev);) {
+      Register Next = Follower[Prev];
+      RotatingValue &NV = Rotating.find(Next)->second;
+      const RotatingValue &PV = Rotating.find(Prev)->second;
+      NV.Base = PV.Base + PV.Hi;
+      Num += NV.Hi;
+      Prev = Next;
     }
   }
   if (NumGRs > MaxRotatingGRs || NumFRs > 96 || NumStages + NumPRs > 48)
