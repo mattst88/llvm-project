@@ -60,6 +60,8 @@ using namespace llvm;
 #define PASS_NAME "IA64 instruction group packing"
 
 STATISTIC(NumMoved, "Number of instructions moved within their group");
+STATISTIC(NumSeeded, "Number of groups reordered from an order that fills "
+                     "bundles");
 STATISTIC(NumCrossed, "Number of instructions moved to another group");
 STATISTIC(NumTemplates, "Number of bundle templates chosen");
 
@@ -479,6 +481,64 @@ static bool mustPrecede(const MachineInstr &A, const MachineInstr &B,
           B.hasOrderedMemoryRef());
 }
 
+/// An order of \p Group that fills bundles: each next bundle takes the
+/// template whose slots hold the most of the instructions that may come
+/// next, those that fit only one unit counting twice, and each slot the
+/// first of them that fits the fewest units.
+static SmallVector<unsigned, 16> fillingOrder(ArrayRef<Item> Group,
+                                              const TargetRegisterInfo &TRI) {
+  unsigned N = Group.size();
+  SmallVector<bool, 16> Placed(N, false);
+  auto Ready = [&](unsigned K) {
+    for (unsigned J = 0; J != K; ++J)
+      if (!Placed[J] && mustPrecede(*Group[J].MI, *Group[K].MI, TRI))
+        return false;
+    return true;
+  };
+  SmallVector<unsigned, 16> Order;
+  while (Order.size() != N) {
+    SmallVector<unsigned, 3> Best;
+    unsigned BestScore = 0;
+    for (const IA64II::BundleTemplate &T : IA64II::BundleTemplates) {
+      if (!T.Name || T.MidStop != -1)
+        continue;
+      SmallVector<unsigned, 3> Taken;
+      unsigned Score = 0;
+      for (unsigned Slot = 0; Slot < 3; ++Slot) {
+        int Pick = -1;
+        for (unsigned K = 0; K != N; ++K) {
+          if (Placed[K] || !slotTakes(T.Slots[Slot], Group[K].Units) ||
+              (Slot != 2 && Group[K].LastSlot) || !Ready(K))
+            continue;
+          if (Pick < 0 ||
+              popcount(Group[K].Units) < popcount(Group[Pick].Units))
+            Pick = K;
+        }
+        if (Pick < 0)
+          continue;
+        Placed[Pick] = true;
+        Taken.push_back(Pick);
+        Score += popcount(Group[Pick].Units) == 1 ? 2 : 1;
+        if (T.Slots[Slot] == IA64II::UnitL)
+          ++Slot;
+      }
+      for (unsigned K : Taken)
+        Placed[K] = false;
+      if (Score > BestScore) {
+        BestScore = Score;
+        Best = Taken;
+      }
+    }
+    if (Best.empty())
+      return {};
+    for (unsigned K : Best) {
+      Placed[K] = true;
+      Order.push_back(K);
+    }
+  }
+  return Order;
+}
+
 /// Whether \p MI copies between a general register and a branch register,
 /// ar.pfs, ar.lc or ar.ec. Those are marked as having side effects, but
 /// what reads or writes them names them as an operand.
@@ -768,42 +828,89 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         Items[End - 1].Stop = false;
         return Cost;
       };
-      Dispersal Current = Evaluate();
-      bool Improved = true;
-      for (unsigned Round = 0; Improved && Round != 4; ++Round) {
-        Improved = false;
-        for (unsigned From = Begin; From != End; ++From) {
-          const MachineInstr &Moved = *Items[From].MI;
-          if (isFixed(Moved))
-            continue;
-          for (unsigned To = Begin; To != End; ++To) {
-            if (To == From)
+      // Move one instruction at a time while that costs less.
+      auto Climb = [&](Dispersal Current) {
+        bool Improved = true;
+        for (unsigned Round = 0; Improved && Round != 4; ++Round) {
+          Improved = false;
+          for (unsigned From = Begin; From != End; ++From) {
+            const MachineInstr &Moved = *Items[From].MI;
+            if (isFixed(Moved))
               continue;
-            // A move passes every instruction in between.
-            bool Legal = true;
-            if (To < From) {
-              for (unsigned I = To; I != From && Legal; ++I)
-                Legal = !isFixed(*Items[I].MI) &&
-                        !mustPrecede(*Items[I].MI, Moved, TRI);
-            } else {
-              for (unsigned I = From + 1; I != To + 1 && Legal; ++I)
-                Legal = !isFixed(*Items[I].MI) &&
-                        !mustPrecede(Moved, *Items[I].MI, TRI);
+            for (unsigned To = Begin; To != End; ++To) {
+              if (To == From)
+                continue;
+              // A move passes every instruction in between.
+              bool Legal = true;
+              if (To < From) {
+                for (unsigned I = To; I != From && Legal; ++I)
+                  Legal = !isFixed(*Items[I].MI) &&
+                          !mustPrecede(*Items[I].MI, Moved, TRI);
+              } else {
+                for (unsigned I = From + 1; I != To + 1 && Legal; ++I)
+                  Legal = !isFixed(*Items[I].MI) &&
+                          !mustPrecede(Moved, *Items[I].MI, TRI);
+              }
+              if (!Legal)
+                continue;
+              Rotate(From, To);
+              Dispersal Cost = Evaluate();
+              if (Cost < Current) {
+                Current = Cost;
+                Improved = true;
+                ++NumMoved;
+                break;
+              }
+              Rotate(To, From);
             }
-            if (!Legal)
-              continue;
-            Rotate(From, To);
-            Dispersal Cost = Evaluate();
-            if (Cost < Current) {
-              Current = Cost;
-              Improved = Reordered = true;
-              ++NumMoved;
-              break;
-            }
-            Rotate(To, From);
           }
         }
+        return Current;
+      };
+      SmallVector<Item, 16> Original(Items.begin() + Begin,
+                                     Items.begin() + End);
+      SmallVector<SmallVector<MachineInstr *, 1>, 16> OriginalAttached(
+          Attached.begin() + Begin, Attached.begin() + End);
+      auto Changed = [&] {
+        return any_of(seq(Begin, End), [&](unsigned I) {
+          return Items[I].MI != Original[I - Begin].MI;
+        });
+      };
+      Dispersal Current = Climb(Evaluate());
+      // Moving one instruction at a time cannot fill a bundle that takes
+      // moving two. Search again from an order that fills bundles, and keep
+      // that where it ends up costing less. The instructions from the first
+      // that keeps its place stay.
+      unsigned FixedFrom = Begin;
+      while (FixedFrom != End && !isFixed(*Items[FixedFrom].MI))
+        ++FixedFrom;
+      SmallVector<unsigned, 16> Order;
+      if (FixedFrom - Begin > 2)
+        Order =
+            fillingOrder(ArrayRef(Original).take_front(FixedFrom - Begin), TRI);
+      if (!Order.empty()) {
+        SmallVector<Item, 16> Climbed(Items.begin() + Begin,
+                                      Items.begin() + End);
+        SmallVector<SmallVector<MachineInstr *, 1>, 16> ClimbedAttached(
+            Attached.begin() + Begin, Attached.begin() + End);
+        std::copy(Original.begin(), Original.end(), Items.begin() + Begin);
+        std::copy(OriginalAttached.begin(), OriginalAttached.end(),
+                  Attached.begin() + Begin);
+        for (auto [P, K] : enumerate(Order)) {
+          Items[Begin + P] = Original[K];
+          Attached[Begin + P] = OriginalAttached[K];
+        }
+        Dispersal Seeded = Climb(Evaluate());
+        if (Seeded < Current) {
+          Current = Seeded;
+          ++NumSeeded;
+        } else {
+          std::copy(Climbed.begin(), Climbed.end(), Items.begin() + Begin);
+          std::copy(ClimbedAttached.begin(), ClimbedAttached.end(),
+                    Attached.begin() + Begin);
+        }
       }
+      Reordered |= Changed();
       Items[End - 1].Stop = Stop;
     };
     for (unsigned G = 0; G != Groups.size(); ++G)

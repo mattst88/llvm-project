@@ -144,12 +144,12 @@ define void @call_big(ptr %p) {
 ; CHECK:       adds r12 = -32, r12
 ; CHECK:       mov r46 = 32
 ; CHECK-NEXT:  adds r45 = 64, r32 ;;
-; CHECK:       adds r44 = 16, r12
 ; CHECK:       ld8 r33 = [r14]
-; CHECK:       ld8 r40 = [r{{[0-9]+}}]
 ; CHECK-NEXT:  .save rp, r43
 ; CHECK-NEXT:  mov r43 = b0
 ; CHECK-NEXT:  .body
+; CHECK:       adds r44 = 16, r12
+; CHECK:       ld8 r40 = [r{{[0-9]+}}]
 ; CHECK-NEXT:  br.call.sptk.many b0 = memcpy ;;
 ; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  mov r44 = r33

@@ -1,0 +1,59 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# Three fma.d need three F slots, so three bundles: two MFI and an MFB. In
+# the order given, the adds and the second shr come after the last fma.d and
+# take a fourth bundle and a second cycle. No single move fills the MFI
+# bundles; starting from an order that fills them does.
+
+# CHECK-LABEL: seed:
+# CHECK:       ld8 r14 = [r32]
+# CHECK-NEXT:  fma.d f6 = f8, f9, f0
+# CHECK-NEXT:  shr r17 = r33, 63
+# CHECK-NEXT:  adds r16 = 1, r34
+# CHECK-NEXT:  fma.d f7 = f8, f9, f0
+# CHECK-NEXT:  shr r15 = r33, 63
+# CHECK-NEXT:  fma.d f8 = f8, f9, f0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+
+# The order that fills bundles starts with both loads in an MMI bundle,
+# and leaves each fma.d a bundle of its own. From the order given, one move
+# packs the group into an MFI and an MFB bundle, and that is kept.
+
+# CHECK-LABEL: original:
+# CHECK:       ld8 r16 = [r32]
+# CHECK-NEXT:  fma.d f6 = f8, f9, f0
+# CHECK-NEXT:  shr r14 = r33, 63
+# CHECK-NEXT:  ld8 r15 = [r32]
+# CHECK-NEXT:  fma.d f7 = f8, f9, f0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+---
+name: seed
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $f8, $f9, $b0, $ar40
+
+    $r14 = LD8 $r32, 0, $p0 :: (load (s64))
+    $f6 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $r15 = EXTR $r33, 63, 1, $p0
+    $f7 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $f8 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $r16 = ADDS 1, $r34, $p0
+    $r17 = EXTR $r33, 63, 1, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r14, implicit $f6, implicit $r15, implicit $f7, implicit $f8, implicit $r16, implicit $r17
+...
+---
+name: original
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $f8, $f9, $b0, $ar40
+
+    $r14 = EXTR $r33, 63, 1, $p0
+    $f6 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $r15 = LD8 $r32, 0, $p0 :: (load (s64))
+    $f7 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $r16 = LD8 $r32, 0, $p0 :: (load (s64))
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r14, implicit $f6, implicit $r15, implicit $f7, implicit $r16
+...
