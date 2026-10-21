@@ -1,0 +1,138 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-speculate-loads \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# Instructions are not computed early in a block where they would finish
+# later than the compare of the branch that ends it: nothing moved there is
+# scheduled after the branch, which would wait for them. Operands of a branch
+# or store count only the instructions after a load; an address counts every
+# instruction.
+
+# The compare of bb.0's branch waits for no load, but ADDS waits for LD1.
+# CHECK-LABEL: name: operands_after_load
+# CHECK:      bb.0:
+# CHECK-NOT:    ADDS -58
+# CHECK:      bb.1:
+# CHECK:        ADDS -58
+# CHECK-NEXT:   ZXT1
+---
+name:            operands_after_load
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.3(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = LD1 %1, 0, $p0 :: (load (s8))
+    BRCC %bb.1, 7, %0, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.3
+  bb.1:
+    successors: %bb.2(0x40000000), %bb.3(0x40000000)
+    %4:gr = ADDS -58, %3, $p0
+    %5:gr = ZXT1 %4, $p0
+    BRCCi %bb.2, 6, %5, 3, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.3
+  bb.2:
+    $r8 = ADDS 1, %0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.3:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# No instruction in the chain waits for a load, though it is longer than the
+# compare's.
+# CHECK-LABEL: name: operands_from_args
+# CHECK:      bb.0:
+# CHECK:        ADDS -58
+# CHECK-NEXT:   ADDS 3
+# CHECK-NEXT:   ZXT1
+# CHECK:      bb.1:
+---
+name:            operands_from_args
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.3(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = LD1 %1, 0, $p0 :: (load (s8))
+    BRCC %bb.1, 7, %3, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.3
+  bb.1:
+    successors: %bb.2(0x40000000), %bb.3(0x40000000)
+    %4:gr = ADDS -58, %0, $p0
+    %6:gr = ADDS 3, %4, $p0
+    %5:gr = ZXT1 %6, $p0
+    BRCCi %bb.2, 6, %5, 3, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.3
+  bb.2:
+    $r8 = ADDS 1, %0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.3:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# The compare waits for one instruction, the address for two.
+# CHECK-LABEL: name: address_behind_branch
+# CHECK:      bb.0:
+# CHECK-NOT:    SXT4
+# CHECK:      bb.1:
+# CHECK:        SXT4
+# CHECK-NEXT:   SHLADD
+---
+name:            address_behind_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    BRCC %bb.1, 7, %0, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    %4:gr = SXT4 %0, $p0
+    %5:gr = SHLADD %4, 2, %1, $p0
+    %6:gr = LD4 %5, 0, $p0 :: (load (s32))
+    $r8 = ADDS 1, %6, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# The compare and the address each wait for two.
+# CHECK-LABEL: name: address_beside_branch
+# CHECK:      bb.0:
+# CHECK:        SXT4
+# CHECK-NEXT:   SHLADD
+# CHECK:      bb.1:
+---
+name:            address_beside_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = ADDS 1, %0, $p0
+    BRCC %bb.1, 7, %3, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    %4:gr = SXT4 %0, $p0
+    %5:gr = SHLADD %4, 2, %1, $p0
+    %6:gr = LD4 %5, 0, $p0 :: (load (s32))
+    $r8 = ADDS 1, %6, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

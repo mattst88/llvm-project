@@ -30,6 +30,9 @@
 // in the same way, if the load is reached often enough. Integer operations
 // cannot fault, and in the earlier blocks they take slots that would be left
 // empty, so the address is ready once the branches before the load resolve.
+// No chain moves into a block where it would finish later than the compare
+// of the branch that ends the block, since nothing moved there can be
+// scheduled after the branch, which would then wait for the chain.
 //
 // The check finds its entry by register number, so it is sound only if the
 // register it reads is the one ld.sa wrote, with no other write between.
@@ -118,6 +121,11 @@ static cl::opt<bool> SkipAddressBranches(
     "ia64-speculate-skip-address-branches", cl::init(true), cl::Hidden,
     cl::desc("Do not issue a load early past a branch that tests a value "
              "its address is computed from"));
+
+static cl::opt<bool> NoBranchDelay(
+    "ia64-early-no-branch-delay", cl::init(true), cl::Hidden,
+    cl::desc("Do not compute operands early where they would hold back the "
+             "branch that ends the block"));
 
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
@@ -208,7 +216,11 @@ private:
   };
   Walk walkUp(MachineInstr &User, ArrayRef<Register> Regs, unsigned MinUse,
               const MachineInstr *Load) const;
-  bool moveChain(Walk &W, const MachineInstr &User);
+  int depthIn(const MachineInstr &MI, const MachineBasicBlock *MBB,
+              const Walk &W, DenseMap<const MachineInstr *, int> &Memo,
+              unsigned Limit, bool FromLoads) const;
+  bool delaysBranch(const Walk &W, bool FromLoads) const;
+  bool moveChain(Walk &W, const MachineInstr &User, bool IsAddress);
   std::pair<Register, int64_t> splitAddress(Register Addr) const;
   bool speculate(MachineInstr &Load, unsigned Pair);
   bool hoistOperands(MachineInstr &User);
@@ -386,10 +398,59 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
   return W;
 }
 
+// How many instructions in MBB MI waits for, one after another, counting
+// the chain that is to move there as in MBB. With FromLoads, only those after
+// a load count, and MI that waits for no load gives -1.
+int IA64SpeculateLoads::depthIn(const MachineInstr &MI,
+                                const MachineBasicBlock *MBB, const Walk &W,
+                                DenseMap<const MachineInstr *, int> &Memo,
+                                unsigned Limit, bool FromLoads) const {
+  if (Limit == 0)
+    return FromLoads ? -1 : 0;
+  if (auto It = Memo.find(&MI); It != Memo.end())
+    return It->second;
+  int Depth = FromLoads ? -1 : 0;
+  for (const MachineOperand &MO : MI.all_uses()) {
+    if (!MO.getReg().isVirtual())
+      continue;
+    const MachineInstr *Def = MRI->getVRegDef(MO.getReg());
+    if (!Def || Def->isPHI() ||
+        (Def->getParent() != MBB && !is_contained(W.Chain, Def)))
+      continue;
+    int DefDepth = depthIn(*Def, MBB, W, Memo, Limit - 1, FromLoads);
+    if (Def->mayLoad())
+      DefDepth = std::max(DefDepth, 0);
+    if (DefDepth >= 0)
+      Depth = std::max(Depth, DefDepth + 1);
+  }
+  Memo[&MI] = Depth;
+  return Depth;
+}
+
+// Whether the chain would finish later in its new block than the compare of
+// the branch that ends the block. An address counts every instruction, but
+// an operand chain only those after a load: counting every one also kept
+// bzip2's BZ2_hbMakeCodeLengths from computing the next heap index early.
+bool IA64SpeculateLoads::delaysBranch(const Walk &W, bool FromLoads) const {
+  auto Br = find_if(W.MBB->terminators(), [](const MachineInstr &MI) {
+    return MI.getOpcode() == IA64::BRCC || MI.getOpcode() == IA64::BRCCi ||
+           MI.getOpcode() == IA64::BRCCf;
+  });
+  if (Br == W.MBB->terminators().end())
+    return false;
+  DenseMap<const MachineInstr *, int> Memo;
+  int BrDepth = depthIn(*Br, W.MBB, W, Memo, 8, FromLoads);
+  return any_of(W.Chain, [&](const MachineInstr *MI) {
+    return depthIn(*MI, W.MBB, W, Memo, 8, FromLoads) > BrDepth;
+  });
+}
+
 // Move the chain to where the walk stopped, if that is in another block.
-bool IA64SpeculateLoads::moveChain(Walk &W, const MachineInstr &User) {
+bool IA64SpeculateLoads::moveChain(Walk &W, const MachineInstr &User,
+                                   bool IsAddress) {
   if (W.MBB == User.getParent() || W.Chain.empty() || !W.Crossed ||
-      W.Distance < MinDistance)
+      W.Distance < MinDistance ||
+      (NoBranchDelay && delaysBranch(W, /*FromLoads=*/!IsAddress)))
     return false;
   // The chain was found from User up, so the last found goes first.
   for (MachineInstr *MI : reverse(W.Chain)) {
@@ -435,7 +496,7 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   // Whether only the address is computed early.
   if (OnlyChases && !chases(Addr, L)) {
     Walk W = walkUp(Load, Addr, AddressMinUse, &Load);
-    NumAddresses += moveChain(W, Load);
+    NumAddresses += moveChain(W, Load, /*IsAddress=*/true);
     return false;
   }
 
@@ -508,7 +569,7 @@ bool IA64SpeculateLoads::hoistOperands(MachineInstr &User) {
   if (Regs.empty())
     return false;
   Walk W = walkUp(User, Regs, OperandMinUse, nullptr);
-  return moveChain(W, User);
+  return moveChain(W, User, /*IsAddress=*/false);
 }
 
 bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {

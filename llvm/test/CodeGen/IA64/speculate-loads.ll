@@ -173,17 +173,20 @@ out:
 
 ; The walk ends at the top of the loop, which the shladd begins. The adds
 ; moves up to it and stays after it.
-define void @shared_address(ptr %t, i1 %c) {
+define void @shared_address(ptr %t, i64 %n) {
 ; CHECK-LABEL: shared_address:
-; CHECK:       shladd [[E:r[0-9]+]] = {{r[0-9]+}}, 2, r32 ;;
+; CHECK:       shladd [[E:r[0-9]+]] = {{r[0-9]+}}, 2, r32
+; CHECK-NEXT:  and
 ; CHECK-NEXT:  adds {{r[0-9]+}} = 4, [[E]]
-; CHECK-NEXT:  tbit.z
+; CHECK-NEXT:  cmp.eq
 ; CHECK-NEXT:  (p6) br.cond
 entry:
   br label %loop
 loop:
   %i = phi i64 [ 0, %entry ], [ 1, %latch ]
   %e = getelementptr [4 x i8], ptr %t, i64 %i
+  %x = and i64 %i, %n
+  %c = icmp ne i64 %x, 0
   br i1 %c, label %check, label %latch
 check:
   %f = getelementptr i8, ptr %e, i64 4
