@@ -181,3 +181,31 @@ exit:
 }
 
 declare double @llvm.fmuladd.f64(double, double, double)
+
+; A division reads its dividend for frcpa and again stages later for the
+; remainder. A dividend of 1.0 is a copy of f1, which both read directly
+; rather than through a rotating register that each pass copies f1 into.
+define void @recip_fill(ptr %d, i1 %again, double %x) {
+; CHECK-LABEL: recip_fill:
+; CHECK:       .LBB{{[0-9]+}}_[[LOOP:[0-9]+]]:
+; CHECK-NOT:   ) mov f
+; CHECK:       frcpa f{{[0-9]+}}, p{{[0-9]+}} = f1, [[X:f[0-9]+]]
+; CHECK-NOT:   ) mov f
+; CHECK:       fnma.s1 f{{[0-9]+}} = [[X]], f{{[0-9]+}}, f1
+; CHECK-NOT:   ) mov f
+; CHECK:       br.ctop.sptk.few .LBB{{[0-9]+}}_[[LOOP]] ;;
+entry:
+  br label %outer
+outer:
+  br i1 %again, label %loop, label %exit
+loop:
+  %i = phi i64 [ %i.next, %loop ], [ 0, %outer ]
+  %r = fdiv double 1.0, %x
+  %pd = getelementptr inbounds double, ptr %d, i64 %i
+  store double %r, ptr %pd
+  %i.next = add i64 %i, 1
+  %done = icmp eq i64 %i.next, 0
+  br i1 %done, label %outer, label %loop
+exit:
+  ret void
+}

@@ -110,6 +110,9 @@ class RotatingExpander {
   // Post-increment results and the phis they are tied to, which stay in
   // virtual registers.
   DenseSet<Register> Static;
+  // Copies of constant registers, such as f1, whose uses in the loop can
+  // read the constant register instead.
+  DenseMap<Register, MCRegister> Constants;
   unsigned NumGRs = 0, NumFRs = 0, NumPRs = 0;
 
   int stage(const MachineInstr &MI) const {
@@ -284,6 +287,23 @@ bool RotatingExpander::classify() {
   for (MachineInstr *MI : MS->getInstructions()) {
     if (MI->isPHI())
       continue;
+    if (MI->isCopy() && MI->getOperand(0).getReg().isVirtual() &&
+        MI->getOperand(1).getReg().isPhysical() &&
+        MRI.isConstantPhysReg(MI->getOperand(1).getReg())) {
+      MCRegister Src = MI->getOperand(1).getReg().asMCReg();
+      if (all_of(MRI.use_nodbg_operands(MI->getOperand(0).getReg()),
+                 [&](MachineOperand &Use) {
+                   MachineInstr &User = *Use.getParent();
+                   if (!inLoop(User) || User.isPHI() || Use.isTied())
+                     return false;
+                   const TargetRegisterClass *RC = User.getRegClassConstraint(
+                       User.getOperandNo(&Use), &TII, &TRI);
+                   return RC && RC->contains(Src);
+                 })) {
+        Constants[MI->getOperand(0).getReg()] = Src;
+        continue;
+      }
+    }
     int S = stage(*MI);
     for (const MachineOperand &MO : MI->defs()) {
       if (!MO.isReg() || !MO.getReg().isVirtual())
@@ -574,6 +594,12 @@ void RotatingExpander::expand(LiveIntervals &LIS) {
                   MI->getOperand(1).getReg(), S);
       MI->eraseFromParent();
     }
+  }
+  for (auto &[Reg, Src] : Constants) {
+    MachineInstr *Copy = MRI.getVRegDef(Reg);
+    for (MachineOperand &MO : make_early_inc_range(MRI.use_operands(Reg)))
+      MO.setReg(Src);
+    Copy->eraseFromParent();
   }
 
   // The phis that rotate start in the preheader.
