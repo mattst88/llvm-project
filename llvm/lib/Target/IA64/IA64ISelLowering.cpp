@@ -312,6 +312,12 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // Functions start on a 16-byte bundle boundary.
   setMinFunctionAlignment(Align(16));
 
+  // A call costs a register stack frame and the callee's own setup, while
+  // the stores issue two per cycle. Copies of unknown alignment are the
+  // common case that needs more than eight: they go a byte at a time, so a
+  // 16-byte memmove is 16 stores.
+  MaxStoresPerMemset = MaxStoresPerMemcpy = MaxStoresPerMemmove = 32;
+
   computeRegisterProperties(STI.getRegisterInfo());
 
   // FP registers hold every precision in a single format, so an extending
