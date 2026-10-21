@@ -12,9 +12,9 @@ declare i32 @g()
 define i32 @returns(i64 %a, i64 %b) {
 ; CHECK-LABEL: returns:
 ; CHECK:       cmp.eq p7, p6 = 5, r32
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_3 ;;
-; CHECK:       cmp.eq p6, p7 = 0, r33
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB0_4{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_3{{$}}
+; CHECK:       cmp.eq p8, p9 = 0, r33
+; CHECK-NEXT:  (p8) br.cond.dpnt.few .LBB0_4{{$}}
 ; CHECK:       mov r8 = r0
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 ; CHECK:       .LBB0_3:

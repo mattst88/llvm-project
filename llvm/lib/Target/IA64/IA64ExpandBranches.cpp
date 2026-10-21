@@ -30,16 +30,23 @@
 #include "IA64InstrInfo.h"
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
+#include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "ia64-expand-branches"
 #define PASS_NAME "IA64 branch expansion"
+
+static cl::opt<bool> RenameBranchPredicates(
+    "ia64-rename-branch-predicates", cl::init(true), cl::Hidden,
+    cl::desc("Give a branch predicates that the branches falling through to "
+             "it do not use"));
 
 namespace {
 
@@ -304,6 +311,52 @@ static bool mergeBranches(MachineBasicBlock &MBB,
   return false;
 }
 
+// The scratch predicate pairs a branch may test, p6 and p7 first.
+static const MCPhysReg PredicatePairs[][2] = {{IA64::P6, IA64::P7},
+                                              {IA64::P8, IA64::P9},
+                                              {IA64::P10, IA64::P11},
+                                              {IA64::P12, IA64::P13},
+                                              {IA64::P14, IA64::P15}};
+
+// Which pair the compare for the conditional branch Br is to write, by
+// index into PredicatePairs. A branch that a block falls through to after
+// not taking its own would otherwise test the same predicates, and its
+// compare would have to wait for a new instruction group. So the pair is
+// the first one that is not live at Br and that none of the few branches
+// falling through to it in a row tests.
+static unsigned choosePair(MachineInstr &Br,
+                           const DenseMap<MachineBasicBlock *, unsigned> &Pairs,
+                           const TargetRegisterInfo &TRI) {
+  MachineBasicBlock &MBB = *Br.getParent();
+  const MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
+  LivePhysRegs Live(TRI);
+  Live.addLiveOuts(MBB);
+  for (MachineInstr &MI : reverse(MBB)) {
+    Live.stepBackward(MI);
+    if (&MI == &Br)
+      break;
+  }
+  unsigned Avoid = 0;
+  MachineBasicBlock *B = &MBB;
+  for (unsigned Depth = 0; Depth < 4 && B != &B->getParent()->front();
+       ++Depth) {
+    MachineBasicBlock *Prev = &*std::prev(B->getIterator());
+    auto It = Pairs.find(Prev);
+    if (It == Pairs.end() || !Prev->isSuccessor(B))
+      break;
+    Avoid |= 1u << It->second;
+    B = Prev;
+  }
+  auto Free = [&](unsigned I) {
+    return Live.available(MRI, PredicatePairs[I][0]) &&
+           Live.available(MRI, PredicatePairs[I][1]);
+  };
+  for (unsigned I = 0; I != std::size(PredicatePairs); ++I)
+    if (!(Avoid & (1u << I)) && Free(I))
+      return I;
+  return 0;
+}
+
 // br.cloop branches while ar.lc is nonzero, so it can only continue a loop.
 // A branch that leaves the loop when the count runs out instead continues it
 // with br.cloop and then branches out.
@@ -370,6 +423,8 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
     } while (Merged);
   }
 
+  const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+  DenseMap<MachineBasicBlock *, unsigned> Pairs;
   for (MachineBasicBlock &MBB : MF) {
     for (MachineInstr &MI : make_early_inc_range(MBB.terminators())) {
       if (MI.getOpcode() == IA64::BRLOOP) {
@@ -381,6 +436,11 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
         continue;
       const DebugLoc &DL = MI.getDebugLoc();
       MachineBasicBlock *Target = MI.getOperand(0).getMBB();
+      unsigned Pair = RenameBranchPredicates && MF.getTarget().getOptLevel() !=
+                                                    CodeGenOptLevel::None
+                          ? choosePair(MI, Pairs, TRI)
+                          : 0;
+      MachineInstr *Before = MI.getPrevNode();
       auto It = Chains.find(&MBB);
       if (It != Chains.end() && It->second.Conds.size() > 1) {
         // The one condition with no parallel compare, if there is one, is
@@ -415,6 +475,17 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
           .addImm(0)
           .addImm(0)
           .addReg(IA64::P6);
+      // The compares and the branch were emitted with p6 and p7.
+      if (Pair != 0)
+        for (MachineInstr &New :
+             make_range(Before ? std::next(MachineBasicBlock::iterator(Before))
+                               : MBB.begin(),
+                        MachineBasicBlock::iterator(MI)))
+          for (MachineOperand &MO : New.operands())
+            if (MO.isReg() &&
+                (MO.getReg() == IA64::P6 || MO.getReg() == IA64::P7))
+              MO.setReg(PredicatePairs[Pair][MO.getReg() == IA64::P7]);
+      Pairs[&MBB] = Pair;
       MI.eraseFromParent();
       Changed = true;
     }
