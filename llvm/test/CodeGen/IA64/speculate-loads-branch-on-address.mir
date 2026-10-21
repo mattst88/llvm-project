@@ -1,0 +1,65 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-speculate-loads \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# A load is not issued early past a branch that tests its address, or a
+# value its address is computed from: the branch resolves as soon as the
+# address is ready, and the check would wait for the early load. A branch on
+# the value the address starts from does not stop it.
+
+# CHECK-LABEL: name: branch_on_address
+# CHECK-NOT:    SPEC_LD_GR
+# CHECK:      bb.1:
+# CHECK:        LD8 %{{[0-9]+}}, 0, $p0
+---
+name:            branch_on_address
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = LD8 %1, 0, $p0 :: (load (s64))
+    %4:gr = SHLADD %3, 3, %0, $p0
+    BRCC %bb.1, 7, %4, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    ST4 %0, $r0, 0, $p0 :: (store (s32))
+    %5:gr = LD8 %4, 0, $p0 :: (load (s64))
+    $r8 = ADDS 1, %5, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# CHECK-LABEL: name: branch_on_base
+# CHECK:      bb.0:
+# CHECK:        [[A:%[0-9]+]]:gr = SHLADD
+# CHECK-NEXT:   [[V:%[0-9]+]]:gr = SPEC_LD_GR [[A]]
+# CHECK:      bb.1:
+# CHECK:        CHECK_LD_GR [[A]], [[V]],
+---
+name:            branch_on_base
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = LD8 %1, 0, $p0 :: (load (s64))
+    %4:gr = SHLADD %3, 3, %0, $p0
+    BRCC %bb.1, 7, %3, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    ST4 %0, $r0, 0, $p0 :: (store (s32))
+    %5:gr = LD8 %4, 0, $p0 :: (load (s64))
+    $r8 = ADDS 1, %5, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

@@ -21,8 +21,10 @@
 // otherwise wait for memory, so the pass moves only loads whose address comes
 // from another load: those are the ones that miss the cache. Of the loads in
 // a block from near the same address, only the first moves, since a miss
-// brings in the line the others read. Before register allocation the pair is
-// SPEC_LD and CHECK_LD, with the check's result tied to the early load's.
+// brings in the line the others read. Nor does a load move past a branch on
+// a value its address is computed from, which resolves no sooner than the
+// address is ready. Before register allocation the pair is SPEC_LD and
+// CHECK_LD, with the check's result tied to the early load's.
 //
 // Other loads stay, but the instructions that compute their address move up
 // in the same way, if the load is reached often enough. Integer operations
@@ -112,6 +114,11 @@ static cl::opt<bool> OnePerLine(
     cl::desc("Issue early only the first of the loads in a block from "
              "near the same address"));
 
+static cl::opt<bool> SkipAddressBranches(
+    "ia64-speculate-skip-address-branches", cl::init(true), cl::Hidden,
+    cl::desc("Do not issue a load early past a branch that tests a value "
+             "its address is computed from"));
+
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
     cl::desc("How many instructions back from the address a load may be"));
@@ -195,6 +202,7 @@ private:
     MachineBasicBlock *MBB = nullptr;
     MachineBasicBlock::iterator At;
     SmallVector<MachineInstr *, 4> Chain;
+    SmallVector<MachineInstr *, 4> Branches;
     bool Crossed = false;
     unsigned Distance = 0;
   };
@@ -313,7 +321,7 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
   // among the block's terminators.
   MachineBasicBlock *EntryMBB = MBB;
   MachineBasicBlock::iterator EntryAt = At;
-  size_t EntryChain = 0;
+  size_t EntryChain = 0, EntryBranches = 0;
   bool EntryCrossed = false;
   while (true) {
     MachineBasicBlock::iterator Begin = MBB->getFirstNonPHI();
@@ -335,6 +343,8 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
             if (MO.getReg().isVirtual())
               Needed.insert(MO.getReg());
         }
+        if (MI.isConditionalBranch())
+          W.Branches.push_back(&MI);
         // A store the load cannot alias is no obstacle to the scheduler.
         Crossed |= MI.isBranch() || (Load && MI.mayStore() &&
                                      MI.mayAlias(AA, *Load, /*UseTBAA=*/true));
@@ -347,6 +357,7 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
       MBB = EntryMBB;
       At = EntryAt;
       Chain.truncate(EntryChain);
+      W.Branches.truncate(EntryBranches);
       Crossed = EntryCrossed;
     }
     // A block with one predecessor may still have PHIs.
@@ -363,6 +374,7 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
     EntryMBB = MBB;
     EntryAt = Begin;
     EntryChain = Chain.size();
+    EntryBranches = W.Branches.size();
     EntryCrossed = Crossed;
     MBB = Pred;
     At = MBB->end();
@@ -432,6 +444,22 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   // gains nothing.
   if (!W.Crossed || W.Distance < MinDistance)
     return false;
+  // A branch that tests the address, or a value computed on the way to it,
+  // resolves no sooner than the address is ready, so the load could issue
+  // at most a group before it would anyway, and the check would then wait
+  // for it.
+  if (SkipAddressBranches) {
+    SmallSet<Register, 8> Computed;
+    Computed.insert(Addr);
+    for (const MachineInstr *MI : W.Chain)
+      Computed.insert(MI->getOperand(0).getReg());
+    if (any_of(W.Branches, [&](const MachineInstr *Br) {
+          return any_of(Br->uses(), [&](const MachineOperand &MO) {
+            return MO.isReg() && Computed.count(MO.getReg());
+          });
+        }))
+      return false;
+  }
   MachineBasicBlock *MBB = W.MBB;
   MachineBasicBlock::iterator At = W.At;
   MachineBasicBlock *Use = Load.getParent();
