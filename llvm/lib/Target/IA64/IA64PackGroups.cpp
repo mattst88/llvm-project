@@ -101,6 +101,10 @@ struct Item {
   bool Stop;
   /// The template of a directive before it, or -1.
   int Template = -1;
+  /// The registers it reads, and those it writes whose value takes more
+  /// than a cycle, with the cycles it takes.
+  SmallVector<Register, 4> Reads;
+  SmallVector<std::pair<Register, unsigned>, 2> SlowDefs;
 };
 
 /// The dispersal of bundles into issue cycles, and its cost so far.
@@ -114,6 +118,14 @@ struct Dispersal {
   unsigned Loads = 0;
   unsigned Stores = 0;
   bool EndCycle = true;
+  /// The results that take more than a cycle and may not be ready yet: the
+  /// register, the cycle that wrote it, and when it is ready after that.
+  struct Pending {
+    Register Reg;
+    unsigned Issued;
+    unsigned Latency;
+  };
+  SmallVector<Pending, 8> Results;
 
   /// Start a cycle that already holds \p Open bundles.
   void newCycle(unsigned Open) {
@@ -122,6 +134,24 @@ struct Dispersal {
     std::fill(std::begin(Ports), std::end(Ports), 0);
     Loads = Stores = 0;
     EndCycle = false;
+    erase_if(Results,
+             [&](const Pending &P) { return P.Issued + P.Latency <= Cycles; });
+  }
+
+  /// An instruction that reads a result before it is ready stalls the
+  /// whole of its cycle, along with what issued in it before.
+  void wait(const Item &It) {
+    unsigned Ready = Cycles;
+    for (const Pending &P : Results)
+      if (is_contained(It.Reads, P.Reg))
+        Ready = std::max(Ready, P.Issued + P.Latency);
+    unsigned Stall = Ready - Cycles;
+    if (!Stall)
+      return;
+    for (Pending &P : Results)
+      if (P.Issued == Cycles)
+        P.Issued += Stall;
+    Cycles += Stall;
   }
 
   void startBundle() {
@@ -141,9 +171,12 @@ struct Dispersal {
     if (Ports[Port] == Limit || (It.IsLoad && Loads == 2) ||
         (It.IsStore && Stores == 2) || (It.I0Only && Ports[Port] != 0))
       newCycle(1);
+    wait(It);
     ++Ports[Port];
     Loads += It.IsLoad;
     Stores += It.IsStore;
+    for (auto [Reg, Latency] : It.SlowDefs)
+      Results.push_back({Reg, Cycles, Latency});
     ExitCycles += It.IsExit ? Cycles : 0;
     EndCycle = It.Stop;
   }
@@ -567,7 +600,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
                : getUnits(MI, MCII, MRI);
   };
   auto MakeItem = [&](MachineInstr &MI, unsigned Units) -> Item {
-    return {&MI,
+    Item It{&MI,
             Units,
             (MI.getDesc().TSFlags & IA64II::LastSlot) != 0,
             MI.mayLoad(),
@@ -575,6 +608,19 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
             usesOnlyI0(MI, SM, PortI0),
             MI.isConditionalBranch(),
             MI.getAsmPrinterFlag(IA64::StopAfter)};
+    for (const MachineOperand &MO : MI.explicit_operands()) {
+      if (!MO.isReg() || !MO.getReg() || MO.getReg() == IA64::P0)
+        continue;
+      if (MO.readsReg()) {
+        It.Reads.push_back(MO.getReg());
+      } else if (MO.isDef() && !MO.isDead()) {
+        unsigned Latency =
+            SM.computeOperandLatency(&MI, MO.getOperandNo(), nullptr, 0);
+        if (Latency > 1)
+          It.SlowDefs.push_back({MO.getReg(), Latency});
+      }
+    }
+    return It;
   };
 
   // Whether the instruction group open at the end of the last block may

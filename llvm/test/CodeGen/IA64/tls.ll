@@ -82,8 +82,9 @@ define ptr @general_dynamic() {
 ; PIC-NEXT:    mov r34 = b0
 ; PIC-NEXT:    .body
 ; PIC-NEXT:    br.call.sptk.many b0 = __tls_get_addr ;;
-; PIC-NEXT:    mov b0 = r34
 ; PIC-NEXT:    mov r1 = r32
+; PIC-NEXT:    mov ar.pfs = r33
+; PIC-NEXT:    mov b0 = r34
 ; EXEC:        addl r14 = @ltoff(@tprel(gd)), r1 ;;
 ; EXEC-NEXT:   ld8 r14 = [r14] ;;
 ; EXEC-NEXT:   add r8 = r14, r13

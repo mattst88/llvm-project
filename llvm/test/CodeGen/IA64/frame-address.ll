@@ -52,8 +52,8 @@ define ptr @frame_address_call() {
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r8 = r35
-; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  mov ar.pfs = r33
+; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  mov r12 = r35

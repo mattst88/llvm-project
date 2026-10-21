@@ -30,10 +30,10 @@ define <2 x float> @call(<2 x float> %v) {
 ; CHECK-DAG:   mov f9 = f1
 ; CHECK-DAG:   setf.d f12 = r15
 ; CHECK-DAG:   setf.sig f8 = r14
-; CHECK:       .save rp, r36
+; CHECK:       mov f10 = f8
+; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov f10 = f8
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext
 ; CHECK-NEXT:  getf.sig r33 = f8
   %r = call <2 x float> @ext(i64 1, <2 x float> %v, double 1.0, <2 x float> %v, double 2.0)

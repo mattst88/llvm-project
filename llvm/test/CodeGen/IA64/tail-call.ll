@@ -78,8 +78,8 @@ define i64 @frame(i64 %a) {
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = fill ;;
 ; CHECK-NEXT:    mov r33 = 3
-; CHECK-NEXT:    mov b0 = r35
 ; CHECK-NEXT:    mov ar.pfs = r34
+; CHECK-NEXT:    mov b0 = r35
 ; CHECK-NEXT:    .restore sp
 ; CHECK-NEXT:    adds r12 = 800, r12 ;;
 ; CHECK-NEXT:    .prologue

@@ -122,11 +122,11 @@ define double @across(double %a) {
 ; CHECK-NEXT:  .save.f 0x1
 ; CHECK-NEXT:  stf.spill [r2] = f2
 ; CHECK:       mov f2 = f8
-; CHECK:       .save rp, r34
+; CHECK:       mov r35 = 1
+; CHECK-NEXT:  mov r37 = 3
+; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov r35 = 1
-; CHECK-NEXT:  mov r37 = 3
 ; CHECK-NEXT:  br.call.sptk.many b0 = x ;;
 ; CHECK:       mov f8 = f2
 ; CHECK-NEXT:  mov ar.pfs = r33

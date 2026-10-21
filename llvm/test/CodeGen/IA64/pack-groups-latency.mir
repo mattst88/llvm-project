@@ -1,0 +1,40 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# The first fma.d takes four cycles, and the second waits for it. Issued in
+# the first of the group's two cycles rather than the second, it is ready a
+# cycle sooner.
+
+# CHECK-LABEL: latency:
+# CHECK:       adds r15 = 1, r33
+# CHECK-NEXT:  adds r16 = 1, r34
+# CHECK-NEXT:  adds r17 = 1, r35
+# CHECK-NEXT:  adds r18 = 1, r36
+# CHECK-NEXT:  adds r19 = 1, r37
+# CHECK-NEXT:  fma.d f6 = f8, f9, f0
+# CHECK-NEXT:  adds r14 = 1, r32 ;;
+# CHECK-NEXT:  add r8 = r14, r15
+# CHECK-NEXT:  add r9 = r16, r17
+# CHECK-NEXT:  add r10 = r18, r19
+# CHECK-NEXT:  fma.d f8 = f6, f6, f0
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+---
+name: latency
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35, $r36, $r37, $f8, $f9, $b0
+
+    $r14 = ADDS 1, killed $r32, $p0
+    $r15 = ADDS 1, killed $r33, $p0
+    $r16 = ADDS 1, killed $r34, $p0
+    $r17 = ADDS 1, killed $r35, $p0
+    $r18 = ADDS 1, killed $r36, $p0
+    $r19 = ADDS 1, killed $r37, $p0
+    $f6 = FMA_D killed $f8, killed $f9, $f0, 0, $p0, implicit $ar40
+    $f8 = FMA_D killed $f6, $f6, $f0, 0, $p0, implicit $ar40
+    $r8 = ADD killed $r14, killed $r15, $p0
+    $r9 = ADD killed $r16, killed $r17, $p0
+    $r10 = ADD killed $r18, killed $r19, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8, implicit killed $r9, implicit killed $r10, implicit killed $f8
+...

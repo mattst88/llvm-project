@@ -104,7 +104,7 @@ define float @pass_odd([3 x float] %h) {
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  br.call.sptk.many b0 = take_odd ;;
+; CHECK:       br.call.sptk.many b0 = take_odd ;;
   %r = call float @take_odd(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, double 7.0, [3 x float] %h)
   ret float %r
 }
@@ -112,8 +112,8 @@ define float @pass_odd([3 x float] %h) {
 define float @pass_four([4 x float] %h) {
 ; CHECK-LABEL: pass_four:
 ; CHECK:       getf.s r14 = f11
-; CHECK:       getf.s r15 = f10
 ; CHECK:       mov f15 = f9
+; CHECK:       getf.s r15 = f10
 ; CHECK:       mov f14 = f8
 ; CHECK:       mov f8 = f1
 ; CHECK:       shl r14 = r14, 32
