@@ -382,6 +382,29 @@ static unsigned getPortI0(const TargetSchedModel &SM) {
   return 0;
 }
 
+/// Whether \p MI is a prefetch, which is marked as storing but takes only a
+/// load's port.
+static bool isPrefetch(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  case IA64::LFETCH:
+  case IA64::LFETCH_r:
+  case IA64::LFETCH_i:
+  case IA64::LFETCH_EXCL:
+  case IA64::LFETCH_EXCL_r:
+  case IA64::LFETCH_EXCL_i:
+  case IA64::LFETCH_FAULT:
+  case IA64::LFETCH_FAULT_r:
+  case IA64::LFETCH_FAULT_i:
+  case IA64::LFETCH_FAULT_EXCL:
+  case IA64::LFETCH_FAULT_EXCL_r:
+  case IA64::LFETCH_FAULT_EXCL_i:
+  case IA64::LFETCH_COUNT:
+    return true;
+  default:
+    return false;
+  }
+}
+
 /// Whether the scheduling model has \p MI use port \p PortI0.
 static bool usesOnlyI0(const MachineInstr &MI, const TargetSchedModel &SM,
                        unsigned PortI0) {
@@ -548,7 +571,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
             Units,
             (MI.getDesc().TSFlags & IA64II::LastSlot) != 0,
             MI.mayLoad(),
-            MI.mayStore(),
+            MI.mayStore() && !isPrefetch(MI),
             usesOnlyI0(MI, SM, PortI0),
             MI.isConditionalBranch(),
             MI.getAsmPrinterFlag(IA64::StopAfter)};
