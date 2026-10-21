@@ -60,6 +60,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64LocalDynamicTLSPass(PR);
   initializeIA64PackGroupsPass(PR);
   initializeIA64SpeculateLoadsPass(PR);
+  initializeIA64PostIncPointersPass(PR);
 }
 
 // Code addresses data relative to GP and other code relative to IP, so it is
@@ -200,6 +201,7 @@ bool IA64PassConfig::addILPOpts() {
 
 void IA64PassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOptLevel::None) {
+    addPass(createIA64PostIncPointersPass());
     addPass(&MachinePipelinerID);
     addPass(createIA64SpeculateLoadsPass());
   }

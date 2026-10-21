@@ -170,12 +170,12 @@ x:
 
 ; A store to the address that a load reads would step it only once the
 ; stored value is computed, and the load of the next iteration would wait for
-; that. The address steps in an add of its own instead.
+; that. Each steps a pointer of its own instead.
 define void @load_store(ptr %p, i64 %n) {
 ; CHECK-LABEL: load_store:
-; CHECK:       ld8 r{{[0-9]+}} = [r32]
-; CHECK:       st8 [r32] = r{{[0-9]+}}
-; CHECK-NEXT:  adds r32 = 8, r32
+; CHECK:       mov [[LOAD:r[0-9]+]] = r32
+; CHECK:       ld8 r{{[0-9]+}} = [[[LOAD]]], 8
+; CHECK:       st8 [r32] = r{{[0-9]+}}, 8
 entry:
   br label %loop
 loop:

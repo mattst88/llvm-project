@@ -67,11 +67,10 @@ define void @axpy(ptr noalias %y, ptr noalias %x, double %a, i64 %n) {
 ; CHECK:       mov ar.ec = 11
 ; CHECK-NEXT:  mov pr.rot = 65536 ;;
 ; CHECK-NEXT:  .LBB1_[[LOOP:[0-9]+]]:
-; CHECK:       (p26) stfd [r43] = f36
-; CHECK-NEXT:  (p16) ldfd f44 = [r{{[0-9]+}}], 8
-; CHECK-NEXT:  (p22) fma.d f32 = f50, f8, f43
-; CHECK-NEXT:  (p16) adds r32 = 8, r33
-; CHECK-NEXT:  (p16) ldfd f37 = [r33]
+; CHECK:       (p26) stfd [r32] = f36, 8
+; CHECK-NEXT:  (p16) ldfd f37 = [r33], 8
+; CHECK-NEXT:  (p22) fma.d f32 = f43, f8, f50
+; CHECK-NEXT:  (p16) ldfd f44 = [r14], 8
 ; CHECK-NEXT:  br.ctop.sptk.few .LBB1_[[LOOP]] ;;
 ; CHECK:       clrrrb ;;
 ;

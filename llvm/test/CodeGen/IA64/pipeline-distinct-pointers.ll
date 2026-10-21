@@ -1,6 +1,6 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs -disable-lsr \
-; RUN:   -ia64-rotating-max-stages=0 -pass-remarks-analysis=pipeliner \
-; RUN:   -o /dev/null < %s 2>&1 | FileCheck %s
+; RUN:   -ia64-enable-postinc-pointers=false -ia64-rotating-max-stages=0 \
+; RUN:   -pass-remarks-analysis=pipeliner -o /dev/null < %s 2>&1 | FileCheck %s
 
 ; Loop strength reduction may give each of a[i] and a[i + 1] its own pointer.
 ; The pipeliner relates pointers that step together from addresses a constant

@@ -81,8 +81,7 @@ define void @axpy(ptr %y, ptr %x, double %a, i64 %n) {
 ; CHECK:       .LBB1_[[LOOP:[0-9]+]]:
 ; CHECK:       ldfd
 ; CHECK:       fma.d
-; CHECK:       stfd
-; CHECK-NEXT:  adds
+; CHECK:       stfd [r{{[0-9]+}}] = f{{[0-9]+}}, 8
 ; CHECK-NEXT:  br.cloop.sptk.few .LBB1_[[LOOP]] ;;
 entry:
   %z = icmp eq i64 %n, 0

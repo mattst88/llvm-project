@@ -8,16 +8,14 @@
 define void @add2(ptr noalias %y, ptr noalias %x, i64 %n) {
 ; CHECK-LABEL: add2:
 ; CHECK:       .LBB0_1:
-; CHECK:       ld8 r16 = [r33], 16
-; CHECK-NEXT:  ld8 r17 = [r32]
-; CHECK-NEXT:  ld8 r18 = [r15], 16
-; CHECK-NEXT:  ld8 r19 = [r14] ;;
-; CHECK-NEXT:  add r16 = r16, r17
-; CHECK-NEXT:  add r20 = r18, r19 ;;
-; CHECK-NEXT:  st8 [r32] = r16
-; CHECK-NEXT:  adds r32 = 16, r32
-; CHECK-NEXT:  st8 [r14] = r20
-; CHECK-NEXT:  adds r14 = 16, r14
+; CHECK:       ld8 r18 = [r33], 16
+; CHECK-NEXT:  ld8 r19 = [r16], 16
+; CHECK-NEXT:  ld8 r20 = [r15], 16
+; CHECK-NEXT:  ld8 r21 = [r17], 16 ;;
+; CHECK-NEXT:  add r18 = r18, r19
+; CHECK-NEXT:  add r22 = r20, r21 ;;
+; CHECK-NEXT:  st8 [r32] = r18, 16
+; CHECK-NEXT:  st8 [r14] = r22, 16
 ; CHECK-NEXT:  br.cloop.sptk.few .LBB0_1 ;;
 entry:
   br label %loop
