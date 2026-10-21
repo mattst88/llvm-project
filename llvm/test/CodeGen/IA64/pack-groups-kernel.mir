@@ -1,0 +1,34 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# In a software-pipelined kernel, the fma.d reads in f33 what the last pass
+# loaded into f32, which br.ctop renamed. The four loads take two cycles, so
+# the one into f32 goes first, to have its result sooner.
+
+# CHECK-LABEL: kernel:
+# CHECK:       (p16) ldfd f32 = [r14]
+# CHECK:       (p17) fma.d f7 = f6, f33, f0
+# CHECK:       br.ctop.sptk.few .LBB0_1 ;;
+---
+name: kernel
+tracksRegLiveness: false
+body: |
+  bb.0:
+    successors: %bb.1
+    liveins: $r14, $r15, $r16, $r17, $f6, $b0, $ar40
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r14, $r15, $r16, $r17, $f6, $ar40
+
+    $f7 = FMA_D $f6, $f33, $f0, 0, $p17, implicit $ar40
+    $f34 = LDFD $r15, 0, $p16 :: (load (s64))
+    $f35 = LDFD $r16, 0, $p16 :: (load (s64))
+    $f36 = LDFD $r17, 0, $p16 :: (load (s64))
+    $f32 = LDFD $r14, 0, $p16 :: (load (s64))
+    BR_CTOP %bb.1, 0, 0, 0, implicit-def $ar65, implicit-def $ar66, implicit $ar65, implicit $ar66
+
+  bb.2:
+    CLRRRB
+    BR_RET $b0, 0, 1, 0, $p0
+...

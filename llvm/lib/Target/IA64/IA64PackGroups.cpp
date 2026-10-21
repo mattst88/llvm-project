@@ -38,6 +38,9 @@
 // A label starts a bundle, so the replay restarts at each block that has
 // one. Blocks with anything the replay does not model are left alone.
 //
+// A software-pipelined kernel is costed as a pass after one in the same
+// order, since it reads in rotated registers what the pass before wrote.
+//
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
@@ -672,6 +675,22 @@ static bool pinsGroup(const MachineInstr &MI) {
 /// Whether the asm printer emits a label or an alignment before \p MBB,
 /// either of which starts a bundle. This follows
 /// AsmPrinter::isBlockOnlyReachableByFallthrough.
+/// The name that \p Reg has after br.ctop rotates the registers, in a function
+/// that rotates \p GRs general registers.
+static Register rotated(Register Reg, unsigned GRs) {
+  auto Next = [&](unsigned First, unsigned Size) -> Register {
+    unsigned I = Reg - First;
+    return I < Size ? Register(First + (I + 1) % Size) : Reg;
+  };
+  if (Reg >= IA64::R32 && Reg < IA64::R32 + GRs)
+    return Next(IA64::R32, GRs);
+  if (Reg >= IA64::F32 && Reg <= IA64::F127)
+    return Next(IA64::F32, 96);
+  if (Reg >= IA64::P16 && Reg <= IA64::P63)
+    return Next(IA64::P16, 48);
+  return Reg;
+}
+
 static bool startsBundle(const MachineBasicBlock &MBB) {
   if (MBB.isEntryBlock() || MBB.getAlignment() > Align(1) ||
       MBB.hasAddressTaken() || MBB.isEHPad() || MBB.hasLabelMustBeEmitted() ||
@@ -858,9 +877,28 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       if (!NextMid)
         Next.clear();
     }
+    // A software-pipelined kernel reads, in rotated registers, results that
+    // its last pass wrote, and some of them late in it. Its cost is that of
+    // a pass after one in the same order.
+    bool Kernel = MBB.isSuccessor(&MBB) &&
+                  any_of(MBB.terminators(), [](const MachineInstr &MI) {
+                    return MI.getOpcode() == IA64::BR_CTOP;
+                  });
+    unsigned GRs = MF.getInfo<IA64MachineFunctionInfo>()->getRotatingGRs();
     // The cost of the instructions from Begin to End, and of the groups
     // before and after them.
     auto CostAround = [&](unsigned Begin, unsigned End) {
+      if (Kernel) {
+        SmallVector<Item, 32> Window(Items.begin(), Items.end());
+        for (Item &It : Window) {
+          for (Register &Reg : It.Reads)
+            Reg = rotated(Reg, GRs);
+          for (auto &[Reg, Latency] : It.SlowDefs)
+            Reg = rotated(Reg, GRs);
+        }
+        Window.append(Items.begin(), Items.end());
+        return plan(Window, Dispersal());
+      }
       if (Begin != 0)
         --Begin;
       while (Begin != 0 && !Items[Begin - 1].Stop)
