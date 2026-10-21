@@ -621,7 +621,7 @@ std::string Triple::computeDataLayout(StringRef ABIName) const {
     // Little-endian LP64.  long double is the 80-bit extended format in 16
     // bytes, and the stack is 16-byte aligned (Itanium Software Conventions
     // and Runtime Architecture Guide, 245358).
-    return "e-m:e-p:64:64-i64:64-i128:128-f80:128-n64-S128";
+    return "e-m:e-p:64:64-i64:64-i128:128-f80:128-n32:64-S128";
   case Triple::loongarch32:
   case Triple::loongarch64:
     return computeLoongArchDataLayout(*this);

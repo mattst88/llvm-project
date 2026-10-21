@@ -36,7 +36,7 @@
 
 // RUN: %clang_cc1 -triple ia64-unknown-linux-gnu -emit-llvm -o - %s | \
 // RUN:     FileCheck %s --check-prefix=IA64
-// IA64: target datalayout = "e-m:e-p:64:64-i64:64-i128:128-f80:128-n64-S128"
+// IA64: target datalayout = "e-m:e-p:64:64-i64:64-i128:128-f80:128-n32:64-S128"
 
 // RUN: %clang_cc1 -triple mipsel-linux-gnu -o - -emit-llvm %s |     \
 // RUN: FileCheck %s -check-prefix=MIPS-32EL

@@ -4,7 +4,7 @@
 ; segment, out of reach of a 32-bit offset from .rodata. The table stays one
 ; of pointers.
 
-target datalayout = "e-m:e-p:64:64-i64:64-i128:128-f80:128-n64-S128"
+target datalayout = "e-m:e-p:64:64-i64:64-i128:128-f80:128-n32:64-S128"
 
 @x = internal global i32 0
 @a = internal constant [1 x ptr] [ptr @x]
