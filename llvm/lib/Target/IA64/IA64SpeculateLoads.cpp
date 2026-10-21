@@ -19,9 +19,10 @@
 // taking along the few instructions that compute its address. Each pair
 // costs an M slot more than the load, which pays only if the load would
 // otherwise wait for memory, so the pass moves only loads whose address comes
-// from another load: those are the ones that miss the cache. Before register
-// allocation the pair is SPEC_LD and CHECK_LD, with the check's result tied
-// to the early load's.
+// from another load: those are the ones that miss the cache. Of the loads in
+// a block from near the same address, only the first moves, since a miss
+// brings in the line the others read. Before register allocation the pair is
+// SPEC_LD and CHECK_LD, with the check's result tied to the early load's.
 //
 // Other loads stay, but the instructions that compute their address move up
 // in the same way, if the load is reached often enough. Integer operations
@@ -105,6 +106,11 @@ static cl::opt<bool> EarlyStoreOperands(
 static cl::opt<bool> EarlyBranchOperands(
     "ia64-early-branch-operands", cl::init(true), cl::Hidden,
     cl::desc("Compute the operands of a conditional branch's compare early"));
+
+static cl::opt<bool> OnePerLine(
+    "ia64-speculate-one-per-line", cl::init(true), cl::Hidden,
+    cl::desc("Issue early only the first of the loads in a block from "
+             "near the same address"));
 
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
@@ -195,6 +201,7 @@ private:
   Walk walkUp(MachineInstr &User, ArrayRef<Register> Regs, unsigned MinUse,
               const MachineInstr *Load) const;
   bool moveChain(Walk &W, const MachineInstr &User);
+  std::pair<Register, int64_t> splitAddress(Register Addr) const;
   bool speculate(MachineInstr &Load, unsigned Pair);
   bool hoistOperands(MachineInstr &User);
 
@@ -388,6 +395,21 @@ bool IA64SpeculateLoads::moveChain(Walk &W, const MachineInstr &User) {
   return true;
 }
 
+// The register Addr adds a constant to, and the constant.
+std::pair<Register, int64_t>
+IA64SpeculateLoads::splitAddress(Register Addr) const {
+  int64_t Offset = 0;
+  while (Addr.isVirtual()) {
+    const MachineInstr *Def = MRI->getVRegDef(Addr);
+    if (!Def || Def->getOpcode() != IA64::ADDS || !Def->getOperand(1).isImm() ||
+        !Def->getOperand(2).isReg() || !Def->getOperand(2).getReg().isVirtual())
+      break;
+    Offset += Def->getOperand(1).getImm();
+    Addr = Def->getOperand(2).getReg();
+  }
+  return {Addr, Offset};
+}
+
 bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   std::optional<Forms> F = getForms(Load.getOpcode());
   if (!F || Load.getOperand(3).getReg() != IA64::P0 ||
@@ -482,8 +504,28 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
         Users.push_back(&MI);
   unsigned Pair = 0;
   Changed = false;
-  for (MachineInstr *MI : Loads)
-    Pair += speculate(*MI, Pair);
+  // A load that misses brings in the line its neighbours read, so issuing
+  // them early as well would only take M slots. Copies and structure
+  // accesses read runs of such loads from one base.
+  DenseMap<std::pair<const MachineBasicBlock *, Register>,
+           SmallVector<int64_t, 2>>
+      Early;
+  for (MachineInstr *MI : Loads) {
+    SmallVector<int64_t, 2> *Near = nullptr;
+    int64_t Offset = 0;
+    if (OnePerLine && MI->getOperand(1).isReg()) {
+      Register Base;
+      std::tie(Base, Offset) = splitAddress(MI->getOperand(1).getReg());
+      Near = &Early[{MI->getParent(), Base}];
+      if (any_of(*Near, [&](int64_t O) { return std::abs(O - Offset) < 64; }))
+        continue;
+    }
+    if (!speculate(*MI, Pair))
+      continue;
+    if (Near)
+      Near->push_back(Offset);
+    ++Pair;
+  }
   for (MachineInstr *MI : Users)
     NumOperands += hoistOperands(*MI);
   return Changed || Pair != 0;
