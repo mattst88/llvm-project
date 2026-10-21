@@ -17,4 +17,5 @@
 #define FUNCTION_PASS(NAME, CREATE_PASS)
 #endif
 FUNCTION_PASS("ia64-loop-alias-versioning", IA64LoopAliasVersioningPass())
+FUNCTION_PASS("ia64-memmove-versioning", IA64MemmoveVersioningPass())
 #undef FUNCTION_PASS

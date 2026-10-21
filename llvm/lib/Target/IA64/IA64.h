@@ -74,6 +74,11 @@ struct IA64LoopAliasVersioningPass
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
+struct IA64MemmoveVersioningPass
+    : OptionalPassInfoMixin<IA64MemmoveVersioningPass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 } // namespace llvm
 
 #endif // LLVM_LIB_TARGET_IA64_IA64_H

@@ -36,6 +36,10 @@ static cl::opt<bool> EnableAliasVersioning(
     "ia64-alias-versioning", cl::Hidden, cl::init(true),
     cl::desc("Version small loops on whether their pointers overlap"));
 
+static cl::opt<bool> EnableMemmoveVersioning(
+    "ia64-memmove-versioning", cl::Hidden, cl::init(true),
+    cl::desc("Version small memmoves on whether their operands overlap"));
+
 static cl::opt<bool>
     EnableLoopPrefetch("ia64-loop-prefetch", cl::Hidden, cl::init(true),
                        cl::desc("Prefetch strided loads in loops with lfetch"));
@@ -251,6 +255,15 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
         if (EnableAliasVersioning &&
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
           FPM.addPass(IA64LoopAliasVersioningPass());
+      });
+
+  // After inlining, which gives memmoves their constant lengths.
+  PB.registerOptimizerLastEPCallback(
+      [](ModulePassManager &MPM, OptimizationLevel Level, ThinOrFullLTOPhase) {
+        if (EnableMemmoveVersioning &&
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+          MPM.addPass(
+              createModuleToFunctionPassAdaptor(IA64MemmoveVersioningPass()));
       });
 }
 
