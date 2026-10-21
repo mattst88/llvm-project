@@ -57,6 +57,7 @@ public:
   // Loads zero-extend as well, so a loaded value used in other blocks is
   // passed to them as it was loaded, not sign-extended for signed compares.
   bool isZExtFree(SDValue Val, EVT VT2) const override;
+  bool shouldScopeInlinedMemcpy() const override { return true; }
   ISD::NodeType getPreferredExtendForValue(const Instruction *I) const override;
   // addl takes a signed immediate, so a negative 32-bit constant sign
   // extended needs no movl.

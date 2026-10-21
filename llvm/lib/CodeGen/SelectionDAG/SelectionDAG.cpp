@@ -57,6 +57,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Casting.h"
@@ -9595,6 +9596,17 @@ getMemcpyLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl, SDValue Chain,
   AAMDNodes NewAAInfo = AAInfo;
   NewAAInfo.TBAA = NewAAInfo.TBAAStruct = nullptr;
 
+  // The source and destination of a memcpy are equal or do not overlap, so no
+  // store of the expansion changes what a load of it reads.
+  AAMDNodes LoadAAInfo = NewAAInfo, StoreAAInfo = NewAAInfo;
+  if (TLI.shouldScopeInlinedMemcpy() && !isVol && MemOps.size() > 1) {
+    MDBuilder MDB(C);
+    MDNode *Domain = MDB.createAnonymousAliasScopeDomain("memcpy");
+    MDNode *Scope = MDNode::get(C, MDB.createAnonymousAliasScope(Domain));
+    LoadAAInfo.Scope = MDNode::concatenate(LoadAAInfo.Scope, Scope);
+    StoreAAInfo.NoAlias = MDNode::concatenate(StoreAAInfo.NoAlias, Scope);
+  }
+
   const Value *SrcVal = dyn_cast_if_present<const Value *>(SrcPtrInfo.V);
   bool isConstant =
       BatchAA && SrcVal &&
@@ -9670,14 +9682,14 @@ getMemcpyLoadsAndStores(SelectionDAG &DAG, const SDLoc &dl, SDValue Chain,
           DAG.getObjectPtrOffset(dl, Src, TypeSize::getFixed(SrcOff)),
           SrcPtrInfo.getWithOffset(SrcOff), VT,
           commonAlignment(SrcAlign, SrcOff), SrcMMOFlags,
-          MMOMetadata(NewAAInfo, /*Ranges=*/nullptr, SrcMemCacheHint));
+          MMOMetadata(LoadAAInfo, /*Ranges=*/nullptr, SrcMemCacheHint));
       OutLoadChains.push_back(Value.getValue(1));
 
       Store = DAG.getTruncStore(
           Chain, dl, Value,
           DAG.getObjectPtrOffset(dl, Dst, TypeSize::getFixed(DstOff)),
           DstPtrInfo.getWithOffset(DstOff), VT, DstAlign, MMOFlags,
-          MMOMetadata(NewAAInfo, /*Ranges=*/nullptr, DstMemCacheHint));
+          MMOMetadata(StoreAAInfo, /*Ranges=*/nullptr, DstMemCacheHint));
       OutStoreChains.push_back(Store);
     }
     SrcOff += VTSize;

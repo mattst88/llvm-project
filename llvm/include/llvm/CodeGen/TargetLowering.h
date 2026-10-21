@@ -2006,6 +2006,11 @@ public:
     return MaxGluedStoresPerMemcpy;
   }
 
+  /// Return true if the loads and stores an inlined llvm.memcpy expands to
+  /// should carry alias scopes saying that the stores do not alias the
+  /// loads, so that later loads can be scheduled above earlier stores.
+  virtual bool shouldScopeInlinedMemcpy() const { return false; }
+
   /// Get maximum # of load operations permitted for memcmp
   ///
   /// This function returns the maximum number of load operations permitted
