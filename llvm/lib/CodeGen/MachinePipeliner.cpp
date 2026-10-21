@@ -72,6 +72,7 @@
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/MC/MCInstrDesc.h"
@@ -3296,11 +3297,12 @@ MachineInstr *SwingSchedulerDAG::findDefInLoop(Register Reg) {
 
 namespace {
 /// Proves that two pointers are a constant distance apart wherever both are
-/// available, looking through constant offsets, through GEPs of the same
-/// indices in one block, and through pairs of phis in one block whose incoming
-/// values are the same distance apart on every edge. A pair of phis may refer
-/// to itself through the loop latch, so pointers that each step through a
-/// loop by the same amount from a constant distance apart are related.
+/// available, looking through constant offsets, through GEPs in one block of
+/// the same indices or of single indices a constant apart, and through pairs of
+/// phis in one block whose incoming values are the same distance apart on every
+/// edge. A pair of phis may refer to itself through the loop latch, so pointers
+/// that each step through a loop by the same amount from a constant distance
+/// apart are related.
 class PointerDistance {
   const DataLayout &DL;
   SmallVector<std::pair<const PHINode *, const PHINode *>, 4> Pending;
@@ -3328,13 +3330,51 @@ class PointerDistance {
     return R;
   }
 
+  /// Return A - B for indices that add constants to one value, such as
+  /// x + 4 and x + 8.
+  static std::optional<int64_t> getIndexDistance(const Value *A,
+                                                 const Value *B) {
+    using namespace PatternMatch;
+    const APInt *CA = nullptr, *CB = nullptr;
+    const Value *XA = A, *XB = B;
+    match(A, m_Add(m_Value(XA), m_APInt(CA)));
+    match(B, m_Add(m_Value(XB), m_APInt(CB)));
+    if (XA != XB)
+      return std::nullopt;
+    APInt Zero = APInt::getZero(A->getType()->getScalarSizeInBits());
+    APInt Dist = (CA ? *CA : Zero) - (CB ? *CB : Zero);
+    if (Dist.getSignificantBits() > 32)
+      return std::nullopt;
+    return Dist.getSExtValue();
+  }
+
   std::optional<Result> getGEPs(const GetElementPtrInst *A,
                                 const GetElementPtrInst *B) {
     if (!B || A->getParent() != B->getParent() ||
-        A->getSourceElementType() != B->getSourceElementType() ||
-        !std::equal(A->idx_begin(), A->idx_end(), B->idx_begin(), B->idx_end()))
+        A->getSourceElementType() != B->getSourceElementType())
       return std::nullopt;
-    return get(A->getPointerOperand(), B->getPointerOperand());
+    int64_t IndexDist = 0;
+    if (!std::equal(A->idx_begin(), A->idx_end(), B->idx_begin(),
+                    B->idx_end())) {
+      // A single index as wide as the pointer may differ by a constant.
+      if (A->getNumIndices() != 1 || B->getNumIndices() != 1)
+        return std::nullopt;
+      const Value *IA = A->getOperand(1), *IB = B->getOperand(1);
+      TypeSize Size = DL.getTypeAllocSize(A->getSourceElementType());
+      if (IA->getType() != IB->getType() || !IA->getType()->isIntegerTy() ||
+          IA->getType()->getIntegerBitWidth() !=
+              DL.getIndexTypeSizeInBits(A->getType()) ||
+          Size.isScalable())
+        return std::nullopt;
+      std::optional<int64_t> D = getIndexDistance(IA, IB);
+      if (!D || MulOverflow(*D, int64_t(Size.getFixedValue()), IndexDist))
+        return std::nullopt;
+    }
+    std::optional<Result> R =
+        get(A->getPointerOperand(), B->getPointerOperand());
+    if (R)
+      R->Dist += IndexDist;
+    return R;
   }
 
   std::optional<Result> getPhis(const PHINode *A, const PHINode *B) {

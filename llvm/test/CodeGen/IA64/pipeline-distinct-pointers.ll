@@ -87,6 +87,84 @@ exit:
   ret void
 }
 
+; The same, with the rows starting at a + (o + 4) and a + (o + 8).
+; CHECK: Schedule found with Initiation Interval: 3, MaxStageCount: 3
+define void @scale_index(ptr %a, float %k, i64 %o, i64 %s, i64 %n, i64 %m) {
+entry:
+  %o0 = add i64 %o, 4
+  %o1 = add i64 %o, 8
+  %a0 = getelementptr i8, ptr %a, i64 %o0
+  %a1 = getelementptr i8, ptr %a, i64 %o1
+  br label %outer
+outer:
+  %r0 = phi ptr [ %a0, %entry ], [ %r0.next, %outer.latch ]
+  %r1 = phi ptr [ %a1, %entry ], [ %r1.next, %outer.latch ]
+  %j = phi i64 [ 0, %entry ], [ %j.next, %outer.latch ]
+  br label %loop
+loop:
+  %p0 = phi ptr [ %r0, %outer ], [ %p0.next, %loop ]
+  %p1 = phi ptr [ %r1, %outer ], [ %p1.next, %loop ]
+  %i = phi i64 [ 0, %outer ], [ %i.next, %loop ]
+  %v0 = load float, ptr %p0
+  %m0 = fmul float %v0, %k
+  store float %m0, ptr %p0
+  %v1 = load float, ptr %p1
+  %m1 = fmul float %v1, %k
+  store float %m1, ptr %p1
+  %p0.next = getelementptr i8, ptr %p0, i64 8
+  %p1.next = getelementptr i8, ptr %p1, i64 8
+  %i.next = add nuw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %outer.latch, label %loop
+outer.latch:
+  %r0.next = getelementptr i8, ptr %r0, i64 %s
+  %r1.next = getelementptr i8, ptr %r1, i64 %s
+  %j.next = add nuw i64 %j, 1
+  %odone = icmp eq i64 %j.next, %m
+  br i1 %odone, label %exit, label %outer
+exit:
+  ret void
+}
+
+; Rows starting at a + (o + 4) and a + (t + 8) are not related.
+; CHECK: Schedule found with Initiation Interval: 22, MaxStageCount: 0
+define void @scale_unrelated(ptr %a, float %k, i64 %o, i64 %t, i64 %s, i64 %n,
+                             i64 %m) {
+entry:
+  %o0 = add i64 %o, 4
+  %o1 = add i64 %t, 8
+  %a0 = getelementptr i8, ptr %a, i64 %o0
+  %a1 = getelementptr i8, ptr %a, i64 %o1
+  br label %outer
+outer:
+  %r0 = phi ptr [ %a0, %entry ], [ %r0.next, %outer.latch ]
+  %r1 = phi ptr [ %a1, %entry ], [ %r1.next, %outer.latch ]
+  %j = phi i64 [ 0, %entry ], [ %j.next, %outer.latch ]
+  br label %loop
+loop:
+  %p0 = phi ptr [ %r0, %outer ], [ %p0.next, %loop ]
+  %p1 = phi ptr [ %r1, %outer ], [ %p1.next, %loop ]
+  %i = phi i64 [ 0, %outer ], [ %i.next, %loop ]
+  %v0 = load float, ptr %p0
+  %m0 = fmul float %v0, %k
+  store float %m0, ptr %p0
+  %v1 = load float, ptr %p1
+  %m1 = fmul float %v1, %k
+  store float %m1, ptr %p1
+  %p0.next = getelementptr i8, ptr %p0, i64 8
+  %p1.next = getelementptr i8, ptr %p1, i64 8
+  %i.next = add nuw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %outer.latch, label %loop
+outer.latch:
+  %r0.next = getelementptr i8, ptr %r0, i64 %s
+  %r1.next = getelementptr i8, ptr %r1, i64 %s
+  %j.next = add nuw i64 %j, 1
+  %odone = icmp eq i64 %j.next, %m
+  br i1 %odone, label %exit, label %outer
+exit:
+  ret void
+}
 
 ; y[3 * i + j] += x[360 * i + 120 * j] * k for j < 3, with a pointer to each of
 ; y[3 * i] and y[3 * i + 2]. The update of y[3 * i + 1] does not wait for the
