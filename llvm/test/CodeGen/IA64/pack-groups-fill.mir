@@ -3,22 +3,23 @@
 
 # Three fma.d need three F slots, so three bundles: two MFI and an MFB. In
 # the order given, the adds and the second shr come after the last fma.d and
-# take a fourth bundle and a second cycle. No single move fills the MFI
-# bundles; starting from an order that fills them does.
+# take a fourth bundle. No single move fills the MFI bundles; starting from
+# an order that fills them does. That order takes an MFI bundle first: an
+# MII bundle would hold as many instructions, but leave three fma.d for
+# three more bundles.
 
 # CHECK-LABEL: seed:
 # CHECK:       ld8 r14 = [r32]
 # CHECK-NEXT:  fma.d f6 = f8, f9, f0
-# CHECK-NEXT:  shr r17 = r33, 63
+# CHECK-NEXT:  shr r15 = r33, 63
 # CHECK-NEXT:  adds r16 = 1, r34
 # CHECK-NEXT:  fma.d f7 = f8, f9, f0
-# CHECK-NEXT:  shr r15 = r33, 63
+# CHECK-NEXT:  shr r17 = r33, 63
 # CHECK-NEXT:  fma.d f8 = f8, f9, f0
 # CHECK-NEXT:  br.ret.sptk.many b0 ;;
 
-# The order that fills bundles starts with both loads in an MMI bundle,
-# and leaves each fma.d a bundle of its own. From the order given, one move
-# packs the group into an MFI and an MFB bundle, and that is kept.
+# From the order given, one move packs the group into an MFI and an MFB
+# bundle. The order that fills bundles costs no less, so that is kept.
 
 # CHECK-LABEL: original:
 # CHECK:       ld8 r16 = [r32]

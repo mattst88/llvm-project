@@ -575,7 +575,9 @@ static bool mustPrecede(const MachineInstr &A, const MachineInstr &B,
 /// An order of \p Group that fills bundles: each next bundle takes the
 /// template whose slots hold the most of the instructions that may come
 /// next, those that fit only one unit counting twice, and each slot the
-/// first of them that fits the fewest units.
+/// first of them that fits the fewest units. Of templates that hold as
+/// many, it takes the one that leaves the fewest bundles at least to hold
+/// the instructions that fit only one unit.
 static SmallVector<unsigned, 16> fillingOrder(ArrayRef<Item> Group,
                                               const TargetRegisterInfo &TRI) {
   unsigned N = Group.size();
@@ -586,10 +588,26 @@ static SmallVector<unsigned, 16> fillingOrder(ArrayRef<Item> Group,
         return false;
     return true;
   };
+  // The bundles that the instructions not yet placed, which fit only one
+  // unit, need at least: a bundle has one F slot, at most two I or two M
+  // slots, and three B slots.
+  auto LeastBundles = [&] {
+    unsigned F = 0, I = 0, M = 0, B = 0;
+    for (unsigned K = 0; K != N; ++K) {
+      if (Placed[K])
+        continue;
+      unsigned Units = Group[K].Units;
+      F += Units == 1u << IA64II::UnitF;
+      I += Units == 1u << IA64II::UnitI;
+      M += Units == 1u << IA64II::UnitM;
+      B += Units == 1u << IA64II::UnitB;
+    }
+    return std::max({F, divideCeil(I, 2), divideCeil(M, 2), divideCeil(B, 3)});
+  };
   SmallVector<unsigned, 16> Order;
   while (Order.size() != N) {
     SmallVector<unsigned, 3> Best;
-    unsigned BestScore = 0;
+    unsigned BestScore = 0, BestLeast = 0;
     for (const IA64II::BundleTemplate &T : IA64II::BundleTemplates) {
       if (!T.Name || T.MidStop != -1)
         continue;
@@ -613,10 +631,12 @@ static SmallVector<unsigned, 16> fillingOrder(ArrayRef<Item> Group,
         if (T.Slots[Slot] == IA64II::UnitL)
           ++Slot;
       }
+      unsigned Least = LeastBundles();
       for (unsigned K : Taken)
         Placed[K] = false;
-      if (Score > BestScore) {
+      if (Score > BestScore || (Score == BestScore && Least < BestLeast)) {
         BestScore = Score;
+        BestLeast = Least;
         Best = Taken;
       }
     }
