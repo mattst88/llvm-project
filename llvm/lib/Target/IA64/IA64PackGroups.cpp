@@ -58,6 +58,7 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include <map>
 
 using namespace llvm;
 
@@ -1052,11 +1053,19 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       // The stop goes with whatever ends up last.
       bool Stop = Items[End - 1].Stop;
       Items[End - 1].Stop = false;
+      // The search comes back to orders it has costed.
+      std::map<SmallVector<const MachineInstr *, 16>, Dispersal> Costed;
       auto Evaluate = [&] {
-        Items[End - 1].Stop = Stop;
-        Dispersal Cost = CostAround(Begin, End);
-        Items[End - 1].Stop = false;
-        return Cost;
+        SmallVector<const MachineInstr *, 16> Order;
+        for (unsigned I = Begin; I != End; ++I)
+          Order.push_back(Items[I].MI);
+        auto [It, New] = Costed.try_emplace(Order);
+        if (New) {
+          Items[End - 1].Stop = Stop;
+          It->second = CostAround(Begin, End);
+          Items[End - 1].Stop = false;
+        }
+        return It->second;
       };
       // Move one instruction at a time while that costs less.
       auto Climb = [&](Dispersal Current) {
