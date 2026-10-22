@@ -6,9 +6,9 @@
 
 # CHECK-LABEL: name: live
 # CHECK:      $p7, $p6 = CMP_EQi 0, $r14, $p0
+# CHECK-NEXT: $p10, $p11 = CMP_EQi 44, $r14, $p0
 # CHECK-NEXT: BR_COND %bb.3, {{.*}}, $p6
-# CHECK:      $p10, $p11 = CMP_EQi 44, $r14, $p0
-# CHECK-NEXT: BR_COND %bb.4, {{.*}}, $p10
+# CHECK:      BR_COND %bb.4, {{.*}}, $p10
 
 ---
 name: live

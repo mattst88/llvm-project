@@ -1,0 +1,132 @@
+# RUN: llc -mtriple=ia64 -run-pass=ia64-expand-branches -verify-machineinstrs \
+# RUN:   -o - %s | FileCheck %s
+# RUN: llc -mtriple=ia64 -run-pass=ia64-expand-branches -verify-machineinstrs \
+# RUN:   -ia64-hoist-branch-compares=false -o - %s \
+# RUN:   | FileCheck %s --check-prefix=OFF
+
+# A block that holds only a conditional branch, and that only the branch
+# before it falls through to, tests its condition before that branch, so
+# that the two branches can share a group with no compare between them.
+
+# CHECK-LABEL: name: hoist
+# CHECK:      bb.0:
+# CHECK:      $p7, $p6 = CMP_EQi 0, $r14, $p0
+# CHECK-NEXT: $p8, $p9 = CMP_EQi 44, $r14, $p0
+# CHECK-NEXT: BR_COND %bb.3, {{.*}}, $p6
+# CHECK:      bb.1:
+# CHECK:      liveins: $r14, $p8
+# CHECK:      BR_COND %bb.4, {{.*}}, $p8
+# OFF-LABEL:  name: hoist
+# OFF:        bb.1:
+# OFF:        CMP_EQi 44
+# OFF-NEXT:   BR_COND %bb.4
+
+---
+name: hoist
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.3
+    liveins: $r14
+
+    BRCCi %bb.3, 1, $r14, 0, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.1:
+    successors: %bb.4, %bb.2
+    liveins: $r14
+
+    BRCCi %bb.4, 0, $r14, 44, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.2:
+    $r8 = ADDS 1, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.3:
+    $r8 = ADDS 0, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.4:
+    $r8 = ADDS 2, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+# Not where the pair the branch tests is live at the earlier branch's
+# target.
+# CHECK-LABEL: name: live_at_target
+# CHECK:      $p7, $p6 = CMP_EQi 0, $r14, $p0
+# CHECK-NEXT: BR_COND %bb.3, {{.*}}, $p6
+# CHECK:      bb.1:
+# CHECK:      $p8, $p9 = CMP_EQi 44, $r14, $p0
+# CHECK-NEXT: BR_COND %bb.4, {{.*}}, $p8
+
+---
+name: live_at_target
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.3
+    liveins: $r14, $p8, $p10, $p12, $p14
+
+    BRCCi %bb.3, 1, $r14, 0, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.1:
+    successors: %bb.4, %bb.2
+    liveins: $r14
+
+    BRCCi %bb.4, 0, $r14, 44, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.2:
+    $r8 = ADDS 1, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.3:
+    liveins: $p8, $p10, $p12, $p14
+
+    $r8 = ADDS 0, $r0, $p8
+    $r8 = ADDS 3, $r8, $p10
+    $r8 = ADDS 4, $r8, $p12
+    $r8 = ADDS 5, $r8, $p14
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.4:
+    $r8 = ADDS 2, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+# Nor before a branch back to a loop's header: the loop's group would only
+# grow.
+# CHECK-LABEL: name: back_edge
+# CHECK:      bb.1:
+# CHECK:      $p6, $p7 = CMP_LT $r14, $r15, $p0
+# CHECK-NEXT: BR_COND %bb.1, {{.*}}, $p6
+# CHECK:      bb.2:
+# CHECK:      $p8, $p9 = CMP_EQi 44, $r14, $p0
+# CHECK-NEXT: BR_COND %bb.4, {{.*}}, $p8
+
+---
+name: back_edge
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1
+    liveins: $r14, $r15
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $r14, $r15
+
+    $r14 = ADDS 1, $r14, $p0
+    BRCC %bb.1, 2, $r14, $r15, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.2:
+    successors: %bb.4, %bb.3
+    liveins: $r14
+
+    BRCCi %bb.4, 0, $r14, 44, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.3:
+    $r8 = ADDS 1, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.4:
+    $r8 = ADDS 2, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...

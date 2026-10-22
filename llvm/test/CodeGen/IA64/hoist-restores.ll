@@ -166,13 +166,13 @@ ret:
 define i64 @chain(i64 %a, i64 %b) {
 ; CHECK-LABEL: chain:
 ; CHECK:       br.call.sptk.many b0 = g ;;
-; CHECK-NEXT:  mov r1 = r34
+; CHECK:       mov r1 = r34
 ; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  cmp.eq p7, p6 = 5, r8
+; CHECK-NEXT:  cmp.eq p8, p9 = 0, r33
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB5_3{{$}}
 ; CHECK-NEXT:  // %bb.1:
-; CHECK-NEXT:  cmp.eq p8, p9 = 0, r33
 ; CHECK-NEXT:  (p8) br.cond.dpnt.few .LBB5_4{{$}}
 ; CHECK-NEXT:  // %bb.2:
 ; CHECK-NEXT:  mov r8 = r0

@@ -133,9 +133,9 @@ return:
 define i32 @unsigned(i64 %a, i64 %b) {
 ; CHECK-LABEL: unsigned:
 ; CHECK:       cmp.ltu p7, p6 = r32, r33
+; CHECK-NEXT:  cmp.ltu p8, p9 = 99, r33
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB4_3{{$}}
-; CHECK:       cmp.ltu p8, p9 = 99, r33
-; CHECK-NEXT:  (p8) br.cond.dpnt.few .LBB4_3 ;;
+; CHECK:       (p8) br.cond.dpnt.few .LBB4_3 ;;
 entry:
   %cmp = icmp ult i64 %a, %b
   %cmp1 = icmp ult i64 %b, 100

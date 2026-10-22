@@ -14,12 +14,12 @@ define void @chain(ptr %p) {
 ; CHECK-LABEL: chain:
 ; CHECK:       ld1 [[C:r[0-9]+]] = [r32]
 ; CHECK:       cmp.eq p6, p7 = 0, [[C]]
+; CHECK-NEXT:  cmp.eq p8, p9 = 44, [[C]]
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
 ; CHECK-NEXT:  // %bb.1:
-; CHECK-NEXT:  cmp.eq p8, p9 = 44, [[C]]
+; CHECK-NEXT:  cmp.eq p10, p11 = 46, [[C]]
 ; CHECK-NEXT:  (p8) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
 ; CHECK-NEXT:  // %bb.2:
-; CHECK-NEXT:  cmp.eq p10, p11 = 46, [[C]]
 ; CHECK-NEXT:  (p10) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
 ;
 ; SAME-LABEL:  chain:
