@@ -44,10 +44,10 @@ declare double @y(i64, i64, i64, i64, i64, i64, i64, i64, float, double)
 define double @call() {
 ; CHECK-LABEL: call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 3, 0
-; CHECK:       movl r14 = 1073741824
-; CHECK-NEXT:  movl r15 = 4616189618054758400
+; CHECK:       movl r15 = 4616189618054758400
 ; CHECK-NEXT:  mov r32 = r1
-; CHECK-NEXT:  mov r35 = 1 ;;
+; CHECK-NEXT:  mov r35 = 1
+; CHECK-NEXT:  movl r14 = 1073741824 ;;
 ; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  setf.s f8 = r14
 ; CHECK-NEXT:  setf.d f9 = r15

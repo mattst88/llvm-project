@@ -313,8 +313,8 @@ define void @pass_unaligned_variable([1 x x86_fp80] %a) {
 ; CHECK-LABEL: pass_unaligned_variable:
 ; CHECK:       adds r14 = 32, r12
 ; CHECK:       adds r17 = 16, r12
-; CHECK:       stfe [r14] = f8
-; CHECK-NEXT:  or r15 = 8, r14
+; CHECK:       or r15 = 8, r14
+; CHECK-NEXT:  stfe [r14] = f8
 ; CHECK:       ld8 r16 = [r15]
 ; CHECK-NEXT:  ld8 r42 = [r14] ;;
 ; CHECK-NEXT:  st8 [r17] = r16

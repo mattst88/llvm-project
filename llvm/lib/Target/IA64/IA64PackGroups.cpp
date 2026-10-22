@@ -326,6 +326,8 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
   D.startBundle();
   unsigned Taken = 0;
   bool Branch = false;
+  // Whether a stop splits the bundle and nothing follows it there yet.
+  bool Split = false;
   auto AtEnd = [&] {
     return Taken == Items.size() || Items[Taken].Template != -1;
   };
@@ -335,6 +337,7 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
     if (!slotTakes(Unit, It.Units) || (Slot != 2 && It.LastSlot))
       continue;
     D.issue(It, Unit);
+    Split = false;
     Branch |= Unit == IA64II::UnitB;
     if (Unit == IA64II::UnitL)
       ++Slot;
@@ -363,9 +366,14 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
     } else {
       break;
     }
+    Split = true;
   }
   if (Taken == 0)
     --D.Bundles;
+  // The rest of a split bundle takes a place in the next cycle, if only
+  // with nops.
+  else if (Split)
+    D.newCycle(1);
   // Itanium 2 issues nothing after an MBB or BBB bundle in its cycle, nor
   // after an MIB, MFB or MMB whose B slot holds a branch.
   else if (Branch || IA64II::BundleTemplates[Index].Slots[1] == IA64II::UnitB)

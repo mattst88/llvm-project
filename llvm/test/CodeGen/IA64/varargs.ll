@@ -21,7 +21,7 @@ define i64 @first(i32 %n, ...) {
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 8, r12
 ; CHECK-NEXT:  mov r17 = r12 ;;
-; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  adds r16 = 8, r14
 ; CHECK-NEXT:  adds r19 = 40, r14
 ; CHECK-NEXT:  adds r20 = 32, r14
@@ -94,8 +94,8 @@ define i64 @many(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g, i64 %h,
 define i128 @wide(i64 %a, ...) {
 ; CHECK-LABEL: wide:
 ; CHECK:       adds r14 = 8, r12
+; CHECK:       adds [[P:r[0-9]+]] = 15, r14
 ; CHECK:       st8.spill [r14] = r33
-; CHECK-NEXT:  adds [[P:r[0-9]+]] = 15, r14
 ; CHECK:       and [[A:r[0-9]+]] = -16, [[P]]
 ; CHECK:       or [[HI:r[0-9]+]] = 8, [[A]]
 ; CHECK:       st8.spill [r14] = r34
@@ -140,21 +140,21 @@ define i32 @call(double %d, double %e) {
 ; CHECK-LABEL: call:
 ; CHECK:       alloc r33 = ar.pfs, 0, 3, 8, 0
 ; CHECK:       getf.d r37 = f8 ;;
+; CHECK-NEXT:  getf.d r38 = f9
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12
 ; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  mov r36 = 1
 ; CHECK-NEXT:  mov r39 = 2
-; CHECK-NEXT:  getf.d r38 = f9
 ; CHECK-NEXT:  mov r35 = r0
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0 ;;
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  stfd [r14] = f8
+; CHECK-NEXT:  stfd [r15] = f8
 ; CHECK-NEXT:  mov r40 = r37
 ; CHECK-NEXT:  mov r41 = r37
 ; CHECK-NEXT:  mov r42 = r37
-; CHECK-NEXT:  stfd [r15] = f8
 ; CHECK-NEXT:  br.call.sptk.many b0 = pf ;;
   %r = call i32 (ptr, ...) @pf(ptr null, i32 1, double %d, double %e, i64 2, double %d, double %d, double %d, double %d, double %d)
   ret i32 %r

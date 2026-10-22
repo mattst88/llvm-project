@@ -1,0 +1,37 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -filetype=obj %s -o - | llvm-objdump -d - | FileCheck %s --check-prefix=OBJ
+
+# The first group takes an MMF bundle and one more M slot. A bundle split
+# by a stop after that slot would leave its remaining slot to issue, as a
+# nop, with the next group, and push that group's second bundle into a
+# third cycle. A bundle with its stop at the end lets the next group issue
+# in one cycle.
+
+# CHECK-LABEL: split:
+# CHECK:       fma.d f6 = f8, f9, f0
+# CHECK-NEXT:  .mlx
+# CHECK-NEXT:  st8 [r35] = r32 ;;
+# CHECK-NEXT:  st8 [r33] = r32
+
+# OBJ:      st8 [r35] = r32 // [MLX]
+# OBJ-NEXT: nop.x 0 ;;
+# OBJ-NEXT: st8 [r33] = r32 // [MMI]
+---
+name: split
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $r33, $r34, $r35, $f8, $f9, $b0, $ar40
+
+    $r33 = ST8_i $r33, $r32, 8, 0, $p0 :: (store (s64))
+    $r14 = LD8 $r34, 0, $p0 :: (load (s64))
+    $f6 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    ST8 $r35, $r32, 0, $p0 :: (store (s64))
+    ST8 $r33, $r32, 0, $p0 :: (store (s64))
+    $r16 = LD8 $r34, 0, $p0 :: (load (s64))
+    $r17 = LD8 $r34, 0, $p0 :: (load (s64))
+    $f7 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r14, implicit $f6, implicit $r16, implicit $r17, implicit $f7
+...
