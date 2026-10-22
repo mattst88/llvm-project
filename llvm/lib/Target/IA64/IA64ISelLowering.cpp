@@ -728,31 +728,60 @@ static SmallVector<MulTerm, 32> mulTerms(uint64_t C) {
   return Terms;
 }
 
-// The terms summed as a balanced tree, each sum of the higher half's shifted
-// value and the lower half's a shladd, or a shift and an add or subtract.
-// Builds the nodes only with a DAG.
-static MulNode buildMulTree(ArrayRef<MulTerm> Terms, SDValue X,
-                            SelectionDAG *DAG, const SDLoc &DL) {
-  if (Terms.size() == 1)
-    return {X, Terms[0].Exp, Terms[0].Neg, 0, 0};
-  size_t Mid = Terms.size() / 2;
-  MulNode L = buildMulTree(Terms.take_front(Mid), X, DAG, DL);
-  MulNode H = buildMulTree(Terms.drop_front(Mid), X, DAG, DL);
-  unsigned D = H.Shift - L.Shift;
+// The sum of two runs of terms, the higher's shifted value and the lower's:
+// a shladd, or a shift and an add or subtract.
+static MulNode sumMulNodes(const MulNode &L, const MulNode &H) {
   bool Add = L.Neg == H.Neg;
   MulNode R = {SDValue(), L.Shift, H.Neg, 0, L.Ops + H.Ops + 1};
-  if (Add && D <= 4) {
+  if (Add && H.Shift - L.Shift <= 4) {
     R.Depth = std::max(L.Depth, H.Depth) + 1;
   } else {
     R.Depth = std::max(L.Depth, H.Depth + 1) + 1;
     ++R.Ops;
   }
-  if (DAG) {
-    SDValue Shl = DAG->getNode(ISD::SHL, DL, MVT::i64, H.V,
-                               DAG->getShiftAmountConstant(D, MVT::i64, DL));
-    R.V = DAG->getNode(Add ? ISD::ADD : ISD::SUB, DL, MVT::i64, Shl, L.V);
-  }
   return R;
+}
+
+// The terms summed as a tree, each run split where its two halves' sum takes
+// fewest operations in a row, then fewest in all. Split[I][J] is where the
+// run from term I up to term J is split.
+static MulNode buildMulTree(ArrayRef<MulTerm> Terms, SDValue X,
+                            SelectionDAG *DAG, const SDLoc &DL) {
+  size_t N = Terms.size();
+  SmallVector<SmallVector<MulNode, 0>, 0> Best(N,
+                                               SmallVector<MulNode, 0>(N + 1));
+  SmallVector<SmallVector<unsigned, 0>, 0> Split(
+      N, SmallVector<unsigned, 0>(N + 1));
+  for (size_t I = 0; I != N; ++I)
+    Best[I][I + 1] = {SDValue(), Terms[I].Exp, Terms[I].Neg, 0, 0};
+  for (size_t Len = 2; Len <= N; ++Len) {
+    for (size_t I = 0; I + Len <= N; ++I) {
+      size_t J = I + Len;
+      for (size_t M = I + 1; M != J; ++M) {
+        MulNode R = sumMulNodes(Best[I][M], Best[M][J]);
+        MulNode &B = Best[I][J];
+        if (M == I + 1 || std::tie(R.Depth, R.Ops) < std::tie(B.Depth, B.Ops)) {
+          B = R;
+          Split[I][J] = M;
+        }
+      }
+    }
+  }
+  std::function<MulNode(size_t, size_t)> Build = [&](size_t I, size_t J) {
+    MulNode R = Best[I][J];
+    if (J - I == 1) {
+      R.V = X;
+      return R;
+    }
+    MulNode L = Build(I, Split[I][J]), H = Build(Split[I][J], J);
+    SDValue Shl = DAG->getNode(
+        ISD::SHL, DL, MVT::i64, H.V,
+        DAG->getShiftAmountConstant(H.Shift - L.Shift, MVT::i64, DL));
+    R.V = DAG->getNode(L.Neg == H.Neg ? ISD::ADD : ISD::SUB, DL, MVT::i64, Shl,
+                       L.V);
+    return R;
+  };
+  return DAG ? Build(0, N) : Best[0][N];
 }
 
 // The tree with its final shift and negation.
@@ -779,10 +808,9 @@ static MulNode buildMulTree(uint64_t C, SDValue X, SelectionDAG *DAG,
 // A multiply by a constant as shifts, shladds and subtracts, when that is
 // shorter than the round trip through the FP unit: setf.sig, xma.l and
 // getf.sig take 14 cycles. The steps form a chain, a cycle each, and up to
-// 12 of them beat fewer in mst. A balanced tree of the constant's terms
-// takes more operations but fewer in a row, and is taken instead when it
-// has fewer in a row than the shortest chain, and at most MulTreeMaxOps in
-// all. Done after legalization, where the multiply is i64, like RISC-V's
+// 12 of them beat fewer in mst. A tree of the constant's terms takes more
+// operations but fewer in a row, and is taken instead when it has fewer in a
+// row than the shortest chain, and at most MulTreeMaxOps in all. Done after legalization, where the multiply is i64, like RISC-V's
 // expansion, and with the same disregard for undef X.
 static SDValue combineMulByConstant(SDNode *N, SelectionDAG &DAG,
                                     TargetLowering::DAGCombinerInfo &DCI) {

@@ -138,6 +138,32 @@ define i64 @by10000(i64 %a) {
   ret i64 %r
 }
 
+; 1759218605, the multiplier that divides by 10000, takes eight operations in
+; a row as a tree of halves, and six where each run of its terms is split at
+; its shallowest sum.
+define i64 @by1759218605(i64 %a) {
+; CHECK-LABEL: by1759218605:
+; CHECK:       shladd r15 = r32, 4, r32
+; CHECK-NEXT:  shladd r16 = r32, 3, r32
+; CHECK-NEXT:  shl r17 = r32, 5
+; CHECK-NEXT:  shladd r14 = r32, 2, r32
+; CHECK-NEXT:  shl r19 = r32, 10 ;;
+; CHECK-NEXT:  shladd r14 = r15, 4, r14
+; CHECK:       shladd r18 = r16, 3, r32
+; CHECK-NEXT:  sub r16 = r16, r17
+; CHECK-NEXT:  shl r20 = r32, 7 ;;
+; CHECK-NEXT:  sub r14 = r19, r14
+; CHECK-NEXT:  shl r21 = r18, 13
+; CHECK-NEXT:  add r16 = r20, r16 ;;
+; CHECK-NEXT:  sub r14 = r14, r21
+; CHECK-NEXT:  shl r22 = r16, 22 ;;
+; CHECK-NEXT:  add r14 = r22, r14 ;;
+; CHECK-NEXT:  shladd r8 = r14, 2, r32
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
+  %r = mul i64 %a, 1759218605
+  ret i64 %r
+}
+
 ; As a chain, without the tree.
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-pipeliner=false \
 ; RUN:   -ia64-mul-tree-max-ops=0 < %s | FileCheck %s --check-prefix=CHAIN
