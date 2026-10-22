@@ -111,10 +111,17 @@ struct Item {
   bool Stop;
   /// The template of a directive before it, or -1.
   int Template = -1;
-  /// The registers it reads, and those it writes whose value takes more
-  /// than a cycle, with the cycles it takes.
-  SmallVector<Register, 4> Reads;
-  SmallVector<std::pair<Register, unsigned>, 2> SlowDefs;
+  /// The registers it reads, with their operands.
+  SmallVector<std::pair<Register, unsigned>, 4> Reads;
+  /// The registers it writes whose value may take more than a cycle to
+  /// reach what reads it, with their operands and the most cycles it takes.
+  struct SlowDef {
+    Register Reg;
+    unsigned Op;
+    unsigned Latency;
+  };
+  SmallVector<SlowDef, 2> SlowDefs;
+  const TargetSchedModel *SM;
 };
 
 /// The dispersal of bundles into issue cycles, and its cost so far.
@@ -129,11 +136,14 @@ struct Dispersal {
   unsigned Stores = 0;
   bool EndCycle = true;
   /// The results that take more than a cycle and may not be ready yet: the
-  /// register, the cycle that wrote it, and when it is ready after that.
+  /// register, the cycle that wrote it, when it is ready after that for
+  /// all that may read it, and the operand that wrote it.
   struct Pending {
     Register Reg;
     unsigned Issued;
     unsigned Latency;
+    const MachineInstr *MI;
+    unsigned Op;
   };
   SmallVector<Pending, 8> Results;
 
@@ -149,12 +159,20 @@ struct Dispersal {
   }
 
   /// An instruction that reads a result before it is ready stalls the
-  /// whole of its cycle, along with what issued in it before.
+  /// whole of its cycle, along with what issued in it before. A result
+  /// that takes one cycle is ready for every later group, and one in its
+  /// own group reads it under a predicate exclusive with the write's.
   void wait(const Item &It) {
     unsigned Ready = Cycles;
     for (const Pending &P : Results)
-      if (is_contained(It.Reads, P.Reg))
-        Ready = std::max(Ready, P.Issued + P.Latency);
+      for (auto [Reg, Op] : It.Reads) {
+        if (Reg != P.Reg)
+          continue;
+        unsigned Latency =
+            It.SM->computeOperandLatency(P.MI, P.Op, It.MI, Op);
+        if (Latency > 1)
+          Ready = std::max(Ready, P.Issued + Latency);
+      }
     unsigned Stall = Ready - Cycles;
     if (!Stall)
       return;
@@ -186,8 +204,8 @@ struct Dispersal {
     ++Ports[Port];
     Loads += It.IsLoad;
     Stores += It.IsStore;
-    for (auto [Reg, Latency] : It.SlowDefs)
-      Results.push_back({Reg, Cycles, Latency});
+    for (const Item::SlowDef &D : It.SlowDefs)
+      Results.push_back({D.Reg, Cycles, D.Latency, It.MI, D.Op});
     ExitCycles += It.IsExit ? Cycles : 0;
     EndCycle = It.Stop;
   }
@@ -212,7 +230,7 @@ struct Dispersal {
            Loads == O.Loads && Stores == O.Stores && EndCycle == O.EndCycle &&
            equal(Results, O.Results, [](const Pending &A, const Pending &B) {
              return A.Reg == B.Reg && A.Issued == B.Issued &&
-                    A.Latency == B.Latency;
+                    A.Latency == B.Latency && A.MI == B.MI && A.Op == B.Op;
            });
   }
 
@@ -788,6 +806,28 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
                ? 0
                : getUnits(MI, MCII, MRI);
   };
+  // The most cycles that the result of operand \p Op of \p MI takes to
+  // reach an ALU or a later read in its block. Only a result that some read
+  // waits more than a cycle for joins a dispersal's pending results, which
+  // planning copies and compares often; most reads wait no longer than an
+  // ALU does.
+  auto SlowestRead = [&](const MachineInstr &MI, unsigned Op) {
+    Register Reg = MI.getOperand(Op).getReg();
+    unsigned Latency = SM.computeOperandLatency(&MI, Op, nullptr, 0);
+    unsigned Scanned = 0;
+    for (const MachineInstr &Use : make_range(
+             std::next(MI.getIterator()), MI.getParent()->instr_end())) {
+      if (++Scanned > 2 * MaxGroupSize)
+        break;
+      for (const MachineOperand &MO : Use.explicit_operands())
+        if (MO.isReg() && MO.readsReg() && MO.getReg() == Reg)
+          Latency = std::max(Latency, SM.computeOperandLatency(
+                                          &MI, Op, &Use, MO.getOperandNo()));
+      if (Use.modifiesRegister(Reg, &TRI))
+        break;
+    }
+    return Latency;
+  };
   auto MakeItem = [&](MachineInstr &MI, unsigned Units) -> Item {
     Item It{&MI,
             Units,
@@ -799,16 +839,17 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
             usesPort(MI, SM, PortM2),
             MI.isConditionalBranch(),
             MI.getAsmPrinterFlag(IA64::StopAfter)};
+    It.SM = &SM;
     for (const MachineOperand &MO : MI.explicit_operands()) {
       if (!MO.isReg() || !MO.getReg() || MO.getReg() == IA64::P0)
         continue;
+      unsigned Op = MO.getOperandNo();
       if (MO.readsReg()) {
-        It.Reads.push_back(MO.getReg());
+        It.Reads.push_back({MO.getReg(), Op});
       } else if (MO.isDef() && !MO.isDead()) {
-        unsigned Latency =
-            SM.computeOperandLatency(&MI, MO.getOperandNo(), nullptr, 0);
+        unsigned Latency = SlowestRead(MI, Op);
         if (Latency > 1)
-          It.SlowDefs.push_back({MO.getReg(), Latency});
+          It.SlowDefs.push_back({MO.getReg(), Op, Latency});
       }
     }
     return It;
@@ -928,10 +969,10 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       if (Kernel) {
         SmallVector<Item, 32> Window(Items.begin(), Items.end());
         for (Item &It : Window) {
-          for (Register &Reg : It.Reads)
+          for (auto &[Reg, Op] : It.Reads)
             Reg = rotated(Reg, GRs);
-          for (auto &[Reg, Latency] : It.SlowDefs)
-            Reg = rotated(Reg, GRs);
+          for (Item::SlowDef &D : It.SlowDefs)
+            D.Reg = rotated(D.Reg, GRs);
         }
         Window.append(Items.begin(), Items.end());
         return plan(Window, Dispersal());

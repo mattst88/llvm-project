@@ -75,11 +75,11 @@ define i64 @roomy(i64 %a, ptr %p) {
 ; CHECK-NEXT:  mov r1 = r34
 ; CHECK-NEXT:  cmp.eq p6, p7 = 0, r8
 ; CHECK:       .LBB2_2:
-; CHECK-NEXT:  mov r8 = r0
+; CHECK-NEXT:  ld8 r14 = [r33]
+; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  mov ar.pfs = r35
-; CHECK-NEXT:  ld8 r14 = [r33] ;;
-; CHECK-NEXT:  ld8 r14 = [r14]
-; CHECK-NEXT:  mov b0 = r36 ;;
+; CHECK-NEXT:  mov r8 = r0 ;;
+; CHECK-NEXT:  ld8 r14 = [r14] ;;
 entry:
   %x = call i64 @g(i64 %a)
   %c = icmp eq i64 %x, 0
