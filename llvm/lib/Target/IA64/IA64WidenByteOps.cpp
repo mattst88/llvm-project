@@ -21,12 +21,14 @@
 // This pass finds stores to every lane of an aligned doubleword whose values
 // are the same tree of and, or and xor over loads of whole aligned
 // doublewords, a lane of each, and over constants, and does them as one i64
-// operation instead. Where the doubleword is in a local array or a global
-// this module defines, it aligns the array to make it so. The wide loads
-// issue where the first of the stores was and the wide store where the last
-// was, so nothing else between them may touch those bytes; two local arrays
-// or globals are told apart even where a loop swaps pointers to them. A
-// lane's value that is used after the stores is read back from the i64.
+// operation instead. Loads of a word's bytes in reverse become a load and a
+// byte swap, as in a conversion between byte orders. It widens what is left
+// to 32-bit words the same way. Where the word is in a local array or a
+// global this module defines, it aligns the array to make it so. The wide
+// loads issue where the first of the stores was and the wide store where the
+// last was, so nothing else between them may touch those bytes; two local
+// arrays or globals are told apart even where a loop swaps pointers to them.
+// A lane's value that is used after the stores is read back from the word.
 //
 //===----------------------------------------------------------------------===//
 
@@ -36,8 +38,10 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -46,7 +50,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "ia64-widen-byte-ops"
 
-STATISTIC(NumWidened, "Number of doublewords stored a lane at a time widened");
+STATISTIC(NumWidened, "Number of words stored a lane at a time widened");
 
 static cl::opt<unsigned>
     MaxDepth("ia64-widen-byte-ops-max-depth", cl::Hidden, cl::init(4),
@@ -54,31 +58,36 @@ static cl::opt<unsigned>
 
 namespace {
 
-constexpr unsigned WideBytes = 8;
-
 // A pointer as a base and a constant byte offset from it.
 struct Address {
   Value *Base = nullptr;
   int64_t Offset = 0;
 };
 
-// The loads of a doubleword, a lane each, that a widened tree reads.
+// The loads of a word, a lane each, that a widened tree reads, in the
+// order of the lanes they are for. Addr is the word's lowest byte.
 struct LoadGroup {
   SmallVector<LoadInst *, 8> Lanes;
   Address Addr;
+  // Whether the lanes load the word's bytes in reverse.
+  bool Reversed = false;
 };
 
 class Widener {
   Function &F;
   const DataLayout &DL;
   AAResults &AA;
+  DominatorTree &DT;
 
+  // The size of the word being widened, 8 or 4 bytes.
+  int64_t Bytes = 8;
   // The instructions each candidate group would erase.
   SmallPtrSet<Instruction *, 32> Members;
   SmallVector<LoadGroup, 4> Loads;
 
 public:
-  Widener(Function &F, AAResults &AA) : F(F), DL(F.getDataLayout()), AA(AA) {}
+  Widener(Function &F, AAResults &AA, DominatorTree &DT)
+      : F(F), DL(F.getDataLayout()), AA(AA), DT(DT) {}
   bool run();
 
 private:
@@ -87,7 +96,8 @@ private:
                   unsigned Depth);
   Value *build(ArrayRef<Value *> Vals, IRBuilder<> &Wide, IRBuilder<> &Early,
                unsigned &NextLoad);
-  bool alignTo(Value *Base, int64_t Offset);
+  bool accessedAligned(Value *Base, Instruction *At) const;
+  bool alignTo(Value *Base, int64_t Offset, Instruction *At);
   bool safeToMove(ArrayRef<StoreInst *> Stores, const Address &StoreAddr);
   bool widen(ArrayRef<StoreInst *> Stores, const Address &Addr);
 };
@@ -107,7 +117,7 @@ std::optional<Address> Widener::decompose(Value *Ptr) const {
 }
 
 // Whether Vals, the value of each lane in turn, are the same tree of and, or
-// and xor in BB, over constants and over loads of the lanes of a doubleword.
+// and xor in BB, over constants and over loads of the lanes of a word.
 // Adds what they would erase to Members and their loads to Loads. Only the
 // lanes' own values may have uses outside the tree.
 bool Widener::matchLanes(ArrayRef<Value *> Vals, BasicBlock *BB, Type *Ty,
@@ -124,7 +134,10 @@ bool Widener::matchLanes(ArrayRef<Value *> Vals, BasicBlock *BB, Type *Ty,
     return false;
 
   if (isa<LoadInst>(Vals[0])) {
+    // The lanes load the bytes of a word in order or, for byte lanes, in
+    // reverse.
     LoadGroup G;
+    int64_t Width = Ty->getIntegerBitWidth() / 8, Last = Bytes - Width;
     for (auto [K, V] : enumerate(Vals)) {
       auto *LI = dyn_cast<LoadInst>(V);
       if (!LI || !LI->isSimple())
@@ -132,11 +145,16 @@ bool Widener::matchLanes(ArrayRef<Value *> Vals, BasicBlock *BB, Type *Ty,
       std::optional<Address> A = decompose(LI->getPointerOperand());
       if (!A)
         return false;
-      if (K == 0)
+      int64_t Pos = K * Width;
+      if (K == 0) {
         G.Addr = *A;
-      else if (A->Base != G.Addr.Base ||
-               A->Offset !=
-                   G.Addr.Offset + int64_t(K * Ty->getIntegerBitWidth() / 8))
+      } else if (K == 1 && A->Base == G.Addr.Base &&
+                 A->Offset == G.Addr.Offset - 1) {
+        G.Reversed = true;
+        G.Addr.Offset -= Last;
+      }
+      if (A->Base != G.Addr.Base ||
+          A->Offset != G.Addr.Offset + (G.Reversed ? Last - Pos : Pos))
         return false;
       G.Lanes.push_back(LI);
     }
@@ -166,19 +184,19 @@ bool Widener::matchLanes(ArrayRef<Value *> Vals, BasicBlock *BB, Type *Ty,
          matchLanes(RHS, BB, Ty, Depth + 1);
 }
 
-// The i64 value of the tree matchLanes matched for Vals: its operations with
-// Wide and its loads with Early, in the order matchLanes found them.
+// The word-sized value of the tree matchLanes matched for Vals: its operations
+// with Wide and its loads with Early, in the order matchLanes found them.
 Value *Widener::build(ArrayRef<Value *> Vals, IRBuilder<> &Wide,
                       IRBuilder<> &Early, unsigned &NextLoad) {
-  Type *I64 = Wide.getInt64Ty();
+  Type *WordTy = Wide.getIntNTy(Bytes * 8);
   if (all_of(Vals, [&](Value *V) { return isa<ConstantInt>(V); })) {
     unsigned Bits = Vals[0]->getType()->getIntegerBitWidth();
-    APInt C(64, 0);
+    APInt C(Bytes * 8, 0);
     for (auto [K, V] : enumerate(Vals)) {
       unsigned Lane = DL.isLittleEndian() ? K : Vals.size() - 1 - K;
       C.insertBits(cast<ConstantInt>(V)->getValue(), Lane * Bits);
     }
-    return ConstantInt::get(I64, C);
+    return ConstantInt::get(WordTy, C);
   }
   if (isa<LoadInst>(Vals[0])) {
     LoadGroup &G = Loads[NextLoad++];
@@ -186,11 +204,14 @@ Value *Widener::build(ArrayRef<Value *> Vals, IRBuilder<> &Wide,
         G.Addr.Offset
             ? Early.CreatePtrAdd(G.Addr.Base, Early.getInt64(G.Addr.Offset))
             : G.Addr.Base;
-    LoadInst *L = Early.CreateAlignedLoad(I64, Ptr, Align(WideBytes));
+    LoadInst *L = Early.CreateAlignedLoad(WordTy, Ptr, Align(Bytes));
     AAMDNodes AAInfo = G.Lanes[0]->getAAMetadata();
     for (LoadInst *LI : drop_begin(G.Lanes))
       AAInfo = AAInfo.merge(LI->getAAMetadata());
     L->setAAMetadata(AAInfo);
+    // Byte order is the reverse of the lanes' on either endianness.
+    if (G.Reversed)
+      return Wide.CreateUnaryIntrinsic(Intrinsic::bswap, L);
     return L;
   }
   auto *Op0 = cast<BinaryOperator>(Vals[0]);
@@ -204,25 +225,61 @@ Value *Widener::build(ArrayRef<Value *> Vals, IRBuilder<> &Wide,
   return Wide.CreateBinOp(Op0->getOpcode(), L, R);
 }
 
-// Whether Base + Offset is aligned to a doubleword, aligning the local arrays
-// and globals it may point into if need be.
-bool Widener::alignTo(Value *Base, int64_t Offset) {
-  if (Offset % WideBytes)
+// Whether an access through Base or a constant offset from it that runs
+// before At shows Base to be aligned to a word, as one of the struct a
+// pointer argument points to.
+bool Widener::accessedAligned(Value *Base, Instruction *At) const {
+  SmallVector<std::pair<Value *, int64_t>, 8> Ptrs{{Base, 0}};
+  for (User *U : Base->users())
+    if (auto *GEP = dyn_cast<GetElementPtrInst>(U)) {
+      APInt Off(DL.getIndexTypeSizeInBits(GEP->getType()), 0);
+      if (GEP->getPointerOperand() == Base &&
+          GEP->accumulateConstantOffset(DL, Off) &&
+          Off.getSignificantBits() <= 64)
+        Ptrs.push_back({GEP, Off.getSExtValue()});
+    }
+  for (auto [Ptr, Off] : Ptrs)
+    for (User *U : Ptr->users()) {
+      auto *I = dyn_cast<Instruction>(U);
+      if (!I || !DT.dominates(I, At))
+        continue;
+      MaybeAlign A;
+      if (getLoadStorePointerOperand(I) == Ptr)
+        A = getLoadStoreAlignment(I);
+      else if (auto *MI = dyn_cast<MemIntrinsic>(I);
+               MI && MI->getRawDest() == Ptr)
+        A = MI->getDestAlign();
+      if (A && commonAlignment(*A, Off) >= Align(Bytes))
+        return true;
+    }
+  return false;
+}
+
+// Whether Base + Offset is aligned to a word, aligning the local arrays
+// and globals it may point into if need be. Other pointers it may be or
+// step from must be accessed aligned before At.
+bool Widener::alignTo(Value *Base, int64_t Offset, Instruction *At) {
+  if (Offset % Bytes)
     return false;
   // A pointer may be one of several arrays, as when a loop swaps two
-  // buffers.
+  // buffers, or step through one.
   SmallVector<Value *, 4> Worklist{Base};
   SmallPtrSet<Value *, 4> Seen{Base};
   while (!Worklist.empty()) {
     Value *V = Worklist.pop_back_val();
-    if (getOrEnforceKnownAlignment(V, Align(WideBytes), DL) >= Align(WideBytes))
+    if (getOrEnforceKnownAlignment(V, Align(Bytes), DL) >= Align(Bytes))
       continue;
     SmallVector<Value *, 4> Incoming;
-    if (auto *PN = dyn_cast<PHINode>(V))
+    std::optional<Address> A = decompose(V);
+    if (A && A->Base != V) {
+      if (A->Offset % Bytes)
+        return false;
+      Incoming = {A->Base};
+    } else if (auto *PN = dyn_cast<PHINode>(V))
       append_range(Incoming, PN->incoming_values());
     else if (auto *SI = dyn_cast<SelectInst>(V))
       Incoming = {SI->getTrueValue(), SI->getFalseValue()};
-    else
+    else if (!accessedAligned(V, At))
       return false;
     for (Value *In : Incoming)
       if (Seen.insert(In).second)
@@ -262,26 +319,25 @@ bool Widener::safeToMove(ArrayRef<StoreInst *> Stores,
     if (SI->comesBefore(First))
       First = SI;
 
-  // The doublewords loaded and stored, from the lowest lane's pointer.
+  // The words loaded and stored, from the lowest byte's pointer.
   auto Wide = [&](Value *Ptr) {
-    return MemoryLocation(Ptr, LocationSize::precise(WideBytes));
+    return MemoryLocation(Ptr, LocationSize::precise(Bytes));
   };
-  auto LowLane = [&](ArrayRef<StoreInst *> S) {
-    for (StoreInst *SI : S)
-      if (decompose(SI->getPointerOperand())->Offset == StoreAddr.Offset)
-        return SI->getPointerOperand();
-    llvm_unreachable("no store to the lowest lane");
-  };
-  MemoryLocation StoreLoc = Wide(LowLane(Stores));
+  auto Low = [&](auto *I) { return I->getPointerOperand(); };
+  MemoryLocation StoreLoc = Wide(Low(Stores.front()));
   SmallVector<MemoryLocation, 4> LoadLocs;
   for (LoadGroup &G : Loads) {
-    // Each lane loads before its own store, and other lanes' stores write
-    // other bytes of the same doubleword.
+    MemoryLocation L = Wide(Low(G.Reversed ? G.Lanes.back() : G.Lanes.front()));
+    // Loads of the stored word itself must each read its bytes before
+    // their store writes them.
     if (G.Addr.Base == StoreAddr.Base && G.Addr.Offset == StoreAddr.Offset) {
-      LoadLocs.push_back(Wide(G.Lanes[0]->getPointerOperand()));
+      unsigned N = G.Lanes.size();
+      for (auto [K, LI] : enumerate(G.Lanes))
+        if (!LI->comesBefore(Stores[G.Reversed ? N - 1 - K : K]))
+          return false;
+      LoadLocs.push_back(L);
       continue;
     }
-    MemoryLocation L = Wide(G.Lanes[0]->getPointerOperand());
     if (!AA.isNoAlias(L, StoreLoc) &&
         !distinctObjects(G.Addr.Base, StoreAddr.Base))
       return false;
@@ -313,7 +369,7 @@ bool Widener::safeToMove(ArrayRef<StoreInst *> Stores,
   return true;
 }
 
-// Widens Stores, the lanes of the doubleword at Addr in order, if their
+// Widens Stores, the lanes of the word at Addr in order, if their
 // values are a tree it can widen.
 bool Widener::widen(ArrayRef<StoreInst *> Stores, const Address &Addr) {
   Members.clear();
@@ -325,12 +381,17 @@ bool Widener::widen(ArrayRef<StoreInst *> Stores, const Address &Addr) {
     Vals.push_back(SI->getValueOperand());
   LLVM_DEBUG(dbgs() << "Lanes of " << *Addr.Base << " + " << Addr.Offset
                     << ": ");
-  // Stores of constants and copies are for store merging to combine.
-  if (!isa<BinaryOperator>(Vals[0]) || !matchLanes(Vals, BB, Ty, 0)) {
+  if (!matchLanes(Vals, BB, Ty, 0)) {
     LLVM_DEBUG(dbgs() << "not one tree\n");
     return false;
   }
-  // Other users of a lane's value read it from the doubleword, so must come
+  // Stores of constants and copies are for store merging to combine.
+  if (!isa<BinaryOperator>(Vals[0]) &&
+      none_of(Loads, [](const LoadGroup &G) { return G.Reversed; })) {
+    LLVM_DEBUG(dbgs() << "a copy\n");
+    return false;
+  }
+  // Other users of a lane's value read it from the word, so must come
   // after it.
   StoreInst *LastStore = Stores[0];
   for (StoreInst *SI : Stores)
@@ -356,9 +417,16 @@ bool Widener::widen(ArrayRef<StoreInst *> Stores, const Address &Addr) {
     LLVM_DEBUG(dbgs() << "cannot move\n");
     return false;
   }
-  if (!alignTo(Addr.Base, Addr.Offset) ||
+  Instruction *First = Stores[0];
+  for (Instruction *I : Members)
+    if (I->comesBefore(First))
+      First = I;
+  for (StoreInst *SI : Stores)
+    if (SI->comesBefore(First))
+      First = SI;
+  if (!alignTo(Addr.Base, Addr.Offset, First) ||
       !all_of(Loads, [&](const LoadGroup &G) {
-        return alignTo(G.Addr.Base, G.Addr.Offset);
+        return alignTo(G.Addr.Base, G.Addr.Offset, First);
       })) {
     LLVM_DEBUG(dbgs() << "not aligned\n");
     return false;
@@ -375,7 +443,7 @@ bool Widener::widen(ArrayRef<StoreInst *> Stores, const Address &Addr) {
   Value *Ptr = Addr.Offset
                    ? Wide.CreatePtrAdd(Addr.Base, Wide.getInt64(Addr.Offset))
                    : Addr.Base;
-  StoreInst *St = Wide.CreateAlignedStore(V, Ptr, Align(WideBytes));
+  StoreInst *St = Wide.CreateAlignedStore(V, Ptr, Align(Bytes));
   AAMDNodes AAInfo = Stores[0]->getAAMetadata();
   for (StoreInst *SI : drop_begin(Stores))
     AAInfo = AAInfo.merge(SI->getAAMetadata());
@@ -410,7 +478,7 @@ bool Widener::widen(ArrayRef<StoreInst *> Stores, const Address &Addr) {
 bool Widener::run() {
   bool Changed = false;
   for (BasicBlock &BB : F) {
-    // The stores of each width to each base, by offset; a doubleword with
+    // The stores of each width to each base, by offset; a word with
     // two stores to one lane is not a candidate.
     DenseMap<std::pair<Value *, Type *>, DenseMap<int64_t, StoreInst *>> ByBase;
     SmallPtrSet<StoreInst *, 8> Ambiguous;
@@ -429,29 +497,33 @@ bool Widener::run() {
         Ambiguous.insert(It->second);
     }
 
-    for (auto &[Key, Offsets] : ByBase) {
-      auto [Base, Ty] = Key;
-      int64_t Width = Ty->getIntegerBitWidth() / 8;
-      SmallVector<int64_t, 16> Starts;
-      for (auto &[Off, SI] : Offsets)
-        if (Off % int64_t(WideBytes) == 0)
-          Starts.push_back(Off);
-      llvm::sort(Starts);
-      for (int64_t Start : Starts) {
-        SmallVector<StoreInst *, 8> Stores;
-        for (int64_t Off = Start; Off < Start + int64_t(WideBytes);
-             Off += Width) {
-          auto It = Offsets.find(Off);
-          if (It == Offsets.end() || Ambiguous.contains(It->second))
-            break;
-          Stores.push_back(It->second);
-        }
-        if (Stores.size() * Width == WideBytes &&
-            widen(Stores, Address{Base, Start})) {
-          for (int64_t Off = Start; Off < Start + int64_t(WideBytes);
-               Off += Width)
-            Offsets.erase(Off);
-          Changed = true;
+    // Doublewords first, then words of what is left.
+    for (int64_t WordBytes : {8, 4}) {
+      Bytes = WordBytes;
+      for (auto &[Key, Offsets] : ByBase) {
+        auto [Base, Ty] = Key;
+        int64_t Width = Ty->getIntegerBitWidth() / 8;
+        if (Width >= Bytes)
+          continue;
+        SmallVector<int64_t, 16> Starts;
+        for (auto &[Off, SI] : Offsets)
+          if (Off % Bytes == 0)
+            Starts.push_back(Off);
+        llvm::sort(Starts);
+        for (int64_t Start : Starts) {
+          SmallVector<StoreInst *, 8> Stores;
+          for (int64_t Off = Start; Off < Start + Bytes; Off += Width) {
+            auto It = Offsets.find(Off);
+            if (It == Offsets.end() || Ambiguous.contains(It->second))
+              break;
+            Stores.push_back(It->second);
+          }
+          if (Stores.size() * Width == Bytes &&
+              widen(Stores, Address{Base, Start})) {
+            for (int64_t Off = Start; Off < Start + Bytes; Off += Width)
+              Offsets.erase(Off);
+            Changed = true;
+          }
         }
       }
     }
@@ -461,7 +533,9 @@ bool Widener::run() {
 
 PreservedAnalyses IA64WidenByteOpsPass::run(Function &F,
                                             FunctionAnalysisManager &AM) {
-  if (!Widener(F, AM.getResult<AAManager>(F)).run())
+  if (!Widener(F, AM.getResult<AAManager>(F),
+               AM.getResult<DominatorTreeAnalysis>(F))
+           .run())
     return PreservedAnalyses::all();
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();

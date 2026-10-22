@@ -3,7 +3,7 @@
 
 ; Bytewise and, or and xor of a doubleword take a load, a store and an
 ; operation a byte each, and a store of a byte stalls the next one to the
-; same doubleword. Do them a doubleword at a time.
+; same doubleword. Do them a doubleword, or failing that a word, at a time.
 
 ; p[i] ^= q[i] for each byte of a doubleword.
 define void @xor_bytes(ptr noalias align 8 %p, ptr noalias align 8 %q) {
@@ -231,42 +231,18 @@ define void @missing_lane(ptr noalias align 8 %p, ptr noalias align 8 %q) {
 ; CHECK-SAME: ptr noalias align 8 [[P:%.*]], ptr noalias align 8 [[Q:%.*]]) {
 ; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
 ; CHECK-NEXT:    [[Q_0:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 0
-; CHECK-NEXT:    [[A0:%.*]] = load i16, ptr [[P_0]], align 1
-; CHECK-NEXT:    [[B0:%.*]] = load i16, ptr [[Q_0]], align 1
-; CHECK-NEXT:    [[V0:%.*]] = xor i16 [[A0]], [[B0]]
-; CHECK-NEXT:    store i16 [[V0]], ptr [[P_0]], align 1
-; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
-; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 2
-; CHECK-NEXT:    [[A1:%.*]] = load i16, ptr [[P_1]], align 1
-; CHECK-NEXT:    [[B1:%.*]] = load i16, ptr [[Q_1]], align 1
-; CHECK-NEXT:    [[V1:%.*]] = xor i16 [[A1]], [[B1]]
-; CHECK-NEXT:    store i16 [[V1]], ptr [[P_1]], align 1
-; CHECK-NEXT:    [[P_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 6
-; CHECK-NEXT:    [[Q_3:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 6
-; CHECK-NEXT:    [[A3:%.*]] = load i16, ptr [[P_3]], align 1
-; CHECK-NEXT:    [[B3:%.*]] = load i16, ptr [[Q_3]], align 1
-; CHECK-NEXT:    [[V3:%.*]] = xor i16 [[A3]], [[B3]]
-; CHECK-NEXT:    store i16 [[V3]], ptr [[P_3]], align 1
+; CHECK-NEXT:    [[A0:%.*]] = load i32, ptr [[P_0]], align 1
+; CHECK-NEXT:    [[B0:%.*]] = load i32, ptr [[Q_0]], align 1
+; CHECK-NEXT:    [[V0:%.*]] = xor i32 [[A0]], [[B0]]
+; CHECK-NEXT:    store i32 [[V0]], ptr [[P_0]], align 1
 ; CHECK-NEXT:    ret void
 ;
   %p.0 = getelementptr inbounds i8, ptr %p, i64 0
   %q.0 = getelementptr inbounds i8, ptr %q, i64 0
-  %a0 = load i16, ptr %p.0, align 1
-  %b0 = load i16, ptr %q.0, align 1
-  %v0 = xor i16 %a0, %b0
-  store i16 %v0, ptr %p.0, align 1
-  %p.1 = getelementptr inbounds i8, ptr %p, i64 2
-  %q.1 = getelementptr inbounds i8, ptr %q, i64 2
-  %a1 = load i16, ptr %p.1, align 1
-  %b1 = load i16, ptr %q.1, align 1
-  %v1 = xor i16 %a1, %b1
-  store i16 %v1, ptr %p.1, align 1
-  %p.3 = getelementptr inbounds i8, ptr %p, i64 6
-  %q.3 = getelementptr inbounds i8, ptr %q, i64 6
-  %a3 = load i16, ptr %p.3, align 1
-  %b3 = load i16, ptr %q.3, align 1
-  %v3 = xor i16 %a3, %b3
-  store i16 %v3, ptr %p.3, align 1
+  %a0 = load i32, ptr %p.0, align 1
+  %b0 = load i32, ptr %q.0, align 1
+  %v0 = xor i32 %a0, %b0
+  store i32 %v0, ptr %p.0, align 1
   ret void
 }
 
@@ -276,56 +252,32 @@ define i8 @load_between(ptr align 8 %p, ptr noalias align 8 %q, ptr %r) {
 ; CHECK-SAME: ptr align 8 [[P:%.*]], ptr noalias align 8 [[Q:%.*]], ptr [[R:%.*]]) {
 ; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
 ; CHECK-NEXT:    [[Q_0:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 0
-; CHECK-NEXT:    [[A0:%.*]] = load i16, ptr [[P_0]], align 1
-; CHECK-NEXT:    [[B0:%.*]] = load i16, ptr [[Q_0]], align 1
-; CHECK-NEXT:    [[V0:%.*]] = xor i16 [[A0]], [[B0]]
-; CHECK-NEXT:    store i16 [[V0]], ptr [[P_0]], align 1
-; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
-; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 2
-; CHECK-NEXT:    [[A1:%.*]] = load i16, ptr [[P_1]], align 1
-; CHECK-NEXT:    [[B1:%.*]] = load i16, ptr [[Q_1]], align 1
-; CHECK-NEXT:    [[V1:%.*]] = xor i16 [[A1]], [[B1]]
-; CHECK-NEXT:    store i16 [[V1]], ptr [[P_1]], align 1
+; CHECK-NEXT:    [[A0:%.*]] = load i32, ptr [[P_0]], align 1
+; CHECK-NEXT:    [[B0:%.*]] = load i32, ptr [[Q_0]], align 1
+; CHECK-NEXT:    [[V0:%.*]] = xor i32 [[A0]], [[B0]]
+; CHECK-NEXT:    store i32 [[V0]], ptr [[P_0]], align 1
 ; CHECK-NEXT:    [[BETWEEN:%.*]] = load i8, ptr [[R]], align 1
-; CHECK-NEXT:    [[P_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
-; CHECK-NEXT:    [[Q_2:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
-; CHECK-NEXT:    [[A2:%.*]] = load i16, ptr [[P_2]], align 1
-; CHECK-NEXT:    [[B2:%.*]] = load i16, ptr [[Q_2]], align 1
-; CHECK-NEXT:    [[V2:%.*]] = xor i16 [[A2]], [[B2]]
-; CHECK-NEXT:    store i16 [[V2]], ptr [[P_2]], align 1
-; CHECK-NEXT:    [[P_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 6
-; CHECK-NEXT:    [[Q_3:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 6
-; CHECK-NEXT:    [[A3:%.*]] = load i16, ptr [[P_3]], align 1
-; CHECK-NEXT:    [[B3:%.*]] = load i16, ptr [[Q_3]], align 1
-; CHECK-NEXT:    [[V3:%.*]] = xor i16 [[A3]], [[B3]]
-; CHECK-NEXT:    store i16 [[V3]], ptr [[P_3]], align 1
+; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
+; CHECK-NEXT:    [[A1:%.*]] = load i32, ptr [[P_1]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i32, ptr [[Q_1]], align 1
+; CHECK-NEXT:    [[V1:%.*]] = xor i32 [[A1]], [[B1]]
+; CHECK-NEXT:    store i32 [[V1]], ptr [[P_1]], align 1
 ; CHECK-NEXT:    ret i8 [[BETWEEN]]
 ;
   %p.0 = getelementptr inbounds i8, ptr %p, i64 0
   %q.0 = getelementptr inbounds i8, ptr %q, i64 0
-  %a0 = load i16, ptr %p.0, align 1
-  %b0 = load i16, ptr %q.0, align 1
-  %v0 = xor i16 %a0, %b0
-  store i16 %v0, ptr %p.0, align 1
-  %p.1 = getelementptr inbounds i8, ptr %p, i64 2
-  %q.1 = getelementptr inbounds i8, ptr %q, i64 2
-  %a1 = load i16, ptr %p.1, align 1
-  %b1 = load i16, ptr %q.1, align 1
-  %v1 = xor i16 %a1, %b1
-  store i16 %v1, ptr %p.1, align 1
+  %a0 = load i32, ptr %p.0, align 1
+  %b0 = load i32, ptr %q.0, align 1
+  %v0 = xor i32 %a0, %b0
+  store i32 %v0, ptr %p.0, align 1
   %between = load i8, ptr %r, align 1
-  %p.2 = getelementptr inbounds i8, ptr %p, i64 4
-  %q.2 = getelementptr inbounds i8, ptr %q, i64 4
-  %a2 = load i16, ptr %p.2, align 1
-  %b2 = load i16, ptr %q.2, align 1
-  %v2 = xor i16 %a2, %b2
-  store i16 %v2, ptr %p.2, align 1
-  %p.3 = getelementptr inbounds i8, ptr %p, i64 6
-  %q.3 = getelementptr inbounds i8, ptr %q, i64 6
-  %a3 = load i16, ptr %p.3, align 1
-  %b3 = load i16, ptr %q.3, align 1
-  %v3 = xor i16 %a3, %b3
-  store i16 %v3, ptr %p.3, align 1
+  %p.1 = getelementptr inbounds i8, ptr %p, i64 4
+  %q.1 = getelementptr inbounds i8, ptr %q, i64 4
+  %a1 = load i32, ptr %p.1, align 1
+  %b1 = load i32, ptr %q.1, align 1
+  %v1 = xor i32 %a1, %b1
+  store i32 %v1, ptr %p.1, align 1
   ret i8 %between
 }
 
@@ -335,56 +287,32 @@ define void @store_between(ptr noalias align 8 %p, ptr align 8 %q, ptr %r) {
 ; CHECK-SAME: ptr noalias align 8 [[P:%.*]], ptr align 8 [[Q:%.*]], ptr [[R:%.*]]) {
 ; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
 ; CHECK-NEXT:    [[Q_0:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 0
-; CHECK-NEXT:    [[A0:%.*]] = load i16, ptr [[P_0]], align 1
-; CHECK-NEXT:    [[B0:%.*]] = load i16, ptr [[Q_0]], align 1
-; CHECK-NEXT:    [[V0:%.*]] = xor i16 [[A0]], [[B0]]
-; CHECK-NEXT:    store i16 [[V0]], ptr [[P_0]], align 1
-; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
-; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 2
-; CHECK-NEXT:    [[A1:%.*]] = load i16, ptr [[P_1]], align 1
-; CHECK-NEXT:    [[B1:%.*]] = load i16, ptr [[Q_1]], align 1
-; CHECK-NEXT:    [[V1:%.*]] = xor i16 [[A1]], [[B1]]
-; CHECK-NEXT:    store i16 [[V1]], ptr [[P_1]], align 1
+; CHECK-NEXT:    [[A0:%.*]] = load i32, ptr [[P_0]], align 1
+; CHECK-NEXT:    [[B0:%.*]] = load i32, ptr [[Q_0]], align 1
+; CHECK-NEXT:    [[V0:%.*]] = xor i32 [[A0]], [[B0]]
+; CHECK-NEXT:    store i32 [[V0]], ptr [[P_0]], align 1
 ; CHECK-NEXT:    store i8 0, ptr [[R]], align 1
-; CHECK-NEXT:    [[P_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
-; CHECK-NEXT:    [[Q_2:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
-; CHECK-NEXT:    [[A2:%.*]] = load i16, ptr [[P_2]], align 1
-; CHECK-NEXT:    [[B2:%.*]] = load i16, ptr [[Q_2]], align 1
-; CHECK-NEXT:    [[V2:%.*]] = xor i16 [[A2]], [[B2]]
-; CHECK-NEXT:    store i16 [[V2]], ptr [[P_2]], align 1
-; CHECK-NEXT:    [[P_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 6
-; CHECK-NEXT:    [[Q_3:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 6
-; CHECK-NEXT:    [[A3:%.*]] = load i16, ptr [[P_3]], align 1
-; CHECK-NEXT:    [[B3:%.*]] = load i16, ptr [[Q_3]], align 1
-; CHECK-NEXT:    [[V3:%.*]] = xor i16 [[A3]], [[B3]]
-; CHECK-NEXT:    store i16 [[V3]], ptr [[P_3]], align 1
+; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
+; CHECK-NEXT:    [[A1:%.*]] = load i32, ptr [[P_1]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i32, ptr [[Q_1]], align 1
+; CHECK-NEXT:    [[V1:%.*]] = xor i32 [[A1]], [[B1]]
+; CHECK-NEXT:    store i32 [[V1]], ptr [[P_1]], align 1
 ; CHECK-NEXT:    ret void
 ;
   %p.0 = getelementptr inbounds i8, ptr %p, i64 0
   %q.0 = getelementptr inbounds i8, ptr %q, i64 0
-  %a0 = load i16, ptr %p.0, align 1
-  %b0 = load i16, ptr %q.0, align 1
-  %v0 = xor i16 %a0, %b0
-  store i16 %v0, ptr %p.0, align 1
-  %p.1 = getelementptr inbounds i8, ptr %p, i64 2
-  %q.1 = getelementptr inbounds i8, ptr %q, i64 2
-  %a1 = load i16, ptr %p.1, align 1
-  %b1 = load i16, ptr %q.1, align 1
-  %v1 = xor i16 %a1, %b1
-  store i16 %v1, ptr %p.1, align 1
+  %a0 = load i32, ptr %p.0, align 1
+  %b0 = load i32, ptr %q.0, align 1
+  %v0 = xor i32 %a0, %b0
+  store i32 %v0, ptr %p.0, align 1
   store i8 0, ptr %r, align 1
-  %p.2 = getelementptr inbounds i8, ptr %p, i64 4
-  %q.2 = getelementptr inbounds i8, ptr %q, i64 4
-  %a2 = load i16, ptr %p.2, align 1
-  %b2 = load i16, ptr %q.2, align 1
-  %v2 = xor i16 %a2, %b2
-  store i16 %v2, ptr %p.2, align 1
-  %p.3 = getelementptr inbounds i8, ptr %p, i64 6
-  %q.3 = getelementptr inbounds i8, ptr %q, i64 6
-  %a3 = load i16, ptr %p.3, align 1
-  %b3 = load i16, ptr %q.3, align 1
-  %v3 = xor i16 %a3, %b3
-  store i16 %v3, ptr %p.3, align 1
+  %p.1 = getelementptr inbounds i8, ptr %p, i64 4
+  %q.1 = getelementptr inbounds i8, ptr %q, i64 4
+  %a1 = load i32, ptr %p.1, align 1
+  %b1 = load i32, ptr %q.1, align 1
+  %v1 = xor i32 %a1, %b1
+  store i32 %v1, ptr %p.1, align 1
   ret void
 }
 
@@ -394,56 +322,32 @@ define void @call_between(ptr align 8 %p, ptr noalias align 8 %q) {
 ; CHECK-SAME: ptr align 8 [[P:%.*]], ptr noalias align 8 [[Q:%.*]]) {
 ; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
 ; CHECK-NEXT:    [[Q_0:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 0
-; CHECK-NEXT:    [[A0:%.*]] = load i16, ptr [[P_0]], align 1
-; CHECK-NEXT:    [[B0:%.*]] = load i16, ptr [[Q_0]], align 1
-; CHECK-NEXT:    [[V0:%.*]] = xor i16 [[A0]], [[B0]]
-; CHECK-NEXT:    store i16 [[V0]], ptr [[P_0]], align 1
-; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
-; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 2
-; CHECK-NEXT:    [[A1:%.*]] = load i16, ptr [[P_1]], align 1
-; CHECK-NEXT:    [[B1:%.*]] = load i16, ptr [[Q_1]], align 1
-; CHECK-NEXT:    [[V1:%.*]] = xor i16 [[A1]], [[B1]]
-; CHECK-NEXT:    store i16 [[V1]], ptr [[P_1]], align 1
+; CHECK-NEXT:    [[A0:%.*]] = load i32, ptr [[P_0]], align 1
+; CHECK-NEXT:    [[B0:%.*]] = load i32, ptr [[Q_0]], align 1
+; CHECK-NEXT:    [[V0:%.*]] = xor i32 [[A0]], [[B0]]
+; CHECK-NEXT:    store i32 [[V0]], ptr [[P_0]], align 1
 ; CHECK-NEXT:    call void @g()
-; CHECK-NEXT:    [[P_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
-; CHECK-NEXT:    [[Q_2:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
-; CHECK-NEXT:    [[A2:%.*]] = load i16, ptr [[P_2]], align 1
-; CHECK-NEXT:    [[B2:%.*]] = load i16, ptr [[Q_2]], align 1
-; CHECK-NEXT:    [[V2:%.*]] = xor i16 [[A2]], [[B2]]
-; CHECK-NEXT:    store i16 [[V2]], ptr [[P_2]], align 1
-; CHECK-NEXT:    [[P_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 6
-; CHECK-NEXT:    [[Q_3:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 6
-; CHECK-NEXT:    [[A3:%.*]] = load i16, ptr [[P_3]], align 1
-; CHECK-NEXT:    [[B3:%.*]] = load i16, ptr [[Q_3]], align 1
-; CHECK-NEXT:    [[V3:%.*]] = xor i16 [[A3]], [[B3]]
-; CHECK-NEXT:    store i16 [[V3]], ptr [[P_3]], align 1
+; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
+; CHECK-NEXT:    [[A1:%.*]] = load i32, ptr [[P_1]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i32, ptr [[Q_1]], align 1
+; CHECK-NEXT:    [[V1:%.*]] = xor i32 [[A1]], [[B1]]
+; CHECK-NEXT:    store i32 [[V1]], ptr [[P_1]], align 1
 ; CHECK-NEXT:    ret void
 ;
   %p.0 = getelementptr inbounds i8, ptr %p, i64 0
   %q.0 = getelementptr inbounds i8, ptr %q, i64 0
-  %a0 = load i16, ptr %p.0, align 1
-  %b0 = load i16, ptr %q.0, align 1
-  %v0 = xor i16 %a0, %b0
-  store i16 %v0, ptr %p.0, align 1
-  %p.1 = getelementptr inbounds i8, ptr %p, i64 2
-  %q.1 = getelementptr inbounds i8, ptr %q, i64 2
-  %a1 = load i16, ptr %p.1, align 1
-  %b1 = load i16, ptr %q.1, align 1
-  %v1 = xor i16 %a1, %b1
-  store i16 %v1, ptr %p.1, align 1
+  %a0 = load i32, ptr %p.0, align 1
+  %b0 = load i32, ptr %q.0, align 1
+  %v0 = xor i32 %a0, %b0
+  store i32 %v0, ptr %p.0, align 1
   call void @g()
-  %p.2 = getelementptr inbounds i8, ptr %p, i64 4
-  %q.2 = getelementptr inbounds i8, ptr %q, i64 4
-  %a2 = load i16, ptr %p.2, align 1
-  %b2 = load i16, ptr %q.2, align 1
-  %v2 = xor i16 %a2, %b2
-  store i16 %v2, ptr %p.2, align 1
-  %p.3 = getelementptr inbounds i8, ptr %p, i64 6
-  %q.3 = getelementptr inbounds i8, ptr %q, i64 6
-  %a3 = load i16, ptr %p.3, align 1
-  %b3 = load i16, ptr %q.3, align 1
-  %v3 = xor i16 %a3, %b3
-  store i16 %v3, ptr %p.3, align 1
+  %p.1 = getelementptr inbounds i8, ptr %p, i64 4
+  %q.1 = getelementptr inbounds i8, ptr %q, i64 4
+  %a1 = load i32, ptr %p.1, align 1
+  %b1 = load i32, ptr %q.1, align 1
+  %v1 = xor i32 %a1, %b1
+  store i32 %v1, ptr %p.1, align 1
   ret void
 }
 
@@ -453,54 +357,30 @@ define void @unaligned(ptr noalias %p, ptr noalias align 8 %q) {
 ; CHECK-SAME: ptr noalias [[P:%.*]], ptr noalias align 8 [[Q:%.*]]) {
 ; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
 ; CHECK-NEXT:    [[Q_0:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 0
-; CHECK-NEXT:    [[A0:%.*]] = load i16, ptr [[P_0]], align 1
-; CHECK-NEXT:    [[B0:%.*]] = load i16, ptr [[Q_0]], align 1
-; CHECK-NEXT:    [[V0:%.*]] = xor i16 [[A0]], [[B0]]
-; CHECK-NEXT:    store i16 [[V0]], ptr [[P_0]], align 1
-; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
-; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 2
-; CHECK-NEXT:    [[A1:%.*]] = load i16, ptr [[P_1]], align 1
-; CHECK-NEXT:    [[B1:%.*]] = load i16, ptr [[Q_1]], align 1
-; CHECK-NEXT:    [[V1:%.*]] = xor i16 [[A1]], [[B1]]
-; CHECK-NEXT:    store i16 [[V1]], ptr [[P_1]], align 1
-; CHECK-NEXT:    [[P_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
-; CHECK-NEXT:    [[Q_2:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
-; CHECK-NEXT:    [[A2:%.*]] = load i16, ptr [[P_2]], align 1
-; CHECK-NEXT:    [[B2:%.*]] = load i16, ptr [[Q_2]], align 1
-; CHECK-NEXT:    [[V2:%.*]] = xor i16 [[A2]], [[B2]]
-; CHECK-NEXT:    store i16 [[V2]], ptr [[P_2]], align 1
-; CHECK-NEXT:    [[P_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 6
-; CHECK-NEXT:    [[Q_3:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 6
-; CHECK-NEXT:    [[A3:%.*]] = load i16, ptr [[P_3]], align 1
-; CHECK-NEXT:    [[B3:%.*]] = load i16, ptr [[Q_3]], align 1
-; CHECK-NEXT:    [[V3:%.*]] = xor i16 [[A3]], [[B3]]
-; CHECK-NEXT:    store i16 [[V3]], ptr [[P_3]], align 1
+; CHECK-NEXT:    [[A0:%.*]] = load i32, ptr [[P_0]], align 1
+; CHECK-NEXT:    [[B0:%.*]] = load i32, ptr [[Q_0]], align 1
+; CHECK-NEXT:    [[V0:%.*]] = xor i32 [[A0]], [[B0]]
+; CHECK-NEXT:    store i32 [[V0]], ptr [[P_0]], align 1
+; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
+; CHECK-NEXT:    [[A1:%.*]] = load i32, ptr [[P_1]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i32, ptr [[Q_1]], align 1
+; CHECK-NEXT:    [[V1:%.*]] = xor i32 [[A1]], [[B1]]
+; CHECK-NEXT:    store i32 [[V1]], ptr [[P_1]], align 1
 ; CHECK-NEXT:    ret void
 ;
   %p.0 = getelementptr inbounds i8, ptr %p, i64 0
   %q.0 = getelementptr inbounds i8, ptr %q, i64 0
-  %a0 = load i16, ptr %p.0, align 1
-  %b0 = load i16, ptr %q.0, align 1
-  %v0 = xor i16 %a0, %b0
-  store i16 %v0, ptr %p.0, align 1
-  %p.1 = getelementptr inbounds i8, ptr %p, i64 2
-  %q.1 = getelementptr inbounds i8, ptr %q, i64 2
-  %a1 = load i16, ptr %p.1, align 1
-  %b1 = load i16, ptr %q.1, align 1
-  %v1 = xor i16 %a1, %b1
-  store i16 %v1, ptr %p.1, align 1
-  %p.2 = getelementptr inbounds i8, ptr %p, i64 4
-  %q.2 = getelementptr inbounds i8, ptr %q, i64 4
-  %a2 = load i16, ptr %p.2, align 1
-  %b2 = load i16, ptr %q.2, align 1
-  %v2 = xor i16 %a2, %b2
-  store i16 %v2, ptr %p.2, align 1
-  %p.3 = getelementptr inbounds i8, ptr %p, i64 6
-  %q.3 = getelementptr inbounds i8, ptr %q, i64 6
-  %a3 = load i16, ptr %p.3, align 1
-  %b3 = load i16, ptr %q.3, align 1
-  %v3 = xor i16 %a3, %b3
-  store i16 %v3, ptr %p.3, align 1
+  %a0 = load i32, ptr %p.0, align 1
+  %b0 = load i32, ptr %q.0, align 1
+  %v0 = xor i32 %a0, %b0
+  store i32 %v0, ptr %p.0, align 1
+  %p.1 = getelementptr inbounds i8, ptr %p, i64 4
+  %q.1 = getelementptr inbounds i8, ptr %q, i64 4
+  %a1 = load i32, ptr %p.1, align 1
+  %b1 = load i32, ptr %q.1, align 1
+  %v1 = xor i32 %a1, %b1
+  store i32 %v1, ptr %p.1, align 1
   ret void
 }
 
@@ -615,37 +495,50 @@ define i64 @used_early(ptr noalias align 8 %p, ptr noalias align 8 %q) {
 ; CHECK-SAME: ptr noalias align 8 [[P:%.*]], ptr noalias align 8 [[Q:%.*]]) {
 ; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
 ; CHECK-NEXT:    [[Q_0:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 0
-; CHECK-NEXT:    [[A0:%.*]] = load i16, ptr [[P_0]], align 1
-; CHECK-NEXT:    [[B0:%.*]] = load i16, ptr [[Q_0]], align 1
-; CHECK-NEXT:    [[V0:%.*]] = xor i16 [[A0]], [[B0]]
-; CHECK-NEXT:    [[EARLY:%.*]] = zext i16 [[V0]] to i64
-; CHECK-NEXT:    store i16 [[V0]], ptr [[P_0]], align 1
-; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
-; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 2
-; CHECK-NEXT:    [[A1:%.*]] = load i16, ptr [[P_1]], align 1
-; CHECK-NEXT:    [[B1:%.*]] = load i16, ptr [[Q_1]], align 1
-; CHECK-NEXT:    [[V1:%.*]] = xor i16 [[A1]], [[B1]]
-; CHECK-NEXT:    store i16 [[V1]], ptr [[P_1]], align 1
-; CHECK-NEXT:    [[P_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
-; CHECK-NEXT:    [[Q_2:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
-; CHECK-NEXT:    [[A2:%.*]] = load i16, ptr [[P_2]], align 1
-; CHECK-NEXT:    [[B2:%.*]] = load i16, ptr [[Q_2]], align 1
-; CHECK-NEXT:    [[V2:%.*]] = xor i16 [[A2]], [[B2]]
-; CHECK-NEXT:    store i16 [[V2]], ptr [[P_2]], align 1
-; CHECK-NEXT:    [[P_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 6
-; CHECK-NEXT:    [[Q_3:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 6
-; CHECK-NEXT:    [[A3:%.*]] = load i16, ptr [[P_3]], align 1
-; CHECK-NEXT:    [[B3:%.*]] = load i16, ptr [[Q_3]], align 1
-; CHECK-NEXT:    [[V3:%.*]] = xor i16 [[A3]], [[B3]]
-; CHECK-NEXT:    store i16 [[V3]], ptr [[P_3]], align 1
+; CHECK-NEXT:    [[A0:%.*]] = load i32, ptr [[P_0]], align 1
+; CHECK-NEXT:    [[B0:%.*]] = load i32, ptr [[Q_0]], align 1
+; CHECK-NEXT:    [[V0:%.*]] = xor i32 [[A0]], [[B0]]
+; CHECK-NEXT:    [[EARLY:%.*]] = zext i32 [[V0]] to i64
+; CHECK-NEXT:    store i32 [[V0]], ptr [[P_0]], align 1
+; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 4
+; CHECK-NEXT:    [[A1:%.*]] = load i32, ptr [[P_1]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i32, ptr [[Q_1]], align 1
+; CHECK-NEXT:    [[V1:%.*]] = xor i32 [[A1]], [[B1]]
+; CHECK-NEXT:    store i32 [[V1]], ptr [[P_1]], align 1
 ; CHECK-NEXT:    ret i64 [[EARLY]]
+;
+  %p.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %q.0 = getelementptr inbounds i8, ptr %q, i64 0
+  %a0 = load i32, ptr %p.0, align 1
+  %b0 = load i32, ptr %q.0, align 1
+  %v0 = xor i32 %a0, %b0
+  %early = zext i32 %v0 to i64
+  store i32 %v0, ptr %p.0, align 1
+  %p.1 = getelementptr inbounds i8, ptr %p, i64 4
+  %q.1 = getelementptr inbounds i8, ptr %q, i64 4
+  %a1 = load i32, ptr %p.1, align 1
+  %b1 = load i32, ptr %q.1, align 1
+  %v1 = xor i32 %a1, %b1
+  store i32 %v1, ptr %p.1, align 1
+  ret i64 %early
+}
+
+; Halfwords of a word that is all that is known aligned.
+define void @xor_word_of_halves(ptr noalias align 4 %p, ptr noalias align 4 %q) {
+; CHECK-LABEL: define void @xor_word_of_halves(
+; CHECK-SAME: ptr noalias align 4 [[P:%.*]], ptr noalias align 4 [[Q:%.*]]) {
+; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr [[P]], align 4
+; CHECK-NEXT:    [[TMP2:%.*]] = load i32, ptr [[Q]], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = xor i32 [[TMP1]], [[TMP2]]
+; CHECK-NEXT:    store i32 [[TMP3]], ptr [[P]], align 4
+; CHECK-NEXT:    ret void
 ;
   %p.0 = getelementptr inbounds i8, ptr %p, i64 0
   %q.0 = getelementptr inbounds i8, ptr %q, i64 0
   %a0 = load i16, ptr %p.0, align 1
   %b0 = load i16, ptr %q.0, align 1
   %v0 = xor i16 %a0, %b0
-  %early = zext i16 %v0 to i64
   store i16 %v0, ptr %p.0, align 1
   %p.1 = getelementptr inbounds i8, ptr %p, i64 2
   %q.1 = getelementptr inbounds i8, ptr %q, i64 2
@@ -653,19 +546,330 @@ define i64 @used_early(ptr noalias align 8 %p, ptr noalias align 8 %q) {
   %b1 = load i16, ptr %q.1, align 1
   %v1 = xor i16 %a1, %b1
   store i16 %v1, ptr %p.1, align 1
-  %p.2 = getelementptr inbounds i8, ptr %p, i64 4
-  %q.2 = getelementptr inbounds i8, ptr %q, i64 4
-  %a2 = load i16, ptr %p.2, align 1
-  %b2 = load i16, ptr %q.2, align 1
-  %v2 = xor i16 %a2, %b2
-  store i16 %v2, ptr %p.2, align 1
-  %p.3 = getelementptr inbounds i8, ptr %p, i64 6
-  %q.3 = getelementptr inbounds i8, ptr %q, i64 6
-  %a3 = load i16, ptr %p.3, align 1
-  %b3 = load i16, ptr %q.3, align 1
-  %v3 = xor i16 %a3, %b3
-  store i16 %v3, ptr %p.3, align 1
-  ret i64 %early
+  ret void
+}
+
+; Bytes reversed in place are a byte swap.
+define void @reverse_word(ptr align 4 %p) {
+; CHECK-LABEL: define void @reverse_word(
+; CHECK-SAME: ptr align 4 [[P:%.*]]) {
+; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr [[P]], align 4
+; CHECK-NEXT:    [[TMP2:%.*]] = call i32 @llvm.bswap.i32(i32 [[TMP1]])
+; CHECK-NEXT:    store i32 [[TMP2]], ptr [[P]], align 4
+; CHECK-NEXT:    ret void
+;
+  %r.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %r.1 = getelementptr inbounds i8, ptr %p, i64 1
+  %r.2 = getelementptr inbounds i8, ptr %p, i64 2
+  %r.3 = getelementptr inbounds i8, ptr %p, i64 3
+  %b0 = load i8, ptr %r.3, align 1
+  %b1 = load i8, ptr %r.2, align 1
+  %b2 = load i8, ptr %r.1, align 1
+  %b3 = load i8, ptr %r.0, align 1
+  store i8 %b0, ptr %r.0, align 1
+  store i8 %b1, ptr %r.1, align 1
+  store i8 %b2, ptr %r.2, align 1
+  store i8 %b3, ptr %r.3, align 1
+  ret void
+}
+
+define void @reverse_doubleword(ptr align 8 %p) {
+; CHECK-LABEL: define void @reverse_doubleword(
+; CHECK-SAME: ptr align 8 [[P:%.*]]) {
+; CHECK-NEXT:    [[TMP1:%.*]] = load i64, ptr [[P]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @llvm.bswap.i64(i64 [[TMP1]])
+; CHECK-NEXT:    store i64 [[TMP2]], ptr [[P]], align 8
+; CHECK-NEXT:    ret void
+;
+  %r.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %r.1 = getelementptr inbounds i8, ptr %p, i64 1
+  %r.2 = getelementptr inbounds i8, ptr %p, i64 2
+  %r.3 = getelementptr inbounds i8, ptr %p, i64 3
+  %r.4 = getelementptr inbounds i8, ptr %p, i64 4
+  %r.5 = getelementptr inbounds i8, ptr %p, i64 5
+  %r.6 = getelementptr inbounds i8, ptr %p, i64 6
+  %r.7 = getelementptr inbounds i8, ptr %p, i64 7
+  %b0 = load i8, ptr %r.7, align 1
+  %b1 = load i8, ptr %r.6, align 1
+  %b2 = load i8, ptr %r.5, align 1
+  %b3 = load i8, ptr %r.4, align 1
+  %b4 = load i8, ptr %r.3, align 1
+  %b5 = load i8, ptr %r.2, align 1
+  %b6 = load i8, ptr %r.1, align 1
+  %b7 = load i8, ptr %r.0, align 1
+  store i8 %b0, ptr %r.0, align 1
+  store i8 %b1, ptr %r.1, align 1
+  store i8 %b2, ptr %r.2, align 1
+  store i8 %b3, ptr %r.3, align 1
+  store i8 %b4, ptr %r.4, align 1
+  store i8 %b5, ptr %r.5, align 1
+  store i8 %b6, ptr %r.6, align 1
+  store i8 %b7, ptr %r.7, align 1
+  ret void
+}
+
+; Swapping the halves of a word is no byte swap.
+define void @reverse_halves(ptr align 4 %p) {
+; CHECK-LABEL: define void @reverse_halves(
+; CHECK-SAME: ptr align 4 [[P:%.*]]) {
+; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
+; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
+; CHECK-NEXT:    [[H0:%.*]] = load i16, ptr [[P_1]], align 1
+; CHECK-NEXT:    [[H1:%.*]] = load i16, ptr [[P_0]], align 1
+; CHECK-NEXT:    store i16 [[H0]], ptr [[P_0]], align 1
+; CHECK-NEXT:    store i16 [[H1]], ptr [[P_1]], align 1
+; CHECK-NEXT:    ret void
+;
+  %p.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %p.1 = getelementptr inbounds i8, ptr %p, i64 2
+  %h0 = load i16, ptr %p.1, align 1
+  %h1 = load i16, ptr %p.0, align 1
+  store i16 %h0, ptr %p.0, align 1
+  store i16 %h1, ptr %p.1, align 1
+  ret void
+}
+
+; The bytes of a struct a pointer argument points to, through a pointer that
+; steps along it, after an aligned access to the struct shows it aligned.
+define i32 @reverse_struct_words(ptr %s) {
+; CHECK-LABEL: define i32 @reverse_struct_words(
+; CHECK-SAME: ptr [[S:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    [[COUNT:%.*]] = getelementptr inbounds i8, ptr [[S]], i64 20
+; CHECK-NEXT:    [[N:%.*]] = load i32, ptr [[COUNT]], align 4
+; CHECK-NEXT:    [[DATA:%.*]] = getelementptr inbounds i8, ptr [[S]], i64 28
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[P:%.*]] = phi ptr [ [[DATA]], %[[ENTRY]] ], [ [[P_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr [[P]], align 4
+; CHECK-NEXT:    [[TMP1:%.*]] = call i32 @llvm.bswap.i32(i32 [[TMP0]])
+; CHECK-NEXT:    store i32 [[TMP1]], ptr [[P]], align 4
+; CHECK-NEXT:    [[P_NEXT]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[I_NEXT]] = add i32 [[I]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[I_NEXT]], 16
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret i32 [[N]]
+;
+entry:
+  %count = getelementptr inbounds i8, ptr %s, i64 20
+  %n = load i32, ptr %count, align 4
+  %data = getelementptr inbounds i8, ptr %s, i64 28
+  br label %loop
+loop:
+  %p = phi ptr [ %data, %entry ], [ %p.next, %loop ]
+  %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+  %r.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %r.1 = getelementptr inbounds i8, ptr %p, i64 1
+  %r.2 = getelementptr inbounds i8, ptr %p, i64 2
+  %r.3 = getelementptr inbounds i8, ptr %p, i64 3
+  %b0 = load i8, ptr %r.3, align 1
+  %b1 = load i8, ptr %r.2, align 1
+  %b2 = load i8, ptr %r.1, align 1
+  %b3 = load i8, ptr %r.0, align 1
+  store i8 %b0, ptr %r.0, align 1
+  store i8 %b1, ptr %r.1, align 1
+  store i8 %b2, ptr %r.2, align 1
+  store i8 %b3, ptr %r.3, align 1
+  %p.next = getelementptr inbounds i8, ptr %p, i64 4
+  %i.next = add i32 %i, 1
+  %done = icmp eq i32 %i.next, 16
+  br i1 %done, label %exit, label %loop
+exit:
+  ret i32 %n
+}
+
+; The pointer starts off a word boundary.
+define i32 @reverse_struct_misaligned(ptr %s) {
+; CHECK-LABEL: define i32 @reverse_struct_misaligned(
+; CHECK-SAME: ptr [[S:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    [[COUNT:%.*]] = getelementptr inbounds i8, ptr [[S]], i64 20
+; CHECK-NEXT:    [[N:%.*]] = load i32, ptr [[COUNT]], align 4
+; CHECK-NEXT:    [[DATA:%.*]] = getelementptr inbounds i8, ptr [[S]], i64 26
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[P:%.*]] = phi ptr [ [[DATA]], %[[ENTRY]] ], [ [[P_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[R_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
+; CHECK-NEXT:    [[R_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 1
+; CHECK-NEXT:    [[R_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
+; CHECK-NEXT:    [[R_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 3
+; CHECK-NEXT:    [[B0:%.*]] = load i8, ptr [[R_3]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i8, ptr [[R_2]], align 1
+; CHECK-NEXT:    [[B2:%.*]] = load i8, ptr [[R_1]], align 1
+; CHECK-NEXT:    [[B3:%.*]] = load i8, ptr [[R_0]], align 1
+; CHECK-NEXT:    store i8 [[B0]], ptr [[R_0]], align 1
+; CHECK-NEXT:    store i8 [[B1]], ptr [[R_1]], align 1
+; CHECK-NEXT:    store i8 [[B2]], ptr [[R_2]], align 1
+; CHECK-NEXT:    store i8 [[B3]], ptr [[R_3]], align 1
+; CHECK-NEXT:    [[P_NEXT]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[I_NEXT]] = add i32 [[I]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[I_NEXT]], 16
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret i32 [[N]]
+;
+entry:
+  %count = getelementptr inbounds i8, ptr %s, i64 20
+  %n = load i32, ptr %count, align 4
+  %data = getelementptr inbounds i8, ptr %s, i64 26
+  br label %loop
+loop:
+  %p = phi ptr [ %data, %entry ], [ %p.next, %loop ]
+  %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+  %r.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %r.1 = getelementptr inbounds i8, ptr %p, i64 1
+  %r.2 = getelementptr inbounds i8, ptr %p, i64 2
+  %r.3 = getelementptr inbounds i8, ptr %p, i64 3
+  %b0 = load i8, ptr %r.3, align 1
+  %b1 = load i8, ptr %r.2, align 1
+  %b2 = load i8, ptr %r.1, align 1
+  %b3 = load i8, ptr %r.0, align 1
+  store i8 %b0, ptr %r.0, align 1
+  store i8 %b1, ptr %r.1, align 1
+  store i8 %b2, ptr %r.2, align 1
+  store i8 %b3, ptr %r.3, align 1
+  %p.next = getelementptr inbounds i8, ptr %p, i64 4
+  %i.next = add i32 %i, 1
+  %done = icmp eq i32 %i.next, 16
+  br i1 %done, label %exit, label %loop
+exit:
+  ret i32 %n
+}
+
+; The aligned access comes after the bytes.
+define i32 @reverse_struct_access_after(ptr %s) {
+; CHECK-LABEL: define i32 @reverse_struct_access_after(
+; CHECK-SAME: ptr [[S:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    [[DATA:%.*]] = getelementptr inbounds i8, ptr [[S]], i64 28
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[P:%.*]] = phi ptr [ [[DATA]], %[[ENTRY]] ], [ [[P_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[R_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
+; CHECK-NEXT:    [[R_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 1
+; CHECK-NEXT:    [[R_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
+; CHECK-NEXT:    [[R_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 3
+; CHECK-NEXT:    [[B0:%.*]] = load i8, ptr [[R_3]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i8, ptr [[R_2]], align 1
+; CHECK-NEXT:    [[B2:%.*]] = load i8, ptr [[R_1]], align 1
+; CHECK-NEXT:    [[B3:%.*]] = load i8, ptr [[R_0]], align 1
+; CHECK-NEXT:    store i8 [[B0]], ptr [[R_0]], align 1
+; CHECK-NEXT:    store i8 [[B1]], ptr [[R_1]], align 1
+; CHECK-NEXT:    store i8 [[B2]], ptr [[R_2]], align 1
+; CHECK-NEXT:    store i8 [[B3]], ptr [[R_3]], align 1
+; CHECK-NEXT:    [[P_NEXT]] = getelementptr inbounds i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[I_NEXT]] = add i32 [[I]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[I_NEXT]], 16
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    [[COUNT:%.*]] = getelementptr inbounds i8, ptr [[S]], i64 20
+; CHECK-NEXT:    [[N:%.*]] = load i32, ptr [[COUNT]], align 4
+; CHECK-NEXT:    ret i32 [[N]]
+;
+entry:
+  %data = getelementptr inbounds i8, ptr %s, i64 28
+  br label %loop
+loop:
+  %p = phi ptr [ %data, %entry ], [ %p.next, %loop ]
+  %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+  %r.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %r.1 = getelementptr inbounds i8, ptr %p, i64 1
+  %r.2 = getelementptr inbounds i8, ptr %p, i64 2
+  %r.3 = getelementptr inbounds i8, ptr %p, i64 3
+  %b0 = load i8, ptr %r.3, align 1
+  %b1 = load i8, ptr %r.2, align 1
+  %b2 = load i8, ptr %r.1, align 1
+  %b3 = load i8, ptr %r.0, align 1
+  store i8 %b0, ptr %r.0, align 1
+  store i8 %b1, ptr %r.1, align 1
+  store i8 %b2, ptr %r.2, align 1
+  store i8 %b3, ptr %r.3, align 1
+  %p.next = getelementptr inbounds i8, ptr %p, i64 4
+  %i.next = add i32 %i, 1
+  %done = icmp eq i32 %i.next, 16
+  br i1 %done, label %exit, label %loop
+exit:
+  %count = getelementptr inbounds i8, ptr %s, i64 20
+  %n = load i32, ptr %count, align 4
+  ret i32 %n
+}
+
+; A lane loads a byte after an earlier lane has stored to it.
+define void @reverse_reads_stored(ptr align 4 %p) {
+; CHECK-LABEL: define void @reverse_reads_stored(
+; CHECK-SAME: ptr align 4 [[P:%.*]]) {
+; CHECK-NEXT:    [[R_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
+; CHECK-NEXT:    [[R_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 1
+; CHECK-NEXT:    [[R_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
+; CHECK-NEXT:    [[R_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 3
+; CHECK-NEXT:    [[B0:%.*]] = load i8, ptr [[R_3]], align 1
+; CHECK-NEXT:    [[B1:%.*]] = load i8, ptr [[R_2]], align 1
+; CHECK-NEXT:    store i8 [[B0]], ptr [[R_0]], align 1
+; CHECK-NEXT:    store i8 [[B1]], ptr [[R_1]], align 1
+; CHECK-NEXT:    [[B2:%.*]] = load i8, ptr [[R_1]], align 1
+; CHECK-NEXT:    [[B3:%.*]] = load i8, ptr [[R_0]], align 1
+; CHECK-NEXT:    store i8 [[B2]], ptr [[R_2]], align 1
+; CHECK-NEXT:    store i8 [[B3]], ptr [[R_3]], align 1
+; CHECK-NEXT:    ret void
+;
+  %r.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %r.1 = getelementptr inbounds i8, ptr %p, i64 1
+  %r.2 = getelementptr inbounds i8, ptr %p, i64 2
+  %r.3 = getelementptr inbounds i8, ptr %p, i64 3
+  %b0 = load i8, ptr %r.3, align 1
+  %b1 = load i8, ptr %r.2, align 1
+  store i8 %b0, ptr %r.0, align 1
+  store i8 %b1, ptr %r.1, align 1
+  %b2 = load i8, ptr %r.1, align 1
+  %b3 = load i8, ptr %r.0, align 1
+  store i8 %b2, ptr %r.2, align 1
+  store i8 %b3, ptr %r.3, align 1
+  ret void
+}
+
+; A copy needs no operation; the bytes are already as fast to store.
+define void @copy_word(ptr noalias align 4 %p, ptr noalias align 4 %q) {
+; CHECK-LABEL: define void @copy_word(
+; CHECK-SAME: ptr noalias align 4 [[P:%.*]], ptr noalias align 4 [[Q:%.*]]) {
+; CHECK-NEXT:    [[P_0:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 0
+; CHECK-NEXT:    [[Q_0:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 0
+; CHECK-NEXT:    [[A0:%.*]] = load i8, ptr [[Q_0]], align 1
+; CHECK-NEXT:    store i8 [[A0]], ptr [[P_0]], align 1
+; CHECK-NEXT:    [[P_1:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 1
+; CHECK-NEXT:    [[Q_1:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 1
+; CHECK-NEXT:    [[A1:%.*]] = load i8, ptr [[Q_1]], align 1
+; CHECK-NEXT:    store i8 [[A1]], ptr [[P_1]], align 1
+; CHECK-NEXT:    [[P_2:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 2
+; CHECK-NEXT:    [[Q_2:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 2
+; CHECK-NEXT:    [[A2:%.*]] = load i8, ptr [[Q_2]], align 1
+; CHECK-NEXT:    store i8 [[A2]], ptr [[P_2]], align 1
+; CHECK-NEXT:    [[P_3:%.*]] = getelementptr inbounds i8, ptr [[P]], i64 3
+; CHECK-NEXT:    [[Q_3:%.*]] = getelementptr inbounds i8, ptr [[Q]], i64 3
+; CHECK-NEXT:    [[A3:%.*]] = load i8, ptr [[Q_3]], align 1
+; CHECK-NEXT:    store i8 [[A3]], ptr [[P_3]], align 1
+; CHECK-NEXT:    ret void
+;
+  %p.0 = getelementptr inbounds i8, ptr %p, i64 0
+  %q.0 = getelementptr inbounds i8, ptr %q, i64 0
+  %a0 = load i8, ptr %q.0, align 1
+  store i8 %a0, ptr %p.0, align 1
+  %p.1 = getelementptr inbounds i8, ptr %p, i64 1
+  %q.1 = getelementptr inbounds i8, ptr %q, i64 1
+  %a1 = load i8, ptr %q.1, align 1
+  store i8 %a1, ptr %p.1, align 1
+  %p.2 = getelementptr inbounds i8, ptr %p, i64 2
+  %q.2 = getelementptr inbounds i8, ptr %q, i64 2
+  %a2 = load i8, ptr %q.2, align 1
+  store i8 %a2, ptr %p.2, align 1
+  %p.3 = getelementptr inbounds i8, ptr %p, i64 3
+  %q.3 = getelementptr inbounds i8, ptr %q, i64 3
+  %a3 = load i8, ptr %q.3, align 1
+  store i8 %a3, ptr %p.3, align 1
+  ret void
 }
 
 declare void @g()
