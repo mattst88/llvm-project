@@ -25,6 +25,10 @@
 #include "llvm/PassRegistry.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/LICM.h"
+#include "llvm/Transforms/Scalar/LoopDeletion.h"
+#include "llvm/Transforms/Scalar/LoopIdiomRecognize.h"
+#include "llvm/Transforms/Scalar/LoopPassManager.h"
 
 using namespace llvm;
 
@@ -266,8 +270,18 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
   PB.registerVectorizerStartEPCallback(
       [](FunctionPassManager &FPM, OptimizationLevel Level) {
         if (EnableAliasVersioning &&
-            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3)) {
           FPM.addPass(IA64LoopAliasVersioningPass());
+          // A copy that does not overlap the loop's other accesses may have
+          // them hoisted out of it, which can give it a trip count to form
+          // a memcpy or memmove with.
+          LoopPassManager LPM;
+          LPM.addPass(LICMPass(LICMOptions()));
+          LPM.addPass(LoopIdiomRecognizePass());
+          LPM.addPass(LoopDeletionPass());
+          FPM.addPass(createFunctionToLoopPassAdaptor(std::move(LPM),
+                                                      /*UseMemorySSA=*/true));
+        }
       });
 
   // After inlining, which gives memmoves their constant lengths.
