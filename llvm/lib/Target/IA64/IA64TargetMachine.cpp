@@ -36,6 +36,10 @@ static cl::opt<bool> EnableAliasVersioning(
     "ia64-alias-versioning", cl::Hidden, cl::init(true),
     cl::desc("Version small loops on whether their pointers overlap"));
 
+static cl::opt<bool> EnableWidenByteOps(
+    "ia64-widen-bytewise-logic", cl::Hidden, cl::init(true),
+    cl::desc("Do and, or and xor of the bytes of a doubleword at once"));
+
 static cl::opt<bool> EnableMemmoveVersioning(
     "ia64-memmove-versioning", cl::Hidden, cl::init(true),
     cl::desc("Version small memmoves on whether their operands overlap"));
@@ -273,6 +277,11 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
           MPM.addPass(
               createModuleToFunctionPassAdaptor(IA64MemmoveVersioningPass()));
+        // After unrolling, which makes the lanes.
+        if (EnableWidenByteOps &&
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+          MPM.addPass(
+              createModuleToFunctionPassAdaptor(IA64WidenByteOpsPass()));
       });
 }
 

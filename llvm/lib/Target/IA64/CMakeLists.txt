@@ -51,6 +51,7 @@ add_llvm_target(IA64CodeGen
   IA64TargetMachine.cpp
   IA64TargetObjectFile.cpp
   IA64TargetTransformInfo.cpp
+  IA64WidenByteOps.cpp
 
   LINK_COMPONENTS
   IA64Desc
