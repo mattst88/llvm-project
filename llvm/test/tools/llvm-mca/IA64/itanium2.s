@@ -100,7 +100,7 @@ nop.i 0
 # CHECK-NEXT:  1      2     0.50    *      *      U     fetchadd8.acq	r8 = [r32], 1
 # CHECK-NEXT:  1      1     0.25                  U     chk.s.m	r32, again
 # CHECK-NEXT:  1      1     1.00                  U     alloc	r8 = ar.pfs, 2, 3, 2, 0
-# CHECK-NEXT:  1      5     0.50                        setf.sig	f6 = r32
+# CHECK-NEXT:  1      6     0.50                        setf.sig	f6 = r32
 # CHECK-NEXT:  1      5     1.00                        getf.sig	r8 = f6
 # CHECK-NEXT:  1      4     0.50                        fma.d	f6 = f7, f8, f9
 # CHECK-NEXT:  1      4     0.50                        xma.l	f6 = f7, f8, f9

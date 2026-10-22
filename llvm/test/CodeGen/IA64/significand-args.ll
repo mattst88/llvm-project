@@ -26,10 +26,10 @@ define <2 x float> @arg(i64 %a, <2 x float> %v, double %d) {
 ; single-precision complex value it passes this way.
 define <2 x float> @call(<2 x float> %v) {
 ; CHECK-LABEL: call:
-; CHECK-DAG:   getf.sig r14 = f8
+; CHECK-DAG:   getf.sig [[V:r1[45]]] = f8
 ; CHECK-DAG:   mov f9 = f1
-; CHECK-DAG:   setf.d f12 = r15
-; CHECK-DAG:   setf.sig f8 = r14
+; CHECK-DAG:   setf.d f12 = r1{{[45]}}
+; CHECK-DAG:   setf.sig f8 = [[V]]
 ; CHECK:       mov f10 = f8
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0

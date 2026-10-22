@@ -115,7 +115,7 @@ def : I2Write<WriteAlloc,    I2PortM2,  1>;
 def : I2Also<WriteFLoad2,  6>;
 def : I2Also<WritePostInc, 1>;
 
-def : I2Write<WriteSetF, I2PortM23, 5>;
+def : I2Write<WriteSetF, I2PortM23, 6>;
 def : I2Write<WriteGetF, I2PortM2,  5>;
 
 def : I2Write<WriteFMA,    I2PortF, 4>;
