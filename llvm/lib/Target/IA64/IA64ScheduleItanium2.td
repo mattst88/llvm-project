@@ -59,16 +59,16 @@ class I2Also<SchedWrite write, int latency> : WriteRes<write, []> {
 
 def : I2Write<WriteALU,   I2PortA, 1>;
 def : I2Write<WriteICmp,  I2PortA, 1>;
-def : I2Write<WriteMMALU, I2PortA, 2>;
+def : I2Write<WriteMMALU, I2PortA, 3>;
 def : I2Also<WritePred2, 1>;
 
 // A copy is an add of zero or an fmerge of a register with itself; the
 // integer one is far more common.
 def : InstRW<[WriteALU], (instrs COPY)>;
 
-def : I2Write<WriteMMMul,    I2PortI0, 2>;
-def : I2Write<WriteMMShift,  I2PortI,  2>;
-def : I2Write<WriteMMShiftI, I2PortI,  1>;
+def : I2Write<WriteMMMul,    I2PortI0, 3>;
+def : I2Write<WriteMMShift,  I2PortI,  3>;
+def : I2Write<WriteMMShiftI, I2PortI,  3>;
 def : I2Write<WriteShift,    I2PortI,  1>;
 def : I2Write<WriteTBit,     I2PortI,  1>;
 def : I2Write<WriteExt,      I2PortI,  1>;
@@ -117,6 +117,27 @@ def : I2Write<WriteChk,      I2PortM,   1>;
 def : I2Write<WriteAlloc,    I2PortM2,  1>;
 def : I2Also<WriteFLoad2,  6>;
 def : I2Also<WritePostInc, 1>;
+
+// The latencies above are to an ALU. A multimedia op waits two cycles more
+// for an ALU or an integer load and one more for a getf or a move from a
+// branch, predicate or application register, but one fewer for another
+// multimedia op. An address waits one more for a load or a getf; there is
+// no bypass from the multimedia units to an address, so it waits thirteen
+// more for them, while the core flushes and replays the access (308065-001
+// Table 2-8, and ia64probe's lat_ld8_shl and lat_shl_ld: 19 cycles each).
+defvar I2ALUWrites = [WriteALU, WriteICmp, WriteSelect, WriteShift, WriteExt,
+                      WriteMovL, WritePostInc, WriteLoad];
+defvar I2MMWrites = [WriteMMALU, WriteMMMul, WriteMMShift, WriteMMShiftI];
+defvar I2IEU2Writes = [WriteGetF, WriteFromBR, WriteFromPR, WriteFromAR,
+                       WriteAlloc];
+def : ReadAdvance<ReadMM, 0, !listconcat(I2ALUWrites, I2MMWrites,
+                                         I2IEU2Writes),
+                  !listconcat(!listsplat(-2, !size(I2ALUWrites)),
+                              !listsplat(1, !size(I2MMWrites)),
+                              !listsplat(-1, !size(I2IEU2Writes)))>;
+def : ReadAdvance<ReadAddr, 0, !listconcat([WriteLoad, WriteGetF],
+                                           I2MMWrites),
+                  !listconcat([-1, -1], !listsplat(-13, !size(I2MMWrites)))>;
 
 def : I2Write<WriteSetF, I2PortM23, 6>;
 def : I2Write<WriteGetF, I2PortM2,  5>;

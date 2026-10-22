@@ -77,3 +77,8 @@ def WriteSys : SchedWrite; // Everything a compiler does not schedule.
 // A compare and the one or two predicated moves of a select.
 def WriteSelect  : SchedWrite;
 def WriteFSelect : SchedWrite;
+
+// A general register's latency depends on what reads it as well as on what
+// writes it: these are the reads that differ from an ALU's.
+def ReadMM   : SchedRead; // A multimedia operand, shift count included.
+def ReadAddr : SchedRead; // The address of a load, store or prefetch.

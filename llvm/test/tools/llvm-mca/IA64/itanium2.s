@@ -66,13 +66,13 @@ nop.i 0
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      1     0.17                        add	r8 = r32, r33
 # CHECK-NEXT:  1      1     0.17                        cmp.eq	p6, p7 = r8, r9
-# CHECK-NEXT:  1      2     0.17                        padd1	r8 = r32, r33
-# CHECK-NEXT:  1      2     1.00                        pmpy2.r	r8 = r32, r33
-# CHECK-NEXT:  1      2     0.50                        popcnt	r8 = r32
-# CHECK-NEXT:  1      2     0.50                        shl	r8 = r32, r33
-# CHECK-NEXT:  1      2     0.50                        mix1.l	r8 = r32, r33
-# CHECK-NEXT:  1      1     0.50                        pshr2	r8 = r32, 3
-# CHECK-NEXT:  1      1     0.50                        mux1	r8 = r32, @rev
+# CHECK-NEXT:  1      3     0.17                        padd1	r8 = r32, r33
+# CHECK-NEXT:  1      3     1.00                        pmpy2.r	r8 = r32, r33
+# CHECK-NEXT:  1      3     0.50                        popcnt	r8 = r32
+# CHECK-NEXT:  1      3     0.50                        shl	r8 = r32, r33
+# CHECK-NEXT:  1      3     0.50                        mix1.l	r8 = r32, r33
+# CHECK-NEXT:  1      3     0.50                        pshr2	r8 = r32, 3
+# CHECK-NEXT:  1      3     0.50                        mux1	r8 = r32, @rev
 # CHECK-NEXT:  1      1     0.50                        extr.u	r8 = r32, 3, 5
 # CHECK-NEXT:  1      1     0.50                        dep	r8 = r32, r33, 8, 4
 # CHECK-NEXT:  1      1     0.50                        tbit.z	p6, p7 = r32, 3

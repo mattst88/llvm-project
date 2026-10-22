@@ -20,11 +20,11 @@ define i32 @get() {
 
 define void @set(i32 %m) {
 ; CHECK-LABEL: set:
-; CHECK:         mov r14 = ar.fpsr
-; CHECK-NEXT:    dep.z r15 = r32, 1, 2
-; CHECK-NEXT:    mov r16 = 99 ;;
-; CHECK-NEXT:    shr.u r15 = r16, r15 ;;
-; CHECK-NEXT:    dep r14 = r15, r14, 10, 2 ;;
+; CHECK:         dep.z r14 = r32, 1, 2
+; CHECK-NEXT:    mov r15 = 99
+; CHECK-NEXT:    mov r16 = ar.fpsr ;;
+; CHECK-NEXT:    shr.u r14 = r15, r14 ;;
+; CHECK-NEXT:    dep r14 = r14, r16, 10, 2 ;;
 ; CHECK-NEXT:    mov ar.fpsr = r14
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   call void @llvm.set.rounding(i32 %m)

@@ -395,7 +395,7 @@ def RELOAD_PR : IA64Pseudo<(outs PRValue:$dst), (ins i64imm:$fi), "#RELOAD_PR",
 // ld.sa and ld.c.clr once nothing can come between them, or, if something
 // did, a copy of zero and the plain load.
 let mayLoad = 1, hasSideEffects = 0 in {
-let SchedRW = [WriteLoad] in {
+let SchedRW = [WriteLoad, ReadAddr] in {
 def SPEC_LD_GR : IA64Pseudo<(outs GR:$r1),
                             (ins GR:$r3, i64imm:$opc, i64imm:$pair),
                             "#SPEC_LD_GR", []>;
@@ -404,7 +404,7 @@ def CHECK_LD_GR : IA64Pseudo<(outs GR:$r1),
                              (ins GR:$r3, GR:$old, i64imm:$opc, i64imm:$pair),
                              "#CHECK_LD_GR", []>;
 }
-let SchedRW = [WriteFLoad] in {
+let SchedRW = [WriteFLoad, ReadAddr] in {
 def SPEC_LD_FR : IA64Pseudo<(outs FR:$f1),
                             (ins GR:$r3, i64imm:$opc, i64imm:$pair),
                             "#SPEC_LD_FR", []>;
@@ -543,7 +543,7 @@ def PMPYSHR2_U : I1<1, "pmpyshr2.u">;
 
 def MPY4      : I2<1, 0, 0, 3, 1, "mpy4">;
 def MPYSHL4   : I2<1, 0, 0, 3, 3, "mpyshl4">;
-let SchedRW = [WriteMMMul] in {
+let SchedRW = [WriteMMMul, ReadMM, ReadMM] in {
 def PMPY2_R   : I2<0, 2, 1, 3, 1, "pmpy2.r">;
 def PMPY2_L   : I2<0, 2, 1, 3, 3, "pmpy2.l">;
 }
