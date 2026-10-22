@@ -45,6 +45,7 @@ FunctionPass *createIA64InsertStopsPass();
 FunctionPass *createIA64LocalDynamicTLSPass();
 FunctionPass *createIA64PackGroupsPass();
 FunctionPass *createIA64SpeculateLoadsPass();
+FunctionPass *createIA64SplitSingleAddsPass();
 FunctionPass *createIA64PostIncPointersPass();
 FunctionPass *createIA64RematInCallLoopsPass();
 InstructionSelector *
@@ -73,6 +74,7 @@ void initializeIA64LocalDynamicTLSPass(PassRegistry &);
 void initializeIA64PackGroupsPass(PassRegistry &);
 void initializeIA64RematInCallLoopsPass(PassRegistry &);
 void initializeIA64SpeculateLoadsPass(PassRegistry &);
+void initializeIA64SplitSingleAddsPass(PassRegistry &);
 void initializeIA64PostIncPointersPass(PassRegistry &);
 
 struct IA64LoopAliasVersioningPass
