@@ -12,6 +12,7 @@
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/MC/MCInstBuilder.h"
@@ -839,6 +840,40 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   }
   MI.eraseFromParent();
   return true;
+}
+
+bool IA64InstrInfo::cancelsFill(const MachineInstr &Load,
+                                const MachineInstr &Store, AAResults *AA) {
+  if (!Load.mayLoad() || Load.mayStore() || Load.getNumExplicitDefs() == 0 ||
+      !Store.mayStore() || Store.isCall())
+    return false;
+  const MachineOperand &Def = Load.getOperand(0);
+  if (!Def.isReg() || !Def.isDef() || !IA64::GRRegClass.contains(Def.getReg()))
+    return false;
+  // Only a store to the bytes the load read cancels the fill, so a store
+  // that merely may alias them is left alone: keeping it out of the load
+  // use's group would cost a stop wherever two buffers might overlap.
+  if (!Load.hasOneMemOperand() || !Store.hasOneMemOperand())
+    return false;
+  const MachineMemOperand &L = **Load.memoperands_begin();
+  const MachineMemOperand &S = **Store.memoperands_begin();
+  if (!L.getSize().hasValue() || L.getSize().isScalable() ||
+      !S.getSize().hasValue() || S.getSize().isScalable())
+    return false;
+  int64_t LBegin = L.getOffset(), SBegin = S.getOffset();
+  int64_t LEnd = LBegin + L.getSize().getValue().getFixedValue();
+  int64_t SEnd = SBegin + S.getSize().getValue().getFixedValue();
+  const Value *LV = L.getValue(), *SV = S.getValue();
+  const PseudoSourceValue *LP = L.getPseudoValue(), *SP = S.getPseudoValue();
+  if ((LV && LV == SV) || (LP && LP == SP))
+    return LBegin < SEnd && SBegin < LEnd;
+  if (!AA || !LV || !SV)
+    return false;
+  int64_t Min = std::min(LBegin, SBegin);
+  AliasResult R = AA->alias(
+      MemoryLocation(LV, LocationSize::precise(LEnd - Min), L.getAAInfo()),
+      MemoryLocation(SV, LocationSize::precise(SEnd - Min), S.getAAInfo()));
+  return R == AliasResult::MustAlias || R == AliasResult::PartialAlias;
 }
 
 bool IA64InstrInfo::isConditionalBranch(const MachineInstr &MI) {

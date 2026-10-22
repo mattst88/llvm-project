@@ -29,6 +29,7 @@ add_llvm_target(IA64CodeGen
   IA64ExpandBranches.cpp
   IA64FoldPredicatedCopies.cpp
   IA64HoistFallThrough.cpp
+  IA64HoistLoadUses.cpp
   IA64HoistRestores.cpp
   IA64IfConversion.cpp
   IA64LoopAliasVersioning.cpp

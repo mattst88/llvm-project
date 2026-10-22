@@ -1070,6 +1070,12 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         Items[End - 1].Stop = SecondStop;
         return false;
       };
+      auto StartsGroup = [&](unsigned B, unsigned E) {
+        return any_of(make_range(Items.begin() + B, Items.begin() + E),
+                      [](const Item &It) {
+                        return It.MI->getAsmPrinterFlag(IA64::StartsGroup);
+                      });
+      };
       bool Moved = false;
       // A group that continues from the block before or into the block after
       // has instructions this does not see, unless they are in Next.
@@ -1084,7 +1090,9 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         if (!crossesGroups(Items[From]))
           continue;
         const MachineInstr &MI = *Items[From].MI;
-        bool Legal = Items[Mid].MI->getOpcode() != IA64::ALLOC;
+        // Nor into a group that must start after the one it leaves.
+        bool Legal =
+            Items[Mid].MI->getOpcode() != IA64::ALLOC && !StartsGroup(Mid, End);
         for (unsigned I = From + 1; I != Mid && Legal; ++I)
           Legal = !isFixed(*Items[I].MI) && !mustPrecede(MI, *Items[I].MI, TRI);
         for (unsigned I = Mid; I != End && Legal; ++I)
@@ -1114,7 +1122,7 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         if (!crossesGroups(Items[From]))
           continue;
         const MachineInstr &MI = *Items[From].MI;
-        bool Legal = true;
+        bool Legal = !MI.getAsmPrinterFlag(IA64::StartsGroup);
         for (unsigned I = Mid; I != From && Legal; ++I)
           Legal = !isFixed(*Items[I].MI) && !mustPrecede(*Items[I].MI, MI, TRI);
         for (unsigned I = Begin; I != Mid && Legal; ++I)

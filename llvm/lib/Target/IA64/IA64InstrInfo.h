@@ -28,6 +28,9 @@ namespace IA64 {
 enum : uint8_t {
   // A stop follows the instruction.
   StopAfter = MachineInstr::TAsmComments,
+  // A stop precedes the instruction, which IA64InsertStops records where it
+  // needs one and IA64PackGroups keeps.
+  StartsGroup = MachineInstr::TAsmComments << 1,
 };
 } // namespace IA64
 
@@ -204,6 +207,14 @@ public:
 
   /// Whether \p MI is a conditional branch on a compare result.
   static bool isConditionalBranch(const MachineInstr &MI);
+
+  /// Whether \p Store, after \p Load in its block, overwrites some of what
+  /// Load read into a general register, as far as alias analysis can tell. On
+  /// Itanium 2 such a store cancels the fill of L1D that the load started,
+  /// unless an instruction that reads the loaded value issued in a group before
+  /// the store's.
+  static bool cancelsFill(const MachineInstr &Load, const MachineInstr &Store,
+                          AAResults *AA);
 
   /// How an FP compare treats unordered operands: as the instruction for its
   /// condition does, raising invalid only for a signaling NaN, or always

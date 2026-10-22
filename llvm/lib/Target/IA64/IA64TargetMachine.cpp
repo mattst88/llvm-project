@@ -54,6 +54,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64ExpandSpeculationPass(PR);
   initializeIA64FoldPredicatedCopiesPass(PR);
   initializeIA64HoistFallThroughPass(PR);
+  initializeIA64HoistLoadUsesPass(PR);
   initializeIA64HoistRestoresPass(PR);
   initializeIA64IfConversionPass(PR);
   initializeIA64InsertStopsPass(PR);
@@ -237,6 +238,8 @@ void IA64PassConfig::addPreEmitPass() {
 void IA64PassConfig::addPreEmitPass2() {
   // Block placement is final, so branches can be split from their compares.
   addPass(createIA64ExpandBranchesPass());
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createIA64HoistLoadUsesPass());
   // Nothing may add, remove or reorder an instruction after this, except
   // within the instruction groups it forms.
   addPass(createIA64InsertStopsPass());

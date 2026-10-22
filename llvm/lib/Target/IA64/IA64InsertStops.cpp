@@ -18,10 +18,15 @@
 // group that a taken branch enters is new, and assuming otherwise only adds
 // stops.
 //
-// There are two exceptions. Instructions under predicates that exclude each
-// other never both take effect, so they may share a group even when they
-// touch the same register. And compares that all set a predicate, or all
-// clear it (parallel compares), give the same result in any order.
+// A store over what an integer load read also starts a group after one that
+// read the loaded value. Itanium 2 otherwise cancels the fill of L1D the load
+// started (see IA64HoistLoadUses.cpp).
+//
+// The dependency rules have two exceptions. Instructions under predicates
+// that exclude each other never both take effect, so they may share a group
+// even when they touch the same register. And compares that all set a
+// predicate, or all clear it (parallel compares), give the same result in
+// any order.
 //
 // A stop belongs to the instruction it follows, which is how the MC layer
 // represents it, so it is recorded as an asm printer flag on the
@@ -35,6 +40,7 @@
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/LazyMachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -52,6 +58,10 @@ static cl::opt<bool> EnableFallThrough("ia64-fallthrough-groups", cl::Hidden,
                                        cl::init(true));
 static cl::opt<bool> StopBeforeJoin("ia64-stop-before-join", cl::Hidden,
                                     cl::init(true));
+static cl::opt<bool> StopAfterLoadUse("ia64-stop-after-load-use", cl::Hidden,
+                                      cl::init(true));
+static cl::opt<unsigned> LoadUseGroups("ia64-load-use-groups", cl::Hidden,
+                                       cl::init(2));
 
 namespace {
 
@@ -68,6 +78,7 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesAll();
     AU.addRequired<LazyMachineBlockFrequencyInfoPass>();
+    AU.addRequired<AAResultsWrapperPass>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
@@ -82,6 +93,7 @@ char IA64InsertStops::ID = 0;
 
 INITIALIZE_PASS_BEGIN(IA64InsertStops, DEBUG_TYPE, PASS_NAME, false, false)
 INITIALIZE_PASS_DEPENDENCY(LazyMachineBlockFrequencyInfoPass)
+INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_END(IA64InsertStops, DEBUG_TYPE, PASS_NAME, false, false)
 
 // Registers whose value is constant regardless of writes.
@@ -135,6 +147,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   // Computed only for a block that needs it.
   auto &LazyMBFI = getAnalysis<LazyMachineBlockFrequencyInfoPass>();
+  AAResults *AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
 
   // Registers written in the current group, and those written by an F-unit
   // instruction.
@@ -148,6 +161,13 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   // the group, the qualifying predicate of its writes (P0 if they differ).
   IA64ExclusivePredicates Exclusive(TRI);
   std::vector<MCRegister> WriterQP(TRI.getNumRegs());
+  // The integer load in the block whose value each register holds, if it
+  // issued at most LoadUseGroups groups ago and no call followed it, with
+  // the number of the group it issued in, and the loads whose values the
+  // current group reads.
+  std::vector<std::pair<MachineInstr *, unsigned>> LoadedBy(TRI.getNumRegs());
+  SmallVector<MachineInstr *, 4> ReadLoads;
+  unsigned GroupNumber = 0;
   // The last instruction of the current group.
   MachineInstr *Last = nullptr;
   // Whether the current group started in an earlier block.
@@ -171,6 +191,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     NewFrame = false;
     RaisedFlags = false;
     Joined = false;
+    ReadLoads.clear();
+    ++GroupNumber;
   };
 
   // Records the stops of MBB, and returns how many there are and whether
@@ -180,6 +202,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     // Which predicates exclude each other depends on the path, so only the
     // writes carry over from the block before.
     Exclusive.clear();
+    llvm::fill(LoadedBy, std::make_pair(nullptr, 0));
     // The last instruction of the block that emits code.
     MachineInstr *BlockLast = nullptr;
 
@@ -249,11 +272,19 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       bool UsesFPSR = MI.readsRegister(IA64::AR40, &TRI);
       bool SetsFPSR = MI.definesRegister(IA64::AR40, &TRI);
 
+      bool AfterLoadUse =
+          StopAfterLoadUse && any_of(ReadLoads, [&](MachineInstr *Load) {
+            return IA64InstrInfo::cancelsFill(*Load, MI, AA);
+          });
+      if (AfterLoadUse)
+        MI.setAsmPrinterFlag(IA64::StartsGroup);
+
       // alloc and flushrs must be first in their group. A call or return
       // must not share a group with an alloc; a tail call is exempt, though
       // it acts as both.
       if (MI.getOpcode() == IA64::ALLOC || MI.getOpcode() == IA64::FLUSHRS ||
           ReadsRSE(MI) || (RaisedFlags && (ReadsFlags || SetsFPSR)) ||
+          AfterLoadUse ||
           (NewFrame && (MI.isCall() || MI.isReturn()) &&
            MI.getOpcode() != IA64::BR_TAIL) ||
           any_of(MI.operands(), [&](const MachineOperand &MO) {
@@ -293,6 +324,20 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         if (Unit == IA64II::UnitF)
           WrittenByF.set(MO.getReg().id());
       }
+      for (const MachineOperand &MO : MI.operands()) {
+        if (!MO.isReg() || !MO.getReg().isPhysical())
+          continue;
+        auto [Load, Group] = LoadedBy[MO.getReg().id()];
+        if (MO.isUse() && Load && GroupNumber - Group <= LoadUseGroups)
+          ReadLoads.push_back(Load);
+      }
+      if (MI.isCall())
+        llvm::fill(LoadedBy, std::make_pair(nullptr, 0));
+      for (const MachineOperand &MO : MI.operands())
+        if (MO.isReg() && MO.isDef() && MO.getReg().isPhysical())
+          LoadedBy[MO.getReg().id()] = {
+              MO.getOperandNo() == 0 && MI.mayLoad() ? &MI : nullptr,
+              GroupNumber};
       Last = BlockLast = &MI;
 
       Exclusive.step(MI);
@@ -326,8 +371,10 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     std::vector<MCRegister> WriterQP0 = WriterQP;
     bool NewFrame0 = NewFrame, RaisedFlags0 = RaisedFlags;
     auto Restore = [&] {
-      for (MachineInstr &MI : MBB)
+      for (MachineInstr &MI : MBB) {
         MI.clearAsmPrinterFlag(IA64::StopAfter);
+        MI.clearAsmPrinterFlag(IA64::StartsGroup);
+      }
       Before->clearAsmPrinterFlag(IA64::StopAfter);
       Written = Written0;
       WrittenByF = WrittenByF0;
