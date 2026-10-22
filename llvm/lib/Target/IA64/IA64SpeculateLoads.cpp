@@ -23,8 +23,10 @@
 // a block from near the same address, only the first moves, since a miss
 // brings in the line the others read. Nor does a load move past a branch on
 // a value its address is computed from, which resolves no sooner than the
-// address is ready. Before register allocation the pair is SPEC_LD and
-// CHECK_LD, with the check's result tied to the early load's.
+// address is ready, or past one on a value loaded from near its address,
+// whose compare holds the early load in its group until that load's data
+// comes. Before register allocation the pair is SPEC_LD and CHECK_LD, with
+// the check's result tied to the early load's.
 //
 // Other loads stay, but the instructions that compute their address move up
 // in the same way, if the load is reached often enough. Integer operations
@@ -121,6 +123,11 @@ static cl::opt<bool> SkipAddressBranches(
     "ia64-speculate-skip-address-branches", cl::init(true), cl::Hidden,
     cl::desc("Do not issue a load early past a branch that tests a value "
              "its address is computed from"));
+
+static cl::opt<bool> SkipNearBranches(
+    "ia64-speculate-skip-near-branches", cl::init(true), cl::Hidden,
+    cl::desc("Do not issue a load early past a branch that tests a value "
+             "loaded from near its address"));
 
 static cl::opt<bool> NoBranchDelay(
     "ia64-early-no-branch-delay", cl::init(true), cl::Hidden,
@@ -520,6 +527,31 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
           });
         }))
       return false;
+  }
+  // Nor does one gain past a branch that tests a value loaded from near its
+  // address. The compare waits for that load, and the group it waits in
+  // holds the early load too: from the same line the early load then gets
+  // its data later than in the next group, and from another one it starts
+  // its miss only when the group is released. Its address can still be
+  // ready by then.
+  if (SkipNearBranches) {
+    auto [Base, Offset] = splitAddress(Addr);
+    if (any_of(W.Branches, [&](const MachineInstr *Br) {
+          return any_of(Br->uses(), [&](const MachineOperand &MO) {
+            if (!MO.isReg() || !MO.getReg().isVirtual())
+              return false;
+            const MachineInstr *Def = MRI->getVRegDef(MO.getReg());
+            if (!Def || !getForms(Def->getOpcode()) ||
+                !Def->getOperand(1).isReg())
+              return false;
+            auto [B, O] = splitAddress(Def->getOperand(1).getReg());
+            return B == Base && O - Offset < 128 && Offset - O < 128;
+          });
+        })) {
+      Walk WA = walkUp(Load, Addr, AddressMinUse, &Load);
+      NumAddresses += moveChain(WA, Load, /*IsAddress=*/true);
+      return false;
+    }
   }
   MachineBasicBlock *MBB = W.MBB;
   MachineBasicBlock::iterator At = W.At;

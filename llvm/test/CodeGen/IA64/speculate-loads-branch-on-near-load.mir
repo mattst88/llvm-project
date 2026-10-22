@@ -1,0 +1,107 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-speculate-loads \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-speculate-loads \
+# RUN:   -ia64-speculate-skip-near-branches=false -verify-machineinstrs %s \
+# RUN:   -o - | FileCheck %s --check-prefix=OFF
+
+# A load is not issued early past a branch that tests a value loaded from
+# within 128 bytes of its address, as a hash chain's next pointer past the
+# compare of the node's key: the compare waits for the key, and its group
+# holds the early load. Its address is still computed early. A key further
+# away, or from another base, does not stop it.
+
+# CHECK-LABEL: name: near_key
+# CHECK:      bb.0:
+# CHECK:        [[A:%[0-9]+]]:gr = ADDS 16, %3
+# CHECK-NOT:    SPEC_LD_GR
+# CHECK:      bb.1:
+# CHECK:        LD8 [[A]], 0, $p0
+# OFF-LABEL:  name: near_key
+# OFF:        SPEC_LD_GR
+---
+name:            near_key
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = LD8 %1, 0, $p0 :: (load (s64))
+    %7:gr = ADDS 8, %3, $p0
+    %4:gr = LD4 %7, 0, $p0 :: (load (s32))
+    BRCC %bb.1, 7, %4, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    ST4 %0, $r0, 0, $p0 :: (store (s32))
+    %5:gr = ADDS 16, %3, $p0
+    %6:gr = LD8 %5, 0, $p0 :: (load (s64))
+    $r8 = ADDS 1, %6, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# CHECK-LABEL: name: far_key
+# CHECK:      bb.0:
+# CHECK:        SPEC_LD_GR
+# CHECK:      bb.1:
+# CHECK:        CHECK_LD_GR
+---
+name:            far_key
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = LD8 %1, 0, $p0 :: (load (s64))
+    %7:gr = ADDS 144, %3, $p0
+    %4:gr = LD4 %7, 0, $p0 :: (load (s32))
+    BRCC %bb.1, 7, %4, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    ST4 %0, $r0, 0, $p0 :: (store (s32))
+    %5:gr = ADDS 16, %3, $p0
+    %6:gr = LD8 %5, 0, $p0 :: (load (s64))
+    $r8 = ADDS 1, %6, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# CHECK-LABEL: name: other_base
+# CHECK:      bb.0:
+# CHECK:        SPEC_LD_GR
+# CHECK:      bb.1:
+# CHECK:        CHECK_LD_GR
+---
+name:            other_base
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    %3:gr = LD8 %1, 0, $p0 :: (load (s64))
+    %7:gr = ADDS 8, %0, $p0
+    %4:gr = LD4 %7, 0, $p0 :: (load (s32))
+    BRCC %bb.1, 7, %4, %2, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    ST4 %0, $r0, 0, $p0 :: (store (s32))
+    %5:gr = ADDS 16, %3, $p0
+    %6:gr = LD8 %5, 0, $p0 :: (load (s64))
+    $r8 = ADDS 1, %6, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.2:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
