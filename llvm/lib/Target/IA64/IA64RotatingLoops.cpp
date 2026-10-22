@@ -69,6 +69,11 @@ static cl::opt<unsigned> RotatingMinStages(
     cl::desc("The fewest stages a loop pipelined with rotating registers "
              "may have"));
 
+static cl::opt<bool> KeepCycles(
+    "ia64-rotating-keep-cycles", cl::Hidden, cl::init(true),
+    cl::desc("Group the kernel of a loop pipelined with rotating registers "
+             "by the cycles of its schedule"));
+
 // Rotating general registers leave the rest of the 88 locals to the rest of
 // the function.
 static const unsigned MaxRotatingGRs = 64;
@@ -579,6 +584,12 @@ void RotatingExpander::expand(LiveIntervals &LIS) {
     MI->removeFromParent();
     BB->insert(BB->getFirstTerminator(), MI);
   }
+  // The schedule spaces each result from its reads by the latency in
+  // cycles, which instruction groups keep only if they follow the cycles.
+  if (KeepCycles)
+    for (auto [Prev, MI] : zip(Order, drop_begin(Order)))
+      if (MS->getCycle(MI) != MS->getCycle(Prev))
+        MI->setAsmPrinterFlag(IA64::StartsCycle);
   for (MachineInstr &MI : make_early_inc_range(*BB))
     if (MI.isDebugInstr() || MI.isTerminator())
       MI.eraseFromParent();

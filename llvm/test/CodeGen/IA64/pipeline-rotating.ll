@@ -5,6 +5,8 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
 ; RUN:   -ia64-rotating-max-stages=1 -pass-remarks-analysis=pipeliner \
 ; RUN:   -o /dev/null < %s 2>&1 | FileCheck %s --check-prefix=CAP
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefix=CYC
 
 ; A pipelined loop is a single kernel that br.ctop runs ar.lc + ar.ec times,
 ; one stage predicate per stage turning on as the loop fills and off as it
@@ -184,6 +186,14 @@ exit:
 ; own to rotate into, and is written over the reciprocal in place, not to a
 ; static register that each pass copies the reciprocal into.
 define double @recip_sum(ptr noalias %u, i32 %k, i64 %n) {
+; The kernel issues in six groups of two F-unit instructions each, the
+; cycles of its schedule. A stop only where a group reads what it wrote
+; leaves four, one of six F-unit instructions, which take seven cycles.
+; CYC-LABEL: recip_sum:
+; CYC:         [[LOOP:.LBB[0-9]+_[0-9]+]]:
+; CYC-COUNT-5: ;;{{$}}
+; CYC-NOT:     ;;{{$}}
+; CYC:         br.ctop.sptk.few [[LOOP]] ;;
 ; MIN-LABEL: recip_sum:
 ; MIN:       .LBB{{[0-9]+}}_[[LOOP:[0-9]+]]:
 ; MIN-NOT:   mov f

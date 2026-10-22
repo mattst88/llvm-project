@@ -31,6 +31,9 @@ enum : uint8_t {
   // A stop precedes the instruction, which IA64InsertStops records where it
   // needs one and IA64PackGroups keeps.
   StartsGroup = MachineInstr::TAsmComments << 1,
+  // The instruction starts a cycle of a software-pipelined kernel, whose
+  // schedule IA64InsertStops keeps by ending the group before it.
+  StartsCycle = MachineInstr::TAsmComments << 2,
 };
 } // namespace IA64
 

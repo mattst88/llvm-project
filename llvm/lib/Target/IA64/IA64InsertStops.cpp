@@ -284,7 +284,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       // it acts as both.
       if (MI.getOpcode() == IA64::ALLOC || MI.getOpcode() == IA64::FLUSHRS ||
           ReadsRSE(MI) || (RaisedFlags && (ReadsFlags || SetsFPSR)) ||
-          AfterLoadUse ||
+          AfterLoadUse || MI.getAsmPrinterFlag(IA64::StartsCycle) ||
           (NewFrame && (MI.isCall() || MI.isReturn()) &&
            MI.getOpcode() != IA64::BR_TAIL) ||
           any_of(MI.operands(), [&](const MachineOperand &MO) {

@@ -905,11 +905,12 @@ bool IA64InstrInfo::isPredicated(const MachineInstr &MI) const {
 // operands do not express. Frame setup and destroy instructions also stay
 // put, since the unwind directives describe them by position, except for
 // the restores of ar.pfs, ar.lc and the branch registers, which they do not
-// describe.
+// describe. The cycles of a software-pipelined kernel stay in order too.
 bool IA64InstrInfo::isSchedulingBoundary(const MachineInstr &MI,
                                          const MachineBasicBlock *MBB,
                                          const MachineFunction &MF) const {
-  if (MI.getOpcode() == IA64::ALLOC || MI.getFlag(MachineInstr::FrameSetup))
+  if (MI.getOpcode() == IA64::ALLOC || MI.getFlag(MachineInstr::FrameSetup) ||
+      MI.getAsmPrinterFlag(IA64::StartsCycle))
     return true;
   if (MI.getFlag(MachineInstr::FrameDestroy) &&
       MI.getOpcode() != IA64::MOV_AR_RESTORE && MI.getOpcode() != IA64::MOV_BR)
