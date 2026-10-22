@@ -30,7 +30,8 @@ define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-NEXT:  add [[S]] = [[S]], [[V]] ;;
 ; CHECK-NEXT:  mov ar.lc = [[LC2]]
 ; CHECK-NEXT:  cmp.eq p8, p9 = 0, [[LEFT]]
-; CHECK-NEXT:  (p8) br.cond.dptk.few .LBB0_[[EXIT:[0-9]+]]{{$}}
+; CHECK-NEXT:  (p8) br.cond.dptk.few .LBB0_[[EXIT:[0-9]+]] ;;
+; CHECK-NEXT:  .p2align 5
 ; CHECK-NEXT:  .LBB0_[[REST]]:
 ; CHECK:       ld8
 ; CHECK:       add [[S]] = [[S]],
@@ -45,6 +46,7 @@ define i64 @sum(ptr %a, i64 %n) {
 ; COPY:        ld8 [[V:r[0-9]+]] = [r32], 8{{$}}
 ; COPY-NEXT:   br.cloop.sptk.few .LBB0_[[KERNEL:[0-9]+]]
 ; COPY-NEXT:   br.cond.sptk.few .LBB0_[[EPILOGUE:[0-9]+]] ;;
+; COPY-NEXT:   .p2align 5
 ; COPY-NEXT:   .LBB0_[[KERNEL]]:
 ; COPY:        add [[S:r[0-9]+]] = [[S]], [[V]]
 ; COPY-NEXT:   ld8 [[V]] = [r32], 8
@@ -54,6 +56,7 @@ define i64 @sum(ptr %a, i64 %n) {
 ;
 ; OFF-LABEL:   sum:
 ; OFF:         mov ar.lc =
+; OFF-NEXT:    .p2align 5
 ; OFF-NEXT:    .LBB0_[[LOOP:[0-9]+]]:
 ; OFF:         ld8
 ; OFF:         br.cloop.sptk.few .LBB0_[[LOOP]] ;;

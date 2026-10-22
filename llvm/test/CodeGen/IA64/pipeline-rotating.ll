@@ -24,6 +24,7 @@ define i64 @sum(ptr %a, i64 %n) {
 ; CHECK:       mov r32 = r0
 ; CHECK:       mov ar.ec = 2
 ; CHECK-NEXT:  mov pr.rot = 65536 ;;
+; CHECK-NEXT:  .p2align 5
 ; CHECK-NEXT:  .LBB0_[[LOOP:[0-9]+]]:
 ; CHECK:       (p17) add r32 = r33, r35
 ; CHECK-NEXT:  (p16) ld8 r34 = [[[A]]], 8
@@ -68,6 +69,7 @@ define void @axpy(ptr noalias %y, ptr noalias %x, double %a, i64 %n) {
 ; CHECK-LABEL: axpy:
 ; CHECK:       mov ar.ec = 11
 ; CHECK-NEXT:  mov pr.rot = 65536 ;;
+; CHECK-NEXT:  .p2align 5
 ; CHECK-NEXT:  .LBB1_[[LOOP:[0-9]+]]:
 ; CHECK:       (p26) stfd [r32] = f36, 8
 ; CHECK-NEXT:  (p16) ldfd f37 = [r33], 8

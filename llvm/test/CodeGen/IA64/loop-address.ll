@@ -12,6 +12,7 @@ define void @schedule(ptr %w) {
 ; CHECK-NEXT:  adds r16 = 36, r32
 ; CHECK-NEXT:  adds r17 = 56, r32
 ; CHECK-NEXT:  mov r18 = 48 ;;
+; CHECK-NEXT:  .p2align 5
 ; CHECK-NEXT:  .LBB0_1:
 ; CHECK:       ld4 r19 = [r17], 4
 ; CHECK-NEXT:  ld4 r20 = [r16], 4
