@@ -406,15 +406,10 @@ static Dispersal plan(MutableArrayRef<Item> Items, Dispersal D) {
       bool Fits;
     };
     SmallVector<Tail, 16> Tails;
-    // The cost of the instructions before the horizon if this bundle has the
-    // given template. Every choice packs the same ones, so that one that
-    // fills its last bundle further does not look worse.
-    auto Try = [&](int Template, Dispersal &Out) {
-      Out = D;
-      Items[Next].Template = Template;
-      size_t I = Next;
-      do {
-        if (I != Next && Items[I].Template == -1) {
+    // Add to \p Out the cost of the bundles from \p I to the horizon.
+    auto Rest = [&](size_t I, Dispersal &Out) {
+      while (I < Horizon) {
+        if (Items[I].Template == -1) {
           for (const Tail &T : Tails) {
             if (T.At == I && T.In == Out) {
               Out = T.Out;
@@ -437,8 +432,17 @@ static Dispersal plan(MutableArrayRef<Item> Items, Dispersal D) {
         if (Taken == 0)
           return false;
         I += Taken;
-      } while (I < Horizon);
+      }
       return true;
+    };
+    // The cost of the instructions before the horizon if this bundle has the
+    // given template. Every choice packs the same ones, so that one that
+    // fills its last bundle further does not look worse.
+    auto Try = [&](int Template, Dispersal &Out) {
+      Out = D;
+      Items[Next].Template = Template;
+      unsigned Taken = Pack(Next, Horizon, Out);
+      return Taken != 0 && Rest(Next + Taken, Out);
     };
     // The templates to try for a bundle starting at \p At: the assembler's,
     // as -1, and the others that it does not choose.
@@ -480,11 +484,17 @@ static Dispersal plan(MutableArrayRef<Item> Items, Dispersal D) {
           return T.At == Second && T.In == Bundle;
         });
         if (Seen == Thens.end()) {
+          // This bundle packs the same whatever the next one's template is,
+          // since only that it has a directive ends this one.
+          SmallVector<int, 16> Seconds = Choices(Second);
+          Items[Second].Template = Seconds[1];
+          Dispersal Head = D;
+          unsigned Taken = Pack(Next, Horizon, Head);
           Dispersal Least = Dispersal::worst();
-          for (int Template : drop_begin(Choices(Second))) {
+          for (int Template : drop_begin(Seconds)) {
             Items[Second].Template = Template;
-            Dispersal Cost;
-            if (Try(First, Cost) && Cost < Least)
+            Dispersal Cost = Head;
+            if (Taken != 0 && Rest(Next + Taken, Cost) && Cost < Least)
               Least = Cost;
           }
           Items[Second].Template = -1;
