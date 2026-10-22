@@ -233,6 +233,11 @@ void IA64TTIImpl::getUnrollingPreferences(
 
   UP.Partial = UP.Runtime = UP.UpperBound = true;
   UP.PartialThreshold = UnrollThreshold;
+  // A loop of a known trip count that the unroll factor does not divide
+  // keeps an exit inside its unrolled body, and the pipeliner only takes a
+  // loop of one block.
+  if (SE.getSmallConstantTripCount(L))
+    UP.AllowRemainder = false;
 
   // Unrolling cannot shorten an FP reduction that may not be reassociated:
   // each copy still waits for the last.  The pipeliner overlaps the rest of

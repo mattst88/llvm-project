@@ -174,3 +174,48 @@ for.body:
 exit:
   ret void
 }
+
+; A known trip count that the unroll factor would not divide leaves an exit
+; inside the unrolled body, which the pipeliner cannot take, so such a loop
+; stays rolled.
+define void @odd_count(ptr %a, ptr %b) {
+; CHECK-LABEL: @odd_count(
+; CHECK-COUNT-1: load double
+; CHECK-NOT:   load double
+; CHECK-LABEL: }
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %p = getelementptr double, ptr %a, i64 %i
+  %v = load double, ptr %p
+  %w = fmul double %v, 5.0e-1
+  %q = getelementptr double, ptr %b, i64 %i
+  store double %w, ptr %q
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, 1001
+  br i1 %done, label %exit, label %for.body
+exit:
+  ret void
+}
+
+; One that it divides still unrolls.
+define void @even_count(ptr %a, ptr %b) {
+; CHECK-LABEL: @even_count(
+; CHECK:       for.body:
+; CHECK-COUNT-4: load double
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %p = getelementptr double, ptr %a, i64 %i
+  %v = load double, ptr %p
+  %w = fmul double %v, 5.0e-1
+  %q = getelementptr double, ptr %b, i64 %i
+  store double %w, ptr %q
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, 1000
+  br i1 %done, label %exit, label %for.body
+exit:
+  ret void
+}
