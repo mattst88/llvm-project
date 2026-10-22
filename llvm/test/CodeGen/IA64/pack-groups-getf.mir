@@ -1,0 +1,22 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# Stores, setf and getf take ports M2 and M3 in order, and getf only M2, so
+# a getf after a setf in its group waits for the next cycle. Put first, it
+# issues with the setf.
+
+# CHECK-LABEL: setf_getf:
+# CHECK:       getf.sig r8 = f8
+# CHECK-NEXT:  setf.sig f9 = r32
+# CHECK-NEXT:  br.ret.sptk.many b0 ;;
+---
+name: setf_getf
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r32, $f8, $b0
+
+    $f9 = SETF_SIG killed $r32, $p0
+    $r8 = GETF_SIG killed $f8, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8, implicit killed $f9
+...

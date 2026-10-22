@@ -33,7 +33,9 @@
 //
 // The I slots of a cycle's bundles take ports I0 and I1 in order, so an
 // instruction that only I0 executes must be the first of its cycle on an I
-// port, or it and the rest of its bundle wait for the next.
+// port, or it and the rest of its bundle wait for the next. Likewise stores,
+// setf and getf take ports M2 and M3 in order, and getf only M2, so a getf
+// must be the first of them in its cycle.
 //
 // A label starts a bundle, so the replay restarts at each block that has
 // one. Blocks with anything the replay does not model are left alone.
@@ -96,9 +98,12 @@ struct Item {
   unsigned Units;
   bool LastSlot;
   bool IsLoad;
+  /// Whether it takes port M2 or M3, as stores, setf and getf do.
   bool IsStore;
   /// Whether only port I0 executes it.
   bool I0Only;
+  /// Whether only port M2 executes it.
+  bool M2Only;
   /// Whether it is a conditional branch, after which the code that runs may
   /// end.
   bool IsExit;
@@ -174,7 +179,8 @@ struct Dispersal {
     unsigned Port = Unit == IA64II::UnitL ? IA64II::UnitI : Unit;
     unsigned Limit = Port == IA64II::UnitM ? 4 : Port == IA64II::UnitB ? 3 : 2;
     if (Ports[Port] == Limit || (It.IsLoad && Loads == 2) ||
-        (It.IsStore && Stores == 2) || (It.I0Only && Ports[Port] != 0))
+        (It.IsStore && Stores == 2) || (It.I0Only && Ports[Port] != 0) ||
+        (It.M2Only && Stores != 0))
       newCycle(1);
     wait(It);
     ++Ports[Port];
@@ -490,13 +496,14 @@ static unsigned getUnits(const MachineInstr &MI, const MCInstrInfo &MCII,
   return IA64::getSlotUnits(Inst, MCII, MRI);
 }
 
-/// The index of the scheduling model's port I0, or 0 if it has none.
-static unsigned getPortI0(const TargetSchedModel &SM) {
+/// The index of the scheduling model's resource \p Name, or 0 if it has
+/// none.
+static unsigned getPort(const TargetSchedModel &SM, StringRef Name) {
   if (!SM.hasInstrSchedModel())
     return 0;
   const MCSchedModel &M = *SM.getMCSchedModel();
   for (unsigned I = 1; I != M.getNumProcResourceKinds(); ++I)
-    if (StringRef(M.getProcResource(I)->Name) == "I2PortI0")
+    if (M.getProcResource(I)->Name == Name)
       return I;
   return 0;
 }
@@ -524,10 +531,10 @@ static bool isPrefetch(const MachineInstr &MI) {
   }
 }
 
-/// Whether the scheduling model has \p MI use port \p PortI0.
-static bool usesOnlyI0(const MachineInstr &MI, const TargetSchedModel &SM,
-                       unsigned PortI0) {
-  if (!PortI0)
+/// Whether the scheduling model has \p MI use the resource \p Port.
+static bool usesPort(const MachineInstr &MI, const TargetSchedModel &SM,
+                     unsigned Port) {
+  if (!Port)
     return false;
   const MCSchedClassDesc *SC = SM.resolveSchedClass(&MI);
   if (!SC->isValid())
@@ -535,7 +542,7 @@ static bool usesOnlyI0(const MachineInstr &MI, const TargetSchedModel &SM,
   return any_of(
       make_range(SM.getWriteProcResBegin(SC), SM.getWriteProcResEnd(SC)),
       [&](const MCWriteProcResEntry &E) {
-        return E.ProcResourceIdx == PortI0 && E.ReleaseAtCycle;
+        return E.ProcResourceIdx == Port && E.ReleaseAtCycle;
       });
 }
 
@@ -726,7 +733,9 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
   const MCInstrInfo &MCII = *STI.getInstrInfo();
   TargetSchedModel SM;
   SM.init(&STI);
-  unsigned PortI0 = getPortI0(SM);
+  unsigned PortI0 = getPort(SM, "I2PortI0");
+  unsigned PortM2 = getPort(SM, "I2PortM2");
+  unsigned PortM23 = getPort(SM, "I2PortM23");
   bool Changed = false;
 
   // The instructions since the last start of a bundle. After a block that
@@ -764,8 +773,10 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
             Units,
             (MI.getDesc().TSFlags & IA64II::LastSlot) != 0,
             MI.mayLoad(),
-            MI.mayStore() && !isPrefetch(MI),
-            usesOnlyI0(MI, SM, PortI0),
+            (MI.mayStore() && !isPrefetch(MI)) ||
+                usesPort(MI, SM, PortM23) || usesPort(MI, SM, PortM2),
+            usesPort(MI, SM, PortI0),
+            usesPort(MI, SM, PortM2),
             MI.isConditionalBranch(),
             MI.getAsmPrinterFlag(IA64::StopAfter)};
     for (const MachineOperand &MO : MI.explicit_operands()) {

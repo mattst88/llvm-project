@@ -4,8 +4,8 @@
 
 ; CHECK-LABEL: each:
 ; CHECK:      fcvt.fx.trunc f6 = f8
-; CHECK-NEXT: fcvt.fx.trunc f7 = f9
 ; CHECK-NEXT: movl r14 = 3472883712
+; CHECK-NEXT: fcvt.fx.trunc f7 = f9
 ; CHECK-NEXT: movl r15 = 1325400063
 ; CHECK-NEXT: movl r16 = -2147483648
 ; CHECK-NEXT: movl r17 = 2147483647 ;;
