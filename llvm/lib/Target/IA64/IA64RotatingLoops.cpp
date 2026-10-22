@@ -113,6 +113,10 @@ class RotatingExpander {
   // Copies of constant registers, such as f1, whose uses in the loop can
   // read the constant register instead.
   DenseMap<Register, MCRegister> Constants;
+  // Results that stay in their own stage, tied to the last read of a
+  // rotating input, and the input and offset of the register they are
+  // written to in its place.
+  DenseMap<Register, std::pair<Register, int>> InPlace;
   unsigned NumGRs = 0, NumFRs = 0, NumPRs = 0;
 
   int stage(const MachineInstr &MI) const {
@@ -397,6 +401,46 @@ bool RotatingExpander::classify() {
       Followers.insert(D);
     }
   }
+
+  // So can one that is not rotating, read only later in its own stage, but
+  // in the input's own register: there is no register for it to follow on
+  // into.
+  DenseSet<Register> InPlaceInputs;
+  for (MachineInstr *MI : MS->getInstructions()) {
+    if (MI->isPHI())
+      continue;
+    int S = stage(*MI);
+    for (unsigned I = 0, E = MI->getNumOperands(); I != E; ++I) {
+      const MachineOperand &Def = MI->getOperand(I);
+      unsigned UseIdx;
+      if (!Def.isReg() || !Def.isDef() ||
+          !MI->isRegTiedToUseOperand(I, &UseIdx))
+        continue;
+      Register D = Def.getReg(), U = MI->getOperand(UseIdx).getReg();
+      auto UI = Rotating.find(U);
+      if (!D.isVirtual() || Rotating.count(D) || Static.contains(D) ||
+          UI == Rotating.end() || Follower.count(U) ||
+          InPlaceInputs.contains(U) || !MRI.hasOneDef(D))
+        continue;
+      const RotatingValue &UV = UI->second;
+      if (UV.Phi || UV.LiveOut || UV.Hi != S - UV.Stage)
+        continue;
+      auto Later = [&](const MachineInstr &User) {
+        return inLoop(User) && !User.isPHI() && stage(User) == S &&
+               Position.lookup(&User) > Position.lookup(MI);
+      };
+      if (any_of(MRI.use_nodbg_instructions(U), [&](MachineInstr &User) {
+            return &User != MI && Later(User);
+          }))
+        continue;
+      if (!all_of(MRI.use_nodbg_operands(D), [&](MachineOperand &Use) {
+            return !Use.isTied() && Later(*Use.getParent());
+          }))
+        continue;
+      InPlace[D] = {U, S - UV.Stage};
+      InPlaceInputs.insert(U);
+    }
+  }
   for (auto &[Reg, V] : Rotating) {
     if (Followers.contains(Reg))
       continue;
@@ -545,6 +589,14 @@ void RotatingExpander::expand(LiveIntervals &LIS) {
       if (!MO.isReg() || !MO.getReg().isVirtual())
         continue;
       Register Reg = MO.getReg();
+      if (auto It = InPlace.find(Reg); It != InPlace.end()) {
+        MO.setReg(name(It->second.first, It->second.second));
+        if (MO.isDef())
+          MO.setIsDead(false);
+        else
+          MO.setIsKill(false);
+        continue;
+      }
       if (MO.isDef()) {
         if (Rotating.count(Reg)) {
           MO.setReg(name(Reg, 0));

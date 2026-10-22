@@ -180,6 +180,43 @@ exit:
   ret double %s.next
 }
 
+; When the quotient is read only in its own stage it has no register of its
+; own to rotate into, and is written over the reciprocal in place, not to a
+; static register that each pass copies the reciprocal into.
+define double @recip_sum(ptr noalias %u, i32 %k, i64 %n) {
+; MIN-LABEL: recip_sum:
+; MIN:       .LBB{{[0-9]+}}_[[LOOP:[0-9]+]]:
+; MIN-NOT:   mov f
+; MIN:       ) fma.d [[Q:f[0-9]+]] = f{{[0-9]+}}, f{{[0-9]+}}, f{{[0-9]+}}
+; MIN-NOT:   mov f
+; MIN:       ) fma.d f{{[0-9]+}} = [[Q]], f
+; MIN-NOT:   mov f
+; MIN:       br.ctop.sptk.few .LBB{{[0-9]+}}_[[LOOP]] ;;
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  %j = phi i32 [ 0, %entry ], [ %j.next, %loop ]
+  %s = phi double [ 0.0, %entry ], [ %s.next, %loop ]
+  %a = add nuw nsw i32 %j, %k
+  %t = trunc i64 %i to i32
+  %m = mul i32 %a, %t
+  %h = lshr i32 %m, 1
+  %i.next = add nuw nsw i64 %i, 1
+  %j.next = add nuw nsw i32 %j, 1
+  %t1 = trunc i64 %i.next to i32
+  %d = add nuw i32 %h, %t1
+  %c = sitofp i32 %d to double
+  %r = fdiv double 1.0, %c
+  %p = getelementptr inbounds double, ptr %u, i64 %i
+  %x = load double, ptr %p
+  %s.next = call double @llvm.fmuladd.f64(double %r, double %x, double %s)
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %loop
+exit:
+  ret double %s.next
+}
+
 declare double @llvm.fmuladd.f64(double, double, double)
 
 ; A division reads its dividend for frcpa and again stages later for the
