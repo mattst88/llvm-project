@@ -111,14 +111,14 @@ define float @pass_odd([3 x float] %h) {
 
 define float @pass_four([4 x float] %h) {
 ; CHECK-LABEL: pass_four:
-; CHECK:       getf.s r14 = f11
+; CHECK:       getf.s r14 = f10
 ; CHECK:       mov f15 = f9
-; CHECK:       getf.s r15 = f10
+; CHECK:       getf.s r15 = f11
 ; CHECK:       mov f14 = f8
 ; CHECK:       mov f8 = f1
-; CHECK:       shl r14 = r14, 32
-; CHECK-NEXT:  zxt4 r15 = r15 ;;
-; CHECK-NEXT:  or r42 = r15, r14
+; CHECK:       zxt4 r14 = r14
+; CHECK-NEXT:  shl r15 = r15, 32 ;;
+; CHECK-NEXT:  or r42 = r14, r15
 ; CHECK:       br.call.sptk.many b0 = take_four ;;
   %r = call float @take_four(double 1.0, double 2.0, double 3.0, double 4.0, double 5.0, double 6.0, [4 x float] %h)
   ret float %r
@@ -127,16 +127,16 @@ define float @pass_four([4 x float] %h) {
 ; One the callee has not named is its bits in the slots and nowhere else.
 define void @unnamed([3 x float] %h, [2 x double] %d) {
 ; CHECK-LABEL: unnamed:
-; CHECK:       getf.s r14 = f9
+; CHECK:       getf.s r14 = f8
 ; CHECK-NEXT:  mov r35 = 1
-; CHECK-NEXT:  getf.s r15 = f8
+; CHECK-NEXT:  getf.s r15 = f9
 ; CHECK-NEXT:  getf.s r37 = f10
 ; CHECK-NEXT:  mov r32 = r1
 ; CHECK-NEXT:  getf.d r38 = f11
 ; CHECK-NEXT:  getf.d r39 = f12 ;;
-; CHECK-NEXT:  shl r14 = r14, 32
-; CHECK-NEXT:  zxt4 r15 = r15 ;;
-; CHECK-NEXT:  or r36 = r15, r14
+; CHECK-NEXT:  zxt4 r14 = r14
+; CHECK-NEXT:  shl r15 = r15, 32 ;;
+; CHECK-NEXT:  or r36 = r14, r15
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
@@ -158,9 +158,10 @@ define void @maybe_named([2 x double] %d, [3 x float] %h) {
 ; CHECK-NEXT:  getf.d r38 = f9
 ; CHECK-NEXT:  mov f9 = f11 ;;
 ; CHECK-NEXT:  mov f11 = f6
-; CHECK-NEXT:  shl r14 = r14, 32
+; CHECK-NEXT:  zxt4 r14 = r14
 ; CHECK-NEXT:  mov f12 = f7
-; CHECK:       or r35 = r15, r14
+; CHECK-NEXT:  shl r15 = r15, 32 ;;
+; CHECK-NEXT:  or r35 = r14, r15
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body

@@ -1,15 +1,15 @@
 # RUN: llc -mtriple=ia64-unknown-linux-gnu -start-before=ia64-insert-stops \
 # RUN:   -verify-machineinstrs %s -o - | FileCheck %s
 
-# The group holds both blocks, and takes two cycles either way: zxt4 and
-# tbit both need port I0, and three bundles hold it. With tbit first, the
-# first two bundles issue in one cycle, so where the branch is taken the
-# group ends there.
+# The group holds both blocks. pmpy2.r issues only on port I0, which an I
+# slot takes first in its cycle, so after tbit it would wait for a second
+# cycle, and the branch with it. With pmpy2.r first, the first two bundles
+# issue in one cycle, so where the branch is taken the group ends there.
 
 # CHECK-LABEL: exit_first:
 # CHECK-NOT:   .mmi
-# CHECK:       tbit.z p7, p6 = r33, 0
-# CHECK-NEXT:  zxt4 r14 = r32
+# CHECK:       pmpy2.r r14 = r32, r32
+# CHECK-NEXT:  tbit.z p7, p6 = r33, 0
 # CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2
 # CHECK-NEXT:  // %bb.1:
 # CHECK-NEXT:  mov r8 = r34
@@ -22,8 +22,8 @@ body: |
     successors: %bb.1, %bb.2
     liveins: $r32, $r33, $r34, $b0
 
-    $r14 = ZXT4 $r32, $p0
     $p7, $p6 = TBIT_Z $r33, 0, $p0
+    $r14 = PMPY2_R $r32, $r32, $p0
     BR_COND %bb.2, 2, 0, 0, $p6
 
   bb.1:

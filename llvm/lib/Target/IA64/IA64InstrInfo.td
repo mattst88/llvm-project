@@ -543,8 +543,10 @@ def PMPYSHR2_U : I1<1, "pmpyshr2.u">;
 
 def MPY4      : I2<1, 0, 0, 3, 1, "mpy4">;
 def MPYSHL4   : I2<1, 0, 0, 3, 3, "mpyshl4">;
+let SchedRW = [WriteMMMul] in {
 def PMPY2_R   : I2<0, 2, 1, 3, 1, "pmpy2.r">;
 def PMPY2_L   : I2<0, 2, 1, 3, 3, "pmpy2.l">;
+}
 def MIX1_R    : I2<0, 2, 0, 2, 0, "mix1.r">;
 def MIX2_R    : I2<0, 2, 1, 2, 0, "mix2.r">;
 def MIX4_R    : I2<1, 2, 0, 2, 0, "mix4.r">;

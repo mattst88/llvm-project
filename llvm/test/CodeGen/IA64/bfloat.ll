@@ -11,10 +11,10 @@
 ; CHECK:      getf.s r14 = f8
 ; CHECK-NEXT: mov r15 = 32767
 ; CHECK-NEXT: fcmp.unord p6, p7 = f8, f8 ;;
-; CHECK-NEXT: extr.u r16 = r14, 16, 1
-; CHECK-NEXT: add r15 = r14, r15 ;;
-; CHECK-NEXT: add r15 = r16, r15
+; CHECK:      extr.u r16 = r14, 16, 1
+; CHECK-NEXT: add r15 = r14, r15
 ; CHECK-NEXT: dep r14 = -1, r14, 22, 1 ;;
+; CHECK-NEXT: add r15 = r16, r15 ;;
 ; CHECK-NEXT: (p6) mov r15 = r14 ;;
 ; CHECK-NEXT: shr.u r8 = r15, 16
 ; CHECK-NEXT: br.ret.sptk.many b0 ;;

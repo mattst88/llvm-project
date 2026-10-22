@@ -45,9 +45,9 @@ define i8 @wrap_zext(ptr %block, i32 %k, i32 %n, i32 %lim) {
 define i8 @wrap_select_of_adds(ptr %block, i32 %k, i32 %n, i1 %c) {
 ; CHECK-LABEL: wrap_select_of_adds:
 ; CHECK:       sxt4 r14 = r34
-; CHECK-NEXT:  sxt4 r15 = r33 ;;
-; CHECK-NEXT:  add r14 = r32, r14
 ; CHECK-NEXT:  tbit.z p7, p6 = r35, 0 ;;
+; CHECK-NEXT:  add r14 = r32, r14
+; CHECK-NEXT:  sxt4 r15 = r33 ;;
 ; CHECK-NEXT:  (p7) add r14 = r14, r15
 ; CHECK-NEXT:  (p6) add r14 = r32, r15 ;;
 ; CHECK-NEXT:  ld1 r8 = [r14]

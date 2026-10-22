@@ -67,15 +67,15 @@ nop.i 0
 # CHECK-NEXT:  1      1     0.17                        add	r8 = r32, r33
 # CHECK-NEXT:  1      1     0.17                        cmp.eq	p6, p7 = r8, r9
 # CHECK-NEXT:  1      2     0.17                        padd1	r8 = r32, r33
-# CHECK-NEXT:  1      2     0.50                        pmpy2.r	r8 = r32, r33
-# CHECK-NEXT:  1      2     1.00                        popcnt	r8 = r32
+# CHECK-NEXT:  1      2     1.00                        pmpy2.r	r8 = r32, r33
+# CHECK-NEXT:  1      2     0.50                        popcnt	r8 = r32
 # CHECK-NEXT:  1      2     0.50                        shl	r8 = r32, r33
 # CHECK-NEXT:  1      2     0.50                        mix1.l	r8 = r32, r33
 # CHECK-NEXT:  1      1     0.50                        pshr2	r8 = r32, 3
 # CHECK-NEXT:  1      1     0.50                        mux1	r8 = r32, @rev
-# CHECK-NEXT:  1      1     1.00                        extr.u	r8 = r32, 3, 5
-# CHECK-NEXT:  1      1     1.00                        dep	r8 = r32, r33, 8, 4
-# CHECK-NEXT:  1      1     1.00                        tbit.z	p6, p7 = r32, 3
+# CHECK-NEXT:  1      1     0.50                        extr.u	r8 = r32, 3, 5
+# CHECK-NEXT:  1      1     0.50                        dep	r8 = r32, r33, 8, 4
+# CHECK-NEXT:  1      1     0.50                        tbit.z	p6, p7 = r32, 3
 # CHECK-NEXT:  1      1     0.50                        sxt4	r8 = r32
 # CHECK-NEXT:  1      1     1.00                        mov	b6 = r32
 # CHECK-NEXT:  1      2     1.00                  U     mov	r8 = b6
@@ -129,22 +129,22 @@ nop.i 0
 
 # CHECK:      Resource pressure per iteration:
 # CHECK-NEXT: [0.0]  [0.1]  [0.2]  [1.0]  [1.1]  [2]    [3]    [4]    [5]    [6]    [7]
-# CHECK-NEXT: 1.00   1.00   1.00   3.50   3.50   15.00  4.00   3.75   3.75   7.75   3.75
+# CHECK-NEXT: 1.00   1.00   1.00   3.50   3.50   13.50  5.50   3.75   3.75   7.75   3.75
 
 # CHECK:      Resource pressure by instruction:
 # CHECK-NEXT: [0.0]  [0.1]  [0.2]  [1.0]  [1.1]  [2]    [3]    [4]    [5]    [6]    [7]    Instructions:
 # CHECK-NEXT:  -      -      -      -      -     0.17   0.17   0.17   0.17   0.17   0.17   add	r8 = r32, r33
 # CHECK-NEXT:  -      -      -      -      -     0.17   0.17   0.17   0.17   0.17   0.17   cmp.eq	p6, p7 = r8, r9
 # CHECK-NEXT:  -      -      -      -      -     0.17   0.17   0.17   0.17   0.17   0.17   padd1	r8 = r32, r33
-# CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     pmpy2.r	r8 = r32, r33
-# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     popcnt	r8 = r32
+# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     pmpy2.r	r8 = r32, r33
+# CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     popcnt	r8 = r32
 # CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     shl	r8 = r32, r33
 # CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     mix1.l	r8 = r32, r33
 # CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     pshr2	r8 = r32, 3
 # CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     mux1	r8 = r32, @rev
-# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     extr.u	r8 = r32, 3, 5
-# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     dep	r8 = r32, r33, 8, 4
-# CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     tbit.z	p6, p7 = r32, 3
+# CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     extr.u	r8 = r32, 3, 5
+# CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     dep	r8 = r32, r33, 8, 4
+# CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     tbit.z	p6, p7 = r32, 3
 # CHECK-NEXT:  -      -      -      -      -     0.50   0.50    -      -      -      -     sxt4	r8 = r32
 # CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     mov	b6 = r32
 # CHECK-NEXT:  -      -      -      -      -     1.00    -      -      -      -      -     mov	r8 = b6

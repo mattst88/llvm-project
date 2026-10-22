@@ -20,8 +20,9 @@ def WriteMMALU : SchedWrite; // Parallel add, subtract, average and compare.
 def WritePred2 : SchedWrite;
 
 // Integer instructions that need an I unit.
-def WriteMMMul    : SchedWrite; // Parallel multiply; population count.
-def WriteMMShift  : SchedWrite; // Shift by a register; mix, pack, unpack.
+def WriteMMMul    : SchedWrite; // Parallel multiply.
+def WriteMMShift  : SchedWrite; // Shift by a register; mix, pack, unpack;
+                                // population count.
 def WriteMMShiftI : SchedWrite; // Parallel shift by a constant; mux.
 def WriteShift    : SchedWrite; // Extract, deposit, shift right pair.
 def WriteTBit     : SchedWrite; // Test a bit, a NaT bit or a feature.

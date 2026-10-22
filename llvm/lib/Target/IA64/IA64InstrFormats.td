@@ -727,7 +727,7 @@ class I8<bit za, bit zb, string mnemonic>
 class I9<bits<2> x2c, string mnemonic>
     : IMMInst<0, 1, 1, 1, (outs GR:$r1), (ins GR:$r3), mnemonic,
               "$r1 = $r3"> {
-  let SchedRW = [WriteMMMul];
+  let SchedRW = [WriteMMShift];
   bits<7> r3;
   let Inst{31-30} = x2c;
   let Inst{26-20} = r3;

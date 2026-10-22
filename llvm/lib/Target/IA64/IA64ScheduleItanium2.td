@@ -10,7 +10,10 @@
 // memory ports, two integer ports, two FP ports and three branch ports; an
 // instruction that can run on either an M or an I unit can use any of the
 // first six. Loads go to the first two memory ports and stores to the last
-// two, and many I-unit-only integer instructions need the first I port.
+// two. Only the multimedia multiplies and the moves to and from branch,
+// predicate and I-unit application registers need the first I port: the
+// Itanium 2 issued shifts, extracts, deposits, bit tests and popcnt only
+// there too, but Montecito and its successors issue them on either.
 //
 //===----------------------------------------------------------------------===//
 
@@ -66,8 +69,8 @@ def : InstRW<[WriteALU], (instrs COPY)>;
 def : I2Write<WriteMMMul,    I2PortI0, 2>;
 def : I2Write<WriteMMShift,  I2PortI,  2>;
 def : I2Write<WriteMMShiftI, I2PortI,  1>;
-def : I2Write<WriteShift,    I2PortI0, 1>;
-def : I2Write<WriteTBit,     I2PortI0, 1>;
+def : I2Write<WriteShift,    I2PortI,  1>;
+def : I2Write<WriteTBit,     I2PortI,  1>;
 def : I2Write<WriteExt,      I2PortI,  1>;
 def : I2Write<WriteToBR,     I2PortI0, 1>;
 def : I2Write<WriteFromBR,   I2PortI0, 2>;

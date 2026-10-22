@@ -87,13 +87,13 @@ define void @six_moves(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) {
   ret void
 }
 
-; Only port I0 shifts by a constant, and the I slots of a cycle take ports I0
-; and I1 in order, so the shift goes before the zero extension.
-define i64 @i0_only(i64 %a, i64 %b, i64 %c) {
-; CHECK-LABEL: i0_only:
-; CHECK:       shl r15 = r33, 5
-; CHECK-NEXT:  zxt4 r14 = r32 ;;
-; OFF-LABEL:   i0_only:
+; Montecito and its successors shift by a constant on either I port, so the
+; shift need not go before the zero extension.
+define i64 @shift_either_port(i64 %a, i64 %b, i64 %c) {
+; CHECK-LABEL: shift_either_port:
+; CHECK:       zxt4 r14 = r32
+; CHECK-NEXT:  shl r15 = r33, 5 ;;
+; OFF-LABEL:   shift_either_port:
 ; OFF:         zxt4 r14 = r32
 ; OFF-NEXT:    shl r15 = r33, 5 ;;
   %z = and i64 %a, 4294967295
