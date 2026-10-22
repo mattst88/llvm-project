@@ -257,17 +257,23 @@ static bool slotTakes(IA64II::Unit Slot, unsigned Units) {
   return (Units & 1u << Slot) != 0;
 }
 
-/// The template that the assembler chooses for a bundle starting at
-/// \p Items, or ~0u if none holds the first instruction.
-static unsigned assemblerTemplate(ArrayRef<Item> Items) {
+/// The slot units that a bundle template can have, as bits of Item::Units
+/// shifted down to start at bit 0.
+constexpr unsigned SlotUnitShift = IA64II::UnitI, SlotUnitBits = 6;
+
+/// The template that the assembler chooses for a bundle that starts with
+/// instructions of the given units, or ~0u if none holds the first. An
+/// instruction that no slot takes ends the bundle as the end of the
+/// instructions does.
+static unsigned assemblerTemplate(ArrayRef<unsigned> Units) {
   unsigned Index = ~0u, Best = 0;
   for (unsigned I = 0; I != std::size(IA64II::BundleTemplates); ++I) {
     const IA64II::BundleTemplate &T = IA64II::BundleTemplates[I];
     if (!T.Name || T.MidStop != -1)
       continue;
     unsigned Slot = 0, N = 0;
-    for (const Item &It : Items.take_front(3)) {
-      while (Slot != 3 && !slotTakes(T.Slots[Slot], It.Units))
+    for (unsigned U : Units) {
+      while (Slot != 3 && !slotTakes(T.Slots[Slot], U))
         ++Slot;
       if (Slot == 3)
         break;
@@ -280,6 +286,29 @@ static unsigned assemblerTemplate(ArrayRef<Item> Items) {
     }
   }
   return Index;
+}
+
+/// The template that the assembler chooses for a bundle starting at
+/// \p Items, or ~0u if none holds the first instruction. It depends only
+/// on the slot units of the first three, so it is looked up in a table of
+/// every choice.
+static unsigned assemblerTemplate(ArrayRef<Item> Items) {
+  constexpr unsigned Mask = (1u << SlotUnitBits) - 1;
+  static const std::vector<uint8_t> Table = [] {
+    std::vector<uint8_t> Table(1u << 3 * SlotUnitBits);
+    for (unsigned Key = 0; Key != Table.size(); ++Key) {
+      unsigned Units[3];
+      for (unsigned K = 0; K != 3; ++K)
+        Units[K] = (Key >> K * SlotUnitBits & Mask) << SlotUnitShift;
+      Table[Key] = assemblerTemplate(Units);
+    }
+    return Table;
+  }();
+  unsigned Key = 0;
+  for (auto [K, It] : enumerate(Items.take_front(3)))
+    Key |= (It.Units >> SlotUnitShift & Mask) << K * SlotUnitBits;
+  uint8_t Index = Table[Key];
+  return Index == uint8_t(~0u) ? ~0u : Index;
 }
 
 /// Pack the bundle that starts at \p Items as IA64ELFStreamer::emitBundle
