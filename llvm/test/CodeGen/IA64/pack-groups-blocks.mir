@@ -73,11 +73,14 @@ body: |
 ...
 ---
 # bb.0's last group, the compare and the branch, continues into bb.1, which
-# starts a bundle. Packed after the stop in the bundle before, the group
-# would take two bundles, and bb.1's first would wait for the next cycle.
+# starts a bundle. Itanium 2 issues nothing after a bundle whose B slot
+# holds a branch, so bb.1's first bundle waits for the next cycle however
+# the group packs, but the compare still issues with the branch.
 # OBJ-LABEL: <open_end>:
 # OBJ:       mov r8 = -4 ;;
-# OBJ-NEXT:  cmp4.lt p6, p7 = r14, r15 // [MIB]
+# OBJ-NEXT:  cmp4.lt p6, p7 = r14, r15{{ *(//.*)?$}}
+# OBJ-NOT:   ;;
+# OBJ:       (p6) br.cond.dpnt.few
 name: open_end
 tracksRegLiveness: true
 body: |

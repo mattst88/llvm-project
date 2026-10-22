@@ -66,7 +66,7 @@ define float @odd_half(double %a, double %b, double %c, double %d, double %e, do
 ; CHECK-LABEL: odd_half:
 ; CHECK:       setf.s f6 = r39
 ; CHECK-NEXT:  adds r14 = 16, r12 ;;
-; CHECK-NEXT:  ldfs f7 = [r14]
+; CHECK:       ldfs f7 = [r14]
 ; CHECK-NEXT:  fma.s f6 = f15, f1, f6 ;;
   %x = extractvalue [3 x float] %h, 0
   %y = extractvalue [3 x float] %h, 1

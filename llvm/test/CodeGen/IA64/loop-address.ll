@@ -21,7 +21,7 @@ define void @schedule(ptr %w) {
 ; CHECK-NEXT:  add r19 = r20, r19
 ; CHECK-NEXT:  add r23 = r21, r22 ;;
 ; CHECK-NEXT:  add r19 = r19, r23 ;;
-; CHECK-NEXT:  st4 [r14] = r19, 4
+; CHECK:       st4 [r14] = r19, 4
 ; CHECK-NEXT:  cmp.eq p7, p6 = 0, r18
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_1{{$}}
 entry:

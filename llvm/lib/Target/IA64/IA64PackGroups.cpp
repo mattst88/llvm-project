@@ -271,6 +271,7 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
     return 0;
   D.startBundle();
   unsigned Taken = 0;
+  bool Branch = false;
   auto AtEnd = [&] {
     return Taken == Items.size() || Items[Taken].Template != -1;
   };
@@ -280,6 +281,7 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
     if (!slotTakes(Unit, It.Units) || (Slot != 2 && It.LastSlot))
       continue;
     D.issue(It, Unit);
+    Branch |= Unit == IA64II::UnitB;
     if (Unit == IA64II::UnitL)
       ++Slot;
     ++Taken;
@@ -310,6 +312,10 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
   }
   if (Taken == 0)
     --D.Bundles;
+  // Itanium 2 issues nothing after an MBB or BBB bundle in its cycle, nor
+  // after an MIB, MFB or MMB whose B slot holds a branch.
+  else if (Branch || IA64II::BundleTemplates[Index].Slots[1] == IA64II::UnitB)
+    D.EndCycle = true;
   return Taken;
 }
 

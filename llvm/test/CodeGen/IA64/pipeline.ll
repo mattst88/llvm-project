@@ -28,8 +28,8 @@ define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[KERNEL]]{{$}}
 ; CHECK:       adds [[LC2:r[0-9]+]] = -1, [[LEFT]]
 ; CHECK-NEXT:  add [[S]] = [[S]], [[V]] ;;
-; CHECK-NEXT:  cmp.eq p8, p9 = 0, [[LEFT]]
 ; CHECK-NEXT:  mov ar.lc = [[LC2]]
+; CHECK-NEXT:  cmp.eq p8, p9 = 0, [[LEFT]]
 ; CHECK-NEXT:  (p8) br.cond.dptk.few .LBB0_[[EXIT:[0-9]+]]{{$}}
 ; CHECK-NEXT:  .LBB0_[[REST]]:
 ; CHECK:       ld8

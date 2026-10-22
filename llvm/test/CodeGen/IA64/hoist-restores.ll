@@ -14,9 +14,9 @@ define i64 @after_call(i64 %a) {
 ; CHECK-LABEL: after_call:
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r33
+; CHECK-NEXT:  mov b0 = r35
 ; CHECK-NEXT:  mov ar.pfs = r34
 ; CHECK-NEXT:  cmp.eq p6, p7 = 0, r8
-; CHECK-NEXT:  mov b0 = r35
 ; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB0_2{{$}}
 ; CHECK:       .LBB0_2:
 ; CHECK-NEXT:  mov r8 = r0
@@ -130,10 +130,10 @@ define void @counted(ptr %p, i64 %n) {
 ; CHECK-LABEL: counted:
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r34
+; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  mov r14 = r0
 ; CHECK-NEXT:  cmp.eq p6, p7 = 0, r8
-; CHECK-NEXT:  mov b0 = r36
 ; CHECK:       br.cloop.sptk.few .LBB4_2{{$}}
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r34
@@ -167,9 +167,9 @@ define i64 @chain(i64 %a, i64 %b) {
 ; CHECK-LABEL: chain:
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; CHECK-NEXT:  mov r1 = r34
+; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  cmp.eq p7, p6 = 5, r8
-; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB5_3{{$}}
 ; CHECK-NEXT:  // %bb.1:
 ; CHECK-NEXT:  cmp.eq p8, p9 = 0, r33

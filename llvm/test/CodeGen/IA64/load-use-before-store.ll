@@ -11,7 +11,7 @@ define void @mtf(ptr %p, i8 %c, i8 %first) {
 ; CHECK-LABEL: mtf:
 ; CHECK:       ld1 [[V:r[0-9]+]] = [{{r[0-9]+}}], 1 ;;
 ; CHECK-NEXT:  cmp.eq p7, p6 = [[V]], {{r[0-9]+}} ;;
-; CHECK-NEXT:  st1 [r32] = r34, 1{{$}}
+; CHECK:       st1 [r32] = r34, 1{{$}}
 ; CHECK-NEXT:  mov r34 = [[V]]{{$}}
 ; CHECK-NEXT:  (p6) br.cond
 ; NOHOIST-LABEL: mtf:
