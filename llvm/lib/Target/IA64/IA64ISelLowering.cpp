@@ -30,6 +30,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
 
@@ -692,11 +693,97 @@ static bool synthMul(uint64_t C, unsigned Budget,
   return false;
 }
 
+static cl::opt<unsigned> MulTreeMaxOps(
+    "ia64-mul-tree-max-ops", cl::init(24), cl::Hidden,
+    cl::desc("The most operations a multiply by a constant may take as a "
+             "tree of shifted multiplicands (0 for none)"));
+
+namespace {
+// A term of a constant in signed binary: -1 or 1 times 2^Exp.
+struct MulTerm {
+  unsigned Exp;
+  bool Neg;
+};
+// The sum of a run of terms, as Neg ? -V << Shift : V << Shift, Depth
+// operations from X along its longest path and Ops in all.
+struct MulNode {
+  SDValue V;
+  unsigned Shift;
+  bool Neg;
+  unsigned Depth, Ops;
+};
+} // namespace
+
+// The terms of C in non-adjacent form, low first: no two in a row are both
+// non-zero, so there are fewest of them.
+static SmallVector<MulTerm, 32> mulTerms(uint64_t C) {
+  SmallVector<MulTerm, 32> Terms;
+  for (unsigned E = 0; C && E < 64; ++E, C >>= 1) {
+    if (!(C & 1))
+      continue;
+    bool Neg = (C & 3) == 3 && E < 63;
+    Terms.push_back({E, Neg});
+    C = Neg ? C + 1 : C - 1;
+  }
+  return Terms;
+}
+
+// The terms summed as a balanced tree, each sum of the higher half's shifted
+// value and the lower half's a shladd, or a shift and an add or subtract.
+// Builds the nodes only with a DAG.
+static MulNode buildMulTree(ArrayRef<MulTerm> Terms, SDValue X,
+                            SelectionDAG *DAG, const SDLoc &DL) {
+  if (Terms.size() == 1)
+    return {X, Terms[0].Exp, Terms[0].Neg, 0, 0};
+  size_t Mid = Terms.size() / 2;
+  MulNode L = buildMulTree(Terms.take_front(Mid), X, DAG, DL);
+  MulNode H = buildMulTree(Terms.drop_front(Mid), X, DAG, DL);
+  unsigned D = H.Shift - L.Shift;
+  bool Add = L.Neg == H.Neg;
+  MulNode R = {SDValue(), L.Shift, H.Neg, 0, L.Ops + H.Ops + 1};
+  if (Add && D <= 4) {
+    R.Depth = std::max(L.Depth, H.Depth) + 1;
+  } else {
+    R.Depth = std::max(L.Depth, H.Depth + 1) + 1;
+    ++R.Ops;
+  }
+  if (DAG) {
+    SDValue Shl = DAG->getNode(ISD::SHL, DL, MVT::i64, H.V,
+                               DAG->getShiftAmountConstant(D, MVT::i64, DL));
+    R.V = DAG->getNode(Add ? ISD::ADD : ISD::SUB, DL, MVT::i64, Shl, L.V);
+  }
+  return R;
+}
+
+// The tree with its final shift and negation.
+static MulNode buildMulTree(uint64_t C, SDValue X, SelectionDAG *DAG,
+                            const SDLoc &DL) {
+  SmallVector<MulTerm, 32> Terms = mulTerms(C);
+  MulNode N = buildMulTree(Terms, X, DAG, DL);
+  if (N.Shift) {
+    ++N.Depth;
+    ++N.Ops;
+    if (DAG)
+      N.V = DAG->getNode(ISD::SHL, DL, MVT::i64, N.V,
+                         DAG->getShiftAmountConstant(N.Shift, MVT::i64, DL));
+  }
+  if (N.Neg) {
+    ++N.Depth;
+    ++N.Ops;
+    if (DAG)
+      N.V = DAG->getNegative(N.V, DL, MVT::i64);
+  }
+  return N;
+}
+
 // A multiply by a constant as shifts, shladds and subtracts, when that is
 // shorter than the round trip through the FP unit: setf.sig, xma.l and
 // getf.sig take 14 cycles. The steps form a chain, a cycle each, and up to
-// 12 of them beat fewer in mst. Done after legalization, where the multiply
-// is i64, like RISC-V's expansion, and with the same disregard for undef X.
+// 12 of them beat fewer in mst. A balanced tree of the constant's terms
+// takes more operations but fewer in a row, and is taken instead when it
+// has fewer in a row than the shortest chain, and at most MulTreeMaxOps in
+// all. Done after legalization, where the multiply is i64, like RISC-V's
+// expansion, and with the same disregard for undef X.
 static SDValue combineMulByConstant(SDNode *N, SelectionDAG &DAG,
                                     TargetLowering::DAGCombinerInfo &DCI) {
   if (DCI.isBeforeLegalize() || DCI.isCalledByLegalizer() ||
@@ -707,14 +794,27 @@ static SDValue combineMulByConstant(SDNode *N, SelectionDAG &DAG,
   if (!CN)
     return SDValue();
   uint64_t C = CN->getZExtValue();
+  SDLoc DL(N);
+  SDValue X = N->getOperand(0), T = X;
+  unsigned MaxChain = 12;
+  bool Tree = false;
+  if (MulTreeMaxOps && C) {
+    MulNode Est = buildMulTree(C, X, nullptr, DL);
+    if (Est.Ops <= MulTreeMaxOps && Est.Depth < 14) {
+      Tree = true;
+      MaxChain = std::min(MaxChain, Est.Depth);
+    }
+  }
   SmallVector<MulStep, 8> Steps;
   DenseSet<std::pair<uint64_t, unsigned>> Failed;
   unsigned Budget = 0;
-  while (!synthMul(C, Budget, Steps, Failed))
-    if (++Budget > 12)
+  while (!synthMul(C, Budget, Steps, Failed)) {
+    if (++Budget > MaxChain) {
+      if (Tree)
+        return buildMulTree(C, X, &DAG, DL).V;
       return SDValue();
-  SDLoc DL(N);
-  SDValue X = N->getOperand(0), T = X;
+    }
+  }
   for (const MulStep &S : Steps) {
     if (S.K == MulStep::Neg) {
       T = DAG.getNegative(T, DL, MVT::i64);

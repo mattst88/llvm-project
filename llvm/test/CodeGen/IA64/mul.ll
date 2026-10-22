@@ -122,18 +122,31 @@ define i64 @by_minus3(i64 %a) {
   ret i64 %r
 }
 
-; 10000 is ((((9 * 2 + 1) * 2 + 1) * 16 + 1) * 16, five steps.
+; 10000 is ((((9 * 2 + 1) * 2 + 1) * 16 + 1) * 16, five steps in a row, but
+; also (5 << 7 - (16 - 1)) << 4, from its terms 2^13 + 2^11 - 2^8 + 2^4 as a
+; tree, which takes four.
 define i64 @by10000(i64 %a) {
 ; CHECK-LABEL: by10000:
-; CHECK:       shladd r14 = r32, 3, r32 ;;
-; CHECK-NEXT:  shladd r14 = r14, 1, r32 ;;
-; CHECK-NEXT:  shladd r14 = r14, 1, r32 ;;
-; CHECK-NEXT:  shladd r14 = r14, 4, r32 ;;
+; CHECK:       shl r14 = r32, 4
+; CHECK-NEXT:  shladd r15 = r32, 2, r32 ;;
+; CHECK-NEXT:  sub r14 = r32, r14
+; CHECK-NEXT:  shl r15 = r15, 7 ;;
+; CHECK-NEXT:  add r14 = r15, r14 ;;
 ; CHECK-NEXT:  shl r8 = r14, 4
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %r = mul i64 %a, 10000
   ret i64 %r
 }
+
+; As a chain, without the tree.
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-pipeliner=false \
+; RUN:   -ia64-mul-tree-max-ops=0 < %s | FileCheck %s --check-prefix=CHAIN
+; CHAIN-LABEL: by10000:
+; CHAIN:       shladd r14 = r32, 3, r32 ;;
+; CHAIN-NEXT:  shladd r14 = r14, 1, r32 ;;
+; CHAIN-NEXT:  shladd r14 = r14, 1, r32 ;;
+; CHAIN-NEXT:  shladd r14 = r14, 4, r32 ;;
+; CHAIN-NEXT:  shl r8 = r14, 4
 
 define i32 @by3141(i32 %a) {
 ; CHECK-LABEL: by3141:
