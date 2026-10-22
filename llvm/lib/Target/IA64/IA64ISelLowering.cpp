@@ -1201,6 +1201,30 @@ static bool isOne(Register Reg, const MachineRegisterInfo &MRI) {
   return Reg == IA64::F1;
 }
 
+// Returns what the last step of a division leaves in place when it is
+// predicated off: the approximation an frcpa step left in Y. Y is written
+// while the operand is still live, so when the result is copied to a
+// register, as it is to f8 when it is returned, the operand may hold that
+// register and the copy would follow the last step. The result is then tied
+// to a copy of Y instead, written once the operand is dead. That copy is an
+// fmerge, since a COPY would be coalesced with Y.
+static Register keepApproximation(MachineInstr &MI, MachineBasicBlock *MBB,
+                                  const TargetInstrInfo &TII,
+                                  MachineRegisterInfo &MRI, Register Y) {
+  Register Res = MI.getOperand(0).getReg();
+  if (!MRI.hasOneNonDBGUse(Res))
+    return Y;
+  const MachineInstr &Use = *MRI.use_instr_nodbg_begin(Res);
+  if (!Use.isCopy() || !Use.getOperand(0).getReg().isPhysical())
+    return Y;
+  Register R = MRI.createVirtualRegister(&IA64::FRRegClass);
+  BuildMI(*MBB, MI, MI.getDebugLoc(), TII.get(IA64::FMERGE_S), R)
+      .addReg(Y)
+      .addReg(Y)
+      .addReg(IA64::P0);
+  return R;
+}
+
 // Division in Newton-Raphson steps after frcpa, as described at FDIV_S. Every
 // step but frcpa is predicated on frcpa's predicate, which is clear when
 // frcpa's result is the quotient already; the last step leaves that result
@@ -1263,9 +1287,10 @@ MachineBasicBlock *IA64TargetLowering::emitFDiv(MachineInstr &MI,
   // The dividend is added, so it cannot be f0, which would make the step a
   // multiply.
   E = Step(IA64::FNMA_SUM, B, Q, A);
+  Register Kept = keepApproximation(MI, MBB, TII, MRI, Y0);
   BuildMI(*MBB, MI, DL,
           TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
-      .addReg(Y0)
+      .addReg(Kept)
       .addReg(E)
       .addReg(Y)
       .addReg(Q)
@@ -1317,9 +1342,10 @@ IA64TargetLowering::emitFDivConst(MachineInstr &MI,
       .addImm(1)
       .addReg(IA64::P0)
       .setMIFlags(Flags);
+  Register Kept = keepApproximation(MI, MBB, TII, MRI, R);
   BuildMI(*MBB, MI, DL,
           TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
-      .addReg(R)
+      .addReg(Kept)
       .addReg(E)
       .addReg(Y)
       .addReg(Q)

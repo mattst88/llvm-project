@@ -49,9 +49,9 @@ define double @mul(double %a) {
 ; The last step of a division adds the dividend.
 define float @div(float %b) {
 ; CHECK-LABEL: div:
-; CHECK:       frcpa f6, p8 = f0, f8
-; CHECK-NEXT:  mov f7 = f0 ;;
-; CHECK:       (p8) fnma.s1 f7 = f8, f9, f7 ;;
+; CHECK:       frcpa f7, p8 = f0, f8
+; CHECK-NEXT:  mov f6 = f0 ;;
+; CHECK:       (p8) fnma.s1 f6 = f8, f9, f6
   %r = fdiv float 0.0, %b
   ret float %r
 }
