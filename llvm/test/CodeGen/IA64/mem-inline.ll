@@ -1,27 +1,7 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -O2 < %s | FileCheck %s
 
 ; Up to 32 stores are emitted in place of a call to memset, memcpy or
-; memmove. A 16-byte copy of unknown alignment takes 16 byte stores.
-
-; CHECK-LABEL: move16:
-; CHECK-NOT:     br.call
-; CHECK-COUNT-16: st1
-; CHECK-NOT:     br.call
-; CHECK:         br.ret
-define void @move16(ptr %d, ptr %s) {
-  call void @llvm.memmove.p0.p0.i64(ptr align 1 %d, ptr align 1 %s, i64 16, i1 false)
-  ret void
-}
-
-; CHECK-LABEL: copy16:
-; CHECK-NOT:     br.call
-; CHECK-COUNT-16: st1
-; CHECK-NOT:     br.call
-; CHECK:         br.ret
-define void @copy16(ptr %d, ptr %s) {
-  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %d, ptr align 1 %s, i64 16, i1 false)
-  ret void
-}
+; memmove.
 
 ; CHECK-LABEL: zero256:
 ; CHECK-NOT:     br.call

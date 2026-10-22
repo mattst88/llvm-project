@@ -314,8 +314,8 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // A call costs a register stack frame and the callee's own setup, while
   // the stores issue two per cycle. Copies of unknown alignment are the
-  // common case that needs more than eight: they go a byte at a time, so a
-  // 16-byte memmove is 16 stores.
+  // common case that needs more than eight: unless they are whole
+  // doublewords, which IA64SelectionDAGInfo expands, they go a byte at a time.
   MaxStoresPerMemset = MaxStoresPerMemcpy = MaxStoresPerMemmove = 32;
 
   computeRegisterProperties(STI.getRegisterInfo());
@@ -1772,6 +1772,20 @@ SDValue IA64TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
   SDValue Chains = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Lo.getValue(1),
                                Hi.getValue(1));
   return DAG.getMergeValues({Val, Chains}, DL);
+}
+
+// Leave the copies IA64SelectionDAGInfo expands to it.
+bool IA64TargetLowering::findOptimalMemOpLowering(
+    LLVMContext &Context, std::vector<EVT> &MemOps, unsigned Limit,
+    const MemOp &Op, unsigned DstAS, unsigned SrcAS,
+    const AttributeList &FuncAttributes, EVT *LargestVT) const {
+  if (Limit != ~0U && Op.isMemcpyOrMemmove() && !Op.isMemcpyStrSrc() &&
+      Op.isFixedDstAlign() && !Op.isVolatile() &&
+      IA64SelectionDAGInfo::expandsCopy(Op.size(), Op.getDstAlign(),
+                                        Op.getSrcAlign()))
+    return false;
+  return TargetLowering::findOptimalMemOpLowering(
+      Context, MemOps, Limit, Op, DstAS, SrcAS, FuncAttributes, LargestVT);
 }
 
 SDValue IA64TargetLowering::LowerIS_FPCLASS(SDValue Op,

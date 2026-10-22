@@ -128,6 +128,12 @@ public:
   }
   bool isJumpTableRelative() const override { return true; }
 
+  bool findOptimalMemOpLowering(LLVMContext &Context, std::vector<EVT> &MemOps,
+                                unsigned Limit, const MemOp &Op, unsigned DstAS,
+                                unsigned SrcAS,
+                                const AttributeList &FuncAttributes,
+                                EVT *LargestVT = nullptr) const override;
+
   // The unwinder provides four registers, r15-r18, that a personality routine
   // may set for a landing pad; the C++ personality puts the exception pointer
   // in r15 and the selector in r16.
