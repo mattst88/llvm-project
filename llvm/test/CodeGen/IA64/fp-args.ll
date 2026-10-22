@@ -113,11 +113,12 @@ define double @minus_zero() {
 }
 
 ; A value that lives across a call is in a register the callee preserves,
-; which is saved and restored whole.
+; which is saved and restored whole, a line away from everything else.
 define double @across(double %a) {
 ; CHECK-LABEL: across:
-; CHECK:       adds r12 = -16, r12 ;;
-; CHECK-NEXT:  adds r2 = 16, r12
+; CHECK:       .spill 32
+; CHECK:       adds r12 = -112, r12 ;;
+; CHECK-NEXT:  adds r2 = 64, r12
 ; CHECK-NEXT:  movl r14 = 1073741824 ;;
 ; CHECK-NEXT:  .save.f 0x1
 ; CHECK-NEXT:  stf.spill [r2] = f2
@@ -130,11 +131,11 @@ define double @across(double %a) {
 ; CHECK-NEXT:  br.call.sptk.many b0 = x ;;
 ; CHECK:       mov f8 = f2
 ; CHECK-NEXT:  mov ar.pfs = r33
-; CHECK-NEXT:  adds r2 = 16, r12 ;;
+; CHECK-NEXT:  adds r2 = 64, r12 ;;
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
 ; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  .restore sp
-; CHECK-NEXT:  adds r12 = 16, r12
+; CHECK-NEXT:  adds r12 = 112, r12
   %r = call double @x(i64 1, float 2.0, i64 3, double 4.0)
   ret double %a
 }

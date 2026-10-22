@@ -38,6 +38,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   Register SavedLC;
   Register SavedBR[5];
 
+  // How far below its usual place, ending at the incoming arguments, the
+  // callee-saved register spill area starts.
+  unsigned SpillAreaGap = 0;
+
   // The local holding the incoming stack pointer, if SP moves after the
   // prologue.
   Register FramePointer;
@@ -100,6 +104,8 @@ public:
   void setSavedLC(Register Reg) { SavedLC = Reg; }
   Register getSavedBR(unsigned I) const { return SavedBR[I]; }
   void setSavedBR(unsigned I, Register Reg) { SavedBR[I] = Reg; }
+  unsigned getSpillAreaGap() const { return SpillAreaGap; }
+  void setSpillAreaGap(unsigned Gap) { SpillAreaGap = Gap; }
   Register getFramePointer() const { return FramePointer; }
   void setFramePointer(Register Reg) { FramePointer = Reg; }
   Register getBasePointer() const { return BasePointer; }

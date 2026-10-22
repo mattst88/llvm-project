@@ -158,27 +158,30 @@ three:
 ; A register of the caller's that the function uses is saved in memory, and
 ; the unwinder is told which it is and not where it went: the general
 ; registers are lowest and the floating-point ones above them, each kind in
-; the order of its numbers, and the last of them ends sixteen bytes above
-; where the stack pointer was. The general registers leave their NaT bits in
-; ar.unat, which is the caller's too.
+; the order of its numbers. The last of them would end sixteen bytes above
+; where the stack pointer was, at the arguments, but with floating-point ones
+; among them it ends a line's worth below, as .spill says. The general
+; registers leave their NaT bits in ar.unat, which is the caller's too.
 define i64 @saves(i64 %a) {
 ; CHECK-LABEL: saves:
+; CHECK:       .prologue
+; CHECK-NEXT:  .spill 32
 ; CHECK:       .save ar.pfs, r33
 ; CHECK-NEXT:  alloc r33 = ar.pfs, 0, 4, 1, 0
 ; CHECK-NEXT:  .save ar.unat, r35
 ; CHECK-NEXT:  mov r35 = ar.unat
-; CHECK-NEXT:  .fframe 64
-; CHECK-NEXT:  adds r12 = -64, r12 ;;
-; CHECK-NEXT:  adds r2 = 64, r12 ;;
+; CHECK-NEXT:  .fframe 160
+; CHECK-NEXT:  adds r12 = -160, r12 ;;
+; CHECK-NEXT:  adds r2 = 112, r12 ;;
 ; CHECK-NEXT:  .save.gf 0x0, 0x10
 ; CHECK-NEXT:  stf.spill [r2] = f16
-; CHECK-NEXT:  adds r2 = 48, r12 ;;
+; CHECK-NEXT:  adds r2 = 96, r12 ;;
 ; CHECK-NEXT:  .save.f 0x1
 ; CHECK-NEXT:  stf.spill [r2] = f2
-; CHECK-NEXT:  adds r2 = 40, r12 ;;
+; CHECK-NEXT:  adds r2 = 88, r12 ;;
 ; CHECK-NEXT:  .save.g 0x2
 ; CHECK-NEXT:  st8.spill [r2] = r5
-; CHECK-NEXT:  adds r2 = 32, r12 ;;
+; CHECK-NEXT:  adds r2 = 80, r12 ;;
 ; CHECK-NEXT:  .save.g 0x1
 ; CHECK-NEXT:  st8.spill [r2] = r4
 ; CHECK-NEXT:  mov r32 = r1
@@ -187,19 +190,19 @@ define i64 @saves(i64 %a) {
 ; CHECK-NEXT:  .body
 ; CHECK:       br.call.sptk.many b0 = ext ;;
 ; CHECK-NEXT:  mov r1 = r32
-; CHECK-NEXT:  adds r4 = 32, r12 ;;
+; CHECK-NEXT:  adds r4 = 80, r12 ;;
 ; CHECK-NEXT:  ld8.fill r4 = [r4]
-; CHECK-NEXT:  adds r5 = 40, r12 ;;
+; CHECK-NEXT:  adds r5 = 88, r12 ;;
 ; CHECK-NEXT:  ld8.fill r5 = [r5]
-; CHECK-NEXT:  adds r2 = 48, r12 ;;
+; CHECK-NEXT:  adds r2 = 96, r12 ;;
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
-; CHECK-NEXT:  adds r2 = 64, r12 ;;
+; CHECK-NEXT:  adds r2 = 112, r12 ;;
 ; CHECK-NEXT:  ldf.fill f16 = [r2]
 ; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  mov ar.unat = r35
 ; CHECK-NEXT:  .restore sp
-; CHECK-NEXT:  adds r12 = 64, r12
+; CHECK-NEXT:  adds r12 = 160, r12
   %p = alloca i64
   call void asm sideeffect "", "~{r4},~{r5},~{f2},~{f16}"()
   %r = call i64 @ext(ptr %p)
@@ -232,15 +235,15 @@ define i64 @saves_aligned(i64 %a) {
 ; CHECK-LABEL: saves_aligned:
 ; CHECK:       .vframe r36
 ; CHECK-NEXT:  mov r36 = r12
-; CHECK-NEXT:  adds r12 = -112, r12 ;;
+; CHECK-NEXT:  adds r12 = -240, r12 ;;
 ; CHECK-NEXT:  and r12 = -64, r12
-; CHECK-NEXT:  mov r2 = r36 ;;
+; CHECK-NEXT:  adds r2 = -48, r36 ;;
 ; CHECK-NEXT:  .save.gf 0x0, 0x80000
 ; CHECK-NEXT:  stf.spill [r2] = f31
-; CHECK-NEXT:  adds r2 = -16, r36 ;;
+; CHECK-NEXT:  adds r2 = -64, r36 ;;
 ; CHECK-NEXT:  .save.f 0x8
 ; CHECK-NEXT:  stf.spill [r2] = f5
-; CHECK-NEXT:  adds r2 = -24, r36 ;;
+; CHECK-NEXT:  adds r2 = -72, r36 ;;
 ; CHECK-NEXT:  .save.g 0x8
 ; CHECK-NEXT:  st8.spill [r2] = r7
 ; CHECK-NEXT:  mov r32 = r1
@@ -248,7 +251,7 @@ define i64 @saves_aligned(i64 %a) {
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       adds r37 = 64, r12
-; CHECK:       adds r7 = -24, r36 ;;
+; CHECK:       adds r7 = -72, r36 ;;
 ; CHECK-NEXT:  ld8.fill r7 = [r7]
   %p = alloca i64, align 64
   call void asm sideeffect "", "~{r7},~{f5},~{f31}"()

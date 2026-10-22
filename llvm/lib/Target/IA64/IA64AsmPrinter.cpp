@@ -410,6 +410,8 @@ void IA64AsmPrinter::emitFunctionBodyStart() {
       ++PrologueLeft;
   emitProfilerCall();
   getTargetStreamer().emitPrologue();
+  if (unsigned Gap = MF->getInfo<IA64MachineFunctionInfo>()->getSpillAreaGap())
+    getTargetStreamer().emitSpillBase(Gap - IA64FrameLowering::ScratchAreaSize);
   if (!PrologueLeft)
     getTargetStreamer().emitBody();
 }

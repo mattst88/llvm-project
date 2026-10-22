@@ -402,6 +402,45 @@ MachineBasicBlock::iterator IA64FrameLowering::eliminateCallFramePseudoInstr(
   return MBB.erase(I);
 }
 
+// An FR spill drops its line from L1D, and the next integer load from the
+// line misses. Callee-saved FRs would go at the top of the frame, in a line
+// with the incoming arguments, which are loaded right after the spills, and
+// with the caller's frame, which it loads from again after the call. So when
+// FRs are saved, the spill area starts a line's worth below the arguments,
+// and a line's worth of padding separates it from the objects below it. The
+// unwinder finds the slots from the start of the area, the GRs lowest and the
+// FRs above them, each kind in register number order, which is how they are
+// listed in CSI.
+bool IA64FrameLowering::assignCalleeSavedSpillSlots(
+    MachineFunction &MF, const TargetRegisterInfo *TRI,
+    std::vector<CalleeSavedInfo> &CSI) const {
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  bool SavesFR = any_of(CSI, [](const CalleeSavedInfo &CS) {
+    return IA64::FRRegClass.contains(CS.getReg());
+  });
+  // The slots are 16-byte aligned, so a line that holds one extends at most
+  // 48 bytes past it.
+  constexpr unsigned Gap = 48;
+  auto Pad = [&](unsigned Size) {
+    int FI = MFI.CreateStackObject(Size, Align(16), false);
+    MFI.setIsCalleeSavedObjectIndex(FI, true);
+  };
+  if (SavesFR) {
+    Pad(Gap);
+    MF.getInfo<IA64MachineFunctionInfo>()->setSpillAreaGap(Gap);
+  }
+  for (CalleeSavedInfo &CS : CSI) {
+    const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(CS.getReg());
+    int FI = MFI.CreateStackObject(TRI->getSpillSize(*RC),
+                                   TRI->getSpillAlign(*RC), true);
+    MFI.setIsCalleeSavedObjectIndex(FI, true);
+    CS.setFrameIdx(FI);
+  }
+  if (SavesFR)
+    Pad(Gap);
+  return true;
+}
+
 // Callee-saved registers are spilled in full, GRs with their NaT bit and FRs
 // as all 82 bits, regardless of what this function keeps in them.
 bool IA64FrameLowering::spillCalleeSavedRegisters(
