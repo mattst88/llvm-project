@@ -40,6 +40,7 @@ add_llvm_target(IA64CodeGen
   IA64ISelDAGToDAG.cpp
   IA64ISelLowering.cpp
   IA64RegisterInfo.cpp
+  IA64RematInCallLoops.cpp
   IA64RotatingLoops.cpp
   IA64SelectionDAGInfo.cpp
   IA64PostIncPointers.cpp
