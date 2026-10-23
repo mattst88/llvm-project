@@ -77,6 +77,12 @@ static cl::opt<bool>
                             "when exposing CSE opportunities"),
                    cl::init(true), cl::Hidden);
 
+static cl::opt<bool> KeepNSWAddOrder(
+    DEBUG_TYPE "-keep-nsw-add-order",
+    cl::desc("Leave an nsw add tree in its order when sorting its operands "
+             "would only drop nsw"),
+    cl::init(true), cl::Hidden);
+
 #ifndef NDEBUG
 /// Print out the expression identified in the Ops list.
 static void PrintOps(Instruction *I, const SmallVectorImpl<ValueEntry> &Ops) {
@@ -2439,6 +2445,35 @@ void ReassociatePass::OptimizeInst(Instruction *I) {
   ReassociateExpression(BO);
 }
 
+/// Return true if the add tree rooted at I would lose nsw to a rewrite that
+/// does no more than sort its operands, and the order buys nothing here. Every
+/// leaf in I's block leaves no invariant subexpression for the order to
+/// expose. A root only sign-extended is left for LICM to reassociate in the
+/// wide type, which keeps nsw where this pass cannot, and keeping it lets the
+/// extension fold into the address arithmetic instead of costing an sxt4 on
+/// every access.
+static bool isNSWAddReorderOnly(BinaryOperator *I,
+                                ArrayRef<RepeatedValue> Tree,
+                                const OverflowTracking &Flags) {
+  // Swapping the operands of a single add keeps its flags.
+  if (I->getOpcode() != Instruction::Add || Tree.size() < 3 ||
+      !Flags.HasNSW || Flags.HasNUW || Flags.AllKnownNonNegative)
+    return false;
+  // Constants fold and a repeated leaf becomes a multiply: real rewrites.
+  if (any_of(Tree, [](const RepeatedValue &E) { return E.second != 1; }) ||
+      count_if(Tree, [](const RepeatedValue &E) {
+        return isa<Constant>(E.first);
+      }) > 1)
+    return false;
+  if (all_of(Tree, [I](const RepeatedValue &E) {
+        auto *LeafI = dyn_cast<Instruction>(E.first);
+        return LeafI && LeafI->getParent() == I->getParent();
+      }))
+    return true;
+  return !I->use_empty() &&
+         all_of(I->users(), [](User *U) { return isa<SExtInst>(U); });
+}
+
 void ReassociatePass::ReassociateExpression(BinaryOperator *I) {
   // First, walk the expression tree, linearizing the tree, collecting the
   // operand information.
@@ -2476,6 +2511,9 @@ void ReassociatePass::ReassociateExpression(BinaryOperator *I) {
         Entry.Rank += DivergentRankOffset;
     }
   }
+
+  if (KeepNSWAddOrder && isNSWAddReorderOnly(I, Tree, Flags))
+    return;
 
   // Now that we have linearized the tree to a list and have gathered all of
   // the operands and their ranks, sort the operands by their rank.  Use a

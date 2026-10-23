@@ -1,4 +1,4 @@
-; RUN: opt < %s -passes=reassociate -S | FileCheck %s
+; RUN: opt < %s -passes=reassociate -reassociate-keep-nsw-add-order=false -S | FileCheck %s
 
 ; Reduced from issue #60532. The Reassociate pass rearranges the decrement
 ; of 'day', verify that the debug value for 'day' is salvaged using a
