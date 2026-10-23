@@ -156,6 +156,7 @@ define i64 @variable(i64 %a) {
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = r32 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  ld8 r15 = [r14], 8
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0 ;;
@@ -174,6 +175,7 @@ define i64 @variable_offset(i64 %a) {
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = r32 ;;
 ; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r15 = 24, r14
 ; CHECK-NEXT:  adds r14 = 16, r14 ;;
 ; CHECK-NEXT:  ld8 r15 = [r15]

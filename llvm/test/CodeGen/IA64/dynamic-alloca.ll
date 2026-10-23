@@ -91,6 +91,7 @@ declare void @h(i64, i64, i64, i64, i64, i64, i64, i64, i64, ptr)
 define void @stack_arguments(i64 %n) {
 ; CHECK-LABEL: stack_arguments:
 ; CHECK:       sub r12 = r12, r14 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 32, r12
 ; CHECK-NEXT:  adds r15 = 24, r12
 ; CHECK:       st8 [r15] = r14
@@ -123,6 +124,7 @@ define void @loop(i64 %n) {
 ; CHECK-NEXT:  adds r39 = 16, r12
 ; CHECK-NEXT:  mov r40 = r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
+; CHECK-NEXT:  .mlx
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  mov r12 = r34
 entry:

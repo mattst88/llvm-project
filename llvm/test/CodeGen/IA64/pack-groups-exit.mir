@@ -5,10 +5,12 @@
 # slot takes first in its cycle, so after tbit it would wait for a second
 # cycle, and the branch with it. With pmpy2.r first, the first two bundles
 # issue in one cycle, so where the branch is taken the group ends there.
+# The pair is MMI+MIB, not MII+MIB: the nop.i of the MIB would take a third
+# I port and split the cycle.
 
 # CHECK-LABEL: exit_first:
-# CHECK-NOT:   .mmi
-# CHECK:       pmpy2.r r14 = r32, r32
+# CHECK:       .mmi
+# CHECK-NEXT:  pmpy2.r r14 = r32, r32
 # CHECK-NEXT:  tbit.z p7, p6 = r33, 0
 # CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2
 # CHECK-NEXT:  // %bb.1:

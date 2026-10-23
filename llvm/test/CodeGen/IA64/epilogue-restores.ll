@@ -12,6 +12,7 @@ define void @spread(ptr %p, i64 %n, ptr %q, i64 %i) {
 ; CHECK:       // %exit
 ; CHECK:       shladd r14 = r35, 3, r34
 ; CHECK-NEXT:  mov b0 = r38 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 8, r14
 ; CHECK-NEXT:  mov ar.lc = r39 ;;
 ; CHECK-NEXT:  st8 [r14] = r35

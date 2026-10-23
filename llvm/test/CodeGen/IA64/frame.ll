@@ -24,8 +24,9 @@ define i64 @frame(i64 %a) {
 ; CHECK:         adds r12 = -16, r12 ;;
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    adds r14 = 8, r12 ;;
-; CHECK-NEXT:    adds r15 = 16, r14
-; CHECK-NEXT:    st8 [r14] = r32 ;;
+; CHECK-NEXT:    .mlx
+; CHECK-NEXT:    st8 [r14] = r32
+; CHECK-NEXT:    adds r15 = 16, r14 ;;
 ; CHECK-NEXT:    st8 [r15] = r32
 ; CHECK-NEXT:    ld8 r8 = [r15]
 ; CHECK-NEXT:    .restore sp
@@ -84,8 +85,9 @@ define ptr @far(ptr %q) {
 ; CHECK-NEXT:    add r12 = r2, r12
 ; CHECK-NEXT:    .body
 ; CHECK-NEXT:    mov r8 = 16384 ;;
-; CHECK-NEXT:    mov r14 = r12
-; CHECK-NEXT:    add r8 = r8, r12 ;;
+; CHECK-NEXT:    .mlx
+; CHECK-NEXT:    mov r14 = r12 ;;
+; CHECK-NEXT:    add r8 = r8, r12
 ; CHECK-NEXT:    st8 [r32] = r14
   %a = alloca [16 x i8]
   %b = alloca [16384 x i8]

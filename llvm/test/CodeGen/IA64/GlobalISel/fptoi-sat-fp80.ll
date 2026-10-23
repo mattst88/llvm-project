@@ -7,6 +7,7 @@
 ; CHECK-LABEL: signed:
 ; CHECK:      movl r14 = @gprel(.LCPI0_1)
 ; CHECK-NEXT: movl r15 = @gprel(.LCPI0_0) ;;
+; CHECK-NEXT: .mmi
 ; CHECK-NEXT: add r14 = r14, r1
 ; CHECK-NEXT: add r16 = r15, r1 ;;
 ; CHECK-NEXT: ldfe f6 = [r14]
@@ -28,6 +29,7 @@ define i64 @signed(x86_fp80 %a) {
 ; CHECK-LABEL: unsigned:
 ; CHECK:      movl r14 = @gprel(.LCPI1_1)
 ; CHECK-NEXT: movl r15 = @gprel(.LCPI1_0) ;;
+; CHECK-NEXT: .mmi
 ; CHECK-NEXT: add r14 = r14, r1
 ; CHECK-NEXT: add r16 = r15, r1 ;;
 ; CHECK-NEXT: ldfe f6 = [r14]

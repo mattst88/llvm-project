@@ -37,6 +37,7 @@ define i64 @call(i64 %a) {
 ; CHECK-LABEL: call:
 ; CHECK-NEXT:  .prologue
 ; CHECK:       .save ar.pfs, r34
+; CHECK-NEXT:  .mlx
 ; CHECK-NEXT:  alloc r34 = ar.pfs, 1, 3, 1, 0
 ; CHECK-NEXT:  .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12 ;;

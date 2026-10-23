@@ -7,13 +7,15 @@
 ; CHECK-LABEL: sb:
 ; CHECK:      mov r14 = r12
 ; CHECK-NEXT: mov r8 = r0 ;;
-; CHECK-NEXT: adds r15 = 8, r14
-; CHECK-NEXT: stfe [r14] = f8 ;;
+; CHECK-NEXT: adds r15 = 8, r14 ;;
+; CHECK-NEXT: stfe [r14] = f8
 ; CHECK-NEXT: ld2 r15 = [r15]
 ; CHECK-NEXT: ld8 r14 = [r14] ;;
 ; CHECK-NEXT: sxt2 r15 = r15
+; CHECK-NEXT: .mmi
 ; CHECK-NEXT: cmp.ltu p6, p7 = r14, r0
 ; CHECK-NEXT: mov r14 = r0 ;;
+; CHECK-NEXT: .mlx
 ; CHECK-NEXT: (p6) mov r14 = 1
 ; CHECK-NEXT: cmp.lt p7, p6 = -1, r15 ;;
 ; CHECK-NEXT: (p6) mov r8 = 1
@@ -74,6 +76,7 @@ define i80 @bits(x86_fp80 %x) {
 ; CHECK-NEXT: and r15 = r15, r16
 ; CHECK-NEXT: cmp.ltu p6, p7 = r17, r14
 ; CHECK-NEXT: mov r14 = r0 ;;
+; CHECK-NEXT: .mlx
 ; CHECK-NEXT: (p6) mov r14 = 1
 ; CHECK-NEXT: cmp.ltu p6, p7 = r16, r15 ;;
 ; CHECK-NEXT: (p6) mov r8 = 1

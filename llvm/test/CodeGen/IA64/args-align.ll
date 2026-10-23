@@ -62,10 +62,11 @@ declare i64 @h(i64, ...)
 define i64 @call_variable(i128 %x) {
 ; CHECK-LABEL: call_variable:
 ; CHECK:       adds r12 = -32, r12
-; CHECK:       adds [[HI:r[0-9]+]] = 40, r12
-; CHECK-NEXT:  .mfi
+; CHECK:       .mmi
+; CHECK-NEXT:  adds [[HI:r[0-9]+]] = 40, r12
 ; CHECK-NEXT:  adds [[LO:r[0-9]+]] = 32, r12
 ; CHECK-NEXT:  adds [[NINTH:r[0-9]+]] = 16, r12
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov [[NINE:r[0-9]+]] = 9
 ; CHECK:       st8 [[[HI]]] = r33
 ; CHECK:       st8 [[[LO]]] = r32

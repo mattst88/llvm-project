@@ -12,6 +12,7 @@ define void @add2(ptr noalias %y, ptr noalias %x, i64 %n) {
 ; CHECK-NEXT:  ld8 r19 = [r16], 16
 ; CHECK-NEXT:  ld8 r20 = [r15], 16
 ; CHECK-NEXT:  ld8 r21 = [r17], 16 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  add r18 = r18, r19
 ; CHECK-NEXT:  add r22 = r20, r21 ;;
 ; CHECK-NEXT:  st8 [r32] = r18, 16

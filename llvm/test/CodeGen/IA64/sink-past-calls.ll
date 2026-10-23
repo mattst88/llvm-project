@@ -37,6 +37,9 @@ define double @before_call(double %x, i64 %a) {
 ; CHECK:         stf.spill [r2] = f2
 ; CHECK-NEXT:    setf.d f2 = r33
 ; CHECK:         fma.d f8 = f8, f2, f0
+; CHECK-NEXT:    .save rp, r35
+; CHECK-NEXT:    mov r35 = b0
+; CHECK-NEXT:    .body
 ; CHECK-NEXT:    br.call.sptk.many b0 = f ;;
   %d = bitcast i64 %a to double
   %m = fmul double %x, %d

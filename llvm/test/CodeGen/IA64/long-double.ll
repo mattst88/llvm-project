@@ -245,10 +245,11 @@ define void @call_variadic(ptr %f, x86_fp80 %a) {
 ; CHECK-LABEL: call_variadic:
 ; CHECK:       adds r14 = 48, r12
 ; CHECK-NEXT:  adds r15 = 32, r12
+; CHECK-NEXT:  adds r18 = 16, r12
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = r32
 ; CHECK-NEXT:  mov r40 = 7 ;;
-; CHECK-NEXT:  adds r18 = 16, r12
 ; CHECK-NEXT:  stfe [r14] = f8
 ; CHECK-NEXT:  stfe [r15] = f8
 ; CHECK-NEXT:  or r16 = 8, r14

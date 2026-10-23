@@ -9,7 +9,7 @@
 # CHECK:       add r16 = r32, r35
 # CHECK-NEXT:  .LBB0_1:
 # CHECK-NEXT:  // Child Loop
-# CHECK-NEXT:  .mmi
+# CHECK-NEXT:  .mmf
 # CHECK-NEXT:  adds r17 = -1, r33
 # CHECK-NEXT:  mov r18 = r32
 # CHECK-NEXT:  .LBB0_2:

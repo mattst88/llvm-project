@@ -108,6 +108,7 @@ define double @sel_fp_inverted(double %a, double %b, i64 %c, double %x,
 ; The inverse of an FP compare holds for unordered operands.
 ; CHECK-LABEL: sel_fp_inverted:
 ; CHECK:       fcmp.lt p7, p6 = f8, f9 ;;
+; CHECK-NEXT:  .mlx
 ; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = 0, r34 ;;
 ; CHECK-NEXT:  (p6) mov f11 = f10 ;;
 ; CHECK-NEXT:  mov f8 = f11

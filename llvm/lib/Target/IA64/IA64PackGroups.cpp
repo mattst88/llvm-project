@@ -75,6 +75,10 @@ static cl::opt<bool> EnablePacking("ia64-packing", cl::Hidden, cl::init(true),
                                    cl::desc("Order instruction groups and "
                                             "choose bundle templates"));
 
+static cl::opt<bool>
+    UseNopPorts("ia64-packing-nop-ports", cl::Hidden, cl::init(true),
+                cl::desc("Count the port that each nop of a bundle takes"));
+
 namespace {
 
 class IA64PackGroups : public MachineFunctionPass {
@@ -211,6 +215,19 @@ struct Dispersal {
     EndCycle = It.Stop;
   }
 
+  /// Fill a slot of \p Unit with a nop, which takes a port as any
+  /// instruction of the unit does, except the nop.x of an MLX bundle.
+  void nop(IA64II::Unit Unit) {
+    if (Unit == IA64II::UnitL || Unit == IA64II::UnitX)
+      return;
+    if (EndCycle)
+      newCycle(1);
+    unsigned Limit = Unit == IA64II::UnitM ? 4 : Unit == IA64II::UnitB ? 3 : 2;
+    if (Ports[Unit] == Limit)
+      newCycle(1);
+    ++Ports[Unit];
+  }
+
   /// Whether the next bundle starts a cycle. Where the group continues into
   /// the next block, which starts a bundle, that bundle can otherwise issue
   /// with the last.
@@ -331,16 +348,22 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
   auto AtEnd = [&] {
     return Taken == Items.size() || Items[Taken].Template != -1;
   };
+  // The slot after the last that the bundle has filled.
+  unsigned Filled = 0;
   for (unsigned Slot = 0; Slot != 3 && (Taken == 0 || !AtEnd()); ++Slot) {
     const Item &It = Items[Taken];
     IA64II::Unit Unit = IA64II::BundleTemplates[Index].Slots[Slot];
-    if (!slotTakes(Unit, It.Units) || (Slot != 2 && It.LastSlot))
+    Filled = Slot + 1;
+    if (!slotTakes(Unit, It.Units) || (Slot != 2 && It.LastSlot)) {
+      if (UseNopPorts)
+        D.nop(Unit);
       continue;
+    }
     D.issue(It, Unit);
     Split = false;
     Branch |= Unit == IA64II::UnitB;
     if (Unit == IA64II::UnitL)
-      ++Slot;
+      Filled = ++Slot + 1;
     ++Taken;
     if (!It.Stop)
       continue;
@@ -367,6 +390,15 @@ static unsigned packBundle(ArrayRef<Item> Items, Dispersal &D,
       break;
     }
     Split = true;
+  }
+  // The nops that end the bundle issue before a stop after its last
+  // instruction.
+  if (UseNopPorts && Taken != 0 && !Split && Filled != 3) {
+    bool Stop = D.EndCycle;
+    D.EndCycle = false;
+    for (unsigned Slot = Filled; Slot != 3; ++Slot)
+      D.nop(IA64II::BundleTemplates[Index].Slots[Slot]);
+    D.EndCycle |= Stop;
   }
   if (Taken == 0)
     --D.Bundles;

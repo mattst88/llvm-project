@@ -49,6 +49,7 @@ define void @saved(i64 %n) {
 ; CHECK:       mov r34 = r12
 ; CHECK:       sub r12 = r12, r14
 ; CHECK:       br.call.sptk.many b0 = g ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r1 = r33
 ; CHECK-NEXT:  mov r12 = r34
 ; CHECK:       br.call.sptk.many b0 = g ;;

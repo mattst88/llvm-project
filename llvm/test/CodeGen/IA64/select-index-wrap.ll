@@ -11,6 +11,7 @@ define i8 @wrap_sext(ptr %block, i32 %x, i32 %n) {
 ; CHECK-NEXT:  add r14 = r32, r14
 ; CHECK-NEXT:  cmp4.lt p7, p6 = -1, r15
 ; CHECK-NEXT:  sxt4 r16 = r15 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  (p6) add r14 = r14, r16
 ; CHECK-NEXT:  (p7) add r14 = r32, r16 ;;
 ; CHECK-NEXT:  ld1 r8 = [r14]
@@ -30,6 +31,7 @@ define i8 @wrap_zext(ptr %block, i32 %k, i32 %n, i32 %lim) {
 ; CHECK-NEXT:  cmp4.ltu p6, p7 = r33, r35
 ; CHECK-NEXT:  zxt4 r15 = r33 ;;
 ; CHECK-NEXT:  add r14 = r32, r14 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  (p7) add r14 = r14, r15
 ; CHECK-NEXT:  (p6) add r14 = r32, r15 ;;
 ; CHECK-NEXT:  ld1 r8 = [r14]
@@ -46,8 +48,10 @@ define i8 @wrap_select_of_adds(ptr %block, i32 %k, i32 %n, i1 %c) {
 ; CHECK-LABEL: wrap_select_of_adds:
 ; CHECK:       sxt4 r14 = r34
 ; CHECK-NEXT:  tbit.z p7, p6 = r35, 0 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  add r14 = r32, r14
 ; CHECK-NEXT:  sxt4 r15 = r33 ;;
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  (p7) add r14 = r14, r15
 ; CHECK-NEXT:  (p6) add r14 = r32, r15 ;;
 ; CHECK-NEXT:  ld1 r8 = [r14]

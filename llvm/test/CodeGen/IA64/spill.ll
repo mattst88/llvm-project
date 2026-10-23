@@ -16,12 +16,14 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    mov r116 = ar.unat
 ; CHECK-NEXT:    .fframe 32
 ; CHECK-NEXT:    adds r12 = -32, r12 ;;
+; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    adds r2 = 40, r12
 ; CHECK-NEXT:    adds r3 = 32, r12 ;;
 ; CHECK-NEXT:    .save.g 0x8
 ; CHECK-NEXT:    st8.spill [r2] = r7
 ; CHECK-NEXT:    adds r2 = 24, r12 ;;
 ; CHECK-NEXT:    .save.g 0x4
+; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    st8.spill [r3] = r6
 ; CHECK-NEXT:    adds r3 = 16, r12 ;;
 ; CHECK-NEXT:    .save.g 0x2

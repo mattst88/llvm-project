@@ -64,7 +64,6 @@ define double @call_memory(float %f, double %d) {
 ; CHECK-LABEL: call_memory:
 ; CHECK:       adds r12 = -16, r12
 ; CHECK:       adds r14 = 24, r12
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r15 = 16, r12
 ; CHECK:       .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
@@ -131,7 +130,7 @@ define double @across(double %a) {
 ; CHECK-NEXT:  br.call.sptk.many b0 = x ;;
 ; CHECK:       mov f8 = f2
 ; CHECK-NEXT:  mov b0 = r34
-; CHECK-NEXT:  adds r2 = 64, r12 ;;
+; CHECK-NEXT:  mov r1 = r32 ;;
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
 ; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  .restore sp

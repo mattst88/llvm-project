@@ -10,13 +10,13 @@
 
 ; Eight A-unit instructions fill three bundles either way. The assembler
 ; would choose MII for all three, and two MII bundles have four I slots for
-; two I ports, so the second waits a cycle. With MMI first, the first two
-; bundles issue together. After the stop, of the two adds that would follow
-; the first two stores, one goes after the next two, so that the stores pair
-; up in MMI bundles.
+; two I ports, so the second waits a cycle. With MMF first, whose nop.f takes
+; an F port, not an I port, the first two bundles issue together. After the
+; stop, of the two adds that would follow the first two stores, one goes after
+; the next two, so that the stores pair up in MMI bundles.
 define void @six_adds(ptr %p, i64 %a, i64 %b, i64 %c) {
 ; CHECK-LABEL: six_adds:
-; CHECK:       .mmi
+; CHECK:       .mmf
 ; CHECK-NEXT:  adds r14 = 1, r33
 ; CHECK-NEXT:  adds r15 = 2, r34
 ; CHECK-NEXT:  adds r17 = 8, r32

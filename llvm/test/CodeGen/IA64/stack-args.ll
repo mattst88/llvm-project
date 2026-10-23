@@ -23,10 +23,11 @@ define i64 @outgoing(i64 %a) {
 ; CHECK:       alloc r34 = ar.pfs, 1, 3, 8, 0
 ; CHECK-NEXT:  .fframe 16
 ; CHECK-NEXT:  adds r12 = -16, r12 ;;
-; CHECK-NEXT:  .mmf
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  mov r15 = 10
 ; CHECK-NEXT:  adds r16 = 16, r12
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = 1
 ; CHECK:       mov r43 = 8 ;;
@@ -58,13 +59,14 @@ define i64 @both(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 ; CHECK:       adds r15 = 72, r12
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  adds r37 = 40, r12 ;;
-; CHECK-NEXT:  ld8 r34 = [r14]
+; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  ld8 r32 = [r15]
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  ld8 r34 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = sink ;;
-; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  adds r14 = 24, r12
 ; CHECK-NEXT:  adds r15 = 16, r12
 ; CHECK:       st8 [r14] = r32

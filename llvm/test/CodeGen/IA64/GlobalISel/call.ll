@@ -151,7 +151,7 @@ define void @call_big(ptr %p) {
 ; CHECK:       adds r44 = 16, r12
 ; CHECK:       ld8 r40 = [r{{[0-9]+}}]
 ; CHECK-NEXT:  br.call.sptk.many b0 = memcpy ;;
-; CHECK-NEXT:  .mmf
+; CHECK-NEXT:  .mlx
 ; CHECK-NEXT:  mov r44 = r33
 ; CHECK:       mov r51 = r40
 ; CHECK-NEXT:  mov r1 = r41

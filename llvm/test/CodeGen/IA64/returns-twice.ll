@@ -33,6 +33,7 @@ define void @twice(ptr %buf, i64 %a, i64 %b) {
 ; CHECK-DAG:     mov r[[B:[4-7]]] = r34
 ; CHECK-DAG:     mov r[[A:[4-7]]] = r33
 ; CHECK:         br.call.sptk.many b0 = setjmp
+; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    mov r38 = r[[A]]
 ; CHECK-NEXT:    mov r39 = r[[B]]
 ; CHECK-NEXT:    mov r1 = r[[GP]]
@@ -46,6 +47,7 @@ define void @once(ptr %buf, i64 %a, i64 %b) {
 ; CHECK-LABEL: once:
 ; CHECK:         mov r[[GP:3[2-9]]] = r1
 ; CHECK:         br.call.sptk.many b0 = ordinary
+; CHECK-NEXT:    .mlx
 ; CHECK-NEXT:    mov r38 = r33
 ; CHECK-NEXT:    mov r39 = r34
 ; CHECK-NEXT:    mov r1 = r[[GP]]

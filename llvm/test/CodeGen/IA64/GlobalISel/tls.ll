@@ -25,8 +25,8 @@
 ; CHECK-LABEL: f_gd:
 ; PIC:         addl [[M:r[0-9]+]] = @ltoff(@dtpmod(gd)), r1
 ; PIC:         addl [[O:r[0-9]+]] = @ltoff(@dtprel(gd)), r1
-; PIC:         ld8 r35 = {{\[}}[[M]]{{\]}}
 ; PIC:         ld8 r36 = {{\[}}[[O]]{{\]}}
+; PIC:         ld8 r35 = {{\[}}[[M]]{{\]}}
 ; PIC:         br.call.sptk.many b0 = __tls_get_addr
 ; PIC:         mov r1 = r32
 ; STATIC:      addl [[O:r[0-9]+]] = @ltoff(@tprel(gd)), r1

@@ -55,10 +55,12 @@ define ptr @local_dynamic() {
 ;
 ; SIZE64-LABEL: local_dynamic:
 ; SIZE64:       br.call.sptk.many b0 = __tls_get_addr ;;
+; SIZE64-NEXT:  .mmi
 ; SIZE64-NEXT:  mov r1 = r32
 ; SIZE64-NEXT:  mov b0 = r34 ;;
-; SIZE64-NEXT:  mov ar.pfs = r33
-; SIZE64-NEXT:  addl r14 = @ltoff(@dtprel(ld)), r1 ;;
+; SIZE64-NEXT:  .mmi
+; SIZE64-NEXT:  addl r14 = @ltoff(@dtprel(ld)), r1
+; SIZE64-NEXT:  mov ar.pfs = r33 ;;
 ; SIZE64-NEXT:  ld8 r14 = [r14] ;;
 ; SIZE64-NEXT:  add r8 = r14, r8
   ret ptr @ld

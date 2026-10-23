@@ -76,11 +76,11 @@ define ptr @general_dynamic() {
 ; PIC:         addl r14 = @ltoff(@dtpmod(gd)), r1
 ; PIC-NEXT:    addl r15 = @ltoff(@dtprel(gd)), r1
 ; PIC-NEXT:    mov r32 = r1 ;;
-; PIC-NEXT:    ld8 r35 = [r14]
 ; PIC-NEXT:    ld8 r36 = [r15]
 ; PIC-NEXT:    .save rp, r34
 ; PIC-NEXT:    mov r34 = b0
 ; PIC-NEXT:    .body
+; PIC-NEXT:    ld8 r35 = [r14]
 ; PIC-NEXT:    br.call.sptk.many b0 = __tls_get_addr ;;
 ; PIC-NEXT:    mov r1 = r32
 ; PIC-NEXT:    mov ar.pfs = r33
