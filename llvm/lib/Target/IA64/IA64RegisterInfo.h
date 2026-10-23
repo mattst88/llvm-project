@@ -33,6 +33,12 @@ public:
   bool isCallerPreservedPhysReg(MCRegister PhysReg,
                                 const MachineFunction &MF) const override;
 
+  /// A preserved register costs a spill and a fill on every call, against an
+  /// entry frequency of 1 << 14. With this cost a value live across a call
+  /// that rarely runs, such as the sqrt that sets errno after an inline one,
+  /// is split around the call in a scratch register instead.
+  unsigned getCSRCost() const override { return 20; }
+
   bool eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,
                            unsigned FIOperandNum,
                            RegScavenger *RS = nullptr) const override;
