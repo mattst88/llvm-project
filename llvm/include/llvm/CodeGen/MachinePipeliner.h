@@ -181,6 +181,14 @@ struct LoopCarriedEdges {
 
   OrderDepsType OrderDeps;
 
+  /// The iteration distance of order dependencies known to be more than one
+  /// iteration apart. Every other dependency is one iteration apart.
+  DenseMap<std::pair<const SUnit *, const SUnit *>, unsigned> Distances;
+
+  unsigned getDistance(const SUnit *Src, const SUnit *Dst) const {
+    return Distances.lookup_or({Src, Dst}, 1);
+  }
+
   const OrderDep *getOrderDepOrNull(SUnit *Key) const {
     auto Ite = OrderDeps.find(Key);
     if (Ite == OrderDeps.end())
@@ -233,6 +241,10 @@ class SwingSchedulerDDG {
   /// not considered to drive the optimization heuristics.
   SmallVector<SwingSchedulerDDGEdge, 8> ValidationOnlyEdges;
 
+  /// The iteration distance of the extra edges more than one iteration apart.
+  DenseMap<std::pair<const SUnit *, const SUnit *>, unsigned>
+      ExtraEdgeDistances;
+
   /// Adds a NON-validation-only edge to the DDG. Assumes to be called only by
   /// the ctor.
   void addEdge(const SUnit *SU, const SwingSchedulerDDGEdge &Edge);
@@ -249,6 +261,11 @@ public:
   LLVM_ABI const EdgesType &getOutEdges(const SUnit *SU) const;
 
   LLVM_ABI ArrayRef<SUnit *> getExtraOutEdges(const SUnit *SU) const;
+
+  /// Return the iteration distance of the extra edge from \p Src to \p Dst.
+  unsigned getExtraEdgeDistance(const SUnit *Src, const SUnit *Dst) const {
+    return ExtraEdgeDistances.lookup_or({Src, Dst}, 1);
+  }
 
   LLVM_ABI bool isValidSchedule(const SMSchedule &Schedule) const;
 };
@@ -425,8 +442,11 @@ public:
 
   const SwingSchedulerDDG *getDDG() const { return DDG.get(); }
 
+  /// If \p Distance is given and the accesses may overlap, set it to the
+  /// first later iteration in which they may.
   bool mayOverlapInLaterIter(const MachineInstr *BaseMI,
-                             const MachineInstr *OtherMI) const;
+                             const MachineInstr *OtherMI,
+                             unsigned *Distance = nullptr) const;
 
 private:
   /// Set the policy for this loop, allowing the target to override it.
@@ -473,6 +493,8 @@ class NodeSet {
   unsigned Colocate = 0;
   SUnit *ExceedPressure = nullptr;
   unsigned Latency = 0;
+  /// The number of iterations the recurrence spans.
+  unsigned Distance = 1;
 
 public:
   using iterator = SetVector<SUnit *>::const_iterator;
@@ -515,6 +537,15 @@ public:
     // Handle a back-edge in loop carried dependencies
     SUnit *FirstNode = Nodes[0];
     SUnit *LastNode = Nodes[Nodes.size() - 1];
+
+    // A recurrence closed only by an extra edge spans as many iterations as
+    // that edge does.
+    if (none_of(DDG->getOutEdges(LastNode),
+                [&](const SwingSchedulerDDGEdge &E) {
+                  return E.getDst() == FirstNode;
+                }) &&
+        is_contained(DDG->getExtraOutEdges(LastNode), FirstNode))
+      Distance = DDG->getExtraEdgeDistance(LastNode, FirstNode);
 
     for (SUnit *SU : DDG->getExtraOutEdges(LastNode)) {
       // If we have an order dep that is potentially loop carried then a
@@ -571,6 +602,8 @@ public:
 
   unsigned getLatency() { return Latency; }
 
+  unsigned getDistance() const { return Distance; }
+
   unsigned getMaxDepth() { return MaxDepth; }
 
   void clear() {
@@ -581,6 +614,7 @@ public:
     MaxDepth = 0;
     Colocate = 0;
     ExceedPressure = nullptr;
+    Distance = 1;
   }
 
   operator SetVector<SUnit *> &() { return Nodes; }

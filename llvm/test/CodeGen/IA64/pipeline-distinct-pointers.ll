@@ -207,3 +207,48 @@ loop:
 exit:
   ret void
 }
+
+; a[i + 4] = a[i] * k reads what the iteration four before wrote, which leaves
+; room to overlap iterations.
+; CHECK: Schedule found with Initiation Interval: 3, MaxStageCount: 3
+define void @recurrence4(ptr %a, double %k, i64 %n) {
+entry:
+  %a4 = getelementptr i8, ptr %a, i64 32
+  br label %loop
+loop:
+  %p = phi ptr [ %a, %entry ], [ %p.next, %loop ]
+  %q = phi ptr [ %a4, %entry ], [ %q.next, %loop ]
+  %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  %v = load double, ptr %p
+  %m = fmul double %v, %k
+  store double %m, ptr %q
+  %p.next = getelementptr i8, ptr %p, i64 8
+  %q.next = getelementptr i8, ptr %q, i64 8
+  %i.next = add nuw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
+
+; The same stepping down, a[i - 4] = a[i] * k.
+; CHECK: Schedule found with Initiation Interval: 3, MaxStageCount: 3
+define void @recurrence4_down(ptr %a, double %k, i64 %n) {
+entry:
+  %a4 = getelementptr i8, ptr %a, i64 -32
+  br label %loop
+loop:
+  %p = phi ptr [ %a, %entry ], [ %p.next, %loop ]
+  %q = phi ptr [ %a4, %entry ], [ %q.next, %loop ]
+  %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  %v = load double, ptr %p
+  %m = fmul double %v, %k
+  store double %m, ptr %q
+  %p.next = getelementptr i8, ptr %p, i64 -8
+  %q.next = getelementptr i8, ptr %q, i64 -8
+  %i.next = add nuw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}

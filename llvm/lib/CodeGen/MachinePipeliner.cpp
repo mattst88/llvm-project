@@ -309,6 +309,10 @@ class LoopCarriedOrderDepsTracker {
   /// Loop-carried Edges.
   std::vector<BitVector> LoopCarried;
 
+  /// The iteration distance of the loop-carried edges more than one iteration
+  /// apart, keyed by source and destination node numbers.
+  DenseMap<std::pair<unsigned, unsigned>, unsigned> Distances;
+
   /// Instructions related to chain dependencies. They are one of the
   /// following:
   ///
@@ -337,6 +341,10 @@ public:
     return LoopCarried[Idx];
   }
 
+  unsigned getDistance(unsigned Src, unsigned Dst) const {
+    return Distances.lookup_or({Src, Dst}, 1);
+  }
+
 private:
   /// Tags to \p SU if the instruction may affect the order-dependencies.
   std::optional<InstrTag> getInstrTag(SUnit *SU) const;
@@ -351,8 +359,22 @@ private:
 
   void computeDependenciesAux();
 
-  void setLoopCarriedDep(const SUnit *Src, const SUnit *Dst) {
-    LoopCarried[Src->NodeNum].set(Dst->NodeNum);
+  void setLoopCarriedDep(const SUnit *Src, const SUnit *Dst,
+                         unsigned Distance = 1) {
+    std::pair<unsigned, unsigned> Key(Src->NodeNum, Dst->NodeNum);
+    if (!LoopCarried[Src->NodeNum].test(Dst->NodeNum)) {
+      LoopCarried[Src->NodeNum].set(Dst->NodeNum);
+      if (Distance > 1)
+        Distances[Key] = Distance;
+      return;
+    }
+    auto It = Distances.find(Key);
+    if (It == Distances.end() || Distance >= It->second)
+      return;
+    if (Distance > 1)
+      It->second = Distance;
+    else
+      Distances.erase(It);
   }
 };
 
@@ -1205,13 +1227,15 @@ bool SUnitWithMemInfo::getUnderlyingObjects() {
 }
 
 /// Returns true if there is a loop-carried order dependency from \p Src to \p
-/// Dst.
+/// Dst, and sets \p Distance to the number of iterations it spans.
 static bool hasLoopCarriedMemDep(const SUnitWithMemInfo &Src,
                                  const SUnitWithMemInfo &Dst,
                                  BatchAAResults &BAA,
                                  const TargetInstrInfo *TII,
                                  const TargetRegisterInfo *TRI,
-                                 const SwingSchedulerDAG *SSD) {
+                                 const SwingSchedulerDAG *SSD,
+                                 unsigned &Distance) {
+  Distance = 1;
   if (Src.isTriviallyDisjoint(Dst))
     return false;
   if (isSuccOrder(Src.SU, Dst.SU))
@@ -1220,7 +1244,7 @@ static bool hasLoopCarriedMemDep(const SUnitWithMemInfo &Src,
   MachineInstr &SrcMI = *Src.SU->getInstr();
   MachineInstr &DstMI = *Dst.SU->getInstr();
 
-  if (!SSD->mayOverlapInLaterIter(&SrcMI, &DstMI))
+  if (!SSD->mayOverlapInLaterIter(&SrcMI, &DstMI, &Distance))
     return false;
 
   // Second, the more expensive check that uses alias analysis on the
@@ -1314,8 +1338,9 @@ void LoopCarriedOrderDepsTracker::addDependenciesBetweenSUs(
   if (Src.SU == Dst.SU)
     return;
 
-  if (hasLoopCarriedMemDep(Src, Dst, *BAA, TII, TRI, DAG))
-    setLoopCarriedDep(Src.SU, Dst.SU);
+  unsigned Distance;
+  if (hasLoopCarriedMemDep(Src, Dst, *BAA, TII, TRI, DAG, Distance))
+    setLoopCarriedDep(Src.SU, Dst.SU, Distance);
 }
 
 void LoopCarriedOrderDepsTracker::addLoopCarriedDepenenciesForChunks(
@@ -1426,8 +1451,12 @@ LoopCarriedEdges SwingSchedulerDAG::addLoopCarriedDependences() {
   LoopCarriedOrderDepsTracker LCODTracker(this, &BAA, TII, TRI);
   LCODTracker.computeDependencies();
   for (unsigned I = 0; I != SUnits.size(); I++)
-    for (const int Succ : LCODTracker.getLoopCarried(I).set_bits())
+    for (const int Succ : LCODTracker.getLoopCarried(I).set_bits()) {
       LCE.OrderDeps[&SUnits[I]].insert(&SUnits[Succ]);
+      unsigned Distance = LCODTracker.getDistance(I, Succ);
+      if (Distance > 1)
+        LCE.Distances[{&SUnits[I], &SUnits[Succ]}] = Distance;
+    }
 
   LCE.modifySUnits(SUnits, TII);
   return LCE;
@@ -2100,7 +2129,7 @@ unsigned SwingSchedulerDAG::calculateRecMII(NodeSetType &NodeSets) {
       continue;
 
     unsigned Delay = Nodes.getLatency();
-    unsigned Distance = 1;
+    unsigned Distance = Nodes.getDistance();
 
     // ii = ceil(delay / distance)
     unsigned CurMII = (Delay + Distance - 1) / Distance;
@@ -3464,8 +3493,9 @@ void SwingSchedulerDAG::removeDisjointMemoryDependences() {
 
 /// Return false if there is no overlap between the region accessed by BaseMI in
 /// an iteration and the region accessed by OtherMI in subsequent iterations.
-bool SwingSchedulerDAG::mayOverlapInLaterIter(
-    const MachineInstr *BaseMI, const MachineInstr *OtherMI) const {
+bool SwingSchedulerDAG::mayOverlapInLaterIter(const MachineInstr *BaseMI,
+                                              const MachineInstr *OtherMI,
+                                              unsigned *Distance) const {
   int DeltaB, DeltaO, Delta;
   if (!computeDelta(*BaseMI, DeltaB) || !computeDelta(*OtherMI, DeltaO) ||
       DeltaB != DeltaO)
@@ -3563,7 +3593,33 @@ bool SwingSchedulerDAG::mayOverlapInLaterIter(
       return false;
     }
   }
-  LLVM_DEBUG(dbgs() << "  Result: Overlap\n");
+
+  // Find the first iteration K in which the other access, at
+  // OffsetO + K * Delta, reaches the base access, such as the load of a[i - 8]
+  // four iterations after the store of a[i] when i steps by two. Accesses
+  // stepping down are those stepping up with their addresses negated.
+  if (Distance && Delta != 0) {
+    int64_t SizeB = AccessSizeB.getValue(), SizeO = AccessSizeO.getValue();
+    if (Delta < 0) {
+      OffsetB = -(OffsetB + SizeB - 1);
+      OffsetO = -(OffsetO + SizeO - 1);
+      Delta = -Delta;
+    }
+    int64_t K = divideCeilSigned(OffsetB - OffsetO - SizeO + 1, Delta);
+    if (K > 1) {
+      if (OffsetO + K * Delta > OffsetB + SizeB - 1) {
+        LLVM_DEBUG(dbgs() << "  Result: No overlap\n");
+        return false;
+      }
+      *Distance = std::min<int64_t>(K, 64);
+    }
+  }
+  LLVM_DEBUG({
+    dbgs() << "  Result: Overlap";
+    if (Distance && *Distance > 1)
+      dbgs() << " " << *Distance << " iterations later";
+    dbgs() << "\n";
+  });
   return true;
 }
 
@@ -4607,7 +4663,7 @@ SwingSchedulerDDG::SwingSchedulerDDG(std::vector<SUnit> &SUnits, SUnit *EntrySU,
       for (SUnit *Dst : *OD) {
         SwingSchedulerDDGEdge Edge(Dst, Base, /*IsSucc=*/false,
                                    /*IsValidationOnly=*/true);
-        Edge.setDistance(1);
+        Edge.setDistance(LCE.getDistance(Src, Dst));
         ValidationOnlyEdges.push_back(Edge);
 
         // Store the edge as an extra edge if it meets the following conditions:
@@ -4633,8 +4689,12 @@ SwingSchedulerDDG::SwingSchedulerDDG(std::vector<SUnit> &SUnits, SUnit *EntrySU,
           MachineInstr *DstMI = Dst->getInstr();
           return DstMI->mayLoad() && !SrcMI->mayLoad() && SrcMI->mayStore();
         }();
-        if (UseAsExtraEdge)
+        if (UseAsExtraEdge) {
           getEdges(Edge.getSrc()).ExtraSuccs.push_back(Edge.getDst());
+          if (Edge.getDistance() > 1)
+            ExtraEdgeDistances[{Edge.getSrc(), Edge.getDst()}] =
+                Edge.getDistance();
+        }
       }
     }
   }
