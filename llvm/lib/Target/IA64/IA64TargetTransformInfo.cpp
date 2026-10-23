@@ -11,7 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64TargetTransformInfo.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/IVDescriptors.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MathExtras.h"
@@ -217,6 +221,148 @@ InstructionCost IA64TTIImpl::getArithmeticInstrCost(
                                        Args, CtxI);
 }
 
+// Whether a store in the loop may write what one of its loads reads, as far
+// as can be told without alias analysis: unless the two access the same
+// address, distinct identified objects, or carry the scopes of a loop
+// version checked apart.
+static bool mayStoreToLoad(const Loop *L) {
+  SmallVector<const LoadInst *, 8> Loads;
+  SmallVector<const StoreInst *, 8> Stores;
+  for (const BasicBlock *BB : L->blocks())
+    for (const Instruction &I : *BB) {
+      if (auto *Ld = dyn_cast<LoadInst>(&I))
+        Loads.push_back(Ld);
+      else if (auto *St = dyn_cast<StoreInst>(&I))
+        Stores.push_back(St);
+    }
+  for (const StoreInst *St : Stores)
+    for (const LoadInst *Ld : Loads) {
+      if (St->getPointerOperand() == Ld->getPointerOperand())
+        continue;
+      if ((St->hasMetadata(LLVMContext::MD_noalias) &&
+           Ld->hasMetadata(LLVMContext::MD_alias_scope)) ||
+          (Ld->hasMetadata(LLVMContext::MD_noalias) &&
+           St->hasMetadata(LLVMContext::MD_alias_scope)))
+        continue;
+      const Value *A = getUnderlyingObject(St->getPointerOperand());
+      const Value *B = getUnderlyingObject(Ld->getPointerOperand());
+      if (A != B && isIdentifiedObject(A) && isIdentifiedObject(B))
+        continue;
+      return true;
+    }
+  return false;
+}
+
+// The pipeliner overlaps the iterations of a loop of one block whether or
+// not it is unrolled, so unrolling it gains only where the units an
+// iteration takes leave some idle every cycle (two loads a cycle, two
+// stores, four memory ops, two floating-point ops, six instructions) and no
+// recurrence through a header phi takes longer than the iteration.  Return
+// whether a count up to 8 takes fewer cycles an iteration than one
+// iteration alone.  The induction variables and the address arithmetic are
+// left out: the pipeliner folds them into post-increments and br.ctop.
+static bool runtimeUnrollGains(const Loop *L) {
+  BasicBlock *Header = L->getHeader(), *Latch = L->getLoopLatch();
+  auto *Br = Latch ? dyn_cast<CondBrInst>(Latch->getTerminator()) : nullptr;
+  if (!Br)
+    return false;
+  SmallPtrSet<const Value *, 16> Overhead;
+  Overhead.insert(Br->getCondition());
+  for (PHINode &Phi : Header->phis()) {
+    auto *Next = dyn_cast<BinaryOperator>(Phi.getIncomingValueForBlock(Latch));
+    if (Next &&
+        (Next->getOpcode() == Instruction::Add ||
+         Next->getOpcode() == Instruction::Sub) &&
+        Next->getOperand(0) == &Phi && L->isLoopInvariant(Next->getOperand(1)))
+      Overhead.insert(Next);
+  }
+  for (const Instruction &I : reverse(*Header)) {
+    if (isa<GetElementPtrInst>(I) ||
+        (!I.mayReadOrWriteMemory() && !I.isTerminator() && !I.use_empty() &&
+         all_of(I.users(), [&](const User *U) {
+           return Overhead.count(U) ||
+                  (isa<PHINode>(U) && cast<PHINode>(U)->getParent() == Header);
+         })))
+      Overhead.insert(&I);
+  }
+
+  unsigned Loads = 0, Stores = 0, Mem = 0, FP = 0, All = 0;
+  auto Latency = [](const Instruction &I) -> unsigned {
+    if (isa<LoadInst>(I))
+      return I.getType()->isFloatingPointTy() ? 6 : 2;
+    if (I.getType()->isFloatingPointTy() || isa<FCmpInst>(I) ||
+        isa<FPToSIInst>(I) || isa<FPToUIInst>(I))
+      return 4;
+    if (I.getOpcode() == Instruction::Mul)
+      return 8;
+    return 1;
+  };
+  for (const Instruction &I : *Header) {
+    if (isa<PHINode>(I) || I.isTerminator() || Overhead.count(&I) ||
+        isa<DbgInfoIntrinsic>(I))
+      continue;
+    ++All;
+    if (isa<LoadInst>(I)) {
+      ++Loads, ++Mem;
+    } else if (isa<StoreInst>(I)) {
+      ++Stores, ++Mem;
+    } else if (I.getType()->isFPOrFPVectorTy() || isa<FCmpInst>(I)) {
+      ++FP;
+      // An integer operand moves to the FP registers through a memory unit.
+      for (const Value *Op : I.operands())
+        if (Op->getType()->isIntegerTy())
+          ++Mem, ++All;
+    } else if (I.getOpcode() == Instruction::Mul) {
+      // setf, xma and getf.
+      Mem += 2, ++FP, All += 2;
+    } else if (isa<CastInst>(I) &&
+               I.getOperand(0)->getType()->isFPOrFPVectorTy()) {
+      ++Mem;
+    }
+  }
+
+  // The longest path from each header phi to its next value, but for an
+  // induction variable, which unrolled steps once for several iterations,
+  // and an FP sum that may be reassociated.
+  unsigned Rec = 0;
+  for (PHINode &Phi : Header->phis()) {
+    const Value *Next = Phi.getIncomingValueForBlock(Latch);
+    auto *FPNext = dyn_cast<FPMathOperator>(Next);
+    if (Overhead.count(Next) || (FPNext && FPNext->hasAllowReassoc()))
+      continue;
+    DenseMap<const Value *, unsigned> Path;
+    std::function<unsigned(const Value *)> Longest = [&](const Value *V) {
+      if (V == &Phi)
+        return 1u;
+      auto *I = dyn_cast<Instruction>(V);
+      if (!I || I->getParent() != Header || isa<PHINode>(I))
+        return 0u;
+      auto [It, New] = Path.try_emplace(V, 0);
+      if (!New)
+        return It->second;
+      unsigned Max = 0;
+      for (const Value *Op : I->operands())
+        Max = std::max(Max, Longest(Op));
+      unsigned R = Max ? Max + Latency(*I) : 0;
+      Path[V] = R;
+      return R;
+    };
+    if (unsigned P = Longest(Phi.getIncomingValueForBlock(Latch)))
+      Rec = std::max(Rec, P - 1);
+  }
+
+  auto Cycles = [&](unsigned N) {
+    return std::max<uint64_t>({divideCeil(N * Loads, 2),
+                               divideCeil(N * Stores, 2),
+                               divideCeil(N * Mem, 4), divideCeil(N * FP, 2),
+                               divideCeil(N * All, 6), uint64_t(N) * Rec});
+  };
+  for (unsigned N = 2; N <= 8; N *= 2)
+    if (Cycles(N) < N * Cycles(1))
+      return true;
+  return false;
+}
+
 void IA64TTIImpl::getUnrollingPreferences(
     Loop *L, ScalarEvolution &SE, TTI::UnrollingPreferences &UP,
     OptimizationRemarkEmitter *ORE) const {
@@ -238,6 +384,14 @@ void IA64TTIImpl::getUnrollingPreferences(
   // loop of one block.
   if (SE.getSmallConstantTripCount(L))
     UP.AllowRemainder = false;
+  // Unrolled at runtime, a loop the pipeliner takes adds a remainder that
+  // runs an iteration at a time after the kernel; that costs more than it
+  // gains unless the unrolled kernel takes fewer cycles an iteration.  A
+  // loop whose stores may write what it loads is overlapped neither way, and
+  // unrolling still saves its overhead.
+  if (L->getNumBlocks() == 1 && !SE.getSmallConstantTripCount(L) &&
+      !mayStoreToLoad(L) && !runtimeUnrollGains(L))
+    UP.Runtime = false;
 
   // A header phi whose next value is another header phi's, as in E = D;
   // D = C, takes a copy each iteration: the two cannot share a register.
