@@ -219,3 +219,46 @@ for.body:
 exit:
   ret void
 }
+
+; A phi taking another phi's value each iteration, as SHA-1's rounds do
+; with e = d; d = c; b = a, needs a copy.  The loop unrolls by more than
+; the longest such chain, here d then e, at a count dividing its trip count,
+; though the unrolled body is over the threshold.
+declare i32 @llvm.fshl.i32(i32, i32, i32)
+define i32 @rotate(ptr %w, i32 %a0, i32 %b0, i32 %c0, i32 %d0, i32 %e0) {
+; CHECK-LABEL: @rotate(
+; CHECK:       for.body:
+; CHECK-COUNT-4: load i32
+; CHECK-NOT:   load i32
+; CHECK:       br i1
+; OFF-LABEL:   @rotate(
+; OFF-COUNT-1: load i32
+; OFF-NOT:     load i32
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %a = phi i32 [ %a0, %entry ], [ %t, %for.body ]
+  %b = phi i32 [ %b0, %entry ], [ %a, %for.body ]
+  %c = phi i32 [ %c0, %entry ], [ %b.rot, %for.body ]
+  %d = phi i32 [ %d0, %entry ], [ %c, %for.body ]
+  %e = phi i32 [ %e0, %entry ], [ %d, %for.body ]
+  %a.rot = call i32 @llvm.fshl.i32(i32 %a, i32 %a, i32 5)
+  %bc = xor i32 %b, %c
+  %f = xor i32 %bc, %d
+  %p = getelementptr i32, ptr %w, i64 %i
+  %v = load i32, ptr %p
+  %t1 = add i32 %a.rot, %f
+  %t2 = add i32 %t1, %e
+  %t3 = add i32 %t2, %v
+  %t = add i32 %t3, 1859775393
+  %b.rot = call i32 @llvm.fshl.i32(i32 %b, i32 %b, i32 30)
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, 20
+  br i1 %done, label %exit, label %for.body
+exit:
+  %r1 = add i32 %t, %b.rot
+  %r2 = add i32 %r1, %c
+  %r3 = add i32 %r2, %d
+  ret i32 %r3
+}

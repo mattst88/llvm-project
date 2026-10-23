@@ -239,6 +239,40 @@ void IA64TTIImpl::getUnrollingPreferences(
   if (SE.getSmallConstantTripCount(L))
     UP.AllowRemainder = false;
 
+  // A header phi whose next value is another header phi's, as in E = D;
+  // D = C, takes a copy each iteration: the two cannot share a register.
+  // Unrolled by more than the longest such chain, every phi's next value is
+  // computed in the body, and the copies go.  Raise the threshold enough for
+  // that, as far as a count dividing the trip count allows.
+  if (unsigned TripCount = SE.getSmallConstantTripCount(L)) {
+    BasicBlock *Header = L->getHeader(), *Latch = L->getLoopLatch();
+    unsigned Chain = 0;
+    for (PHINode &Phi : Header->phis()) {
+      unsigned N = 0;
+      for (PHINode *P = &Phi; Latch && N <= Header->size(); ++N) {
+        P = dyn_cast<PHINode>(P->getIncomingValueForBlock(Latch));
+        if (!P || P->getParent() != Header)
+          break;
+      }
+      Chain = std::max(Chain, N);
+    }
+    unsigned Count = Chain + 1;
+    while (Count < TripCount && TripCount % Count)
+      ++Count;
+    if (UnrollThreshold && Chain && Count <= 8 && Count < TripCount) {
+      InstructionCost Size = 0;
+      for (BasicBlock *BB : L->blocks())
+        for (Instruction &I : *BB) {
+          SmallVector<const Value *, 4> Operands(I.operand_values());
+          Size += getInstructionCost(&I, Operands,
+                                     TargetTransformInfo::TCK_CodeSize);
+        }
+      if (Size.isValid())
+        UP.PartialThreshold = std::max<unsigned>(
+            UP.PartialThreshold, Size.getValue() * Count + UP.BEInsns);
+    }
+  }
+
   // Unrolling cannot shorten an FP reduction that may not be reassociated:
   // each copy still waits for the last.  The pipeliner overlaps the rest of
   // the body without it, and a runtime remainder only adds a serial
