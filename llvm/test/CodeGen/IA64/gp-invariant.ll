@@ -1,4 +1,5 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-min-jump-table-entries=4 \
+; RUN:   -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s
 
 ; Every call writes r1, but the call itself restores this function's GP, so

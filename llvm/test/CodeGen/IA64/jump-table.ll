@@ -1,5 +1,7 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -filetype=obj < %s \
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-min-jump-table-entries=4 \
+; RUN:   -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-min-jump-table-entries=4 \
+; RUN:   -filetype=obj < %s \
 ; RUN:   | llvm-readobj -r - | FileCheck %s --check-prefix=RELOC
 
 ; A switch reads the distance from the table to the block out of the table,

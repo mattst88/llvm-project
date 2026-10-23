@@ -1,5 +1,6 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -global-isel -global-isel-abort=1 \
-; RUN:   -verify-machineinstrs < %s | FileCheck %s
+; RUN:   -ia64-min-jump-table-entries=4 -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s
 
 ; The table holds the distance from itself to each block, in eight bytes. Its
 ; address is in the linkage table, the entry is added to it, and the branch

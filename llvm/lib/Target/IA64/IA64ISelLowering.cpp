@@ -299,6 +299,10 @@ static bool RetCC_IA64_Significand(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
 #define GET_CALLING_CONV_IMPL
 #include "IA64GenCallingConv.inc"
 
+static cl::opt<unsigned> MinJumpTableEntries(
+    "ia64-min-jump-table-entries", cl::init(64), cl::Hidden,
+    cl::desc("The fewest cases a switch may have to use a jump table"));
+
 IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
                                        const IA64Subtarget &STI)
     : TargetLowering(TM, STI), Subtarget(STI) {
@@ -323,6 +327,12 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // common case that needs more than eight: unless they are whole
   // doublewords, which IA64SelectionDAGInfo expands, they go a byte at a time.
   MaxStoresPerMemset = MaxStoresPerMemcpy = MaxStoresPerMemmove = 32;
+
+  // A jump table's entry is two dependent loads and an add from the branch,
+  // whose target reaches b6 too late to be predicted, so it takes about ten
+  // cycles; a compare can issue in the same group as the branch it feeds, and
+  // a group can hold three branches.
+  setMinimumJumpTableEntries(MinJumpTableEntries);
 
   computeRegisterProperties(STI.getRegisterInfo());
 
