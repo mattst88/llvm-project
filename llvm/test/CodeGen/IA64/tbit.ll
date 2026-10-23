@@ -129,6 +129,44 @@ e:
   ret void
 }
 
+; The sign of a byte or halfword is its top bit, which a tbit tests without
+; extending the value. A word's sign is still a cmp4, which unlike a tbit can
+; issue on an M-unit.
+
+define i64 @select_byte_sign(ptr %p, i64 %a, i64 %b) {
+; CHECK-LABEL: select_byte_sign:
+; CHECK:       ld1 [[V:r[0-9]+]] = [r32]
+; CHECK-NEXT:  mov r8 = r34 ;;
+; CHECK-NEXT:  tbit.z p6, p7 = [[V]], 7 ;;
+; CHECK-NEXT:  (p6) mov r8 = r33
+  %v = load i8, ptr %p
+  %c = icmp sgt i8 %v, -1
+  %r = select i1 %c, i64 %a, i64 %b
+  ret i64 %r
+}
+
+define i64 @select_half_sign(i64 %x, i64 %a, i64 %b) {
+; CHECK-LABEL: select_half_sign:
+; CHECK:       mov r8 = r34
+; CHECK-NEXT:  tbit.z p7, p6 = r32, 15 ;;
+; CHECK-NEXT:  (p6) mov r8 = r33
+  %t = trunc i64 %x to i16
+  %c = icmp slt i16 %t, 0
+  %r = select i1 %c, i64 %a, i64 %b
+  ret i64 %r
+}
+
+define i64 @select_word_sign(i64 %x, i64 %a, i64 %b) {
+; CHECK-LABEL: select_word_sign:
+; CHECK:       mov r8 = r34
+; CHECK-NEXT:  cmp4.lt p7, p6 = -1, r32 ;;
+; CHECK-NEXT:  (p6) mov r8 = r33
+  %t = trunc i64 %x to i32
+  %c = icmp slt i32 %t, 0
+  %r = select i1 %c, i64 %a, i64 %b
+  ret i64 %r
+}
+
 ; OBJ-LABEL: <branch_clear>:
 ; OBJ:       tbit.z p7, p6 = r32, 3
 ; OBJ-LABEL: <select_and_clear>:

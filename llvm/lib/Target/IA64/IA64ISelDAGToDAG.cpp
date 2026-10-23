@@ -262,9 +262,17 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     return Immediate;
   }
   // A test of the sign of a value shifted left, which is what a sign test of
-  // a narrower value becomes, is a test of one of its bits.
+  // a narrower value becomes, is a test of one of its bits. So is a test of
+  // the sign of a byte or halfword extended in place, which saves the sxt; a
+  // word's is a cmp4, which unlike tbit can issue on an M-unit.
+  std::optional<unsigned> SignBit;
   if (LHS.getOpcode() == ISD::SHL && isa<ConstantSDNode>(LHS.getOperand(1)) &&
-      LHS.getConstantOperandVal(1) < 64 && isa<ConstantSDNode>(RHS)) {
+      LHS.getConstantOperandVal(1) < 64)
+    SignBit = 63 - LHS.getConstantOperandVal(1);
+  else if (LHS.getOpcode() == ISD::SIGN_EXTEND_INREG &&
+           cast<VTSDNode>(LHS.getOperand(1))->getVT().getSizeInBits() < 32)
+    SignBit = cast<VTSDNode>(LHS.getOperand(1))->getVT().getSizeInBits() - 1;
+  if (SignBit && isa<ConstantSDNode>(RHS)) {
     int64_t C = cast<ConstantSDNode>(RHS)->getSExtValue();
     std::optional<bool> Negative;
     if ((CC == ISD::SETLT && C == 0) || (CC == ISD::SETLE && C == -1))
@@ -275,8 +283,7 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
       Ops.push_back(CurDAG->getTargetConstant(
           *Negative ? IA64CC::BitSet : IA64CC::BitClear, DL, MVT::i64));
       Ops.push_back(LHS.getOperand(0));
-      Ops.push_back(CurDAG->getTargetConstant(63 - LHS.getConstantOperandVal(1),
-                                              DL, MVT::i64));
+      Ops.push_back(CurDAG->getTargetConstant(*SignBit, DL, MVT::i64));
       return Immediate;
     }
   }
