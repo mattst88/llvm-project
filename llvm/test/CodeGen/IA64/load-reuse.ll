@@ -175,3 +175,199 @@ loop:
 exit:
   ret i64 %s.next
 }
+
+; SHA-1's message schedule unrolled by two:
+;   for (i = 16; i < 80; i += 2) {
+;     w[i] = w[i - 2] ^ w[i - 8];
+;     w[i + 1] = w[i - 3] ^ w[i - 7];
+;   }
+; w[i - 2] is what the first store wrote an iteration before, and w[i - 3]
+; what the second wrote two before. w[i - 8] and w[i - 7] are four before,
+; too many.
+define void @schedule(ptr %w) {
+; CHECK-LABEL: define void @schedule(
+; CHECK-SAME: ptr [[W:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    [[SCEVGEP:%.*]] = getelementptr i8, ptr [[W]], i64 56
+; CHECK-NEXT:    [[A_FIRST:%.*]] = load i32, ptr [[SCEVGEP]], align 4
+; CHECK-NEXT:    [[SCEVGEP1:%.*]] = getelementptr i8, ptr [[W]], i64 60
+; CHECK-NEXT:    [[C_FIRST:%.*]] = load i32, ptr [[SCEVGEP1]], align 4
+; CHECK-NEXT:    [[SCEVGEP2:%.*]] = getelementptr i8, ptr [[W]], i64 52
+; CHECK-NEXT:    [[C_FIRST3:%.*]] = load i32, ptr [[SCEVGEP2]], align 4
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[I:%.*]] = phi i64 [ 16, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[A_PREV:%.*]] = phi i32 [ [[A_FIRST]], %[[ENTRY]] ], [ [[X:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[C_PREV:%.*]] = phi i32 [ [[C_FIRST]], %[[ENTRY]] ], [ [[Y:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[C_PREV4:%.*]] = phi i32 [ [[C_FIRST3]], %[[ENTRY]] ], [ [[C_PREV]], %[[LOOP]] ]
+; CHECK-NEXT:    [[P:%.*]] = getelementptr i32, ptr [[W]], i64 [[I]]
+; CHECK-NEXT:    [[P2:%.*]] = getelementptr i8, ptr [[P]], i64 -8
+; CHECK-NEXT:    [[P8:%.*]] = getelementptr i8, ptr [[P]], i64 -32
+; CHECK-NEXT:    [[B:%.*]] = load i32, ptr [[P8]], align 4
+; CHECK-NEXT:    [[X]] = xor i32 [[A_PREV]], [[B]]
+; CHECK-NEXT:    store i32 [[X]], ptr [[P]], align 4
+; CHECK-NEXT:    [[Q:%.*]] = getelementptr i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[P3:%.*]] = getelementptr i8, ptr [[P]], i64 -12
+; CHECK-NEXT:    [[P7:%.*]] = getelementptr i8, ptr [[P]], i64 -28
+; CHECK-NEXT:    [[D:%.*]] = load i32, ptr [[P7]], align 4
+; CHECK-NEXT:    [[Y]] = xor i32 [[C_PREV4]], [[D]]
+; CHECK-NEXT:    store i32 [[Y]], ptr [[Q]], align 4
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i64 [[I]], 2
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i64 [[I_NEXT]], 80
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 16, %entry ], [ %i.next, %loop ]
+  %p = getelementptr i32, ptr %w, i64 %i
+  %p2 = getelementptr i8, ptr %p, i64 -8
+  %a = load i32, ptr %p2
+  %p8 = getelementptr i8, ptr %p, i64 -32
+  %b = load i32, ptr %p8
+  %x = xor i32 %a, %b
+  store i32 %x, ptr %p
+  %q = getelementptr i8, ptr %p, i64 4
+  %p3 = getelementptr i8, ptr %p, i64 -12
+  %c = load i32, ptr %p3
+  %p7 = getelementptr i8, ptr %p, i64 -28
+  %d = load i32, ptr %p7
+  %y = xor i32 %c, %d
+  store i32 %y, ptr %q
+  %i.next = add nuw nsw i64 %i, 2
+  %done = icmp eq i64 %i.next, 80
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
+
+; With an unknown trip count, the second iteration's w[i - 3] may be past
+; what the loop reads, so only w[i - 2] is forwarded.
+define void @schedule_n(ptr %w, i64 %n) {
+; CHECK-LABEL: define void @schedule_n(
+; CHECK-SAME: ptr [[W:%.*]], i64 [[N:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    [[SCEVGEP:%.*]] = getelementptr i8, ptr [[W]], i64 56
+; CHECK-NEXT:    [[A_FIRST:%.*]] = load i32, ptr [[SCEVGEP]], align 4
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[I:%.*]] = phi i64 [ 16, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[A_PREV:%.*]] = phi i32 [ [[A_FIRST]], %[[ENTRY]] ], [ [[A:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[P:%.*]] = getelementptr i32, ptr [[W]], i64 [[I]]
+; CHECK-NEXT:    [[P2:%.*]] = getelementptr i8, ptr [[P]], i64 -8
+; CHECK-NEXT:    [[A]] = xor i32 [[A_PREV]], 1
+; CHECK-NEXT:    store i32 [[A]], ptr [[P]], align 4
+; CHECK-NEXT:    [[Q:%.*]] = getelementptr i8, ptr [[P]], i64 4
+; CHECK-NEXT:    [[P3:%.*]] = getelementptr i8, ptr [[P]], i64 -12
+; CHECK-NEXT:    [[C:%.*]] = load i32, ptr [[P3]], align 4
+; CHECK-NEXT:    [[Y:%.*]] = xor i32 [[C]], 1
+; CHECK-NEXT:    store i32 [[Y]], ptr [[Q]], align 4
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i64 [[I]], 2
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i64 [[I_NEXT]], [[N]]
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 16, %entry ], [ %i.next, %loop ]
+  %p = getelementptr i32, ptr %w, i64 %i
+  %p2 = getelementptr i8, ptr %p, i64 -8
+  %a = load i32, ptr %p2
+  %x = xor i32 %a, 1
+  store i32 %x, ptr %p
+  %q = getelementptr i8, ptr %p, i64 4
+  %p3 = getelementptr i8, ptr %p, i64 -12
+  %c = load i32, ptr %p3
+  %y = xor i32 %c, 1
+  store i32 %y, ptr %q
+  %i.next = add nuw nsw i64 %i, 2
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
+
+; A store of other bytes at every step, w[i] as i64 over w[i - 2] and
+; w[i - 1], keeps the load.
+define void @overlap(ptr %w) {
+; CHECK-LABEL: define void @overlap(
+; CHECK-SAME: ptr [[W:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[I:%.*]] = phi i64 [ 16, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[P:%.*]] = getelementptr i32, ptr [[W]], i64 [[I]]
+; CHECK-NEXT:    [[P2:%.*]] = getelementptr i8, ptr [[P]], i64 -8
+; CHECK-NEXT:    [[A:%.*]] = load i32, ptr [[P2]], align 4
+; CHECK-NEXT:    [[X:%.*]] = xor i32 [[A]], 1
+; CHECK-NEXT:    store i32 [[X]], ptr [[P]], align 4
+; CHECK-NEXT:    [[P1:%.*]] = getelementptr i8, ptr [[P]], i64 -4
+; CHECK-NEXT:    [[Z:%.*]] = zext i32 [[A]] to i64
+; CHECK-NEXT:    store i64 [[Z]], ptr [[P1]], align 8
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i64 [[I]], 2
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i64 [[I_NEXT]], 80
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 16, %entry ], [ %i.next, %loop ]
+  %p = getelementptr i32, ptr %w, i64 %i
+  %p2 = getelementptr i8, ptr %p, i64 -8
+  %a = load i32, ptr %p2
+  %x = xor i32 %a, 1
+  store i32 %x, ptr %p
+  %p1 = getelementptr i8, ptr %p, i64 -4
+  %z = zext i32 %a to i64
+  store i64 %z, ptr %p1
+  %i.next = add nuw nsw i64 %i, 2
+  %done = icmp eq i64 %i.next, 80
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
+
+; A call that may write anything keeps the load.
+define void @call(ptr %w) {
+; CHECK-LABEL: define void @call(
+; CHECK-SAME: ptr [[W:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[I:%.*]] = phi i64 [ 16, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[P:%.*]] = getelementptr i32, ptr [[W]], i64 [[I]]
+; CHECK-NEXT:    [[P1:%.*]] = getelementptr i8, ptr [[P]], i64 -4
+; CHECK-NEXT:    [[A:%.*]] = load i32, ptr [[P1]], align 4
+; CHECK-NEXT:    [[X:%.*]] = xor i32 [[A]], 1
+; CHECK-NEXT:    store i32 [[X]], ptr [[P]], align 4
+; CHECK-NEXT:    call void @g() #[[ATTR1:[0-9]+]]
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i64 [[I]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i64 [[I_NEXT]], 80
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 16, %entry ], [ %i.next, %loop ]
+  %p = getelementptr i32, ptr %w, i64 %i
+  %p1 = getelementptr i8, ptr %p, i64 -4
+  %a = load i32, ptr %p1
+  %x = xor i32 %a, 1
+  store i32 %x, ptr %p
+  call void @g() nounwind willreturn
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, 80
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
+
+declare void @g()
