@@ -130,12 +130,11 @@ exit:
 
 ; A loop that runs at most eight iterations, like the remainder of an
 ; unrolled loop, would spend more passes of its kernel filling and draining
-; than running, so it is not rotated, and the scheduler keeps to the stages
-; the default expander allows.
+; than running if it had more stages than that.
 define void @short(ptr noalias %y, ptr noalias %x, double %a, i64 %n) {
 ; CHECK-LABEL: short:
-; CHECK-NOT:   br.ctop
-; CHECK:       br.ret.sptk.many b0
+; CHECK:       mov ar.ec = {{[1-8]$}}
+; CHECK:       br.ctop
 ;
 ; CAP:         Schedule found with Initiation Interval: {{[0-9]+}}, MaxStageCount: {{[0-2]}}{{$}}
 entry:

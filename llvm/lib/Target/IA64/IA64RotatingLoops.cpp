@@ -755,15 +755,21 @@ void RotatingExpander::expand(LiveIntervals &LIS) {
   ++NumRotating;
 }
 
-// A loop that may run no more iterations than a rotating schedule may have
-// stages would spend more passes of its kernel filling and draining than
-// running, so it is left to the default expander.
+// A rotating schedule runs its kernel once more for each stage past the first,
+// so one for a loop that may run no more iterations than that would spend more
+// passes filling and draining than running. A loop too short for the fewest
+// stages is left to the default expander, and a longer one may have no more
+// stages than it runs iterations.
 unsigned llvm::getIA64RotatingMaxStages(MachineBasicBlock *Loop,
                                         std::optional<uint64_t> MaxTripCount) {
-  if (MaxTripCount && *MaxTripCount <= RotatingMaxStages)
-    return 0;
+  unsigned MaxStages = RotatingMaxStages;
+  if (MaxTripCount && *MaxTripCount <= MaxStages) {
+    if (*MaxTripCount < RotatingMinStages)
+      return 0;
+    MaxStages = *MaxTripCount - 1;
+  }
   RotatingExpander E(Loop, nullptr);
-  return E.canExpand() ? (unsigned)RotatingMaxStages : 0;
+  return E.canExpand() ? MaxStages : 0;
 }
 
 bool llvm::expandIA64RotatingSchedule(ModuloSchedule &MS, LiveIntervals &LIS) {
