@@ -35,6 +35,7 @@ add_llvm_target(IA64CodeGen
   IA64IfConversion.cpp
   IA64LoopAliasVersioning.cpp
   IA64LoadReuse.cpp
+  IA64MulRecurrence.cpp
   IA64MemmoveVersioning.cpp
   IA64InsertStops.cpp
   IA64PackGroups.cpp

@@ -52,6 +52,10 @@ static cl::opt<bool> EnableLoadReuse(
     "ia64-load-reuse", cl::Hidden, cl::init(true),
     cl::desc("Reuse a load from the previous iteration of a loop"));
 
+static cl::opt<bool> EnableMulRecurrence(
+    "ia64-mul-recurrence", cl::Hidden, cl::init(true),
+    cl::desc("Replace a multiply of induction variables with additions"));
+
 static cl::opt<bool>
     EnableLoopPrefetch("ia64-loop-prefetch", cl::Hidden, cl::init(true),
                        cl::desc("Prefetch strided loads in loops with lfetch"));
@@ -302,6 +306,11 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
         if (EnableLoadReuse &&
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
           MPM.addPass(createModuleToFunctionPassAdaptor(IA64LoadReusePass()));
+        // After unrolling, which would copy the recurrence.
+        if (EnableMulRecurrence &&
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+          MPM.addPass(
+              createModuleToFunctionPassAdaptor(IA64MulRecurrencePass()));
         // After unrolling, which makes the lanes.
         if (EnableWidenByteOps &&
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
