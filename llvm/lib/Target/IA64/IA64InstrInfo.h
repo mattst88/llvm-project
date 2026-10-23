@@ -155,6 +155,8 @@ public:
 
   bool isPredicated(const MachineInstr &MI) const override;
   bool isAsCheapAsAMove(const MachineInstr &MI) const override;
+  bool isSafeToSink(MachineInstr &MI, MachineBasicBlock *SuccToSinkTo,
+                    MachineCycleInfo *CI) const override;
 
   bool isSchedulingBoundary(const MachineInstr &MI,
                             const MachineBasicBlock *MBB,

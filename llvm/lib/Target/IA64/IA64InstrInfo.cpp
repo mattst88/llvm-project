@@ -13,6 +13,7 @@
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/CodeGen/MachineCycleAnalysis.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/MC/MCInstBuilder.h"
@@ -908,6 +909,22 @@ bool IA64InstrInfo::isAsCheapAsAMove(const MachineInstr &MI) const {
       MI.getOperand(2).getReg() == IA64::R0)
     return true;
   return TargetInstrInfo::isAsCheapAsAMove(MI);
+}
+
+// In a loop, MachineSink sinks into a block that runs whenever MI's block
+// does to shorten live ranges. That moves MI past the branch that ends its
+// block, so it can no longer issue alongside the long-latency work before the
+// branch, and the chain it starts is added to every iteration after it. The
+// join of an if-then or if-then-else is such a block.
+bool IA64InstrInfo::isSafeToSink(MachineInstr &MI,
+                                 MachineBasicBlock *SuccToSinkTo,
+                                 MachineCycleInfo *CI) const {
+  if (!CI->getCycle(MI.getParent()))
+    return true;
+  return !all_of(MI.getParent()->successors(), [&](MachineBasicBlock *Succ) {
+    return Succ == SuccToSinkTo ||
+           (Succ->succ_size() == 1 && *Succ->succ_begin() == SuccToSinkTo);
+  });
 }
 
 // alloc must not move: it has to precede the first write of a register it
