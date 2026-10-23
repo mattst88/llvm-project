@@ -9,6 +9,7 @@
 #include "IA64Subtarget.h"
 #include "IA64.h"
 #include "IA64TargetMachine.h"
+#include "llvm/CodeGen/ScheduleDAGMutation.h"
 
 #define DEBUG_TYPE "ia64-subtarget"
 
@@ -24,6 +25,11 @@ static cl::opt<bool>
 
 bool IA64Subtarget::enableMachinePipeliner() const {
   return EnablePipeliner && getSchedModel().hasInstrSchedModel();
+}
+
+void IA64Subtarget::getSMSMutations(
+    std::vector<std::unique_ptr<ScheduleDAGMutation>> &Mutations) const {
+  Mutations.push_back(createIA64LoadBanksMutation());
 }
 
 IA64Subtarget &IA64Subtarget::initializeSubtargetDependencies(StringRef CPU,

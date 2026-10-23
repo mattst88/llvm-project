@@ -104,6 +104,9 @@ public:
   // an in-order machine is the only way they overlap.
   bool enableMachinePipeliner() const override;
   bool useDFAforSMS() const override { return false; }
+  void getSMSMutations(
+      std::vector<std::unique_ptr<ScheduleDAGMutation>> &Mutations)
+      const override;
   // The window scheduler, which the pipeliner falls back on, schedules with
   // the target's own machine scheduler, and IA64 uses the generic one.
   bool enableWindowScheduler() const override { return false; }

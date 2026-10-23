@@ -17,6 +17,7 @@
 #include "MCTargetDesc/IA64MCTargetDesc.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CodeGen.h"
+#include <memory>
 #include <optional>
 
 namespace llvm {
@@ -30,6 +31,7 @@ class IA64Subtarget;
 class IA64TargetMachine;
 class InstructionSelector;
 class PassRegistry;
+class ScheduleDAGMutation;
 
 FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
@@ -49,6 +51,11 @@ FunctionPass *createIA64SplitSingleAddsPass();
 FunctionPass *createIA64PostIncPointersPass();
 FunctionPass *createIA64RematInCallLoopsPass();
 FunctionPass *createIA64SinkPastCallsPass();
+
+/// A pipeliner mutation that issues the FP loads of different objects a
+/// cycle apart, so that they do not meet in an L2 bank.
+std::unique_ptr<ScheduleDAGMutation> createIA64LoadBanksMutation();
+
 InstructionSelector *
 createIA64InstructionSelector(const IA64TargetMachine &TM,
                               const IA64Subtarget &STI,

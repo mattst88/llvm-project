@@ -26,6 +26,7 @@ add_llvm_target(IA64CodeGen
   IA64BreakAntiDeps.cpp
   IA64FrameLowering.cpp
   IA64ExclusivePredicates.cpp
+  IA64LoadBanks.cpp
   IA64ExpandBranches.cpp
   IA64FoldPredicatedCopies.cpp
   IA64HoistFallThrough.cpp
