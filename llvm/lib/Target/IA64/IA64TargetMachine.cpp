@@ -48,6 +48,10 @@ static cl::opt<bool> EnableMemmoveVersioning(
     "ia64-memmove-versioning", cl::Hidden, cl::init(true),
     cl::desc("Version small memmoves on whether their operands overlap"));
 
+static cl::opt<bool> EnableLoadReuse(
+    "ia64-load-reuse", cl::Hidden, cl::init(true),
+    cl::desc("Reuse a load from the previous iteration of a loop"));
+
 static cl::opt<bool>
     EnableLoopPrefetch("ia64-loop-prefetch", cl::Hidden, cl::init(true),
                        cl::desc("Prefetch strided loads in loops with lfetch"));
@@ -293,6 +297,11 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
           MPM.addPass(
               createModuleToFunctionPassAdaptor(IA64MemmoveVersioningPass()));
+        // After unrolling, whose copies of a load would each reuse the
+        // last copy's.
+        if (EnableLoadReuse &&
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+          MPM.addPass(createModuleToFunctionPassAdaptor(IA64LoadReusePass()));
         // After unrolling, which makes the lanes.
         if (EnableWidenByteOps &&
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))

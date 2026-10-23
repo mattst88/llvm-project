@@ -88,6 +88,10 @@ struct IA64WidenByteOpsPass : OptionalPassInfoMixin<IA64WidenByteOpsPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
+struct IA64LoadReusePass : OptionalPassInfoMixin<IA64LoadReusePass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 struct IA64MemmoveVersioningPass
     : OptionalPassInfoMixin<IA64MemmoveVersioningPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
