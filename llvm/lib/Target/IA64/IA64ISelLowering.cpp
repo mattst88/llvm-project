@@ -2071,6 +2071,13 @@ IA64TargetLowering::getPreferredExtendForValue(const Instruction *I) const {
   return TargetLowering::getPreferredExtendForValue(I);
 }
 
+MVT IA64TargetLowering::getPreferredSwitchConditionType(LLVMContext &Context,
+                                                        EVT ConditionVT) const {
+  if (ConditionVT == MVT::i32)
+    return MVT::i32;
+  return TargetLowering::getPreferredSwitchConditionType(Context, ConditionVT);
+}
+
 unsigned IA64TargetLowering::getJumpTableEncoding() const {
   return MachineJumpTableInfo::EK_LabelDifference64;
 }

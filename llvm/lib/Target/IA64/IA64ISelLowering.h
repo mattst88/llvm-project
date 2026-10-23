@@ -64,6 +64,9 @@ public:
   bool isZExtFree(SDValue Val, EVT VT2) const override;
   bool shouldScopeInlinedMemcpy() const override { return true; }
   ISD::NodeType getPreferredExtendForValue(const Instruction *I) const override;
+  // cmp4 compares a 32-bit switch value without extending it.
+  MVT getPreferredSwitchConditionType(LLVMContext &Context,
+                                      EVT ConditionVT) const override;
   // addl takes a signed immediate, so a negative 32-bit constant sign
   // extended needs no movl.
   bool signExtendConstant(const ConstantInt *C) const override {
