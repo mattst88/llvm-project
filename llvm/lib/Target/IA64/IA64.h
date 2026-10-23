@@ -48,6 +48,7 @@ FunctionPass *createIA64SpeculateLoadsPass();
 FunctionPass *createIA64SplitSingleAddsPass();
 FunctionPass *createIA64PostIncPointersPass();
 FunctionPass *createIA64RematInCallLoopsPass();
+FunctionPass *createIA64SinkPastCallsPass();
 InstructionSelector *
 createIA64InstructionSelector(const IA64TargetMachine &TM,
                               const IA64Subtarget &STI,
@@ -73,6 +74,7 @@ void initializeIA64InsertStopsPass(PassRegistry &);
 void initializeIA64LocalDynamicTLSPass(PassRegistry &);
 void initializeIA64PackGroupsPass(PassRegistry &);
 void initializeIA64RematInCallLoopsPass(PassRegistry &);
+void initializeIA64SinkPastCallsPass(PassRegistry &);
 void initializeIA64SpeculateLoadsPass(PassRegistry &);
 void initializeIA64SplitSingleAddsPass(PassRegistry &);
 void initializeIA64PostIncPointersPass(PassRegistry &);
