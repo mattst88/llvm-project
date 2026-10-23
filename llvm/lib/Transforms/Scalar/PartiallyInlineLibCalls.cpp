@@ -16,6 +16,7 @@
 #include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
@@ -32,6 +33,28 @@ using namespace llvm;
 
 DEBUG_COUNTER(PILCounter, "partially-inline-libcalls-transform",
               "Controls transformations in partially-inline-libcalls");
+
+// Moves the instructions that follow Call in its block, but neither use it
+// nor touch memory, above it. They would otherwise land in the tail split off
+// after the call and wait for the check of the native sqrt's result, where
+// the scheduler could not overlap them with the sqrt.
+static void hoistIndependentInstructions(CallInst *Call) {
+  SmallPtrSet<Instruction *, 8> Stay;
+  Stay.insert(Call);
+  for (Instruction &I : make_early_inc_range(
+           make_range(std::next(Call->getIterator()),
+                      Call->getParent()->getTerminator()->getIterator()))) {
+    if (I.mayReadOrWriteMemory() || !isSafeToSpeculativelyExecute(&I) ||
+        any_of(I.operands(), [&](Value *Op) {
+          auto *OpI = dyn_cast<Instruction>(Op);
+          return OpI && Stay.contains(OpI);
+        })) {
+      Stay.insert(&I);
+      continue;
+    }
+    I.moveBefore(Call->getIterator());
+  }
+}
 
 static bool optimizeSQRT(CallInst *Call, Function *CalledFunc,
                          BasicBlock &CurrBB, Function::iterator &BB,
@@ -56,6 +79,8 @@ static bool optimizeSQRT(CallInst *Call, Function *CalledFunc,
   //   v1 = sqrt(src)         # library call.
   // dst = phi(v0, v1)
   //
+
+  hoistIndependentInstructions(Call);
 
   Type *Ty = Call->getType();
   IRBuilder<> Builder(Call->getNextNode());
