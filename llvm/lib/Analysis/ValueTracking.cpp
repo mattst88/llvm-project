@@ -4117,6 +4117,39 @@ static bool isNonEqualShl(const Value *V1, const Value *V2,
   return false;
 }
 
+/// Return true if V1 is a recurrence that starts above V2 and never decreases,
+/// like the j of `for (j = i + 1; j < n; j++)` against i: V1 = phi [V2 + X,
+/// V1 + Step], with X known non-zero and both adds nuw, or with X known
+/// positive, Step known non-negative and both adds nsw. V2 must be defined
+/// before the phi's block is entered, so that computing it again takes the phi
+/// through its start again.
+static bool isNonEqualIncreasingRecurrence(const Value *V1, const Value *V2,
+                                           const SimplifyQuery &Q,
+                                           unsigned Depth) {
+  const auto *PN = dyn_cast<PHINode>(V1);
+  BinaryOperator *BO;
+  Value *Start, *Step;
+  if (!PN || !matchSimpleRecurrence(PN, BO, Start, Step) ||
+      BO->getOpcode() != Instruction::Add)
+    return false;
+  if (const auto *I = dyn_cast<Instruction>(V2))
+    if (!Q.DT || I->getParent() == PN->getParent() ||
+        !Q.DT->dominates(I->getParent(), PN->getParent()))
+      return false;
+
+  auto *Inc = dyn_cast<OverflowingBinaryOperator>(BO);
+  auto *First = dyn_cast<OverflowingBinaryOperator>(Start);
+  Value *X;
+  if (!First || !match(First, m_c_Add(m_Specific(V2), m_Value(X))))
+    return false;
+  if (Inc->hasNoUnsignedWrap() && First->hasNoUnsignedWrap() &&
+      isKnownNonZero(X, Q, Depth + 1))
+    return true;
+  return Inc->hasNoSignedWrap() && First->hasNoSignedWrap() &&
+         isKnownPositive(X, Q, Depth + 1) &&
+         isKnownNonNegative(Step, Q, Depth + 1);
+}
+
 static bool isNonEqualPHIs(const PHINode *PN1, const PHINode *PN2,
                            const APInt &DemandedElts, const SimplifyQuery &Q,
                            unsigned Depth) {
@@ -4335,6 +4368,10 @@ static bool isKnownNonEqual(const Value *V1, const Value *V2,
 
   if (isNonEqualShl(V1, V2, DemandedElts, Q, Depth) ||
       isNonEqualShl(V2, V1, DemandedElts, Q, Depth))
+    return true;
+
+  if (isNonEqualIncreasingRecurrence(V1, V2, Q, Depth) ||
+      isNonEqualIncreasingRecurrence(V2, V1, Q, Depth))
     return true;
 
   if (V1->getType()->isIntOrIntVectorTy()) {

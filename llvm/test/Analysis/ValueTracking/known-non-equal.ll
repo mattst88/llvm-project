@@ -1903,4 +1903,195 @@ _Z9stringlenPKs.exit:
   ret i1 %retval.0.i
 }
 
+; j starts above i and only grows, so it is never i.
+define i1 @increasing_rec_nuw(i32 %i, i32 %n) {
+; CHECK-LABEL: @increasing_rec_nuw(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[FIRST:%.*]] = add nuw i32 [[I:%.*]], 1
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[J:%.*]] = phi i32 [ [[FIRST]], [[ENTRY:%.*]] ], [ [[J_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[J_NEXT]] = add nuw i32 [[J]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[J_NEXT]], [[N:%.*]]
+; CHECK-NEXT:    br i1 [[DONE]], label [[EXIT:%.*]], label [[LOOP]]
+; CHECK:       exit:
+; CHECK-NEXT:    ret i1 false
+;
+entry:
+  %first = add nuw i32 %i, 1
+  br label %loop
+
+loop:
+  %j = phi i32 [ %first, %entry ], [ %j.next, %loop ]
+  %j.next = add nuw i32 %j, 1
+  %done = icmp eq i32 %j.next, %n
+  br i1 %done, label %exit, label %loop
+
+exit:
+  %cmp = icmp eq i32 %j, %i
+  ret i1 %cmp
+}
+
+define i1 @increasing_rec_nsw(i32 %i, i32 %n) {
+; CHECK-LABEL: @increasing_rec_nsw(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[FIRST:%.*]] = add nsw i32 [[I:%.*]], 2
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[J:%.*]] = phi i32 [ [[FIRST]], [[ENTRY:%.*]] ], [ [[J_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[J_NEXT]] = add nsw i32 [[J]], 3
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[J_NEXT]], [[N:%.*]]
+; CHECK-NEXT:    br i1 [[DONE]], label [[EXIT:%.*]], label [[LOOP]]
+; CHECK:       exit:
+; CHECK-NEXT:    ret i1 true
+;
+entry:
+  %first = add nsw i32 %i, 2
+  br label %loop
+
+loop:
+  %j = phi i32 [ %first, %entry ], [ %j.next, %loop ]
+  %j.next = add nsw i32 %j, 3
+  %done = icmp eq i32 %j.next, %n
+  br i1 %done, label %exit, label %loop
+
+exit:
+  %cmp = icmp ne i32 %i, %j
+  ret i1 %cmp
+}
+
+; The n-body shape: i is the outer loop's phi, j the inner one's.
+define void @increasing_rec_nested(i32 %n, ptr %out) {
+; CHECK-LABEL: @increasing_rec_nested(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[OUTER:%.*]]
+; CHECK:       outer:
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[I_NEXT:%.*]], [[OUTER_LATCH:%.*]] ]
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i32 [[I]], 1
+; CHECK-NEXT:    br label [[INNER:%.*]]
+; CHECK:       inner:
+; CHECK-NEXT:    [[J:%.*]] = phi i32 [ [[I_NEXT]], [[OUTER]] ], [ [[J_NEXT:%.*]], [[INNER]] ]
+; CHECK-NEXT:    store i1 false, ptr [[OUT:%.*]], align 1
+; CHECK-NEXT:    [[J_NEXT]] = add nuw nsw i32 [[J]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[J_NEXT]], [[N:%.*]]
+; CHECK-NEXT:    br i1 [[DONE]], label [[OUTER_LATCH]], label [[INNER]]
+; CHECK:       outer.latch:
+; CHECK-NEXT:    [[OUTER_DONE:%.*]] = icmp eq i32 [[I_NEXT]], [[N]]
+; CHECK-NEXT:    br i1 [[OUTER_DONE]], label [[EXIT:%.*]], label [[OUTER]]
+; CHECK:       exit:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %outer
+
+outer:
+  %i = phi i32 [ 0, %entry ], [ %i.next, %outer.latch ]
+  %i.next = add nuw nsw i32 %i, 1
+  br label %inner
+
+inner:
+  %j = phi i32 [ %i.next, %outer ], [ %j.next, %inner ]
+  %cmp = icmp eq i32 %j, %i
+  store i1 %cmp, ptr %out
+  %j.next = add nuw nsw i32 %j, 1
+  %done = icmp eq i32 %j.next, %n
+  br i1 %done, label %outer.latch, label %inner
+
+outer.latch:
+  %outer.done = icmp eq i32 %i.next, %n
+  br i1 %outer.done, label %exit, label %outer
+
+exit:
+  ret void
+}
+
+; An add that may wrap can come back around to i.
+define i1 @increasing_rec_wrapping_start(i32 %i, i32 %n) {
+; CHECK-LABEL: @increasing_rec_wrapping_start(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[FIRST:%.*]] = add i32 [[I:%.*]], 1
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[J:%.*]] = phi i32 [ [[FIRST]], [[ENTRY:%.*]] ], [ [[J_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[J_NEXT]] = add nuw i32 [[J]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[J_NEXT]], [[N:%.*]]
+; CHECK-NEXT:    br i1 [[DONE]], label [[EXIT:%.*]], label [[LOOP]]
+; CHECK:       exit:
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[J]], [[I]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+entry:
+  %first = add i32 %i, 1
+  br label %loop
+
+loop:
+  %j = phi i32 [ %first, %entry ], [ %j.next, %loop ]
+  %j.next = add nuw i32 %j, 1
+  %done = icmp eq i32 %j.next, %n
+  br i1 %done, label %exit, label %loop
+
+exit:
+  %cmp = icmp eq i32 %j, %i
+  ret i1 %cmp
+}
+
+define i1 @increasing_rec_wrapping_step(i32 %i, i32 %n) {
+; CHECK-LABEL: @increasing_rec_wrapping_step(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[FIRST:%.*]] = add nuw i32 [[I:%.*]], 1
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[J:%.*]] = phi i32 [ [[FIRST]], [[ENTRY:%.*]] ], [ [[J_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[J_NEXT]] = add i32 [[J]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[J_NEXT]], [[N:%.*]]
+; CHECK-NEXT:    br i1 [[DONE]], label [[EXIT:%.*]], label [[LOOP]]
+; CHECK:       exit:
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[J]], [[I]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+entry:
+  %first = add nuw i32 %i, 1
+  br label %loop
+
+loop:
+  %j = phi i32 [ %first, %entry ], [ %j.next, %loop ]
+  %j.next = add i32 %j, 1
+  %done = icmp eq i32 %j.next, %n
+  br i1 %done, label %exit, label %loop
+
+exit:
+  %cmp = icmp eq i32 %j, %i
+  ret i1 %cmp
+}
+
+; A signed recurrence with a step of unknown sign may go back down to i.
+define i1 @increasing_rec_nsw_unknown_step(i32 %i, i32 %n, i32 %s) {
+; CHECK-LABEL: @increasing_rec_nsw_unknown_step(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[FIRST:%.*]] = add nsw i32 [[I:%.*]], 1
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[J:%.*]] = phi i32 [ [[FIRST]], [[ENTRY:%.*]] ], [ [[J_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[J_NEXT]] = add nsw i32 [[J]], [[S:%.*]]
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[J_NEXT]], [[N:%.*]]
+; CHECK-NEXT:    br i1 [[DONE]], label [[EXIT:%.*]], label [[LOOP]]
+; CHECK:       exit:
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[J]], [[I]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+entry:
+  %first = add nsw i32 %i, 1
+  br label %loop
+
+loop:
+  %j = phi i32 [ %first, %entry ], [ %j.next, %loop ]
+  %j.next = add nsw i32 %j, %s
+  %done = icmp eq i32 %j.next, %n
+  br i1 %done, label %exit, label %loop
+
+exit:
+  %cmp = icmp eq i32 %j, %i
+  ret i1 %cmp
+}
+
 !0 = !{ i8 1, i8 5 }
