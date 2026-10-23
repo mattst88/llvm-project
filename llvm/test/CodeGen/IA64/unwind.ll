@@ -189,16 +189,16 @@ define i64 @saves(i64 %a) {
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       br.call.sptk.many b0 = ext ;;
-; CHECK-NEXT:  mov r1 = r32
 ; CHECK-NEXT:  adds r4 = 80, r12
-; CHECK-NEXT:  adds r5 = 88, r12 ;;
-; CHECK-NEXT:  ld8.fill r4 = [r4]
+; CHECK-NEXT:  adds r5 = 88, r12
 ; CHECK-NEXT:  adds r2 = 96, r12
+; CHECK-NEXT:  adds r3 = 112, r12
+; CHECK-NEXT:  mov r1 = r32 ;;
+; CHECK-NEXT:  ld8.fill r4 = [r4]
 ; CHECK-NEXT:  ld8.fill r5 = [r5]
-; CHECK-NEXT:  adds r3 = 112, r12 ;;
+; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
 ; CHECK-NEXT:  ldf.fill f16 = [r3]
-; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  mov ar.unat = r35
 ; CHECK-NEXT:  .restore sp
@@ -252,11 +252,15 @@ define i64 @saves_aligned(i64 %a) {
 ; CHECK-NEXT:  .body
 ; CHECK:       adds r37 = 64, r12
 ; CHECK:       adds r7 = -72, r36
-; CHECK-NEXT:  adds r2 = -64, r36 ;;
-; CHECK-NEXT:  ld8.fill r7 = [r7]
+; CHECK-NEXT:  adds r2 = -64, r36
 ; CHECK-NEXT:  adds r3 = -48, r36
-; CHECK-NEXT:  ldf.fill f5 = [r2] ;;
+; CHECK-NEXT:  mov r1 = r32
+; CHECK-NEXT:  mov b0 = r34 ;;
+; CHECK-NEXT:  ld8.fill r7 = [r7]
+; CHECK-NEXT:  ldf.fill f5 = [r2]
+; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  ldf.fill f31 = [r3]
+; CHECK-NEXT:  mov ar.unat = r35
   %p = alloca i64, align 64
   call void asm sideeffect "", "~{r7},~{f5},~{f31}"()
   %r = call i64 @ext(ptr %p)

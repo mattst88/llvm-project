@@ -130,10 +130,10 @@ define double @across(double %a) {
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  br.call.sptk.many b0 = x ;;
 ; CHECK:       mov f8 = f2
-; CHECK-NEXT:  mov ar.pfs = r33
+; CHECK-NEXT:  mov b0 = r34
 ; CHECK-NEXT:  adds r2 = 64, r12 ;;
 ; CHECK-NEXT:  ldf.fill f2 = [r2]
-; CHECK-NEXT:  mov b0 = r34
+; CHECK-NEXT:  mov ar.pfs = r33
 ; CHECK-NEXT:  .restore sp
 ; CHECK-NEXT:  adds r12 = 112, r12
   %r = call double @x(i64 1, float 2.0, i64 3, double 4.0)

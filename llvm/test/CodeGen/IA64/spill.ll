@@ -51,18 +51,18 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    st8 [r33] = r16
 ; CHECK:         st8 [r33] = r124
 ; CHECK-NEXT:    st8 [r33] = r4
+; CHECK-NEXT:    adds r4 = 16, r12
 ; CHECK-NEXT:    st8 [r33] = r5
 ; CHECK-NEXT:    st8 [r33] = r6
-; CHECK-NEXT:    st8 [r33] = r7
-; CHECK-NEXT:    st8 [r33] = r14
-; CHECK-NEXT:    st8 [r33] = r32
-; CHECK-NEXT:    adds r4 = 16, r12
-; CHECK-NEXT:    adds r5 = 24, r12 ;;
-; CHECK-NEXT:    ld8.fill r4 = [r4]
+; CHECK-NEXT:    adds r5 = 24, r12
 ; CHECK-NEXT:    adds r6 = 32, r12
-; CHECK-NEXT:    .mmi
+; CHECK-NEXT:    st8 [r33] = r7
+; CHECK-NEXT:    .mlx
+; CHECK-NEXT:    st8 [r33] = r14
+; CHECK-NEXT:    adds r7 = 40, r12
+; CHECK-NEXT:    st8 [r33] = r32 ;;
+; CHECK-NEXT:    ld8.fill r4 = [r4]
 ; CHECK-NEXT:    ld8.fill r5 = [r5]
-; CHECK-NEXT:    adds r7 = 40, r12 ;;
 ; CHECK-NEXT:    ld8.fill r6 = [r6]
 ; CHECK-NEXT:    ld8.fill r7 = [r7]
 ; CHECK-NEXT:    mov ar.unat = r116

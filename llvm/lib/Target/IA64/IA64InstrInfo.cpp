@@ -912,8 +912,15 @@ bool IA64InstrInfo::isSchedulingBoundary(const MachineInstr &MI,
   if (MI.getOpcode() == IA64::ALLOC || MI.getFlag(MachineInstr::FrameSetup) ||
       MI.getAsmPrinterFlag(IA64::StartsCycle))
     return true;
+  // The epilogue's fills and their addresses may also be scheduled among the
+  // block, so that the I0-only restores are not left to a region of their
+  // own; only the restores of sp and ar.unat stay where they are.
   if (MI.getFlag(MachineInstr::FrameDestroy) &&
-      MI.getOpcode() != IA64::MOV_AR_RESTORE && MI.getOpcode() != IA64::MOV_BR)
+      MI.getOpcode() != IA64::MOV_AR_RESTORE &&
+      MI.getOpcode() != IA64::MOV_BR && MI.getOpcode() != IA64::LDF_FILL &&
+      MI.getOpcode() != IA64::LD8_FILL &&
+      (MI.getOpcode() != IA64::ADDS ||
+       MI.modifiesRegister(IA64::R12, /*TRI=*/nullptr)))
     return true;
   return TargetInstrInfo::isSchedulingBoundary(MI, MBB, MF);
 }
