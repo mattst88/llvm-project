@@ -157,6 +157,38 @@ exit:
   ret void
 }
 
+; The inner loop of a triangular nest runs at most four iterations, which the
+; compare that guards it bounds, so it has no more than four stages.
+define void @triangle(ptr noalias %y, ptr noalias %x, double %a) {
+; CHECK-LABEL: triangle:
+; CHECK:       br.ctop
+; CHECK:       mov ar.ec = {{[1-4]$}}
+entry:
+  br label %outer
+outer:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %latch ]
+  %i.next = add nuw nsw i64 %i, 1
+  %more = icmp ult i64 %i.next, 5
+  br i1 %more, label %loop, label %latch
+loop:
+  %j = phi i64 [ %i.next, %outer ], [ %j.next, %loop ]
+  %px = getelementptr double, ptr %x, i64 %j
+  %py = getelementptr double, ptr %y, i64 %j
+  %vx = load double, ptr %px
+  %vy = load double, ptr %py
+  %m.x = fmul contract double %vx, %a
+  %r = fadd contract double %m.x, %vy
+  store double %r, ptr %py
+  %j.next = add nuw nsw i64 %j, 1
+  %done = icmp eq i64 %j.next, 5
+  br i1 %done, label %latch, label %loop
+latch:
+  %end = icmp eq i64 %i.next, 5
+  br i1 %end, label %exit, label %outer
+exit:
+  ret void
+}
+
 ; The last step of a division writes its quotient over the reciprocal it
 ; refines, which has rotated by then, so the quotient is written to the
 ; register the reciprocal has rotated into rather than to one of its own

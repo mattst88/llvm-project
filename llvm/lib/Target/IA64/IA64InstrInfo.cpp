@@ -1089,52 +1089,113 @@ bool IA64InstrInfo::reverseBranchCondition(
   return false;
 }
 
-// The most Reg can hold, as far as masks, extracts and small adds bound it,
-// such as the count of a remainder loop that loop unrolling leaves.
+// The most Reg can hold where MBB starts, as far as an unsigned compare with
+// a constant of it, or of it plus a constant without wrapping, that every way
+// into MBB has passed bounds it.
+static std::optional<uint64_t> getGuardedMax(const MachineRegisterInfo &MRI,
+                                             Register Reg,
+                                             const MachineBasicBlock *MBB) {
+  for (unsigned I = 0; I != 4 && MBB->pred_size() == 1; ++I) {
+    const MachineBasicBlock *Pred = *MBB->pred_begin();
+    if (Pred->succ_size() == 2)
+      for (const MachineInstr &Br : Pred->terminators()) {
+        if (Br.getOpcode() != IA64::BRCCi)
+          continue;
+        Register Tested = Br.getOperand(2).getReg();
+        uint64_t Offset = 0;
+        if (Tested != Reg) {
+          const MachineInstr *Add = MRI.getUniqueVRegDef(Tested);
+          if (!Add || Add->getOpcode() != IA64::ADDS ||
+              !Add->getFlag(MachineInstr::NoUWrap) ||
+              Add->getOperand(1).getImm() < 0 ||
+              Add->getOperand(2).getReg() != Reg)
+            continue;
+          Offset = Add->getOperand(1).getImm();
+        }
+        auto CC = IA64CC::CondCode(Br.getOperand(1).getImm());
+        if (Br.getOperand(0).getMBB() != MBB)
+          CC = IA64CC::getOpposite(CC);
+        uint64_t C = Br.getOperand(3).getImm();
+        if (CC == IA64CC::LTU && C) {
+          CC = IA64CC::LEU;
+          --C;
+        }
+        if ((CC == IA64CC::EQ || CC == IA64CC::LEU) && C >= Offset)
+          return C - Offset;
+      }
+    MBB = Pred;
+  }
+  return std::nullopt;
+}
+
+// The most Reg can hold where MBB starts, as far as masks, extracts, small
+// adds and compares that guard MBB bound it, such as the count of a remainder
+// loop that loop unrolling leaves, or of an inner loop that runs to a constant
+// from an outer loop's index.
 static std::optional<uint64_t> getMaxValue(const MachineRegisterInfo &MRI,
-                                           Register Reg, unsigned Depth = 0) {
+                                           Register Reg,
+                                           const MachineBasicBlock *MBB,
+                                           unsigned Depth = 0) {
   if (!Reg.isVirtual() || Depth > 4)
     return std::nullopt;
   const MachineInstr *MI = MRI.getUniqueVRegDef(Reg);
   if (!MI)
     return std::nullopt;
+  std::optional<uint64_t> Max = getGuardedMax(MRI, Reg, MBB);
+  auto Bound = [&](std::optional<uint64_t> Def) {
+    if (Def && (!Max || *Def < *Max))
+      Max = Def;
+    return Max;
+  };
+  const MachineBasicBlock *DefBB = MI->getParent();
   switch (MI->getOpcode()) {
   case IA64::COPY:
-    return getMaxValue(MRI, MI->getOperand(1).getReg(), Depth + 1);
+    return Bound(
+        getMaxValue(MRI, MI->getOperand(1).getReg(), DefBB, Depth + 1));
   case IA64::ANDi:
     if (MI->getOperand(1).getImm() >= 0)
-      return MI->getOperand(1).getImm();
-    return std::nullopt;
+      return Bound(MI->getOperand(1).getImm());
+    break;
   case IA64::EXTR_U:
-    return maskTrailingOnes<uint64_t>(MI->getOperand(3).getImm());
+    return Bound(maskTrailingOnes<uint64_t>(MI->getOperand(3).getImm()));
   case IA64::ZXT1:
-    return 0xff;
+    return Bound(0xff);
   case IA64::ZXT2:
-    return 0xffff;
+    return Bound(0xffff);
   case IA64::ZXT4:
-    return 0xffffffff;
+    return Bound(0xffffffff);
   case IA64::ADDS: {
     // An add that cannot wrap past zero.
     int64_t Imm = MI->getOperand(1).getImm();
-    std::optional<uint64_t> Max =
-        getMaxValue(MRI, MI->getOperand(2).getReg(), Depth + 1);
-    if (!Max || *Max > (uint64_t)INT64_MAX || (int64_t)*Max + Imm < 0)
-      return std::nullopt;
-    return *Max + Imm;
+    std::optional<uint64_t> In =
+        getMaxValue(MRI, MI->getOperand(2).getReg(), DefBB, Depth + 1);
+    if (In && *In <= (uint64_t)INT64_MAX && (int64_t)*In + Imm >= 0)
+      return Bound(*In + Imm);
+    break;
+  }
+  case IA64::SUBi: {
+    // A constant less a value no more than it.
+    int64_t Imm = MI->getOperand(1).getImm();
+    std::optional<uint64_t> In =
+        getMaxValue(MRI, MI->getOperand(2).getReg(), DefBB, Depth + 1);
+    if (Imm >= 0 && In && *In <= (uint64_t)Imm)
+      return Bound(Imm);
+    break;
   }
   case IA64::PHI: {
-    uint64_t Max = 0;
+    uint64_t PhiMax = 0;
     for (unsigned I = 1, E = MI->getNumOperands(); I < E; I += 2) {
       std::optional<uint64_t> In =
-          getMaxValue(MRI, MI->getOperand(I).getReg(), Depth + 1);
+          getMaxValue(MRI, MI->getOperand(I).getReg(),
+                      MI->getOperand(I + 1).getMBB(), Depth + 1);
       if (!In)
-        return std::nullopt;
-      Max = std::max(Max, *In);
+        return Max;
+      PhiMax = std::max(PhiMax, *In);
     }
-    return Max;
+    return Bound(PhiMax);
   }
   }
-  return std::nullopt;
+  return Max;
 }
 
 namespace {
@@ -1222,7 +1283,8 @@ public:
   unsigned getMaxStages() override {
     std::optional<uint64_t> MaxTripCount;
     if (InitLC.isValid())
-      if (std::optional<uint64_t> MaxLC = getMaxValue(MRI, InitLC))
+      if (std::optional<uint64_t> MaxLC =
+              getMaxValue(MRI, InitLC, MRI.getVRegDef(InitLC)->getParent()))
         MaxTripCount = *MaxLC + 1;
     return getIA64RotatingMaxStages(LoopBB, MaxTripCount);
   }
