@@ -96,6 +96,18 @@ def IA64fdivconst
     : SDNode<"IA64ISD::FDIV_CONST",
              SDTypeProfile<1, 3, [SDTCisFP<0>, SDTCisSameAs<0, 1>,
                                   SDTCisSameAs<0, 2>, SDTCisVT<3, f64>]>>;
+// Square root, given 0.5 and 0.375 in single precision, and 0.5, 1.5, 2.5,
+// 231/16, 63/8 and 35/8 in double.
+def IA64fsqrts
+    : SDNode<"IA64ISD::FSQRT_S",
+             SDTypeProfile<1, 3, [SDTCisVT<0, f32>, SDTCisSameAs<0, 1>,
+                                  SDTCisVT<2, f64>, SDTCisVT<3, f64>]>>;
+def IA64fsqrtd
+    : SDNode<"IA64ISD::FSQRT_D",
+             SDTypeProfile<1, 7, [SDTCisVT<0, f64>, SDTCisSameAs<0, 1>,
+                                  SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>,
+                                  SDTCisSameAs<0, 4>, SDTCisSameAs<0, 5>,
+                                  SDTCisSameAs<0, 6>, SDTCisSameAs<0, 7>]>>;
 // pmpy2.r: the signed products of halfwords 0 and 2 of the operands, in
 // words 0 and 1.
 def IA64pmpy2r : SDNode<"IA64ISD::PMPY2_R", SDTIntBinOp>;

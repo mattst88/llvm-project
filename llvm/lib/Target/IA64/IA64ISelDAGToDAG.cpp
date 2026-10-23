@@ -760,6 +760,15 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     ReplaceNode(Node, Div);
     return;
   }
+  case IA64ISD::FSQRT_S:
+  case IA64ISD::FSQRT_D: {
+    SDNode *Sqrt = CurDAG->getMachineNode(
+        Node->getOpcode() == IA64ISD::FSQRT_S ? IA64::FSQRT_S : IA64::FSQRT_D,
+        DL, Node->getValueType(0), SmallVector<SDValue, 3>(Node->ops()));
+    setNoFPExcept(Sqrt);
+    ReplaceNode(Node, Sqrt);
+    return;
+  }
   case IA64ISD::SDIV_SIG:
   case IA64ISD::UDIV_SIG: {
     SDNode *Div = CurDAG->getMachineNode(

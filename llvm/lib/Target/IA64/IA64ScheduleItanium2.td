@@ -164,6 +164,13 @@ def : I2Write<WriteFDivConst, I2PortF, 12> {
   let NumMicroOps = 4;
 }
 
+// A square root is frsqrta and nine fmas in single precision and sixteen in
+// double, with a chain after frsqrta of seven in single precision and nine in
+// double. These are the double-precision numbers.
+def : I2Write<WriteFSqrt, I2PortF, 40> {
+  let NumMicroOps = 17;
+}
+
 // An integer division is two conversions to FP, frcpa, seven fmas and the
 // conversion back, with a chain of nine instructions.
 def : I2Write<WriteIDiv, I2PortF, 36> {

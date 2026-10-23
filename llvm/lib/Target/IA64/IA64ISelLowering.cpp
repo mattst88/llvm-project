@@ -379,13 +379,14 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   setOperationAction(ISD::ConstantFP, MVT::f80, Expand);
 
   // There are no divide or square root instructions, only reciprocal
-  // approximations. f32 and f64 division is expanded inline; f80 has no spare
-  // precision in the register for the same sequence to be accurate enough.
+  // approximations. f32 and f64 division and square root are expanded inline;
+  // f80 has no spare precision in the register for the same sequences to be
+  // accurate enough.
   for (MVT VT : {MVT::f32, MVT::f64, MVT::f80}) {
     if (VT == MVT::f80)
       setOperationAction(ISD::FDIV, VT, LibCall);
-    for (unsigned Opc : {ISD::FREM, ISD::FSQRT})
-      setOperationAction(Opc, VT, LibCall);
+    setOperationAction(ISD::FSQRT, VT, VT == MVT::f80 ? LibCall : Custom);
+    setOperationAction(ISD::FREM, VT, LibCall);
     for (unsigned Opc : {ISD::FSIN, ISD::FCOS, ISD::FSINCOS, ISD::FPOW})
       setOperationAction(Opc, VT, Expand);
   }
@@ -1216,6 +1217,18 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerDYNAMIC_STACKALLOC(Op, DAG);
   case ISD::GET_DYNAMIC_AREA_OFFSET:
     return LowerGET_DYNAMIC_AREA_OFFSET(Op, DAG);
+  case ISD::FSQRT: {
+    SDLoc DL(Op);
+    SDValue Half = DAG.getConstantFP(0.5, DL, MVT::f64);
+    if (Op.getValueType() == MVT::f64) {
+      SmallVector<SDValue, 7> Ops = {Op.getOperand(0), Half};
+      for (double C : {1.5, 2.5, 231.0 / 16, 63.0 / 8, 35.0 / 8})
+        Ops.push_back(DAG.getConstantFP(C, DL, MVT::f64));
+      return DAG.getNode(IA64ISD::FSQRT_D, DL, MVT::f64, Ops);
+    }
+    return DAG.getNode(IA64ISD::FSQRT_S, DL, MVT::f32, Op.getOperand(0), Half,
+                       DAG.getConstantFP(0.375, DL, MVT::f64));
+  }
   case ISD::IS_FPCLASS:
     return LowerIS_FPCLASS(Op, DAG);
   case ISD::LOAD:
@@ -1287,6 +1300,9 @@ IA64TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case IA64::FDIV_CONST_S:
   case IA64::FDIV_CONST_D:
     return emitFDivConst(MI, MBB);
+  case IA64::FSQRT_S:
+  case IA64::FSQRT_D:
+    return emitFSqrt(MI, MBB);
   case IA64::SDIV_SIG:
   case IA64::UDIV_SIG:
   case IA64::SDIV32_SIG:
@@ -1308,13 +1324,13 @@ static bool isOne(Register Reg, const MachineRegisterInfo &MRI) {
   return Reg == IA64::F1;
 }
 
-// Returns what the last step of a division leaves in place when it is
-// predicated off: the approximation an frcpa step left in Y. Y is written
-// while the operand is still live, so when the result is copied to a
-// register, as it is to f8 when it is returned, the operand may hold that
-// register and the copy would follow the last step. The result is then tied
-// to a copy of Y instead, written once the operand is dead. That copy is an
-// fmerge, since a COPY would be coalesced with Y.
+// Returns what the last step of a division or square root leaves in place
+// when it is predicated off: the approximation an frcpa or frsqrta step left
+// in Y. Y is written while the operand is still live, so when the result is
+// copied to a register, as it is to f8 when it is returned, the operand may
+// hold that register and the copy would follow the last step. The result is
+// then tied to a copy of Y instead, written once the operand is dead. That
+// copy is an fmerge, since a COPY would be coalesced with Y.
 static Register keepApproximation(MachineInstr &MI, MachineBasicBlock *MBB,
                                   const TargetInstrInfo &TII,
                                   MachineRegisterInfo &MRI, Register Y) {
@@ -1456,6 +1472,87 @@ IA64TargetLowering::emitFDivConst(MachineInstr &MI,
       .addReg(E)
       .addReg(Y)
       .addReg(Q)
+      .addImm(0)
+      .addReg(P)
+      .setMIFlags(Flags);
+  MI.eraseFromParent();
+  return MBB;
+}
+
+// Square root in steps after frsqrta, as described at FSQRT_S. Every step
+// but frsqrta is predicated on frsqrta's predicate, which is clear when
+// frsqrta's result is the square root already; the last step leaves that
+// result in place then.
+MachineBasicBlock *IA64TargetLowering::emitFSqrt(MachineInstr &MI,
+                                                 MachineBasicBlock *MBB) const {
+  const TargetInstrInfo &TII = *Subtarget.getInstrInfo();
+  MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  bool IsDouble = MI.getOpcode() == IA64::FSQRT_D;
+  Register Res = MI.getOperand(0).getReg();
+  Register B = MI.getOperand(1).getReg();
+  Register Half = MI.getOperand(2).getReg();
+  Register P = MRI.createVirtualRegister(&IA64::PRValueRegClass);
+  uint32_t Flags = MI.getFlags();
+  // Returns M1 * M2 + Addend (or Addend - M1 * M2) in status field 1.
+  auto Step = [&](unsigned Opcode, Register M1, Register M2, Register Addend) {
+    Register R = MRI.createVirtualRegister(&IA64::FRRegClass);
+    BuildMI(*MBB, MI, DL, TII.get(Opcode), R)
+        .addReg(M1)
+        .addReg(M2)
+        .addReg(Addend)
+        .addImm(1)
+        .addReg(P)
+        .setMIFlags(Flags);
+    return R;
+  };
+  Register Y = MRI.createVirtualRegister(&IA64::FRRegClass);
+  BuildMI(*MBB, MI, DL, TII.get(IA64::FRSQRTA), Y)
+      .addReg(P, RegState::Define)
+      .addReg(B)
+      .addImm(0)
+      .addReg(IA64::P0)
+      .setMIFlags(Flags);
+  // b and 0.5 are added, so they cannot be f0, which would make the step a
+  // multiply.
+  Register G, H;
+  if (IsDouble) {
+    Register C1 = MI.getOperand(3).getReg(), C2 = MI.getOperand(4).getReg();
+    Register C3 = MI.getOperand(5).getReg(), C4 = MI.getOperand(6).getReg();
+    Register C5 = MI.getOperand(7).getReg();
+    G = Step(IA64::FMA, B, Y, IA64::F0);
+    H = Step(IA64::FMA, Half, Y, IA64::F0);
+    Register E = Step(IA64::FNMA_SUM, G, H, Half);
+    Register E2 = Step(IA64::FMA, E, E, IA64::F0);
+    // g and h are each multiplied by 1 + Lo + e^4 * Hi, where Lo holds the
+    // terms of the polynomial in e below e^4 and Hi those above, over e^4.
+    Register Lo = Step(IA64::FMA_SUM, C2, E, C1);
+    Register Hi = Step(IA64::FMA_SUM, C3, E, C4);
+    Register E4 = Step(IA64::FMA, E2, E2, IA64::F0);
+    Lo = Step(IA64::FMA, E2, Lo, E);
+    Hi = Step(IA64::FMA, E, Hi, C5);
+    Register G1 = Step(IA64::FMA, Lo, G, G);
+    Register T = Step(IA64::FMA, G, E4, IA64::F0);
+    Register HCorr = Step(IA64::FMA, E4, Hi, Lo);
+    G = Step(IA64::FMA_D, Hi, T, G1);
+    H = Step(IA64::FMA, HCorr, H, H);
+  } else {
+    Register C = MI.getOperand(3).getReg();
+    Register E = Step(IA64::FNMA, Step(IA64::FMA, B, Y, IA64::F0), Y, IA64::F1);
+    Register S = Step(IA64::FMA_SUM, C, E, Half);
+    Register F = Step(IA64::FMA, Y, E, IA64::F0);
+    Register Y1 = Step(IA64::FMA, F, S, Y);
+    G = Step(IA64::FMA_S, B, Y1, IA64::F0);
+    H = Step(IA64::FMA, Half, Y1, IA64::F0);
+  }
+  Register D = Step(IA64::FNMA_SUM, G, G, B);
+  Register Kept = keepApproximation(MI, MBB, TII, MRI, Y);
+  BuildMI(*MBB, MI, DL,
+          TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
+      .addReg(Kept)
+      .addReg(D)
+      .addReg(H)
+      .addReg(G)
       .addImm(0)
       .addReg(P)
       .setMIFlags(Flags);

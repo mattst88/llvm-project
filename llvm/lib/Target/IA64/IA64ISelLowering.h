@@ -205,6 +205,7 @@ private:
   SDValue loadLinkageTableEntry(SDValue Sym, const SDLoc &DL,
                                 SelectionDAG &DAG) const;
   MachineBasicBlock *emitFDiv(MachineInstr &MI, MachineBasicBlock *MBB) const;
+  MachineBasicBlock *emitFSqrt(MachineInstr &MI, MachineBasicBlock *MBB) const;
   MachineBasicBlock *emitFDivConst(MachineInstr &MI,
                                    MachineBasicBlock *MBB) const;
   MachineBasicBlock *emitIDiv(MachineInstr &MI, MachineBasicBlock *MBB) const;

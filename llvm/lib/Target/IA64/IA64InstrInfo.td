@@ -336,6 +336,29 @@ def FDIV_CONST_D : IA64Pseudo<(outs FR:$f1), (ins FRAddend:$a, FR:$b, FR:$y),
                               "#FDIV_CONST_D", []>;
 }
 
+// Single- and double-precision square root. frsqrta approximates
+// 1 / sqrt(b); its predicate output is clear when b is zero, negative,
+// infinite or NaN, in which case its result is the square root. In single
+// precision, the throughput-optimized sequence of Intel's "Divide, Square
+// Root, and Remainder Algorithms for the IA-64 Architecture", which gcc also
+// uses: a polynomial in e = 1 - b * y * y refines y, and g ~ sqrt(b) is
+// rounded to single, so that its remainder is exact. $half is 0.5 and $c
+// 0.375. In double precision, the latency-optimized sequence of the Itanium
+// manual, volume 1, section 6.3.3.2, which glibc uses: with g = b * y,
+// h = y / 2 and e = 1/2 - g * h, g and h are corrected by polynomials in e,
+// and g is rounded to double and corrected once by the remainder b - g * g. $c1 to $c5 are 1.5, 2.5, 231/16, 63/8 and 35/8. The
+// steps use status field 1, as do a division's, and only the last rounds in
+// the program's mode and raises its flags.
+let hasSideEffects = 0, Uses = [AR40], mayRaiseFPException = 1,
+    usesCustomInserter = 1, SchedRW = [WriteFSqrt] in {
+def FSQRT_S : IA64Pseudo<(outs FR:$f1), (ins FRAddend:$b, FRAddend:$half,
+                                             FR:$c), "#FSQRT_S", []>;
+def FSQRT_D : IA64Pseudo<(outs FR:$f1),
+                         (ins FRAddend:$b, FRAddend:$half, FRAddend:$c1,
+                              FR:$c2, FR:$c3, FRAddend:$c4, FRAddend:$c5),
+                         "#FSQRT_D", []>;
+}
+
 // Signed and unsigned 64-bit division of the integers in the significands of
 // $a and $b, leaving the quotient in the significand of $f1. The integers are
 // converted to FP values, which they fit exactly, and divided much as above,

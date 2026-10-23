@@ -150,18 +150,11 @@ define double @cps(double %a, double %b) {
   ret double %r
 }
 
-; There is no instruction that takes a remainder or a square root.
+; There is no instruction that takes a remainder.
 define double @rem(double %a, double %b) {
 ; CHECK-LABEL: rem:
 ; CHECK:       br.call.sptk.many b0 = fmod ;;
   %r = frem double %a, %b
-  ret double %r
-}
-
-define double @sqrt(double %a) {
-; CHECK-LABEL: sqrt:
-; CHECK:       br.call.sptk.many b0 = sqrt ;;
-  %r = call double @llvm.sqrt.f64(double %a)
   ret double %r
 }
 
