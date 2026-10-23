@@ -441,6 +441,68 @@ bool IA64FrameLowering::assignCalleeSavedSpillSlots(
   return true;
 }
 
+// The registers that hold save and restore addresses: r2, and r3 as well
+// when it is free there, so that two saves or restores can issue in a group
+// rather than each waiting for the address before it.
+static std::array<MCRegister, 2>
+saveAddressRegs(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+                const TargetRegisterInfo *TRI) {
+  if (MBB.computeRegisterLiveness(TRI, IA64::R3, MI) ==
+      MachineBasicBlock::LQR_Dead)
+    return {IA64::R2, IA64::R3};
+  return {IA64::R2, IA64::R2};
+}
+
+namespace {
+// Emits each save or restore's address ahead of the access before it, so
+// that groups filled in order take two addresses and two accesses each.
+class SaveSequence {
+  MachineBasicBlock &MBB;
+  MachineBasicBlock::iterator MI;
+  const DebugLoc &DL;
+  const TargetInstrInfo &TII;
+  MachineInstr::MIFlag Flag;
+  struct Access {
+    unsigned Opc;
+    MCRegister Addr, Reg;
+  };
+  std::optional<Access> Pending;
+
+  void flush() {
+    if (!Pending)
+      return;
+    MachineInstrBuilder MIB = BuildMI(MBB, MI, DL, TII.get(Pending->Opc));
+    if (Pending->Opc == IA64::ST8_SPILL || Pending->Opc == IA64::STF_SPILL)
+      MIB.addReg(Pending->Addr, RegState::Kill)
+          .addReg(Pending->Reg, RegState::Kill);
+    else
+      MIB.addReg(Pending->Reg, RegState::Define)
+          .addReg(Pending->Addr, RegState::Kill);
+    MIB.addImm(0).addReg(IA64::P0).setMIFlag(Flag);
+    Pending.reset();
+  }
+
+public:
+  SaveSequence(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+               const DebugLoc &DL, const TargetInstrInfo &TII,
+               MachineInstr::MIFlag Flag)
+      : MBB(MBB), MI(MI), DL(DL), TII(TII), Flag(Flag) {}
+  ~SaveSequence() { flush(); }
+
+  void add(unsigned Opc, MCRegister Addr, MCRegister Reg, int FI) {
+    if (Pending && Pending->Addr == Addr)
+      flush();
+    BuildMI(MBB, MI, DL, TII.get(IA64::ADDS), Addr)
+        .addImm(0)
+        .addFrameIndex(FI)
+        .addReg(IA64::P0)
+        .setMIFlag(Flag);
+    flush();
+    Pending = Access{Opc, Addr, Reg};
+  }
+};
+} // namespace
+
 // Callee-saved registers are spilled in full, GRs with their NaT bit and FRs
 // as all 82 bits, regardless of what this function keeps in them.
 bool IA64FrameLowering::spillCalleeSavedRegisters(
@@ -448,6 +510,9 @@ bool IA64FrameLowering::spillCalleeSavedRegisters(
     ArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   const TargetInstrInfo &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
   DebugLoc DL;
+  std::array<MCRegister, 2> Addrs = saveAddressRegs(MBB, MI, TRI);
+  unsigned N = 0;
+  SaveSequence Seq(MBB, MI, DL, TII, MachineInstr::FrameSetup);
   for (const CalleeSavedInfo &CS : CSI) {
     MCRegister Reg = CS.getReg();
     unsigned Opc;
@@ -457,17 +522,7 @@ bool IA64FrameLowering::spillCalleeSavedRegisters(
       Opc = IA64::STF_SPILL;
     else
       report_fatal_error("IA64 cannot save a register of this class yet");
-    BuildMI(MBB, MI, DL, TII.get(IA64::ADDS), IA64::R2)
-        .addImm(0)
-        .addFrameIndex(CS.getFrameIdx())
-        .addReg(IA64::P0)
-        .setMIFlag(MachineInstr::FrameSetup);
-    BuildMI(MBB, MI, DL, TII.get(Opc))
-        .addReg(IA64::R2, RegState::Kill)
-        .addReg(Reg, RegState::Kill)
-        .addImm(0)
-        .addReg(IA64::P0)
-        .setMIFlag(MachineInstr::FrameSetup);
+    Seq.add(Opc, Addrs[N++ % 2], Reg, CS.getFrameIdx());
   }
   return true;
 }
@@ -477,21 +532,15 @@ bool IA64FrameLowering::restoreCalleeSavedRegisters(
     MutableArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   const TargetInstrInfo &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
   DebugLoc DL = MI != MBB.end() ? MI->getDebugLoc() : DebugLoc();
+  std::array<MCRegister, 2> Addrs = saveAddressRegs(MBB, MI, TRI);
+  unsigned N = 0;
+  SaveSequence Seq(MBB, MI, DL, TII, MachineInstr::FrameDestroy);
   for (const CalleeSavedInfo &CS : reverse(CSI)) {
     MCRegister Reg = CS.getReg();
     // A GR can hold its own fill address.
     bool IsGR = IA64::GRRegClass.contains(Reg);
-    MCRegister Addr = IsGR ? Reg : MCRegister(IA64::R2);
-    BuildMI(MBB, MI, DL, TII.get(IA64::ADDS), Addr)
-        .addImm(0)
-        .addFrameIndex(CS.getFrameIdx())
-        .addReg(IA64::P0)
-        .setMIFlag(MachineInstr::FrameDestroy);
-    BuildMI(MBB, MI, DL, TII.get(IsGR ? IA64::LD8_FILL : IA64::LDF_FILL), Reg)
-        .addReg(Addr, RegState::Kill)
-        .addImm(0)
-        .addReg(IA64::P0)
-        .setMIFlag(MachineInstr::FrameDestroy);
+    Seq.add(IsGR ? IA64::LD8_FILL : IA64::LDF_FILL,
+            IsGR ? Reg : Addrs[N++ % 2], Reg, CS.getFrameIdx());
   }
   return true;
 }

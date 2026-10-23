@@ -16,21 +16,21 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    mov r116 = ar.unat
 ; CHECK-NEXT:    .fframe 32
 ; CHECK-NEXT:    adds r12 = -32, r12 ;;
-; CHECK-NEXT:    adds r2 = 40, r12 ;;
+; CHECK-NEXT:    adds r2 = 40, r12
+; CHECK-NEXT:    adds r3 = 32, r12 ;;
 ; CHECK-NEXT:    .save.g 0x8
 ; CHECK-NEXT:    st8.spill [r2] = r7
-; CHECK-NEXT:    adds r2 = 32, r12 ;;
-; CHECK-NEXT:    .save.g 0x4
-; CHECK-NEXT:    st8.spill [r2] = r6
 ; CHECK-NEXT:    adds r2 = 24, r12 ;;
+; CHECK-NEXT:    .save.g 0x4
+; CHECK-NEXT:    st8.spill [r3] = r6
+; CHECK-NEXT:    adds r3 = 16, r12 ;;
 ; CHECK-NEXT:    .save.g 0x2
-; CHECK-NEXT:    st8.spill [r2] = r5
-; CHECK-NEXT:    adds r2 = 16, r12 ;;
+; CHECK-NEXT:    st8.spill [r2] = r5 ;;
 ; CHECK-NEXT:    .save.g 0x1
-; CHECK-NEXT:    st8.spill [r2] = r4
+; CHECK-NEXT:    st8.spill [r3] = r4
 ; CHECK-NEXT:    .body
-; CHECK-NEXT:    ld8 r14 = [r32]
-; CHECK-NEXT:    adds r2 = 8, r12 ;;
+; CHECK-NEXT:    adds r2 = 8, r12
+; CHECK-NEXT:    ld8 r14 = [r32] ;;
 ; CHECK-NEXT:    st8 [r2] = r14
 ; CHECK-NEXT:    mov r2 = r12
 ; CHECK-NEXT:    ld8 r15 = [r32] ;;
@@ -56,13 +56,14 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    st8 [r33] = r7
 ; CHECK-NEXT:    st8 [r33] = r14
 ; CHECK-NEXT:    st8 [r33] = r32
-; CHECK-NEXT:    adds r4 = 16, r12 ;;
-; CHECK-NEXT:    adds r5 = 24, r12
-; CHECK-NEXT:    ld8.fill r4 = [r4] ;;
+; CHECK-NEXT:    adds r4 = 16, r12
+; CHECK-NEXT:    adds r5 = 24, r12 ;;
+; CHECK-NEXT:    ld8.fill r4 = [r4]
+; CHECK-NEXT:    adds r6 = 32, r12
+; CHECK-NEXT:    .mmi
 ; CHECK-NEXT:    ld8.fill r5 = [r5]
-; CHECK-NEXT:    adds r6 = 32, r12 ;;
-; CHECK-NEXT:    adds r7 = 40, r12
-; CHECK-NEXT:    ld8.fill r6 = [r6] ;;
+; CHECK-NEXT:    adds r7 = 40, r12 ;;
+; CHECK-NEXT:    ld8.fill r6 = [r6]
 ; CHECK-NEXT:    ld8.fill r7 = [r7]
 ; CHECK-NEXT:    mov ar.unat = r116
 ; CHECK-NEXT:    .restore sp
