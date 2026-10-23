@@ -54,6 +54,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -134,6 +135,17 @@ static cl::opt<bool> NoBranchDelay(
     cl::desc("Do not compute operands early where they would hold back the "
              "branch that ends the block"));
 
+static cl::opt<bool> InPredecessors(
+    "ia64-speculate-in-preds", cl::init(true), cl::Hidden,
+    cl::desc("Issue a load early in each predecessor of a block that other "
+             "paths also enter"));
+
+static cl::opt<unsigned> SplitMaxPercent(
+    "ia64-speculate-split-max", cl::init(10), cl::Hidden,
+    cl::desc("How often, in percent of the times a block is entered, an "
+             "edge into it may be taken for an early load to be issued on "
+             "it"));
+
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
     cl::desc("How many instructions back from the address a load may be"));
@@ -199,9 +211,9 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
     AU.addRequired<AAResultsWrapperPass>();
     AU.addRequired<MachineBranchProbabilityInfoWrapperPass>();
+    AU.addRequired<MachineBlockFrequencyInfoWrapperPass>();
     AU.addRequired<MachineLoopInfoWrapperPass>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
@@ -220,9 +232,17 @@ private:
     SmallVector<MachineInstr *, 4> Branches;
     bool Crossed = false;
     unsigned Distance = 0;
+    // Whether the walk reached the top of a block that other paths also
+    // enter, or whose phis compute Regs, and how likely User is to be
+    // reached from there.
+    bool Join = false;
+    BranchProbability Reach;
   };
   Walk walkUp(MachineInstr &User, ArrayRef<Register> Regs, unsigned MinUse,
-              const MachineInstr *Load) const;
+              const MachineInstr *Load,
+              BranchProbability Reach = BranchProbability::getOne(),
+              const SmallPtrSetImpl<MachineBasicBlock *> *Avoid = nullptr) const;
+  bool testsAddress(const Walk &W, Register Addr) const;
   int depthIn(const MachineInstr &MI, const MachineBasicBlock *MBB,
               const Walk &W, DenseMap<const MachineInstr *, int> &Memo,
               unsigned Limit, bool FromLoads) const;
@@ -230,11 +250,13 @@ private:
   bool moveChain(Walk &W, const MachineInstr &User, bool IsAddress);
   std::pair<Register, int64_t> splitAddress(Register Addr) const;
   bool speculate(MachineInstr &Load, unsigned Pair);
+  bool speculateInPreds(MachineInstr &Load, Walk &W, unsigned Pair);
   bool hoistOperands(MachineInstr &User);
 
   const IA64InstrInfo *TII;
   MachineRegisterInfo *MRI;
   const MachineBranchProbabilityInfo *MBPI;
+  const MachineBlockFrequencyInfo *MBFI;
   MachineLoopInfo *MLI;
   AAResults *AA;
   bool Changed;
@@ -248,6 +270,7 @@ INITIALIZE_PASS_BEGIN(IA64SpeculateLoads, DEBUG_TYPE, "IA64 load speculation",
                       false, false)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(MachineBranchProbabilityInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(MachineBlockFrequencyInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(MachineLoopInfoWrapperPass)
 INITIALIZE_PASS_END(IA64SpeculateLoads, DEBUG_TYPE, "IA64 load speculation",
                     false, false)
@@ -316,10 +339,15 @@ bool IA64SpeculateLoads::chases(Register Addr, const MachineLoop *L) const {
 // User, after the branches they could move past, so the few instructions
 // that compute them from values available earlier are collected to move.
 // Whether the walk crossed anything the scheduler could not move User past
-// is recorded: a branch, or a store that Load, if given, may alias.
+// is recorded: a branch, or a store that Load, if given, may alias. Reach is
+// how likely User is to be reached from where the walk starts, and the walk
+// enters none of the blocks in Avoid.
 IA64SpeculateLoads::Walk
 IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
-                           unsigned MinUse, const MachineInstr *Load) const {
+                           unsigned MinUse, const MachineInstr *Load,
+                           BranchProbability Reach,
+                           const SmallPtrSetImpl<MachineBasicBlock *> *Avoid)
+    const {
   Walk W;
   SmallSet<Register, 8> Needed;
   Needed.insert_range(Regs);
@@ -331,8 +359,6 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
   const MachineLoop *L = MLI->getLoopFor(User.getParent());
   MachineBasicBlock *MBB = User.getParent();
   MachineBasicBlock::iterator At = User.getIterator();
-  // How likely User is to be reached from where the walk is.
-  BranchProbability Reach = BranchProbability::getOne();
   SmallVector<MachineInstr *, 4> &Chain = W.Chain;
   bool Crossed = false;
   unsigned Distance = 0;
@@ -381,14 +407,17 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
     }
     // A block with one predecessor may still have PHIs.
     if (Stop || MBB->pred_size() != 1 || MBB->isEHPad() ||
-        any_of(MBB->phis(), DefinesNeeded))
+        any_of(MBB->phis(), DefinesNeeded)) {
+      W.Join = !Stop && !MBB->isEHPad();
       break;
+    }
     // Block frequencies at this point can rate a block above its only
     // predecessor, so follow the edges instead.
     MachineBasicBlock *Pred = *MBB->pred_begin();
     Reach *= MBPI->getEdgeProbability(Pred, MBB);
     if (MLI->getLoopFor(Pred) != L || MinUse > 100 ||
-        Reach < BranchProbability(MinUse, 100))
+        Reach < BranchProbability(MinUse, 100) ||
+        (Avoid && Avoid->count(Pred)))
       break;
     EntryMBB = MBB;
     EntryAt = Begin;
@@ -402,7 +431,23 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
   W.At = At;
   W.Crossed = Crossed;
   W.Distance = Distance;
+  W.Reach = Reach;
   return W;
+}
+
+// Whether a branch the walk crossed tests Addr, or a value computed on the
+// way to it.
+bool IA64SpeculateLoads::testsAddress(const Walk &W, Register Addr) const {
+  SmallSet<Register, 8> Computed;
+  Computed.insert(Addr);
+  for (const MachineInstr *MI : W.Chain)
+    for (const MachineOperand &MO : MI->all_defs())
+      Computed.insert(MO.getReg());
+  return any_of(W.Branches, [&](const MachineInstr *Br) {
+    return any_of(Br->uses(), [&](const MachineOperand &MO) {
+      return MO.isReg() && Computed.count(MO.getReg());
+    });
+  });
 }
 
 // How many instructions in MBB MI waits for, one after another, counting
@@ -516,18 +561,8 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   // resolves no sooner than the address is ready, so the load could issue
   // at most a group before it would anyway, and the check would then wait
   // for it.
-  if (SkipAddressBranches) {
-    SmallSet<Register, 8> Computed;
-    Computed.insert(Addr);
-    for (const MachineInstr *MI : W.Chain)
-      Computed.insert(MI->getOperand(0).getReg());
-    if (any_of(W.Branches, [&](const MachineInstr *Br) {
-          return any_of(Br->uses(), [&](const MachineOperand &MO) {
-            return MO.isReg() && Computed.count(MO.getReg());
-          });
-        }))
-      return false;
-  }
+  if (SkipAddressBranches && testsAddress(W, Addr))
+    return false;
   // Nor does one gain past a branch that tests a value loaded from near its
   // address. The compare waits for that load, and the group it waits in
   // holds the early load too: from the same line the early load then gets
@@ -553,6 +588,8 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
       return false;
     }
   }
+  if (InPredecessors && W.Join && speculateInPreds(Load, W, Pair))
+    return true;
   MachineBasicBlock *MBB = W.MBB;
   MachineBasicBlock::iterator At = W.At;
   MachineBasicBlock *Use = Load.getParent();
@@ -589,6 +626,169 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   return true;
 }
 
+// The walk from Load stopped at the top of a block that other paths also
+// enter, or whose phis compute the address. On the path through the hottest
+// of them the load can often issue much earlier: in bzip2's output loop the
+// next index is loaded only after the CRC update that the path to the join
+// ends with. Issue it at the end of each predecessor instead, from the values
+// the phis take there, and move it up from there as from the load. Phis then
+// join the early loads, and also the addresses, so that the check reads the
+// register each early load was issued from.
+bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
+                                          unsigned Pair) {
+  MachineBasicBlock *Join = W.MBB;
+  const MachineLoop *L = MLI->getLoopFor(Load.getParent());
+  SmallVector<MachineBasicBlock *, 4> Preds(Join->predecessors());
+  SmallPtrSet<MachineBasicBlock *, 4> Seen;
+  if (Preds.empty() || Preds.size() > 4)
+    return false;
+  // The block on a split edge costs a taken branch, so only a rarely taken
+  // edge is split.
+  BlockFrequency JoinFreq = MBFI->getBlockFreq(Join);
+  for (MachineBasicBlock *P : Preds)
+    if (P == Join || P->isEHPad() || MLI->getLoopFor(P) != L ||
+        !Seen.insert(P).second ||
+        (P->succ_size() != 1 &&
+         (!P->canSplitCriticalEdge(Join) ||
+          MBFI->getBlockFreq(P) * MBPI->getEdgeProbability(P, Join) >
+              JoinFreq * BranchProbability(SplitMaxPercent, 100))))
+      return false;
+  // The gain is on the path through the hottest predecessor, which is taken
+  // first. If the load cannot move up there, it is better issued at the top
+  // of the join, where it costs no extra loads, branches or phis.
+  auto EdgeFreq = [&](MachineBasicBlock *P) {
+    return MBFI->getBlockFreq(P) * MBPI->getEdgeProbability(P, Join);
+  };
+  llvm::stable_sort(Preds, [&](MachineBasicBlock *A, MachineBasicBlock *B) {
+    return EdgeFreq(A) > EdgeFreq(B);
+  });
+  if (Preds.front()->succ_size() != 1)
+    return false;
+
+  MachineFunction &MF = *Join->getParent();
+  Register Addr = Load.getOperand(1).getReg();
+  const TargetRegisterClass *RC = MRI->getRegClass(Load.getOperand(0).getReg());
+  bool FP = IA64::FRRegClass.hasSubClassEq(RC);
+  SmallVector<std::pair<Register, MachineBasicBlock *>, 4> Addrs, Earlies;
+  for (MachineBasicBlock *P : Preds) {
+    // A predecessor that also leads elsewhere gets a block of its own on
+    // the edge, so that the load is issued only on the way to the join.
+    MachineBasicBlock *In =
+        P->succ_size() == 1
+            ? P
+            : P->SplitCriticalEdge(Join, MachineBasicBlock::SplitCriticalEdgeAnalyses{
+                                             nullptr, nullptr, nullptr, MLI});
+    DenseMap<Register, Register> Map;
+    for (const MachineInstr &Phi : Join->phis())
+      for (unsigned I = 1, E = Phi.getNumOperands(); I < E; I += 2)
+        if (Phi.getOperand(I + 1).getMBB() == In)
+          Map[Phi.getOperand(0).getReg()] = Phi.getOperand(I).getReg();
+    auto Sub = [&](Register Reg) {
+      auto It = Map.find(Reg);
+      return It == Map.end() ? Reg : It->second;
+    };
+    MachineBasicBlock::iterator Pos = In->getFirstTerminator();
+    SmallVector<MachineInstr *, 4> Clones;
+    // The chain was found from the load up, so the last found goes first.
+    for (MachineInstr *MI : reverse(W.Chain)) {
+      MachineInstr *New = MF.CloneMachineInstr(MI);
+      Clones.push_back(New);
+      for (MachineOperand &MO : New->operands()) {
+        if (!MO.isReg() || !MO.getReg().isVirtual())
+          continue;
+        if (MO.isDef()) {
+          Register Reg = MRI->cloneVirtualRegister(MO.getReg());
+          Map[MO.getReg()] = Reg;
+          MO.setReg(Reg);
+        } else {
+          MO.setReg(Sub(MO.getReg()));
+          MO.setIsKill(false);
+          MRI->clearKillFlags(MO.getReg());
+        }
+      }
+      In->insert(Pos, New);
+    }
+    Register InAddr = Sub(Addr);
+    MRI->clearKillFlags(InAddr);
+    Register Early = MRI->createVirtualRegister(RC);
+    MachineInstr *Spec =
+        BuildMI(*In, Pos, Load.getDebugLoc(),
+                TII->get(FP ? IA64::SPEC_LD_FR : IA64::SPEC_LD_GR), Early)
+            .addReg(InAddr)
+            .addImm(Load.getOpcode())
+            .addImm(Pair)
+            .cloneMemRefs(Load);
+    // Nor should it move where it would also be issued on the way to
+    // another predecessor, which issues its own. Within a loop, those ways
+    // begin at the header.
+    SmallPtrSet<MachineBasicBlock *, 16> Others{Join};
+    SmallVector<MachineBasicBlock *, 16> Work;
+    for (MachineBasicBlock *Other : Preds)
+      if (Other != P)
+        Work.push_back(Other);
+    while (!Work.empty()) {
+      MachineBasicBlock *MBB = Work.pop_back_val();
+      if (Others.insert(MBB).second && !(L && MBB == L->getHeader()))
+        append_range(Work, MBB->predecessors());
+    }
+    Walk PW =
+        walkUp(*Spec, InAddr, MinUsePercent, nullptr, W.Reach, &Others);
+    if (P == Preds.front() &&
+        (PW.At == Spec->getIterator() || PW.Distance < MinDistance ||
+         (SkipAddressBranches && testsAddress(PW, InAddr)))) {
+      Spec->eraseFromParent();
+      for (MachineInstr *MI : Clones)
+        MI->eraseFromParent();
+      return false;
+    }
+    Addrs.push_back({InAddr, In});
+    Earlies.push_back({Early, In});
+    if (PW.At == Spec->getIterator() ||
+        (SkipAddressBranches && testsAddress(PW, InAddr)))
+      continue;
+    for (MachineInstr *MI : reverse(PW.Chain)) {
+      if (PW.At != PW.MBB->end() && &*PW.At == MI)
+        ++PW.At;
+      else
+        PW.MBB->splice(PW.At, MI->getParent(), MI->getIterator());
+    }
+    if (PW.At != Spec->getIterator())
+      PW.MBB->splice(PW.At, In, Spec->getIterator());
+  }
+
+  auto JoinPhi = [&](Register Reg, ArrayRef<std::pair<Register,
+                                                      MachineBasicBlock *>>
+                                       Ins) {
+    MachineInstrBuilder MIB = BuildMI(*Join, Join->begin(), Load.getDebugLoc(),
+                                      TII->get(IA64::PHI), Reg);
+    for (auto [In, MBB] : Ins)
+      MIB.addReg(In).addMBB(MBB);
+  };
+  Register JoinAddr = MRI->cloneVirtualRegister(Addr);
+  Register JoinEarly = MRI->createVirtualRegister(RC);
+  JoinPhi(JoinAddr, Addrs);
+  JoinPhi(JoinEarly, Earlies);
+  BuildMI(*Load.getParent(), Load, Load.getDebugLoc(),
+          TII->get(FP ? IA64::CHECK_LD_FR : IA64::CHECK_LD_GR),
+          Load.getOperand(0).getReg())
+      .addReg(JoinAddr)
+      .addReg(JoinEarly)
+      .addImm(Load.getOpcode())
+      .addImm(Pair)
+      .cloneMemRefs(Load);
+  Load.eraseFromParent();
+  // The chain computed the address only for the load, unless something else
+  // reads it too. It was found from the load up.
+  for (MachineInstr *MI : W.Chain)
+    if (all_of(MI->all_defs(), [&](const MachineOperand &MO) {
+          return MRI->use_nodbg_empty(MO.getReg());
+        }))
+      MI->eraseFromParent();
+  ++NumSpeculated;
+  Changed = true;
+  return true;
+}
+
 // A store's operands, and those of the compare a conditional branch becomes,
 // are needed when its group issues, which waits for them like any other.
 // Compute them early in the same way as a load's address.
@@ -610,6 +810,7 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
   TII = MF.getSubtarget<IA64Subtarget>().getInstrInfo();
   MRI = &MF.getRegInfo();
   MBPI = &getAnalysis<MachineBranchProbabilityInfoWrapperPass>().getMBPI();
+  MBFI = &getAnalysis<MachineBlockFrequencyInfoWrapperPass>().getMBFI();
   MLI = &getAnalysis<MachineLoopInfoWrapperPass>().getLI();
   AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
 
@@ -692,34 +893,54 @@ static bool isCheck(const MachineInstr &MI) {
          MI.getOpcode() == IA64::CHECK_LD_FR;
 }
 
-// Whether the only way to Check is through its own early load, with nothing
-// between them that reads or writes its register, writes its address or may
-// change the ALAT's register numbering.
+// Whether every way to Check is through one of the early loads of its pair,
+// with nothing between them that reads or writes its register, writes its
+// address or may change the ALAT's register numbering. There is more than
+// one early load when each predecessor of a block issues its own.
 static bool holds(const MachineInstr &Check, const TargetRegisterInfo *TRI) {
   Register Reg = Check.getOperand(0).getReg();
   Register Addr = Check.getOperand(1).getReg();
   int64_t Pair = Check.getOperand(4).getImm();
-  const MachineBasicBlock *MBB = Check.getParent();
-  MachineBasicBlock::const_iterator At = Check.getIterator();
-  // An unreachable cycle of blocks may have one predecessor each.
-  for (unsigned Blocks = 0; Blocks != 16; ++Blocks) {
-    while (At != MBB->begin()) {
+  const MachineBasicBlock *Use = Check.getParent();
+  SmallVector<std::pair<const MachineBasicBlock *,
+                        MachineBasicBlock::const_iterator>,
+              4>
+      Work{{Use, Check.getIterator()}};
+  SmallPtrSet<const MachineBasicBlock *, 16> Seen;
+  // A block met again was or will be searched from its end, so only the
+  // paths through Check's own block back to it need be refused.
+  for (unsigned Blocks = 0; !Work.empty(); ++Blocks) {
+    if (Blocks == 16)
+      return false;
+    auto [MBB, At] = Work.pop_back_val();
+    bool Found = false;
+    while (!Found && At != MBB->begin()) {
       const MachineInstr &MI = *--At;
       if (MI.isDebugInstr())
         continue;
-      if (isSpec(MI) && MI.getOperand(3).getImm() == Pair)
-        return MI.getOperand(0).getReg() == Reg &&
-               MI.getOperand(1).getReg() == Addr;
-      if (MI.isCall() || MI.isInlineAsm() || MI.readsRegister(Reg, TRI) ||
-          MI.modifiesRegister(Reg, TRI) || MI.modifiesRegister(Addr, TRI))
+      if (isSpec(MI) && MI.getOperand(3).getImm() == Pair) {
+        if (MI.getOperand(0).getReg() != Reg ||
+            MI.getOperand(1).getReg() != Addr)
+          return false;
+        Found = true;
+      } else if (MI.isCall() || MI.isInlineAsm() ||
+                 MI.readsRegister(Reg, TRI) || MI.modifiesRegister(Reg, TRI) ||
+                 MI.modifiesRegister(Addr, TRI)) {
         return false;
+      }
     }
-    if (MBB->pred_size() != 1)
+    if (Found)
+      continue;
+    if (MBB->pred_empty())
       return false;
-    MBB = *MBB->pred_begin();
-    At = MBB->end();
+    for (const MachineBasicBlock *Pred : MBB->predecessors()) {
+      if (Pred == Use)
+        return false;
+      if (Seen.insert(Pred).second)
+        Work.push_back({Pred, Pred->end()});
+    }
   }
-  return false;
+  return true;
 }
 
 bool IA64ExpandSpeculation::runOnMachineFunction(MachineFunction &MF) {

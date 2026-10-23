@@ -114,3 +114,99 @@ body:             |
     $r8 = MOVL 4294967295, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
 ...
+# A block whose predecessors each issue the early load keeps the pair when
+# every one of them wrote the register from the address the check reads.
+# CHECK-LABEL: name: join
+# CHECK: $r15 = LD4_SA $r14, 0, $p0
+# CHECK: $r15 = LD4_SA $r14, 0, $p0
+# CHECK: $r15 = LD4_C_CLR killed $r14, 0, $p0, implicit $r15
+---
+name:            join
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33, $r34, $r35
+    BRCC %bb.2, 7, $r33, $r35, implicit-def $p6, implicit-def $p7
+  bb.1:
+    successors: %bb.3
+    liveins: $r32, $r33, $r34
+    $r14 = SHLADD killed $r33, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 721, 0 :: (load (s32))
+    BRUNCOND %bb.3
+  bb.2:
+    successors: %bb.3
+    liveins: $r32, $r34, $r35
+    $r14 = SHLADD killed $r35, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 721, 0 :: (load (s32))
+  bb.3:
+    liveins: $r14, $r15, $r34
+    ST4 $r34, $r0, 0, $p0 :: (store (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 721, 0 :: (load (s32))
+    $r8 = ADDS 1, killed $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...
+# One predecessor that does not issue it, or issues it into another register,
+# undoes the pair.
+# CHECK-LABEL: name: join_missing
+# CHECK: $r15 = ADDS 0, $r0, $p0
+# CHECK: $r15 = LD4 killed $r14, 0, $p0
+---
+name:            join_missing
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33, $r34, $r35
+    BRCC %bb.2, 7, $r33, $r35, implicit-def $p6, implicit-def $p7
+  bb.1:
+    successors: %bb.3
+    liveins: $r32, $r33, $r34
+    $r14 = SHLADD killed $r33, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 721, 0 :: (load (s32))
+    BRUNCOND %bb.3
+  bb.2:
+    successors: %bb.3
+    liveins: $r32, $r34, $r35
+    $r14 = SHLADD killed $r35, 2, killed $r32, $p0
+  bb.3:
+    liveins: $r14, $r15, $r34
+    ST4 $r34, $r0, 0, $p0 :: (store (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 721, 0 :: (load (s32))
+    $r8 = ADDS 1, killed $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...
+# CHECK-LABEL: name: join_other_reg
+# CHECK: $r15 = ADDS 0, $r0, $p0
+# CHECK: $r16 = ADDS 0, $r0, $p0
+# CHECK: $r15 = LD4 killed $r14, 0, $p0
+---
+name:            join_other_reg
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r32, $r33, $r34, $r35
+    BRCC %bb.2, 7, $r33, $r35, implicit-def $p6, implicit-def $p7
+  bb.1:
+    successors: %bb.3
+    liveins: $r32, $r33, $r34
+    $r14 = SHLADD killed $r33, 2, killed $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 721, 0 :: (load (s32))
+    BRUNCOND %bb.3
+  bb.2:
+    successors: %bb.3
+    liveins: $r32, $r34, $r35
+    $r14 = SHLADD killed $r35, 2, killed $r32, $p0
+    $r16 = SPEC_LD_GR $r14, 721, 0 :: (load (s32))
+    $r15 = COPY killed $r16
+  bb.3:
+    liveins: $r14, $r15, $r34
+    ST4 $r34, $r0, 0, $p0 :: (store (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 721, 0 :: (load (s32))
+    $r8 = ADDS 1, killed $r15, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
+...
