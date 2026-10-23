@@ -900,6 +900,16 @@ bool IA64InstrInfo::isPredicated(const MachineInstr &MI) const {
   return Idx >= 0 && MI.getOperand(Idx).getReg() != IA64::P0;
 }
 
+// An addl from r0 materializes a constant in one A-unit instruction, so the
+// register coalescer recomputes it at a copy rather than keeping it live,
+// which in a large function is a stacked register through every call.
+bool IA64InstrInfo::isAsCheapAsAMove(const MachineInstr &MI) const {
+  if (MI.getOpcode() == IA64::ADDL && MI.getOperand(1).isImm() &&
+      MI.getOperand(2).getReg() == IA64::R0)
+    return true;
+  return TargetInstrInfo::isAsCheapAsAMove(MI);
+}
+
 // alloc must not move: it has to precede the first write of a register it
 // adds to the frame and follow the last read of one it removes, which its
 // operands do not express. Frame setup and destroy instructions also stay

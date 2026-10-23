@@ -48,6 +48,6 @@ done:
 ; CHECK: .Ltmp1:
 ; CHECK: .Ltmp2:
 ; CHECK-DAG: mov r1 = [[GP]]
-; CHECK-DAG: mov r36 = r15
+; CHECK-DAG: mov r35 = r15
 ; CHECK: br.call.sptk.many b0 = other
 ; CHECK: GCC_except_table0:

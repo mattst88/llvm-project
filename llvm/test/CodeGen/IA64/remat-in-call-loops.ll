@@ -7,7 +7,8 @@
 ; Addresses formed before a loop that calls are formed again in the loop,
 ; rather than kept in stacked registers across the call, in a function that
 ; keeps at least -ia64-remat-min-live registers live across a call. @fields
-; keeps 8.
+; keeps 8. Without this pass the register coalescer still forms the
+; constant 1000 again at the call, so seven stay in stacked registers.
 
 declare void @g(ptr, ptr, ptr, i64)
 
@@ -20,7 +21,7 @@ declare void @g(ptr, ptr, ptr, i64)
 ; CHECK-DAG:   mov r{{[0-9]+}} = 1000
 ; CHECK:       br.call.sptk.many b0 = g
 ; HOIST-LABEL: fields:
-; HOIST:       alloc {{r[0-9]+}} = ar.pfs, 2, 8, 4, 0
+; HOIST:       alloc {{r[0-9]+}} = ar.pfs, 2, 7, 4, 0
 define void @fields(ptr %p, i32 %n) {
 entry:
   %a = getelementptr inbounds i8, ptr %p, i64 8
@@ -84,7 +85,7 @@ define void @leaf(ptr %a, ptr %b, ptr %c, i64 %n) noinline {
 }
 
 ; CHECK-LABEL: leaf_call:
-; CHECK:       alloc {{r[0-9]+}} = ar.pfs, 2, 8, 4, 0
+; CHECK:       alloc {{r[0-9]+}} = ar.pfs, 2, 7, 4, 0
 ; CHECK:       .LBB3_1:
 ; CHECK-NOT:   adds {{.*}}, r32
 ; CHECK:       br.call.sptk.many b0 = leaf

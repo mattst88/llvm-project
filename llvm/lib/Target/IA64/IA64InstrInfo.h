@@ -154,6 +154,7 @@ public:
   getSerializableDirectMachineOperandTargetFlags() const override;
 
   bool isPredicated(const MachineInstr &MI) const override;
+  bool isAsCheapAsAMove(const MachineInstr &MI) const override;
 
   bool isSchedulingBoundary(const MachineInstr &MI,
                             const MachineBasicBlock *MBB,

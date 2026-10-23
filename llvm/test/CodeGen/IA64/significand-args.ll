@@ -30,15 +30,15 @@ define <2 x float> @call(<2 x float> %v) {
 ; CHECK-DAG:   mov f9 = f1
 ; CHECK-DAG:   setf.d f12 = r1{{[45]}}
 ; CHECK-DAG:   setf.sig f8 = [[V]]
-; CHECK:       .save rp, r36
-; CHECK-NEXT:  mov r36 = b0
+; CHECK:       .save rp, r35
+; CHECK-NEXT:  mov r35 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  mov f10 = f8
 ; CHECK-NEXT:  br.call.sptk.many b0 = ext
-; CHECK-NEXT:  getf.sig r33 = f8
+; CHECK-NEXT:  getf.sig r32 = f8
   %r = call <2 x float> @ext(i64 1, <2 x float> %v, double 1.0, <2 x float> %v, double 2.0)
 ; One that the callee has not named is in its slot.
-; CHECK:       mov r38 = r33
+; CHECK:       mov r37 = r32
 ; CHECK-NEXT:  br.call.sptk.many b0 = var
   call void (i64, ...) @var(i64 1, <2 x float> %r)
   ret <2 x float> %r
