@@ -18,3 +18,18 @@ define i64 @caller(i64 %x) {
 }
 
 declare i64 @other(i64)
+
+; A function every unit emits, as a C++ template is, gets half as much again
+; before the doubling: (225 + 113) * 2, and half that again for one block.
+; CHECK: 'odr' inlined into 'odr_caller' with (cost={{-?[0-9]+}}, threshold=1014)
+
+define linkonce_odr i64 @odr(i64 %x) {
+  %a = mul i64 %x, %x
+  ret i64 %a
+}
+
+define i64 @odr_caller(i64 %x) {
+  %r = call i64 @odr(i64 %x)
+  %s = call i64 @other(i64 %r)
+  ret i64 %s
+}

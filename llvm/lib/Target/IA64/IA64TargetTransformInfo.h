@@ -109,6 +109,19 @@ public:
   // and linpack 8.5% faster on hardware, and nothing slower.
   unsigned getInliningThresholdMultiplier() const override { return 2; }
 
+  // A function that every unit using it emits, as a C++ template or inline
+  // member is, is dropped once its last call is inlined, and is most often a
+  // small accessor or functor that an abstraction layer calls in a loop.
+  // Half the usual threshold again for those made tramp3d 4.8% faster on
+  // hardware.
+  unsigned adjustInliningThreshold(const CallBase *CB) const override {
+    const Function *Callee = CB->getCalledFunction();
+    if (!Callee || !Callee->hasLinkOnceODRLinkage() ||
+        CB->getCaller()->hasOptSize())
+      return 0;
+    return 113;
+  }
+
   // Loads that step a line of L1D or more each iteration are prefetched about
   // 100 instructions ahead, enough to hide a hit in L3; farther ahead was
   // slower in bzip2. Prefetching a line in every iteration of a loop that
