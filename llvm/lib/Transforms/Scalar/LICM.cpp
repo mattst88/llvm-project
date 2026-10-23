@@ -2705,6 +2705,85 @@ static bool hoistMulAddAssociation(Instruction &I, Loop &L,
   return true;
 }
 
+/// Whether BO, the outer add of "(LV + C1) + C2" with both adds nsw, is
+/// used only by sign extensions and C1 + C2 might overflow.  Reassociating it
+/// in its own type would then drop nsw, and without it the extension no
+/// longer distributes over the adds: an index like i * S0 + j * S1 + k * S2
+/// would stop being an affine recurrence that loop strength reduction can turn
+/// into a pointer increment.  hoistSExtAddAssociation reassociates it in the
+/// wide type instead, from the extension.
+static bool isSExtOnlyNSWAdd(BinaryOperator &BO, BinaryOperator &BO0,
+                             Value *C1, Value *C2, Loop &L,
+                             AssumptionCache *AC, DominatorTree *DT) {
+  if (BO.getOpcode() != Instruction::Add || !BO.hasNoSignedWrap() ||
+      !BO0.hasNoSignedWrap() || BO.use_empty() ||
+      !all_of(BO.users(), [](User *U) { return isa<SExtInst>(U); }))
+    return false;
+  BasicBlock *Preheader = L.getLoopPreheader();
+  SimplifyQuery SQ(Preheader->getDataLayout(), DT, AC,
+                   Preheader->getTerminator());
+  return computeOverflowForSignedAdd(C1, C2, SQ) !=
+         OverflowResult::NeverOverflows;
+}
+
+/// Match "(LV + C1) + C2", in any operand order, where LV is loop variant, C1
+/// and C2 are loop invariants, and the inner add has no other use.
+static bool matchAddOfAdd(Value *V, Loop &L, BinaryOperator *&BO0, Value *&LV,
+                          Value *&C1, Value *&C2) {
+  auto *BO = dyn_cast<BinaryOperator>(V);
+  if (!BO || BO->getOpcode() != Instruction::Add)
+    return false;
+  bool LVInRHS = L.isLoopInvariant(BO->getOperand(0));
+  BO0 = dyn_cast<BinaryOperator>(BO->getOperand(LVInRHS));
+  if (!BO0 || BO0->getOpcode() != Instruction::Add || !BO0->hasOneUse())
+    return false;
+  LV = BO0->getOperand(0);
+  C1 = BO0->getOperand(1);
+  C2 = BO->getOperand(!LVInRHS);
+  if (L.isLoopInvariant(LV))
+    std::swap(LV, C1);
+  return !L.isLoopInvariant(LV) && L.isLoopInvariant(C1) &&
+         L.isLoopInvariant(C2);
+}
+
+/// Reassociate "sext((LV + C1) + C2)" as "sext(LV) + (sext(C1) + sext(C2))"
+/// when isSExtOnlyNSWAdd holds for the sum.  In the wide type both adds keep
+/// nsw: the extended invariants cannot overflow, and the original flags bound
+/// the whole sum.
+static bool hoistSExtAddAssociation(Instruction &I, Loop &L,
+                                    ICFLoopSafetyInfo &SafetyInfo,
+                                    MemorySSAUpdater &MSSAU,
+                                    AssumptionCache *AC, DominatorTree *DT) {
+  auto *SExt = dyn_cast<SExtInst>(&I);
+  BinaryOperator *BO0;
+  Value *LV, *C1, *C2;
+  if (!SExt || !matchAddOfAdd(SExt->getOperand(0), L, BO0, LV, C1, C2))
+    return false;
+  auto *BO = cast<BinaryOperator>(SExt->getOperand(0));
+  if (!isSExtOnlyNSWAdd(*BO, *BO0, C1, C2, L, AC, DT))
+    return false;
+
+  Type *WideTy = SExt->getType();
+  IRBuilder<> Builder(L.getLoopPreheader()->getTerminator());
+  Value *Inv = Builder.CreateNSWAdd(Builder.CreateSExt(C1, WideTy),
+                                    Builder.CreateSExt(C2, WideTy),
+                                    "invariant.op");
+  Builder.SetInsertPoint(SExt);
+  Value *NewBO = Builder.CreateNSWAdd(Builder.CreateSExt(LV, WideTy), Inv,
+                                      BO->getName() + ".reass");
+  if (auto *NewI = dyn_cast<Instruction>(NewBO))
+    NewI->setDebugLoc(DebugLoc::getDropped());
+
+  SExt->replaceAllUsesWith(NewBO);
+  eraseInstruction(*SExt, SafetyInfo, MSSAU);
+  if (BO->use_empty()) {
+    eraseInstruction(*BO, SafetyInfo, MSSAU);
+    salvageDebugInfo(*BO0);
+    eraseInstruction(*BO0, SafetyInfo, MSSAU);
+  }
+  return true;
+}
+
 /// Reassociate associative binary expressions of the form
 ///
 /// 1. "(LV op C1) op C2" ==> "LV op (C1 op C2)"
@@ -2743,6 +2822,9 @@ static bool hoistBOAssociation(Instruction &I, Loop &L,
 
   auto *Preheader = L.getLoopPreheader();
   assert(Preheader && "Loop is not in simplify form?");
+
+  if (isSExtOnlyNSWAdd(*BO, *BO0, C1, C2, L, AC, DT))
+    return false;
 
   IRBuilder<> Builder(Preheader->getTerminator());
   auto *Inv = Builder.CreateBinOp(Opcode, C1, C2, "invariant.op");
@@ -2925,6 +3007,12 @@ static bool hoistArithmetics(Instruction &I, Loop &L,
   }
 
   if (hoistSubAddAssociation(I, L, SafetyInfo, MSSAU, AC, DT)) {
+    ++NumHoisted;
+    ++NumBOAssociationsHoisted;
+    return true;
+  }
+
+  if (hoistSExtAddAssociation(I, L, SafetyInfo, MSSAU, AC, DT)) {
     ++NumHoisted;
     ++NumBOAssociationsHoisted;
     return true;

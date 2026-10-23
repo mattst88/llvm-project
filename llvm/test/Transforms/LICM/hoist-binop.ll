@@ -1228,3 +1228,136 @@ declare void @llvm.assume(i1)
 declare void @use.i32(i32)
 declare void @use.v2i32(<2 x i32>)
 declare void @use()
+
+; When sign extensions are all that use an nsw sum whose invariants might
+; overflow, reassociate in the wide type, where both adds keep nsw.
+define void @add_nsw_sext(ptr %p, i32 %c1, i32 %c2) {
+; CHECK-LABEL: @add_nsw_sext(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[TMP0:%.*]] = sext i32 [[C2:%.*]] to i64
+; CHECK-NEXT:    [[TMP1:%.*]] = sext i32 [[C1:%.*]] to i64
+; CHECK-NEXT:    [[INVARIANT_OP:%.*]] = add nsw i64 [[TMP1]], [[TMP0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = sext i32 [[C2]] to i64
+; CHECK-NEXT:    [[TMP3:%.*]] = sext i32 [[C1]] to i64
+; CHECK-NEXT:    [[INVARIANT_OP1:%.*]] = add nsw i64 [[TMP3]], [[TMP2]]
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INDEX_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[TMP4:%.*]] = sext i32 [[INDEX]] to i64
+; CHECK-NEXT:    [[SUM_REASS:%.*]] = add nsw i64 [[TMP4]], [[INVARIANT_OP]]
+; CHECK-NEXT:    [[GEP:%.*]] = getelementptr inbounds double, ptr [[P:%.*]], i64 [[SUM_REASS]]
+; CHECK-NEXT:    store double 0.000000e+00, ptr [[GEP]], align 8
+; CHECK-NEXT:    [[TMP5:%.*]] = sext i32 [[INDEX]] to i64
+; CHECK-NEXT:    [[SUM_REASS2:%.*]] = add nsw i64 [[TMP5]], [[INVARIANT_OP1]]
+; CHECK-NEXT:    [[GEP2:%.*]] = getelementptr inbounds i32, ptr [[P]], i64 [[SUM_REASS2]]
+; CHECK-NEXT:    store i32 0, ptr [[GEP2]], align 4
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw nsw i32 [[INDEX]], 1
+; CHECK-NEXT:    br label [[LOOP]]
+;
+entry:
+  br label %loop
+
+loop:
+  %index = phi i32 [ 0, %entry ], [ %index.next, %loop ]
+  %step.add = add nsw i32 %index, %c1
+  %sum = add nsw i32 %step.add, %c2
+  %idx = sext i32 %sum to i64
+  %gep = getelementptr inbounds double, ptr %p, i64 %idx
+  store double 0.0, ptr %gep
+  %idx2 = sext i32 %sum to i64
+  %gep2 = getelementptr inbounds i32, ptr %p, i64 %idx2
+  store i32 0, ptr %gep2
+  %index.next = add nuw nsw i32 %index, 1
+  br label %loop
+}
+
+; Only one add has nsw: nothing bounds the sum, so reassociate narrow.
+define void @add_one_nsw_sext(ptr %p, i32 %c1, i32 %c2) {
+; CHECK-LABEL: @add_one_nsw_sext(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[INVARIANT_OP:%.*]] = add i32 [[C1:%.*]], [[C2:%.*]]
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INDEX_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[SUM_REASS:%.*]] = add i32 [[INDEX]], [[INVARIANT_OP]]
+; CHECK-NEXT:    [[IDX:%.*]] = sext i32 [[SUM_REASS]] to i64
+; CHECK-NEXT:    [[GEP:%.*]] = getelementptr inbounds double, ptr [[P:%.*]], i64 [[IDX]]
+; CHECK-NEXT:    store double 0.000000e+00, ptr [[GEP]], align 8
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw nsw i32 [[INDEX]], 1
+; CHECK-NEXT:    br label [[LOOP]]
+;
+entry:
+  br label %loop
+
+loop:
+  %index = phi i32 [ 0, %entry ], [ %index.next, %loop ]
+  %step.add = add i32 %index, %c1
+  %sum = add nsw i32 %step.add, %c2
+  %idx = sext i32 %sum to i64
+  %gep = getelementptr inbounds double, ptr %p, i64 %idx
+  store double 0.0, ptr %gep
+  %index.next = add nuw nsw i32 %index, 1
+  br label %loop
+}
+
+; A use other than a sign extension needs the narrow sum: reassociate narrow.
+define void @add_nsw_sext_and_other_use(ptr %p, i32 %c1, i32 %c2) {
+; CHECK-LABEL: @add_nsw_sext_and_other_use(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[INVARIANT_OP:%.*]] = add i32 [[C1:%.*]], [[C2:%.*]]
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INDEX_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[SUM_REASS:%.*]] = add i32 [[INDEX]], [[INVARIANT_OP]]
+; CHECK-NEXT:    [[IDX:%.*]] = sext i32 [[SUM_REASS]] to i64
+; CHECK-NEXT:    [[GEP:%.*]] = getelementptr inbounds double, ptr [[P:%.*]], i64 [[IDX]]
+; CHECK-NEXT:    store i32 [[SUM_REASS]], ptr [[GEP]], align 4
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw nsw i32 [[INDEX]], 1
+; CHECK-NEXT:    br label [[LOOP]]
+;
+entry:
+  br label %loop
+
+loop:
+  %index = phi i32 [ 0, %entry ], [ %index.next, %loop ]
+  %step.add = add nsw i32 %index, %c1
+  %sum = add nsw i32 %step.add, %c2
+  %idx = sext i32 %sum to i64
+  %gep = getelementptr inbounds double, ptr %p, i64 %idx
+  store i32 %sum, ptr %gep
+  %index.next = add nuw nsw i32 %index, 1
+  br label %loop
+}
+
+; C1 + C2 provably fits: the narrow reassociation keeps nsw already.
+define void @add_nsw_sext_small(ptr %p, i32 %c1, i32 %c2) {
+; CHECK-LABEL: @add_nsw_sext_small(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[C1_S:%.*]] = ashr i32 [[C1:%.*]], 2
+; CHECK-NEXT:    [[C2_S:%.*]] = ashr i32 [[C2:%.*]], 2
+; CHECK-NEXT:    [[INVARIANT_OP:%.*]] = add nsw i32 [[C1_S]], [[C2_S]]
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INDEX_NEXT:%.*]], [[LOOP]] ]
+; CHECK-NEXT:    [[SUM_REASS:%.*]] = add nsw i32 [[INDEX]], [[INVARIANT_OP]]
+; CHECK-NEXT:    [[IDX:%.*]] = sext i32 [[SUM_REASS]] to i64
+; CHECK-NEXT:    [[GEP:%.*]] = getelementptr inbounds double, ptr [[P:%.*]], i64 [[IDX]]
+; CHECK-NEXT:    store double 0.000000e+00, ptr [[GEP]], align 8
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw nsw i32 [[INDEX]], 1
+; CHECK-NEXT:    br label [[LOOP]]
+;
+entry:
+  %c1.s = ashr i32 %c1, 2
+  %c2.s = ashr i32 %c2, 2
+  br label %loop
+
+loop:
+  %index = phi i32 [ 0, %entry ], [ %index.next, %loop ]
+  %step.add = add nsw i32 %index, %c1.s
+  %sum = add nsw i32 %step.add, %c2.s
+  %idx = sext i32 %sum to i64
+  %gep = getelementptr inbounds double, ptr %p, i64 %idx
+  store double 0.0, ptr %gep
+  %index.next = add nuw nsw i32 %index, 1
+  br label %loop
+}
