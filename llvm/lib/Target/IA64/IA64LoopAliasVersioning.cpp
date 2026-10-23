@@ -53,7 +53,7 @@ static cl::opt<unsigned>
                          "on pointer overlap"));
 
 static cl::opt<unsigned>
-    MaxChecks("ia64-alias-versioning-max-checks", cl::Hidden, cl::init(4),
+    MaxChecks("ia64-alias-versioning-max-checks", cl::Hidden, cl::init(8),
               cl::desc("The most pointer overlap checks for a loop"));
 
 /// Marks the copy that runs when pointers overlap, which is not versioned
