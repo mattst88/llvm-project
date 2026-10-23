@@ -19,6 +19,10 @@
 // iterations of that copy, once unrolled, overlap in the schedulers and the
 // pipeliner.
 //
+// A loop whose pointers the analysis shows apart without checks, as when an
+// inlined call passes two rows of one global array, needs no copy: its
+// accesses get the same metadata in place.
+//
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
@@ -29,6 +33,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/MDBuilder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/LoopSimplify.h"
@@ -40,6 +45,7 @@ using namespace llvm;
 #define DEBUG_TYPE "ia64-loop-alias-versioning"
 
 STATISTIC(NumVersioned, "Number of loops versioned on pointer overlap");
+STATISTIC(NumAnnotated, "Number of loops whose pointers need no checks");
 
 static cl::opt<unsigned>
     MaxLoopSize("ia64-alias-versioning-max-size", cl::Hidden, cl::init(40),
@@ -67,15 +73,71 @@ static bool isCandidate(const Loop &L) {
   return HasStore && Size <= MaxLoopSize;
 }
 
+/// Marks the accesses of \p L through distinct pointers, at least one of
+/// them written, as not aliasing, when loop access analysis found no
+/// dependence between any two of them.
+static bool annotateLoop(Loop &L, const LoopAccessInfo &LAI) {
+  const auto *Deps = LAI.getDepChecker().getDependences();
+  if (!Deps)
+    return false;
+  const auto &Insts = LAI.getDepChecker().getMemoryInstructions();
+  for (const MemoryDepChecker::Dependence &D : *Deps)
+    if (getLoadStorePointerOperand(D.getSource(LAI.getDepChecker())) !=
+        getLoadStorePointerOperand(D.getDestination(LAI.getDepChecker())))
+      return false;
+
+  SmallVector<Instruction *> Accesses;
+  SmallMapVector<Value *, bool, 8> Written;
+  for (Instruction *I : Insts) {
+    Value *Ptr = getLoadStorePointerOperand(I);
+    if (!Ptr)
+      return false;
+    Accesses.push_back(I);
+    Written[Ptr] |= isa<StoreInst>(I);
+  }
+  if (Written.size() < 2)
+    return false;
+
+  MDBuilder MDB(L.getHeader()->getContext());
+  MDNode *Domain = MDB.createAnonymousAliasScopeDomain("IA64LoopDomain");
+  DenseMap<Value *, MDNode *> Scopes;
+  for (auto &[Ptr, IsWritten] : Written)
+    Scopes[Ptr] = MDB.createAnonymousAliasScope(Domain);
+  bool Changed = false;
+  for (Instruction *I : Accesses) {
+    Value *Ptr = getLoadStorePointerOperand(I);
+    SmallVector<Metadata *> NoAlias;
+    for (auto &[Other, IsWritten] : Written)
+      if (Other != Ptr && (IsWritten || Written[Ptr]))
+        NoAlias.push_back(Scopes[Other]);
+    if (NoAlias.empty())
+      continue;
+    LLVMContext &Ctx = I->getContext();
+    I->setMetadata(LLVMContext::MD_alias_scope,
+                   MDNode::concatenate(
+                       I->getMetadata(LLVMContext::MD_alias_scope),
+                       MDNode::get(Ctx, Scopes[Ptr])));
+    I->setMetadata(LLVMContext::MD_noalias,
+                   MDNode::concatenate(I->getMetadata(LLVMContext::MD_noalias),
+                                       MDNode::get(Ctx, NoAlias)));
+    Changed = true;
+  }
+  NumAnnotated += Changed;
+  return Changed;
+}
+
 static bool versionLoop(Loop &L, LoopInfo &LI, DominatorTree &DT,
                         ScalarEvolution &SE, LoopAccessInfoManager &LAIs) {
   if (!L.isLoopSimplifyForm() || !L.getExitingBlock())
     return false;
   const LoopAccessInfo &LAI = LAIs.getInfo(L);
   const RuntimePointerChecking &Checking = *LAI.getRuntimePointerChecking();
-  if (!LAI.canVectorizeMemory() || !Checking.Need || LAI.hasConvergentOp() ||
-      Checking.getChecks().size() > MaxChecks ||
+  if (!LAI.canVectorizeMemory() || LAI.hasConvergentOp() ||
       !LAI.getPSE().getPredicate().isAlwaysTrue())
+    return false;
+  if (!Checking.Need)
+    return annotateLoop(L, LAI);
+  if (Checking.getChecks().size() > MaxChecks)
     return false;
 
   // Versioning splits the checks off the preheader, which needs a
