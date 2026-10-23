@@ -49,3 +49,26 @@ loop:
 exit:
   ret i64 %sum.next
 }
+
+; Nor is a floating-point load, which reads L2.
+
+define double @column_fp(ptr %a) {
+; CHECK-LABEL: @column_fp(
+; CHECK-NOT:     call void @llvm.prefetch
+; CHECK:         ret double
+entry:
+  br label %loop
+
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+  %sum = phi double [ 0.0, %entry ], [ %sum.next, %loop ]
+  %p = getelementptr [128 x double], ptr %a, i64 %i, i64 0
+  %v = load double, ptr %p
+  %sum.next = fadd double %sum, %v
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, 256
+  br i1 %done, label %exit, label %loop
+
+exit:
+  ret double %sum.next
+}

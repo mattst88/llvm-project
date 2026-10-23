@@ -1523,6 +1523,10 @@ public:
   /// \return if target want to issue a prefetch in address space \p AS.
   LLVM_ABI bool shouldPrefetchAddressSpace(unsigned AS) const;
 
+  /// \return True if the target wants the address of load or store \p I
+  /// prefetched, if it is otherwise worth prefetching.
+  LLVM_ABI bool shouldPrefetchMemAccess(const Instruction &I) const;
+
   /// \return The cost of a partial reduction, which is a reduction from a
   /// vector to another vector with fewer elements of larger size. They are
   /// represented by the llvm.vector.partial.reduce.add and

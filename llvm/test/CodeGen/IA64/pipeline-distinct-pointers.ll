@@ -170,7 +170,7 @@ exit:
 ; y[3 * i] and y[3 * i + 2]. The update of y[3 * i + 1] does not wait for the
 ; store to y[3 * i + 2], nor the load of y[3 * i + 2] for the store to
 ; y[3 * i + 1].
-; CHECK: Schedule found with Initiation Interval: 6, MaxStageCount: 3
+; CHECK: Schedule found with Initiation Interval: 5, MaxStageCount: 3
 define void @axpy3(ptr noalias %y, ptr noalias %x, double %k, i64 %n) {
 entry:
   %y2 = getelementptr i8, ptr %y, i64 16

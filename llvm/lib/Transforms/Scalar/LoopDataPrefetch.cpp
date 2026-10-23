@@ -340,6 +340,8 @@ bool LoopDataPrefetch::runOnLoop(Loop *L) {
       if (!TTI->shouldPrefetchAddressSpace(PtrAddrSpace))
         continue;
       NumMemAccesses++;
+      if (!TTI->shouldPrefetchMemAccess(*MemI))
+        continue;
       if (L->isLoopInvariant(PtrValue))
         continue;
 

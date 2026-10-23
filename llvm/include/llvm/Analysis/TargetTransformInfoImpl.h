@@ -723,6 +723,9 @@ public:
   virtual unsigned getMaxPrefetchIterationsAhead() const { return UINT_MAX; }
   virtual bool enableWritePrefetching() const { return false; }
   virtual bool shouldPrefetchAddressSpace(unsigned AS) const { return !AS; }
+  virtual bool shouldPrefetchMemAccess(const Instruction &I) const {
+    return true;
+  }
 
   virtual InstructionCost getPartialReductionCost(
       unsigned Opcode, Type *InputTypeA, Type *InputTypeB, Type *AccumType,

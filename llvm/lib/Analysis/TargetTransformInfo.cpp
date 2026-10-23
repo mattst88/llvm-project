@@ -941,6 +941,10 @@ bool TargetTransformInfo::shouldPrefetchAddressSpace(unsigned AS) const {
   return TTIImpl->shouldPrefetchAddressSpace(AS);
 }
 
+bool TargetTransformInfo::shouldPrefetchMemAccess(const Instruction &I) const {
+  return TTIImpl->shouldPrefetchMemAccess(I);
+}
+
 InstructionCost TargetTransformInfo::getPartialReductionCost(
     unsigned Opcode, Type *InputTypeA, Type *InputTypeB, Type *AccumType,
     ElementCount VF, PartialReductionExtendKind OpAExtend,
