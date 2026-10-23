@@ -60,6 +60,12 @@ def IA64setlc
     : SDNode<"IA64ISD::SET_LC", SDTypeProfile<0, 1, [SDTCisVT<0, i64>]>,
              [SDNPHasChain, SDNPSideEffect]>;
 
+// shrp: the low 64 bits of op0:op1 shifted right by op2.
+def IA64shrp
+    : SDNode<"IA64ISD::SHRP",
+             SDTypeProfile<1, 3, [SDTCisVT<0, i64>, SDTCisSameAs<0, 1>,
+                                  SDTCisSameAs<0, 2>, SDTCisVT<3, i64>]>>;
+
 // Move the bits of an f32 to/from the low half of a GR.
 def IA64getfs
     : SDNode<"IA64ISD::GETF_S",
@@ -333,6 +339,9 @@ def : Pat<(srl GR:$r3, shamt:$count),
           (EXTR_U GR:$r3, shamt:$count, (RestOf64 shamt:$count))>;
 def : Pat<(sra GR:$r3, shamt:$count),
           (EXTR GR:$r3, shamt:$count, (RestOf64 shamt:$count))>;
+
+def : Pat<(IA64shrp GR:$r2, GR:$r3, timm:$count),
+          (SHRP GR:$r2, GR:$r3, timm:$count)>;
 
 // shladd folds a left shift of 1 to 4 into an add, for scaled indexing.
 def : Pat<(add (shl GR:$r2, shladdamt:$count), GR:$r3),

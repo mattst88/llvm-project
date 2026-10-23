@@ -494,9 +494,16 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   // popcnt exists, and ctlz and cttz are expanded using it. clz exists only
   // on the latest processors.
-  for (unsigned Opc :
-       {ISD::CTLZ, ISD::CTTZ, ISD::BITREVERSE, ISD::ROTL, ISD::ROTR})
+  for (unsigned Opc : {ISD::CTLZ, ISD::CTTZ, ISD::BITREVERSE})
     setOperationAction(Opc, MVT::i64, Expand);
+
+  // shrp does a rotate or funnel shift by a constant. A 32-bit rotate is
+  // custom too, so that one by a constant becomes shrp of the value and the
+  // value shifted to the upper half.
+  for (unsigned Opc : {ISD::ROTL, ISD::ROTR, ISD::FSHL, ISD::FSHR})
+    setOperationAction(Opc, MVT::i64, Custom);
+  for (unsigned Opc : {ISD::ROTL, ISD::ROTR})
+    setOperationAction(Opc, MVT::i32, Custom);
 
   // Expand double-register shifts inline instead of calling a libcall.
   for (unsigned Opc : {ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS})
@@ -982,6 +989,59 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
   return SDValue();
 }
 
+// A rotate or funnel shift by a constant is shrp, which shifts the 128-bit
+// concatenation of two registers right. Others are expanded.
+static SDValue lowerShiftRightPair(SDValue Op, SelectionDAG &DAG) {
+  unsigned Opc = Op.getOpcode();
+  bool IsFunnel = Opc == ISD::FSHL || Opc == ISD::FSHR;
+  bool IsLeft = Opc == ISD::ROTL || Opc == ISD::FSHL;
+  SDValue Hi = Op.getOperand(0);
+  SDValue Lo = IsFunnel ? Op.getOperand(1) : Hi;
+  auto *Amt = dyn_cast<ConstantSDNode>(Op.getOperand(IsFunnel ? 2 : 1));
+  if (!Amt)
+    return SDValue();
+  unsigned Count = Amt->getZExtValue() % 64;
+  if (Count == 0)
+    return IsLeft ? Hi : Lo;
+  SDLoc DL(Op);
+  return DAG.getNode(IA64ISD::SHRP, DL, MVT::i64, Hi, Lo,
+                     DAG.getTargetConstant(IsLeft ? 64 - Count : Count, DL,
+                                           MVT::i64));
+}
+
+// A 32-bit rotate is a rotate of the value concatenated with itself: shrp of
+// the value and its copy in the upper half when the count is a constant, and
+// a shift of the 64-bit concatenation otherwise.
+static SDValue lowerRotate32(SDNode *N, SelectionDAG &DAG) {
+  SDLoc DL(N);
+  bool IsLeft = N->getOpcode() == ISD::ROTL;
+  SDValue X = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, N->getOperand(0));
+  SDValue Upper = DAG.getNode(ISD::SHL, DL, MVT::i64, X,
+                              DAG.getShiftAmountConstant(32, MVT::i64, DL));
+  SDValue Res;
+  if (auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1))) {
+    unsigned Count = C->getZExtValue() % 32;
+    if (Count == 0)
+      return N->getOperand(0);
+    // The low half of the result is bits 64 - left count up of Upper:X's.
+    unsigned Left = IsLeft ? Count : 32 - Count;
+    Res = DAG.getNode(IA64ISD::SHRP, DL, MVT::i64, X, Upper,
+                      DAG.getTargetConstant(64 - Left, DL, MVT::i64));
+  } else {
+    SDValue Both = DAG.getNode(ISD::OR, DL, MVT::i64, Upper,
+                               DAG.getZeroExtendInReg(X, DL, MVT::i32));
+    SDValue Amt =
+        DAG.getNode(ISD::AND, DL, MVT::i64,
+                    DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i64, N->getOperand(1)),
+                    DAG.getConstant(31, DL, MVT::i64));
+    Res = DAG.getNode(IsLeft ? ISD::SHL : ISD::SRL, DL, MVT::i64, Both, Amt);
+    if (IsLeft)
+      Res = DAG.getNode(ISD::SRL, DL, MVT::i64, Res,
+                        DAG.getShiftAmountConstant(32, MVT::i64, DL));
+  }
+  return DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Res);
+}
+
 SDValue IA64TargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
@@ -1160,6 +1220,11 @@ SDValue IA64TargetLowering::LowerOperation(SDValue Op,
     return LowerIS_FPCLASS(Op, DAG);
   case ISD::LOAD:
     return LowerLOAD(Op, DAG);
+  case ISD::ROTL:
+  case ISD::ROTR:
+  case ISD::FSHL:
+  case ISD::FSHR:
+    return lowerShiftRightPair(Op, DAG);
   case ISD::SHL_PARTS:
   case ISD::SRL_PARTS:
   case ISD::SRA_PARTS: {
@@ -1186,6 +1251,10 @@ void IA64TargetLowering::ReplaceNodeResults(SDNode *N,
     Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Bits));
     return;
   }
+  case ISD::ROTL:
+  case ISD::ROTR:
+    Results.push_back(lowerRotate32(N, DAG));
+    return;
   case ISD::EH_SJLJ_SETJMP:
     reportUnsupported(DAG, DL, "llvm.eh.sjlj.setjmp");
     Results.push_back(DAG.getConstant(0, DL, MVT::i32));
