@@ -146,6 +146,10 @@ static cl::opt<unsigned> SplitMaxPercent(
              "edge into it may be taken for an early load to be issued on "
              "it"));
 
+static cl::opt<bool> Copies(
+    "ia64-speculate-copies", cl::init(true), cl::Hidden,
+    cl::desc("Issue a load early past stores of values loaded in its block"));
+
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
     cl::desc("How many instructions back from the address a load may be"));
@@ -175,6 +179,32 @@ static std::optional<Forms> getForms(unsigned Opcode) {
     return Forms{IA64::LDFS_SA, IA64::LDFS_C_CLR};
   case IA64::LDFD:
     return Forms{IA64::LDFD_SA, IA64::LDFD_C_CLR};
+  }
+}
+
+// The plain load that a post-increment load is with the increment taken out.
+static std::optional<unsigned> getPlainLoad(unsigned Opcode) {
+  switch (Opcode) {
+  default:
+    return std::nullopt;
+  case IA64::LD1_r:
+  case IA64::LD1_i:
+    return IA64::LD1;
+  case IA64::LD2_r:
+  case IA64::LD2_i:
+    return IA64::LD2;
+  case IA64::LD4_r:
+  case IA64::LD4_i:
+    return IA64::LD4;
+  case IA64::LD8_r:
+  case IA64::LD8_i:
+    return IA64::LD8;
+  case IA64::LDFS_r:
+  case IA64::LDFS_i:
+    return IA64::LDFS;
+  case IA64::LDFD_r:
+  case IA64::LDFD_i:
+    return IA64::LDFD;
   }
 }
 
@@ -251,6 +281,7 @@ private:
   std::pair<Register, int64_t> splitAddress(Register Addr) const;
   bool speculate(MachineInstr &Load, unsigned Pair);
   bool speculateInPreds(MachineInstr &Load, Walk &W, unsigned Pair);
+  bool speculateCopy(MachineInstr &Load, unsigned Pair);
   bool hoistOperands(MachineInstr &User);
 
   const IA64InstrInfo *TII;
@@ -626,6 +657,103 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   return true;
 }
 
+// A load after a store of a value loaded just before it waits for that load
+// as well: the store issues only once its value comes, and the scheduler
+// cannot put the load before a store it may alias. An unrolled copy
+// serializes its elements this way, each load waiting out the one before it,
+// and in tramp3d's strided copies each wait is an L2 access. Issue such a
+// load above the earliest of those stores in its block instead, if the block
+// is in a loop: elsewhere such copies are mostly of arguments and structures
+// that the cache already holds. A post-increment load is split, since ld.sa then cannot step the address the
+// check also reads, and the increment becomes an add after the check.
+bool IA64SpeculateLoads::speculateCopy(MachineInstr &Load, unsigned Pair) {
+  unsigned Opcode = Load.getOpcode();
+  std::optional<unsigned> Plain = getPlainLoad(Opcode);
+  if (Plain)
+    Opcode = *Plain;
+  // Integer loads mostly hit the first-level cache, which floating-point
+  // loads bypass, and wait too little for the pair's extra M slot to pay.
+  if (Opcode != IA64::LDFS && Opcode != IA64::LDFD)
+    return false;
+  unsigned AddrIdx = Plain ? 2 : 1;
+  if (Load.getOperand(Plain ? 5 : 3).getReg() != IA64::P0 ||
+      !Load.hasOneMemOperand() || !(*Load.memoperands_begin())->isUnordered())
+    return false;
+  Register Addr = Load.getOperand(AddrIdx).getReg();
+  if (!Addr.isVirtual())
+    return false;
+
+  MachineBasicBlock &MBB = *Load.getParent();
+  if (!MLI->getLoopFor(&MBB))
+    return false;
+  // The address comes first, then the value, whether or not the store steps
+  // its address.
+  auto StoresLoaded = [&](const MachineInstr &Store) {
+    unsigned N = 0;
+    for (const MachineOperand &MO : Store.explicit_uses()) {
+      if (!MO.isReg() || ++N != 2)
+        continue;
+      if (!MO.getReg().isVirtual())
+        return false;
+      const MachineInstr *Def = MRI->getVRegDef(MO.getReg());
+      return Def && Def->getParent() == &MBB && Def->mayLoad();
+    }
+    return false;
+  };
+  MachineBasicBlock::iterator Top = Load.getIterator();
+  unsigned Distance = 0;
+  for (MachineBasicBlock::iterator I = Load.getIterator(); I != MBB.begin();) {
+    MachineInstr &MI = *--I;
+    if (MI.isDebugInstr())
+      continue;
+    if (MI.isPHI() || isBarrier(MI) || ++Distance > MaxDistance ||
+        MI.definesRegister(Addr, /*TRI=*/nullptr))
+      break;
+    if (MI.mayStore() && MI.mayAlias(AA, Load, /*UseTBAA=*/true) &&
+        StoresLoaded(MI))
+      Top = I;
+  }
+  if (Top == Load.getIterator())
+    return false;
+
+  const DebugLoc &DL = Load.getDebugLoc();
+  Register Data = Load.getOperand(0).getReg();
+  const TargetRegisterClass *RC = MRI->getRegClass(Data);
+  bool FP = IA64::FRRegClass.hasSubClassEq(RC);
+  Register Early = MRI->createVirtualRegister(RC);
+  BuildMI(MBB, Top, DL, TII->get(FP ? IA64::SPEC_LD_FR : IA64::SPEC_LD_GR),
+          Early)
+      .addReg(Addr)
+      .addImm(Opcode)
+      .addImm(Pair)
+      .cloneMemRefs(Load);
+  MRI->clearKillFlags(Addr);
+  BuildMI(MBB, Load, DL, TII->get(FP ? IA64::CHECK_LD_FR : IA64::CHECK_LD_GR),
+          Data)
+      .addReg(Addr)
+      .addReg(Early)
+      .addImm(Opcode)
+      .addImm(Pair)
+      .cloneMemRefs(Load);
+  if (Plain) {
+    Register Next = Load.getOperand(1).getReg();
+    const MachineOperand &Inc = Load.getOperand(3);
+    if (Inc.isReg())
+      BuildMI(MBB, Load, DL, TII->get(IA64::ADD), Next)
+          .addReg(Addr)
+          .add(Inc)
+          .addReg(IA64::P0);
+    else
+      BuildMI(MBB, Load, DL, TII->get(IA64::ADDS), Next)
+          .addImm(Inc.getImm())
+          .addReg(Addr)
+          .addReg(IA64::P0);
+  }
+  Load.eraseFromParent();
+  ++NumSpeculated;
+  return true;
+}
+
 // The walk from Load stopped at the top of a block that other paths also
 // enter, or whose phis compute the address. On the path through the hottest
 // of them the load can often issue much earlier: in bzip2's output loop the
@@ -817,7 +945,7 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
   SmallVector<MachineInstr *, 32> Loads, Users;
   for (MachineBasicBlock &MBB : MF)
     for (MachineInstr &MI : MBB)
-      if (getForms(MI.getOpcode()))
+      if (getForms(MI.getOpcode()) || getPlainLoad(MI.getOpcode()))
         Loads.push_back(&MI);
       else if ((EarlyStoreOperands && isPlainStore(MI.getOpcode())) ||
                (EarlyBranchOperands && (MI.getOpcode() == IA64::BRCC ||
@@ -835,14 +963,15 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
   for (MachineInstr *MI : Loads) {
     SmallVector<int64_t, 2> *Near = nullptr;
     int64_t Offset = 0;
-    if (OnePerLine && MI->getOperand(1).isReg()) {
+    unsigned AddrIdx = getPlainLoad(MI->getOpcode()) ? 2 : 1;
+    if (OnePerLine && MI->getOperand(AddrIdx).isReg()) {
       Register Base;
-      std::tie(Base, Offset) = splitAddress(MI->getOperand(1).getReg());
+      std::tie(Base, Offset) = splitAddress(MI->getOperand(AddrIdx).getReg());
       Near = &Early[{MI->getParent(), Base}];
       if (any_of(*Near, [&](int64_t O) { return std::abs(O - Offset) < 64; }))
         continue;
     }
-    if (!speculate(*MI, Pair))
+    if (!speculate(*MI, Pair) && !(Copies && speculateCopy(*MI, Pair)))
       continue;
     if (Near)
       Near->push_back(Offset);
