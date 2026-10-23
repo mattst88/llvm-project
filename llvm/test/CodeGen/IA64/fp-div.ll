@@ -124,6 +124,55 @@ define double @two_div(double %a, double %b, double %c, double %d) {
   ret double %s
 }
 
+; A dividend computed well after the divisor waits only for the last three
+; steps: y is refined from frcpa of 1 and the divisor, under that frcpa's
+; predicate, while the dividend is computed, and frcpa of the two runs beside
+; q = a * y for the predicate of the other two.
+
+define double @late_dividend(double %a, double %b) {
+; CHECK-LABEL: late_dividend:
+; CHECK:         frcpa.s1 f6, p8 = f1, f9
+; CHECK-NEXT:    fma.d f10 = f8, f8, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f7 = f9, f6, f1
+; CHECK-NEXT:    fma.d f10 = f10, f8, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f6 = f7, f6, f6
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f7, f0
+; CHECK-NEXT:    fma.d f8 = f10, f8, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f6 = f7, f6, f6
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f7, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f6 = f7, f6, f6
+; CHECK-NEXT:    frcpa f7, p8 = f8, f9 ;;
+; CHECK-NEXT:    fma.d.s1 f10 = f8, f6, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f9, f10, f8
+; CHECK-NEXT:    mov f8 = f7 ;;
+; CHECK-NEXT:    (p8) fma.d f8 = f9, f6, f10
+  %x = fmul double %a, %a
+  %y = fmul double %x, %a
+  %z = fmul double %y, %a
+  %q = fdiv double %z, %b
+  ret double %q
+}
+
+define float @late_dividend_float(float %a, float %b) {
+; CHECK-LABEL: late_dividend_float:
+; CHECK:         frcpa.s1 f6, p8 = f1, f9
+; CHECK-NEXT:    fma.s f7 = f8, f8, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f10 = f9, f6, f1
+; CHECK-NEXT:    fma.s f7 = f7, f8, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f11 = f10, f6, f6
+; CHECK-NEXT:    fma.s f7 = f7, f8, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f6 = f10, f11, f6
+; CHECK-NEXT:    frcpa f8, p8 = f7, f9 ;;
+; CHECK-NEXT:    fma.s.s1 f10 = f7, f6, f0
+; CHECK:         (p8) fnma.s1 f7 = f9, f10, f7 ;;
+; CHECK-NEXT:    (p8) fma.s f8 = f7, f6, f10
+  %x = fmul float %a, %a
+  %y = fmul float %x, %a
+  %z = fmul float %y, %a
+  %q = fdiv float %z, %b
+  ret float %q
+}
+
 ; A quotient that is a product is one: the reciprocal of a power of two is
 ; exact.
 
