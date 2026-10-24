@@ -6509,8 +6509,16 @@ getRangeForUnknownRecurrence(const SCEVUnknown *U) {
     return FullSet;
 
   unsigned TC = getSmallConstantMaxTripCount(L);
-  if (!TC || TC >= BitWidth)
+  if (!TC || TC >= BitWidth) {
+    // A shl nuw never makes its operand smaller, so the recurrence stays at
+    // or above its start however often the loop runs.
+    if (BO->getOpcode() == Instruction::Shl && BO->hasNoUnsignedWrap()) {
+      APInt Min = computeKnownBits(Start, DL, &AC, nullptr, &DT).getMinValue();
+      if (!Min.isZero())
+        return ConstantRange(Min, APInt::getZero(BitWidth));
+    }
     return FullSet;
+  }
 
   auto KnownStart = computeKnownBits(Start, DL, &AC, nullptr, &DT);
   auto KnownStep = computeKnownBits(Step, DL, &AC, nullptr, &DT);
