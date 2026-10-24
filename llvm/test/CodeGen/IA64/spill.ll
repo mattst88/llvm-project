@@ -31,20 +31,20 @@ define void @spill(ptr %p, ptr %q) {
 ; CHECK-NEXT:    .save.g 0x1
 ; CHECK-NEXT:    st8.spill [r3] = r4
 ; CHECK-NEXT:    .body
+; CHECK-NEXT:    ld8 r9 = [r32]
 ; CHECK-NEXT:    adds r2 = 8, r12
-; CHECK-NEXT:    ld8 r14 = [r32] ;;
-; CHECK-NEXT:    st8 [r2] = r14
+; CHECK-NEXT:    adds r15 = 8, r12 ;;
+; CHECK-NEXT:    st8 [r2] = r9
 ; CHECK-NEXT:    mov r2 = r12
-; CHECK-NEXT:    ld8 r15 = [r32] ;;
-; CHECK-NEXT:    st8 [r2] = r15
-; CHECK-NEXT:    adds r15 = 8, r12
+; CHECK-NEXT:    ld8 r8 = [r32] ;;
+; CHECK-NEXT:    st8 [r2] = r8
 ; CHECK:         ld8 r114 = [r32]
 ; CHECK-NEXT:    ld8 r117 = [r32]
 ; CHECK:         ld8 r124 = [r32]
 ; CHECK-NEXT:    ld8 r4 = [r32]
 ; CHECK:         ld8 r7 = [r32]
 ; CHECK-NEXT:    ld8 r14 = [r32]
-; CHECK-NEXT:    ld8 r32 = [r32] ;;
+; CHECK-NEXT:    ld8 r32 = [r32]
 ; CHECK-NEXT:    ld8 r15 = [r15] ;;
 ; CHECK-NEXT:    st8 [r33] = r15
 ; CHECK-NEXT:    mov r15 = r12 ;;

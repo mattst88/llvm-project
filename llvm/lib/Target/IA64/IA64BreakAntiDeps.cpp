@@ -155,6 +155,82 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
     }
     LPR.stepBackward(*Instrs[I]);
   }
+  uint32_t LiveIn = 0;
+  for (auto [S, Reg] : enumerate(Scratch))
+    if (!LPR.available(MRI, Reg))
+      LiveIn |= 1u << S;
+
+  // Move the value Instrs[From] writes in DefMO, read by Uses up to
+  // Instrs[Last], to the free scratch register the block refers to farthest
+  // from the span.
+  auto Rename = [&](unsigned From, unsigned Last, MachineOperand &DefMO,
+                    ArrayRef<MachineOperand *> Uses) {
+    Register Reg = DefMO.getReg();
+    // Some operands take only some general registers.
+    auto Fits = [&](MCPhysReg New) {
+      auto Takes = [&](const MachineOperand *Op) {
+        const TargetRegisterClass *RC = Op->getParent()->getRegClassConstraint(
+            Op->getOperandNo(), TII, TRI);
+        return !RC || RC->contains(New);
+      };
+      return Takes(&DefMO) && all_of(Uses, Takes);
+    };
+    uint32_t LiveBefore = From ? Live[From - 1] : LiveIn;
+    int Best = -1;
+    unsigned BestGap = 0;
+    for (auto [S, New] : enumerate(Scratch)) {
+      if (New == Reg || (LiveBefore & (1u << S)) || !Fits(New) ||
+          any_of(Refs[S], [&](unsigned R) { return R >= From && R <= Last; }))
+        continue;
+      bool Free = true;
+      for (unsigned J = From; J <= Last && Free; ++J)
+        Free = !(Live[J] & (1u << S));
+      if (!Free)
+        continue;
+      unsigned Gap = N + 1;
+      for (unsigned R : Refs[S])
+        Gap = std::min(Gap, R < From ? From - R : R - Last);
+      if (Best < 0 || Gap > BestGap) {
+        Best = S;
+        BestGap = Gap;
+      }
+    }
+    if (Best < 0)
+      return false;
+    MCPhysReg New = Scratch[Best];
+    MachineInstr &Def = *Instrs[From];
+    LLVM_DEBUG(dbgs() << "Renaming " << printReg(Reg, TRI) << " to "
+                      << printReg(New, TRI) << " in " << Def);
+    DefMO.setReg(New);
+    for (MachineOperand *Use : Uses)
+      Use->setReg(New);
+    // Debug values of the value follow it.
+    for (MachineInstr &MI : make_range(std::next(Def.getIterator()),
+                                       std::next(Instrs[Last]->getIterator())))
+      if (MI.isDebugInstr())
+        for (MachineOperand &Op : MI.debug_operands())
+          if (Op.isReg() && Op.getReg() == Reg)
+            Op.setReg(New);
+    for (unsigned J = From; J != Last; ++J)
+      Live[J] |= 1u << Best;
+    for (unsigned J = From; J <= Last; ++J)
+      if (refersTo(*Instrs[J], New))
+        Refs[Best].push_back(J);
+    ++NumRenamed;
+    return true;
+  };
+
+  // The last instruction before Instrs[D] that refers to Reg, plus one, if
+  // the write there could issue earlier for not reusing the register.
+  auto PrevRef = [&](unsigned D, Register Reg) -> unsigned {
+    unsigned Prev = D;
+    while (Prev != 0 && !refersTo(*Instrs[Prev - 1], Reg))
+      --Prev;
+    if (Prev == 0 || Instrs[Prev - 1]->isCall() ||
+        dependsOn(Instrs, Prev - 1, D, *TRI))
+      return 0;
+    return Prev;
+  };
 
   bool Changed = false;
   for (unsigned D = 1; D != N; ++D) {
@@ -178,11 +254,8 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
       // before, other than in a call, which nothing moves across anyway, and
       // the write does not already wait for that instruction through what it
       // reads.
-      unsigned Prev = D;
-      while (Prev != 0 && !refersTo(*Instrs[Prev - 1], Reg))
-        --Prev;
-      if (Prev == 0 || Instrs[Prev - 1]->isCall() ||
-          dependsOn(Instrs, Prev - 1, D, *TRI))
+      unsigned Prev = PrevRef(D, Reg);
+      if (!Prev)
         continue;
       // The reads of the value, up to the next write of the register, which
       // must replace it whole.
@@ -216,62 +289,61 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
           break;
       }
       // A value the block leaves in the register for its successors stays.
-      if (!Ok || Uses.empty() || (I == N && !LiveOut.available(MRI, Reg)))
+      if (Ok && !Uses.empty() && !(I == N && !LiveOut.available(MRI, Reg)) &&
+          Rename(D, Last, MO, Uses)) {
+        Changed = true;
         continue;
-      // Some operands take only some general registers.
-      auto Fits = [&](MCPhysReg New) {
-        auto Takes = [&](const MachineOperand *Op) {
-          const TargetRegisterClass *RC =
-              Op->getParent()->getRegClassConstraint(Op->getOperandNo(), TII,
-                                                     TRI);
-          return !RC || RC->contains(New);
-        };
-        return Takes(&MO) && all_of(Uses, Takes);
-      };
-      // Pick the free scratch register the block refers to farthest from
-      // the span.
-      int Best = -1;
-      unsigned BestGap = 0;
-      for (auto [S, New] : enumerate(Scratch)) {
-        if (New == Reg || (Live[D - 1] & (1u << S)) || !Fits(New) ||
-            any_of(Refs[S], [&](unsigned R) { return R >= D && R <= Last; }))
-          continue;
-        bool Free = true;
-        for (unsigned J = D; J <= Last && Free; ++J)
-          Free = !(Live[J] & (1u << S));
-        if (!Free)
-          continue;
-        unsigned Gap = N + 1;
-        for (unsigned R : Refs[S])
-          Gap = std::min(Gap, R < D ? D - R : R - Last);
-        if (Best < 0 || Gap > BestGap) {
-          Best = S;
-          BestGap = Gap;
-        }
       }
-      if (Best < 0)
+      // Otherwise the values the block wrote in the register before, one at
+      // a time back from the write, can move out of its way, as long as
+      // nothing reads them past the write.
+      if (Pred != IA64::P0)
         continue;
-      MCPhysReg New = Scratch[Best];
-      LLVM_DEBUG(dbgs() << "Renaming " << printReg(Reg, TRI) << " to "
-                        << printReg(New, TRI) << " in " << Def);
-      MO.setReg(New);
-      for (MachineOperand *Use : Uses)
-        Use->setReg(New);
-      // Debug values of the value follow it.
-      for (MachineInstr &MI :
-           make_range(std::next(Def.getIterator()),
-                      std::next(Instrs[Last]->getIterator())))
-        if (MI.isDebugInstr())
-          for (MachineOperand &Op : MI.debug_operands())
-            if (Op.isReg() && Op.getReg() == Reg)
-              Op.setReg(New);
-      for (unsigned J = D; J != Last; ++J)
-        Live[J] |= 1u << Best;
-      for (unsigned J = D; J <= Last; ++J)
-        if (refersTo(*Instrs[J], New))
-          Refs[Best].push_back(J);
-      ++NumRenamed;
-      Changed = true;
+      for (unsigned Tries = 0; Prev && Tries != 4; ++Tries) {
+        unsigned Q = Prev - 1;
+        MachineInstr &Reader = *Instrs[Q];
+        if (Reader.modifiesRegister(Reg, TRI))
+          break;
+        unsigned E = Q;
+        while (E != 0 && !Instrs[E - 1]->modifiesRegister(Reg, TRI))
+          --E;
+        if (E-- == 0)
+          break;
+        MachineInstr &Earlier = *Instrs[E];
+        if (!hasRenamableReads(Earlier) || predicateOf(Earlier) != IA64::P0)
+          break;
+        MachineOperand *EarlierMO = nullptr;
+        unsigned NumDefs = 0;
+        for (MachineOperand &Op : Earlier.operands())
+          if (Op.isReg() && Op.isDef() && Op.getReg() == Reg) {
+            ++NumDefs;
+            if (!Op.isImplicit() && !Op.isTied() && !Op.isDead())
+              EarlierMO = &Op;
+          }
+        if (NumDefs != 1 || !EarlierMO)
+          break;
+        SmallVector<MachineOperand *, 4> EarlierUses;
+        bool Renamable = true;
+        for (unsigned K = E + 1; K <= Q && Renamable; ++K) {
+          MachineInstr &MI = *Instrs[K];
+          for (MachineOperand &Op : MI.operands()) {
+            if (Op.isRegMask() && Op.clobbersPhysReg(Reg))
+              Renamable = false;
+            if (!Op.isReg() || Op.getReg() != Reg)
+              continue;
+            if (Op.isDef() || Op.isImplicit() || Op.isTied() || Op.isUndef() ||
+                !hasRenamableReads(MI))
+              Renamable = false;
+            else
+              EarlierUses.push_back(&Op);
+          }
+        }
+        if (!Renamable || EarlierUses.empty() ||
+            !Rename(E, Q, *EarlierMO, EarlierUses))
+          break;
+        Changed = true;
+        Prev = PrevRef(D, Reg);
+      }
     }
   }
   return Changed;
