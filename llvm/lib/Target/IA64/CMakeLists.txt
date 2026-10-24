@@ -58,6 +58,7 @@ add_llvm_target(IA64CodeGen
   IA64Subtarget.cpp
   IA64TargetMachine.cpp
   IA64TargetObjectFile.cpp
+  IA64ZextLoopSteps.cpp
   IA64TargetTransformInfo.cpp
   IA64WidenByteOps.cpp
   IA64ZextElim.cpp

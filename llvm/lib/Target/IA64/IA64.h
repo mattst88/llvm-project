@@ -109,6 +109,10 @@ struct IA64MergeByteStoresPass
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
+struct IA64ZextLoopStepsPass : OptionalPassInfoMixin<IA64ZextLoopStepsPass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 struct IA64LoadReusePass : OptionalPassInfoMixin<IA64LoadReusePass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };

@@ -24,4 +24,5 @@ FUNCTION_PASS("ia64-merge-byte-stores", IA64MergeByteStoresPass())
 FUNCTION_PASS("ia64-mul-recurrence", IA64MulRecurrencePass())
 FUNCTION_PASS("ia64-speculate-chases", IA64SpeculateChasesPass())
 FUNCTION_PASS("ia64-widen-byte-ops", IA64WidenByteOpsPass())
+FUNCTION_PASS("ia64-zext-loop-steps", IA64ZextLoopStepsPass())
 #undef FUNCTION_PASS
