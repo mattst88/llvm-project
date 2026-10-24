@@ -27,11 +27,10 @@ define i8 @wrap_sext(ptr %block, i32 %x, i32 %n) {
 
 define i8 @wrap_zext(ptr %block, i32 %k, i32 %n, i32 %lim) {
 ; CHECK-LABEL: wrap_zext:
-; CHECK:       zxt4 r14 = r34
+; CHECK:       addp4 r14 = r34, r0
 ; CHECK-NEXT:  cmp4.ltu p6, p7 = r33, r35
-; CHECK-NEXT:  zxt4 r15 = r33 ;;
+; CHECK-NEXT:  addp4 r15 = r33, r0 ;;
 ; CHECK-NEXT:  add r14 = r32, r14 ;;
-; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  (p7) add r14 = r14, r15
 ; CHECK-NEXT:  (p6) add r14 = r32, r15 ;;
 ; CHECK-NEXT:  ld1 r8 = [r14]

@@ -88,7 +88,7 @@ define i64 @rotl64_variable(i64 %x, i64 %n) {
 
 define i32 @rotl32_variable(i32 %x, i32 %n) {
 ; CHECK-LABEL: rotl32_variable:
-; CHECK-DAG:   zxt4 [[LO:r[0-9]+]] = r32
+; CHECK-DAG:   addp4 [[LO:r[0-9]+]] = r32, r0
 ; CHECK-DAG:   shl [[HI:r[0-9]+]] = r32, 32
 ; CHECK-DAG:   and [[N:r[0-9]+]] = 31, r33
 ; CHECK:       or [[BOTH:r[0-9]+]] = [[HI]], [[LO]] ;;
@@ -100,7 +100,7 @@ define i32 @rotl32_variable(i32 %x, i32 %n) {
 
 define i32 @rotr32_variable(i32 %x, i32 %n) {
 ; CHECK-LABEL: rotr32_variable:
-; CHECK-DAG:   zxt4 [[LO:r[0-9]+]] = r32
+; CHECK-DAG:   addp4 [[LO:r[0-9]+]] = r32, r0
 ; CHECK-DAG:   shl [[HI:r[0-9]+]] = r32, 32
 ; CHECK-DAG:   and [[N:r[0-9]+]] = 31, r33
 ; CHECK:       or [[BOTH:r[0-9]+]] = [[HI]], [[LO]] ;;

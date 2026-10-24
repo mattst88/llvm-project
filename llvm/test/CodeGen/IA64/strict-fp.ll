@@ -133,7 +133,7 @@ define double @from_signed(i64 %a) strictfp {
 
 define float @from_unsigned(i32 %a) strictfp {
 ; CHECK-LABEL: from_unsigned:
-; CHECK: zxt4 [[R:r[0-9]+]] = r32
+; CHECK: addp4 [[R:r[0-9]+]] = r32, r0
 ; CHECK: setf.sig [[F:f[0-9]+]] = [[R]]
 ; CHECK: fma.s f8 = [[F]], f1, f0
   %r = call float @llvm.experimental.constrained.uitofp.f32.i32(i32 %a, metadata !"round.dynamic", metadata !"fpexcept.strict")

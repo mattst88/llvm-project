@@ -17,10 +17,11 @@
 // and phis, and replaces a zxt1, zxt2, zxt4 or "extr.u r = s, 0, len" whose
 // source already fits with that source.
 //
-// A zxt4 that only feeds shift counts, as zstd's bit position does, becomes
-// "addp4 r = s, r0" instead, which an M unit can issue as well as an I unit:
-// it keeps the low 32 bits and copies bits 30 and 31 to 61 and 62, so the
-// count is at least 64 exactly when the zero-extended one is.
+// Any other zxt4 becomes "addp4 r = s, r0", which an M unit can issue as
+// well as an I unit: addp4 keeps the low 32 bits of the sum and copies bits
+// 30 and 31 of its second operand, here r0, to bits 61 and 62, so it is an
+// exact zero extension. Index arithmetic done in unsigned 32 bits, as in
+// CoreMark's matrix loops, needs one before every address.
 //
 //===----------------------------------------------------------------------===//
 
@@ -41,7 +42,7 @@ using namespace llvm;
 #define PASS_NAME "IA64 redundant zero extension elimination"
 
 STATISTIC(NumZextsRemoved, "Number of redundant zero extensions removed");
-STATISTIC(NumCountZexts, "Number of zxt4 of shift counts made addp4");
+STATISTIC(NumAddp4, "Number of zxt4 made addp4");
 
 namespace {
 
@@ -70,7 +71,6 @@ public:
 
 private:
   bool fitsIn(Register Reg, unsigned Bits, unsigned Depth);
-  bool onlyShiftCounts(Register Reg) const;
 };
 
 } // end anonymous namespace
@@ -131,6 +131,10 @@ bool IA64ZextElim::fitsIn(Register Reg, unsigned Bits, unsigned Depth) {
     return Bits >= 16 || fitsIn(Op(1).getReg(), Bits, Depth + 1);
   case IA64::ZXT4:
     return Bits >= 32 || fitsIn(Op(1).getReg(), Bits, Depth + 1);
+  case IA64::ADDP4:
+    // The zero extension this pass makes.
+    return Op(2).getReg() == IA64::R0 &&
+           (Bits >= 32 || fitsIn(Op(1).getReg(), Bits, Depth + 1));
   case IA64::EXTR_U: {
     // r = s{pos+len-1..pos}: below 2^len, and below 2^(b-pos) if s < 2^b.
     unsigned Pos = Op(2).getImm(), Len = Op(3).getImm();
@@ -160,19 +164,6 @@ bool IA64ZextElim::fitsIn(Register Reg, unsigned Bits, unsigned Depth) {
     return activeBits(Op(1).getImm()) <= Bits;
   }
   return false;
-}
-
-// Whether every use of Reg is the count of a variable shift.
-bool IA64ZextElim::onlyShiftCounts(Register Reg) const {
-  if (MRI->use_nodbg_empty(Reg))
-    return false;
-  for (const MachineOperand &MO : MRI->use_nodbg_operands(Reg)) {
-    unsigned Opc = MO.getParent()->getOpcode();
-    if ((Opc != IA64::SHL && Opc != IA64::SHR_U && Opc != IA64::SHR) ||
-        MO.getOperandNo() != 2)
-      return false;
-  }
-  return true;
 }
 
 bool IA64ZextElim::runOnMachineFunction(MachineFunction &MF) {
@@ -210,15 +201,15 @@ bool IA64ZextElim::runOnMachineFunction(MachineFunction &MF) {
       Budget = 256;
       if (!fitsIn(Src, Bits, 0) ||
           !MRI->constrainRegClass(Src, MRI->getRegClass(Dst))) {
-        if (MI.getOpcode() == IA64::ZXT4 && onlyShiftCounts(Dst)) {
-          LLVM_DEBUG(dbgs() << "Count as addp4: " << MI);
+        if (MI.getOpcode() == IA64::ZXT4) {
+          LLVM_DEBUG(dbgs() << "As addp4: " << MI);
           const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
           BuildMI(MBB, MI, MI.getDebugLoc(), TII.get(IA64::ADDP4), Dst)
               .addReg(Src)
               .addReg(IA64::R0)
               .addReg(IA64::P0);
           MI.eraseFromParent();
-          ++NumCountZexts;
+          ++NumAddp4;
           Changed = true;
         }
         continue;

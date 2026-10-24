@@ -91,10 +91,10 @@ define void @six_moves(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) {
 ; shift need not go before the zero extension.
 define i64 @shift_either_port(i64 %a, i64 %b, i64 %c) {
 ; CHECK-LABEL: shift_either_port:
-; CHECK:       zxt4 r14 = r32
+; CHECK:       addp4 r14 = r32, r0
 ; CHECK-NEXT:  shl r15 = r33, 5 ;;
 ; OFF-LABEL:   shift_either_port:
-; OFF:         zxt4 r14 = r32
+; OFF:         addp4 r14 = r32, r0
 ; OFF-NEXT:    shl r15 = r33, 5 ;;
   %z = and i64 %a, 4294967295
   %s = shl i64 %b, 5

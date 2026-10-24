@@ -173,7 +173,7 @@ define i64 @slt32(i32 %a, i32 %b) {
 
 define i64 @ult32(i32 %a, i32 %b) {
 ; CHECK-LABEL: ult32:
-; CHECK-NOT:   zxt4
+; CHECK-NOT:   addp4 {{.*}}, r0
 ; CHECK:       cmp4.ltu p6, p7 = r32, r33
   %c = icmp ult i32 %a, %b
   %r = zext i1 %c to i64
@@ -229,7 +229,7 @@ define i64 @wide32(i32 %a, i64 %b) {
 define i64 @mixed32(i32 %a, i32 %b) {
 ; CHECK-LABEL: mixed32:
 ; CHECK-DAG:   sxt4 [[A:r[0-9]+]] = r32
-; CHECK-DAG:   zxt4 [[B:r[0-9]+]] = r33
+; CHECK-DAG:   addp4 [[B:r[0-9]+]] = r33, r0
 ; CHECK:       cmp.eq p6, p7 = [[A]], [[B]]
   %x = sext i32 %a to i64
   %y = zext i32 %b to i64

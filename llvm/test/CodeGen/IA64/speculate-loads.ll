@@ -207,7 +207,7 @@ define void @early_store(ptr %p, i32 %a, i64 %v, i64 %t) {
 ; CHECK:       adds r14 = 1, r33
 ; CHECK-NEXT:  adds r15 = 3, r34
 ; CHECK-NEXT:  cmp.eq p7, p6 = 0, r35 ;;
-; CHECK-NEXT:  zxt4 r14 = r14 ;;
+; CHECK-NEXT:  addp4 r14 = r14, r0 ;;
 ; CHECK-NEXT:  shladd r14 = r14, 2, r32 ;;
 ; CHECK-NEXT:  (p7) st4 [r14] = r15
 entry:

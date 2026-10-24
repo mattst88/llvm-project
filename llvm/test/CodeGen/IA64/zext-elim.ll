@@ -1,12 +1,12 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -O2 < %s | FileCheck %s
 
 ; bzip2's unRLE chase, t = tt[t] >> 8. Every value of t comes from an ld4,
-; so its upper half is already zero and the index needs no zxt4.
+; so its upper half is already zero and the index needs no extension.
 ; CHECK-LABEL: chase:
-; CHECK-NOT: zxt4
+; CHECK-NOT: addp4
 ; CHECK: shladd [[A:r[0-9]+]] = {{r[0-9]+}}, 2,
 ; CHECK-NEXT: ld4 [[V:r[0-9]+]] = [[[A]]]
-; CHECK-NOT: zxt4
+; CHECK-NOT: addp4
 ; CHECK: br.cloop
 define i32 @chase(ptr %tt, ptr %p, i64 %n) {
 entry:
@@ -28,9 +28,10 @@ exit:
   ret i32 %t.next
 }
 
-; An add can carry into the upper half, so the zxt4 stays.
+; An add can carry into the upper half, so the extension stays: an addp4
+; with r0, which is a zxt4 that an M port can also issue.
 ; CHECK-LABEL: carry:
-; CHECK: zxt4
+; CHECK: addp4 {{r[0-9]+}} = {{r[0-9]+}}, r0
 define i32 @carry(ptr %tt, ptr %p, i64 %n) {
 entry:
   %t.init = load i32, ptr %p, align 4

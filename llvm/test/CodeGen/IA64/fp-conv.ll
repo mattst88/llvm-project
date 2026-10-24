@@ -147,7 +147,7 @@ define float @sitofps32(i32 %a) {
 
 define double @uitofp32(i32 %a) {
 ; CHECK-LABEL: uitofp32:
-; CHECK:       zxt4 r14 = r32 ;;
+; CHECK:       addp4 r14 = r32, r0 ;;
 ; CHECK-NEXT:  setf.sig f6 = r14 ;;
 ; CHECK-NEXT:  fma.d f8 = f6, f1, f0
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;

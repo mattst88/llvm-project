@@ -61,11 +61,11 @@ define i64 @sub(ptr %p) {
 
 ; CHECK-LABEL: or:
 ; CHECK:         ld4.acq r8 = [r32] ;;
-; CHECK:         zxt4 r15 = r8
+; CHECK:         addp4 r15 = r8, r0
 ; CHECK-NEXT:    or r14 = r8, r33 ;;
 ; CHECK-NEXT:    mov ar.ccv = r15 ;;
 ; CHECK-NEXT:    cmpxchg4.acq r8 = [r32], r14, ar.ccv ;;
-; CHECK-NEXT:    zxt4 r14 = r8 ;;
+; CHECK-NEXT:    addp4 r14 = r8, r0 ;;
 ; CHECK-NEXT:    cmp.eq p7, p6 = r14, r15
 ; CHECK-NEXT:    (p6) br.cond.dptk.few .LBB5_1{{$}}
 ; CHECK:         br.ret.sptk.many b0 ;;

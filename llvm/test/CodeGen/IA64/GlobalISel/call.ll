@@ -96,7 +96,7 @@ define void @call_members(float %a, float %b) {
 ; CHECK:       getf.s r14 = f9
 ; CHECK:       getf.s r15 = f8
 ; CHECK:       shl r14 = r14, 32
-; CHECK-NEXT:  zxt4 r15 = r15 ;;
+; CHECK-NEXT:  addp4 r15 = r15, r0 ;;
 ; CHECK-NEXT:  or r39 = r15, r14
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0

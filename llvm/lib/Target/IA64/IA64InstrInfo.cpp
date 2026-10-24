@@ -1194,6 +1194,10 @@ static std::optional<uint64_t> getMaxValue(const MachineRegisterInfo &MRI,
     return Bound(0xffff);
   case IA64::ZXT4:
     return Bound(0xffffffff);
+  case IA64::ADDP4:
+    if (MI->getOperand(2).getReg() == IA64::R0)
+      return Bound(0xffffffff);
+    break;
   case IA64::ADDS: {
     // An add that cannot wrap past zero.
     int64_t Imm = MI->getOperand(1).getImm();
