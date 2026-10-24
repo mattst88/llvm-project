@@ -1028,6 +1028,84 @@ static SDValue combineSetCCOfXor(SDNode *N, SelectionDAG &DAG) {
                       Xor.getOperand(1), CC);
 }
 
+// (setcc (and (add X, C1), M), C2) unsigned, for a mask M of low bits,
+// where X has no bits outside M, tests that X is in a range: (X - Lo) <u N,
+// or not in one. A byte compared after an add, as CoreMark's isdigit,
+// c - '0' <= 9 in i8, is promoted to this; the range test needs no zxt1
+// between the add and the compare.
+static SDValue combineSetCCOfMaskedAdd(SDNode *N, SelectionDAG &DAG,
+                                       TargetLowering::DAGCombinerInfo &DCI) {
+  SDValue And = N->getOperand(0);
+  auto *C2 = dyn_cast<ConstantSDNode>(N->getOperand(1));
+  auto CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+  if (!C2 || !ISD::isUnsignedIntSetCC(CC) || And.getOpcode() != ISD::AND ||
+      !And.hasOneUse())
+    return SDValue();
+  auto *M = dyn_cast<ConstantSDNode>(And.getOperand(1));
+  SDValue Add = And.getOperand(0);
+  if (!M || !M->getAPIntValue().isMask() || Add.getOpcode() != ISD::ADD ||
+      !Add.hasOneUse())
+    return SDValue();
+  auto *C1 = dyn_cast<ConstantSDNode>(Add.getOperand(1));
+  SDValue X = Add.getOperand(0);
+  EVT VT = X.getValueType();
+  const APInt &MaskBits = M->getAPIntValue();
+  if (!C1 || VT.getSizeInBits() > 64 || MaskBits.isAllOnes())
+    return SDValue();
+  // An extending load of no more bits than M is ld1, ld2 or ld4, which
+  // clear the rest anyway: make it a zero-extending one.
+  auto *Ld = dyn_cast<LoadSDNode>(X);
+  if (Ld && Ld->getExtensionType() == ISD::EXTLOAD && Ld->isUnindexed() &&
+      Ld->isSimple() &&
+      Ld->getMemoryVT().getSizeInBits() <= MaskBits.countr_one()) {
+    SDValue ZLd = DAG.getExtLoad(ISD::ZEXTLOAD, SDLoc(Ld), VT, Ld->getChain(),
+                                 Ld->getBasePtr(), Ld->getMemoryVT(),
+                                 Ld->getMemOperand());
+    DCI.CombineTo(Ld, ZLd, ZLd.getValue(1));
+    return SDValue(N, 0);
+  }
+  if (!(~MaskBits).isSubsetOf(DAG.computeKnownBits(X).Zero))
+    return SDValue();
+  uint64_t Mask = MaskBits.getZExtValue(), V = C2->getZExtValue();
+  if (V > Mask)
+    return SDValue();
+  // The values of the masked sum for which the compare holds, [Lo, Hi].
+  uint64_t Lo = 0, Hi = Mask;
+  switch (CC) {
+  case ISD::SETULT:
+    if (V == 0)
+      return SDValue();
+    Hi = V - 1;
+    break;
+  case ISD::SETULE:
+    Hi = V;
+    break;
+  case ISD::SETUGT:
+    if (V == Mask)
+      return SDValue();
+    Lo = V + 1;
+    break;
+  default:
+    Lo = V;
+    break;
+  }
+  // The values of X for them, which may wrap past Mask.
+  uint64_t Add1 = C1->getZExtValue();
+  Lo = (Lo - Add1) & Mask;
+  Hi = (Hi - Add1) & Mask;
+  SDLoc DL(N);
+  EVT CCVT = N->getValueType(0);
+  if (Lo <= Hi)
+    return DAG.getSetCC(
+        DL, CCVT, DAG.getNode(ISD::SUB, DL, VT, X, DAG.getConstant(Lo, DL, VT)),
+        DAG.getConstant(Hi - Lo + 1, DL, VT), ISD::SETULT);
+  // X is outside [Hi + 1, Lo - 1].
+  return DAG.getSetCC(
+      DL, CCVT,
+      DAG.getNode(ISD::SUB, DL, VT, X, DAG.getConstant(Hi + 1, DL, VT)),
+      DAG.getConstant(Lo - Hi - 1, DL, VT), ISD::SETUGE);
+}
+
 SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -1049,6 +1127,8 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::AND:
     return combineAndOfXorWithinMask(N, DAG);
   case ISD::SETCC:
+    if (SDValue V = combineSetCCOfMaskedAdd(N, DAG, DCI))
+      return V;
     return combineSetCCOfXor(N, DAG);
   case ISD::INTRINSIC_VOID:
     if (N->getConstantOperandVal(1) == Intrinsic::set_loop_iterations) {
