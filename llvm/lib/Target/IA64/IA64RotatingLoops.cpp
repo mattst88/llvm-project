@@ -244,7 +244,9 @@ bool RotatingExpander::checkInstruction(const MachineInstr &MI) const {
           (Reg >= IA64::P16 && Reg <= IA64::P63) || Reg == IA64::AR65 ||
           Reg == IA64::AR66)
         return false;
-      if (MO.isDef() && !MRI.isReserved(Reg))
+      // A scratch register a pseudo clobbers, as SETCCf does p6 and p7, is
+      // dead after it whether or not its stage is running.
+      if (MO.isDef() && !MRI.isReserved(Reg) && !MO.isDead())
         return false;
       continue;
     }
