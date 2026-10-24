@@ -249,3 +249,101 @@ return:
   %r = phi ptr [ %l, %loop ], [ null, %body ]
   ret ptr %r
 }
+
+; CoreMark's core_list_reverse: the store keeps it from being searched ahead,
+; but the next pointer is loaded by ld.s at the end of each node for the node
+; after, tested with tnat at the top and reloaded on NaT.
+define ptr @reverse(ptr %list) {
+; CHECK-LABEL: @reverse(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[EMPTY:%.*]] = icmp eq ptr [[LIST:%.*]], null
+; CHECK-NEXT:    br i1 [[EMPTY]], label [[RETURN:%.*]], label [[LOOP_PREHEADER:%.*]]
+; CHECK:       loop.preheader:
+; CHECK-NEXT:    [[NEXT_S1:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[LIST]])
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[NEXT_S:%.*]] = phi i64 [ [[NEXT_S1]], [[LOOP_PREHEADER]] ], [ [[DOTS_1:%.*]], [[LOOP_SPLIT_1:%.*]] ]
+; CHECK-NEXT:    [[PREV:%.*]] = phi ptr [ null, [[LOOP_PREHEADER]] ], [ [[NEXT:%.*]], [[LOOP_SPLIT_1]] ]
+; CHECK-NEXT:    [[L:%.*]] = phi ptr [ [[LIST]], [[LOOP_PREHEADER]] ], [ [[NEXT_1:%.*]], [[LOOP_SPLIT_1]] ]
+; CHECK-NEXT:    [[NEXT2:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
+; CHECK-NEXT:    [[TMP0:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S]])
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp ne i64 [[TMP0]], 0
+; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[LOOP_SPLIT:%.*]], !prof [[PROF0]]
+; CHECK:       loop.nat:
+; CHECK-NEXT:    [[NEXT3:%.*]] = load ptr, ptr [[L]], align 8
+; CHECK-NEXT:    br label [[LOOP_SPLIT]]
+; CHECK:       loop.split:
+; CHECK-NEXT:    [[NEXT]] = phi ptr [ [[NEXT2]], [[LOOP]] ], [ [[NEXT3]], [[LOOP_NAT]] ]
+; CHECK-NEXT:    store ptr [[PREV]], ptr [[L]], align 8
+; CHECK-NEXT:    [[END:%.*]] = icmp eq ptr [[NEXT]], null
+; CHECK-NEXT:    [[DOTS:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT]])
+; CHECK-NEXT:    br i1 [[END]], label [[RETURN_LOOPEXIT:%.*]], label [[LOOP_1:%.*]]
+; CHECK:       loop.1:
+; CHECK-NEXT:    [[NEXT2_1:%.*]] = inttoptr i64 [[DOTS]] to ptr
+; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @llvm.ia64.tnat(i64 [[DOTS]])
+; CHECK-NEXT:    [[TMP3:%.*]] = icmp ne i64 [[TMP2]], 0
+; CHECK-NEXT:    br i1 [[TMP3]], label [[LOOP_NAT_1:%.*]], label [[LOOP_SPLIT_1]], !prof [[PROF0]]
+; CHECK:       loop.nat.1:
+; CHECK-NEXT:    [[NEXT3_1:%.*]] = load ptr, ptr [[NEXT]], align 8
+; CHECK-NEXT:    br label [[LOOP_SPLIT_1]]
+; CHECK:       loop.split.1:
+; CHECK-NEXT:    [[NEXT_1]] = phi ptr [ [[NEXT2_1]], [[LOOP_1]] ], [ [[NEXT3_1]], [[LOOP_NAT_1]] ]
+; CHECK-NEXT:    store ptr [[L]], ptr [[NEXT]], align 8
+; CHECK-NEXT:    [[END_1:%.*]] = icmp eq ptr [[NEXT_1]], null
+; CHECK-NEXT:    [[DOTS_1]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT_1]])
+; CHECK-NEXT:    br i1 [[END_1]], label [[RETURN_LOOPEXIT]], label [[LOOP]]
+; CHECK:       return.loopexit:
+; CHECK-NEXT:    [[R_PH:%.*]] = phi ptr [ [[L]], [[LOOP_SPLIT]] ], [ [[NEXT]], [[LOOP_SPLIT_1]] ]
+; CHECK-NEXT:    br label [[RETURN]]
+; CHECK:       return:
+; CHECK-NEXT:    [[R:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[R_PH]], [[RETURN_LOOPEXIT]] ]
+; CHECK-NEXT:    ret ptr [[R]]
+;
+entry:
+  %empty = icmp eq ptr %list, null
+  br i1 %empty, label %return, label %loop
+
+loop:
+  %prev = phi ptr [ %l, %loop ], [ null, %entry ]
+  %l = phi ptr [ %next, %loop ], [ %list, %entry ]
+  %next = load ptr, ptr %l, align 8
+  store ptr %prev, ptr %l, align 8
+  %end = icmp eq ptr %next, null
+  br i1 %end, label %return, label %loop
+
+return:
+  %r = phi ptr [ null, %entry ], [ %l, %loop ]
+  ret ptr %r
+}
+
+; A store before the next pointer's load may write it: not loaded early.
+define ptr @clear(ptr %list) {
+; CHECK-LABEL: @clear(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[L:%.*]] = phi ptr [ [[NEXT:%.*]], [[LOOP]] ], [ [[LIST:%.*]], [[ENTRY:%.*]] ]
+; CHECK-NEXT:    [[INFOP:%.*]] = getelementptr inbounds nuw i8, ptr [[L]], i64 8
+; CHECK-NEXT:    store ptr null, ptr [[INFOP]], align 8
+; CHECK-NEXT:    [[NEXT]] = load ptr, ptr [[L]], align 8
+; CHECK-NEXT:    [[END:%.*]] = icmp eq ptr [[NEXT]], null
+; CHECK-NEXT:    br i1 [[END]], label [[RETURN:%.*]], label [[LOOP]]
+; CHECK:       return:
+; CHECK-NEXT:    [[R:%.*]] = phi ptr [ [[L]], [[LOOP]] ]
+; CHECK-NEXT:    ret ptr [[R]]
+;
+entry:
+  br label %loop
+
+loop:
+  %l = phi ptr [ %next, %loop ], [ %list, %entry ]
+  %infop = getelementptr inbounds nuw i8, ptr %l, i64 8
+  store ptr null, ptr %infop, align 8
+  %next = load ptr, ptr %l, align 8
+  %end = icmp eq ptr %next, null
+  br i1 %end, label %return, label %loop
+
+return:
+  %r = phi ptr [ %l, %loop ]
+  ret ptr %r
+}

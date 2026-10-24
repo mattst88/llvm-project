@@ -36,19 +36,26 @@
 #include "IA64.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicsIA64.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/LoopSimplify.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
+#include "llvm/Transforms/Utils/UnrollLoop.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "ia64-speculate-chases"
 
 STATISTIC(NumSpeculated, "Number of pointer-chasing loops speculated");
+STATISTIC(NumPipelined, "Number of pointer-chasing loops pipelined");
 
 static cl::opt<unsigned>
     ChaseCopies("ia64-chase-copies", cl::Hidden, cl::init(3),
@@ -62,6 +69,14 @@ struct Chase {
   Loop *L;
   PHINode *Ptr;
   SmallVector<BasicBlock *, 4> Blocks;
+};
+
+// A loop following a pointer that it loads at the top, which cannot be
+// searched ahead, but whose next pointer can be loaded an iteration early.
+struct Pipeline {
+  Loop *L;
+  PHINode *Ptr;
+  LoadInst *Next;
 };
 
 } // namespace
@@ -140,6 +155,59 @@ static std::optional<Chase> matchChase(Loop *L, const DominatorTree &DT,
   if (!Next || !L->contains(Next) || Loads < 2 || Loads > 4 || Ops > 12)
     return std::nullopt;
   return C;
+}
+
+static std::optional<Pipeline> matchPipeline(Loop *L, const DominatorTree &DT,
+                                             const DataLayout &DL) {
+  if (!L->isInnermost() || !L->getLoopPredecessor() || !L->getLoopLatch() ||
+      L->getNumBlocks() > 4 || !L->isLCSSAForm(DT))
+    return std::nullopt;
+  BasicBlock *Header = L->getHeader();
+  BasicBlock *Latch = L->getLoopLatch();
+  unsigned Ops = 0;
+  for (BasicBlock *BB : L->blocks()) {
+    if (!isa<CondBrInst, UncondBrInst>(BB->getTerminator()))
+      return std::nullopt;
+    for (Instruction &I : *BB) {
+      if (isa<PHINode>(I) || I.isTerminator())
+        continue;
+      if (isa<CallBase>(I) || I.isAtomic() || I.isVolatile())
+        return std::nullopt;
+      ++Ops;
+    }
+  }
+  if (Ops > 16)
+    return std::nullopt;
+  for (PHINode &Phi : Header->phis()) {
+    if (!Phi.getType()->isPointerTy())
+      continue;
+    auto *Next = dyn_cast<LoadInst>(Phi.getIncomingValueForBlock(Latch));
+    if (!Next || Next->getParent() != Header || !isSpeculatableLoad(*Next, DL))
+      continue;
+    // The address is the pointer, or a constant offset from it.
+    Value *Addr = Next->getPointerOperand();
+    if (auto *GEP = dyn_cast<GetElementPtrInst>(Addr))
+      if (GEP->getPointerOperand() == &Phi && GEP->hasAllConstantIndices())
+        Addr = &Phi;
+    if (Addr != &Phi)
+      continue;
+    // Loaded at the end of the last iteration, the next pointer has to be
+    // what the top of this one reads.
+    if (any_of(make_range(Header->getFirstNonPHIIt(), Next->getIterator()),
+               [](const Instruction &I) { return I.mayWriteToMemory(); }))
+      continue;
+    // Worth it if the loop waits for the pointer to decide whether to go on.
+    if (none_of(Next->users(), [&](const User *U) {
+          auto *Cmp = dyn_cast<ICmpInst>(U);
+          return Cmp && any_of(Cmp->users(), [&](const User *V) {
+                   auto *Br = dyn_cast<CondBrInst>(V);
+                   return Br && L->isLoopExiting(Br->getParent());
+                 });
+        }))
+      continue;
+    return Pipeline{L, &Phi, Next};
+  }
+  return std::nullopt;
 }
 
 static Intrinsic::ID getSpeculativeLoad(unsigned Size) {
@@ -283,6 +351,78 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
     }
 }
 
+// Load the next pointer at the end of each iteration with an ld.s, after
+// the iteration's stores, and at the top of the next one test it for NaT and
+// load it again if it is. Then unroll the loop, so that the three pointers
+// live at once, the one an iteration works on, the next one and the one
+// loaded early, take turns in registers instead of being copied.
+static void pipeline(const Pipeline &P, unsigned Copies, LoopInfo &LI,
+                     DominatorTree &DT, ScalarEvolution &SE,
+                     AssumptionCache &AC, const TargetTransformInfo &TTI) {
+  Loop *L = P.L;
+  SE.forgetLoop(L);
+  simplifyLoop(L, &DT, &LI, &SE, &AC, nullptr, true);
+  BasicBlock *Header = L->getHeader();
+  BasicBlock *Preheader = L->getLoopPreheader();
+  LLVMContext &Ctx = Header->getContext();
+  Value *Addr = P.Next->getPointerOperand();
+  auto LoadNext = [&](Value *Ptr, Instruction *Before) {
+    IRBuilder<> B(Before);
+    Value *A = Ptr;
+    if (Addr != P.Ptr) {
+      auto *GEP = cast<GetElementPtrInst>(Addr)->clone();
+      GEP->setOperand(0, Ptr);
+      A = B.Insert(GEP);
+    }
+    return B.CreateIntrinsic(Intrinsic::ia64_ld8_s, {}, {A}, nullptr,
+                             P.Next->getName() + ".s");
+  };
+
+  IRBuilder<> B(&Header->front());
+  PHINode *S = B.CreatePHI(B.getInt64Ty(), 2, P.Next->getName() + ".s");
+  S->addIncoming(LoadNext(P.Ptr->getIncomingValueForBlock(Preheader),
+                          Preheader->getTerminator()),
+                 Preheader);
+  BasicBlock *Cont = SplitBlock(Header, P.Next, &DT, &LI);
+  auto *Reload = BasicBlock::Create(Ctx, Header->getName() + ".nat",
+                                    Header->getParent(), Cont);
+  L->addBasicBlockToLoop(Reload, LI);
+  DT.addNewBlock(Reload, Header);
+  Header->getTerminator()->eraseFromParent();
+  B.SetInsertPoint(Header);
+  B.SetCurrentDebugLocation(P.Next->getDebugLoc());
+  Value *Spec = B.CreateIntToPtr(S, P.Next->getType(), P.Next->getName());
+  Value *IsNaT = B.CreateICmpNE(
+      B.CreateIntrinsic(Intrinsic::ia64_tnat, {}, {static_cast<Value *>(S)}),
+      B.getInt64(0));
+  B.CreateCondBr(IsNaT, Reload, Cont,
+                 MDBuilder(Ctx).createUnlikelyBranchWeights());
+  B.SetInsertPoint(Reload);
+  Instruction *Plain = P.Next->clone();
+  B.Insert(Plain, P.Next->getName());
+  B.CreateBr(Cont);
+  B.SetInsertPoint(Cont, Cont->begin());
+  PHINode *V = B.CreatePHI(P.Next->getType(), 2);
+  V->addIncoming(Spec, Header);
+  V->addIncoming(Plain, Reload);
+  P.Next->replaceAllUsesWith(V);
+  V->takeName(P.Next);
+  P.Next->eraseFromParent();
+  BasicBlock *Latch = L->getLoopLatch();
+  S->addIncoming(LoadNext(V, Latch->getTerminator()), Latch);
+
+  UnrollLoopOptions ULO;
+  ULO.Count = Copies;
+  ULO.Force = true;
+  ULO.Runtime = false;
+  ULO.AllowExpensiveTripCount = false;
+  ULO.UnrollRemainder = false;
+  ULO.ForgetAllSCEV = false;
+  ULO.SCEVExpansionBudget = 0;
+  UnrollLoop(L, ULO, &LI, &SE, &DT, &AC, &TTI, nullptr,
+             /*PreserveLCSSA=*/false);
+}
+
 PreservedAnalyses IA64SpeculateChasesPass::run(Function &F,
                                                FunctionAnalysisManager &AM) {
   if (ChaseCopies < 2)
@@ -291,11 +431,34 @@ PreservedAnalyses IA64SpeculateChasesPass::run(Function &F,
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   const DataLayout &DL = F.getDataLayout();
   SmallVector<Chase, 2> Chases;
+  SmallVector<Pipeline, 2> Pipelines;
   for (Loop *L : LI.getLoopsInPreorder())
     if (std::optional<Chase> C = matchChase(L, DT, DL))
       Chases.push_back(*C);
-  if (Chases.empty())
+    else if (std::optional<Pipeline> P = matchPipeline(L, DT, DL))
+      Pipelines.push_back(*P);
+  if (Chases.empty() && Pipelines.empty())
     return PreservedAnalyses::all();
+  // Pipelined loops are unrolled, which keeps the loop info and dominator
+  // tree up to date for the rest.
+  if (!Pipelines.empty()) {
+    auto &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
+    auto &AC = AM.getResult<AssumptionAnalysis>(F);
+    auto &TTI = AM.getResult<TargetIRAnalysis>(F);
+    for (const Pipeline &P : Pipelines) {
+      pipeline(P, ChaseCopies, LI, DT, SE, AC, TTI);
+      ++NumPipelined;
+    }
+    // Splitting off a pipelined loop's dedicated exits can move a chase's
+    // exit phi into a block past a new exit block of its own; match again.
+    SmallVector<Chase, 2> Rematched;
+    for (const Chase &C : Chases) {
+      formLCSSA(*C.L, DT, &LI, &SE);
+      if (std::optional<Chase> R = matchChase(C.L, DT, DL))
+        Rematched.push_back(*R);
+    }
+    Chases = std::move(Rematched);
+  }
   // A loop entered from a block that branches elsewhere too gets a
   // preheader to branch to the speculative loop from, while the dominator
   // tree is still up to date.
