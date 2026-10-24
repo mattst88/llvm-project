@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 //
 // This file defines all of the IA-64-specific intrinsics. An unwinder reads
-// the caller frames' registers from the RSE backing store, and these give it
-// what it needs to locate them.
+// the caller frames' registers from the RSE backing store, and the first ones
+// give it what it needs to locate them. The others speculate loads.
 //
 //===----------------------------------------------------------------------===//
 
@@ -21,5 +21,17 @@ def int_ia64_bsp : ClangBuiltin<"__builtin_ia64_bsp">,
 // Flush the register stack frames of the callers to the backing store.
 def int_ia64_flushrs : ClangBuiltin<"__builtin_ia64_flushrs">,
                        Intrinsic<[], [], []>;
+
+// Control-speculative loads (ld.s), zero-extended to 64 bits. A load that
+// would fault, or one from a NaT address, gives NaT instead.
+foreach S = ["1", "2", "4", "8"] in
+def int_ia64_ld#S#_s
+    : Intrinsic<[llvm_i64_ty], [llvm_ptr_ty],
+                [IntrReadMem, IntrArgMemOnly, IntrWillReturn, IntrNoCallback,
+                 IntrNoFree, IntrNoSync], "", [SDNPMemOperand]>;
+
+// 1 if the value is NaT and 0 otherwise (tnat).
+def int_ia64_tnat : Intrinsic<[llvm_i64_ty], [llvm_i64_ty],
+                              [IntrNoMem, IntrWillReturn]>;
 
 } // TargetPrefix = "ia64"

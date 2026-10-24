@@ -30,6 +30,7 @@
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicsIA64.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -2508,6 +2509,38 @@ bool IA64TargetLowering::SimplifyDemandedBitsForTargetNode(
                        TLO.DAG.getNode(IA64ISD::PMPY2_R, SDLoc(Op), MVT::i64,
                                        Ops[0] ? Ops[0] : Op.getOperand(0),
                                        Ops[1] ? Ops[1] : Op.getOperand(1)));
+}
+
+// A control-speculative load reads memory like any other, so the scheduler
+// can order it against stores rather than everything else.
+void IA64TargetLowering::getTgtMemIntrinsic(
+    SmallVectorImpl<IntrinsicInfo> &Infos, const CallBase &I,
+    MachineFunction &MF, unsigned Intrinsic) const {
+  unsigned Size;
+  switch (Intrinsic) {
+  case Intrinsic::ia64_ld1_s:
+    Size = 1;
+    break;
+  case Intrinsic::ia64_ld2_s:
+    Size = 2;
+    break;
+  case Intrinsic::ia64_ld4_s:
+    Size = 4;
+    break;
+  case Intrinsic::ia64_ld8_s:
+    Size = 8;
+    break;
+  default:
+    return;
+  }
+  IntrinsicInfo Info;
+  Info.opc = ISD::INTRINSIC_W_CHAIN;
+  Info.memVT = MVT::getIntegerVT(Size * 8);
+  Info.ptrVal = I.getArgOperand(0);
+  Info.offset = 0;
+  Info.align = Align(Size);
+  Info.flags = MachineMemOperand::MOLoad;
+  Infos.push_back(Info);
 }
 
 bool IA64TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {

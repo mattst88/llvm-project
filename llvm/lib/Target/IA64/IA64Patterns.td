@@ -406,6 +406,11 @@ foreach S = ["1", "2", "4"] in {
 }
 def : Pat<(store GR:$r2, GR:$r3), (ST8 GR:$r3, GR:$r2, 0)>;
 
+// Control-speculative loads.
+foreach S = ["1", "2", "4", "8"] in
+def : Pat<(!cast<Intrinsic>("int_ia64_ld"#S#"_s") GR:$r3),
+          (!cast<Instruction>("LD"#S#"_S") GR:$r3, 0)>;
+
 // Atomic loads use acquire semantics (ld.acq).
 def : Pat<(i64 (atomic_load_nonext_64 GR:$r3)), (LD8_ACQ GR:$r3, 0)>;
 foreach S = [["1", "8"], ["2", "16"], ["4", "32"]] in {

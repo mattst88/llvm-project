@@ -458,7 +458,10 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
   if (MF.getTarget().getOptLevel() != CodeGenOptLevel::None) {
     for (MachineBasicBlock &MBB : MF) {
       MachineInstr *Br = getConditionalBranch(MBB);
-      if (!Br)
+      // A NaT test has no parallel form, and a compare it guards may read a
+      // NaT.
+      if (!Br ||
+          IA64CC::isNaTTest(IA64CC::CondCode(Br->getOperand(1).getImm())))
         continue;
       Chain &C = Chains[&MBB];
       C.Conds.push_back({IA64CC::CondCode(Br->getOperand(1).getImm()),

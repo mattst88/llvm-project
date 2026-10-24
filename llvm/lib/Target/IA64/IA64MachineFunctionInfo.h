@@ -55,6 +55,10 @@ class IA64MachineFunctionInfo : public MachineFunctionInfo {
   int VarArgsFrameIndex = 0;
   bool SpillsVarArgs = false;
 
+  // Whether GR spills keep the NaT bit, for values that control-speculative
+  // loads may have left NaT.
+  bool SpillsNaTs = false;
+
   // The sret pointer passed by the caller, which the function returns.
   Register SRetReg;
 
@@ -90,6 +94,8 @@ public:
   void setSavedRP(Register Reg) { SavedRP = Reg; }
   bool spillsVarArgs() const { return SpillsVarArgs; }
   void setSpillsVarArgs(bool Spills) { SpillsVarArgs = Spills; }
+  bool spillsNaTs() const { return SpillsNaTs; }
+  void setSpillsNaTs(bool Spills) { SpillsNaTs = Spills; }
   Register getSavedUNAT() const { return SavedUNAT; }
   void setSavedUNAT(Register Reg) { SavedUNAT = Reg; }
   bool changesPR() const { return ChangesPR; }

@@ -16,6 +16,7 @@
 #include "MCTargetDesc/IA64MCAsmInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "llvm/IR/IntrinsicsIA64.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -249,6 +250,16 @@ IA64DAGToDAGISel::selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     Ops.push_back(RHS);
     return FloatingPoint;
   }
+  // A test of what llvm.ia64.tnat returns is the tnat.
+  if ((CC == ISD::SETEQ || CC == ISD::SETNE) && isNullConstant(RHS) &&
+      LHS.getOpcode() == ISD::INTRINSIC_WO_CHAIN &&
+      LHS.getConstantOperandVal(0) == Intrinsic::ia64_tnat) {
+    IA64CC::CondCode IACC = CC == ISD::SETEQ ? IA64CC::NotNaT : IA64CC::NaT;
+    Ops.push_back(CurDAG->getTargetConstant(IACC, DL, MVT::i64));
+    Ops.push_back(LHS.getOperand(1));
+    Ops.push_back(CurDAG->getTargetConstant(0, DL, MVT::i64));
+    return Immediate;
+  }
   // A test of whether a single bit is set is a bit test.
   if ((CC == ISD::SETEQ || CC == ISD::SETNE) && isNullConstant(RHS) &&
       LHS.getOpcode() == ISD::AND && isa<ConstantSDNode>(LHS.getOperand(1)) &&
@@ -355,7 +366,8 @@ bool IA64DAGToDAGISel::appendChainCompare(SDValue LHS, SDValue RHS,
     Imm = Ops[Start + 2]->getAsAPIntVal().getSExtValue();
   if (IA64CC::getParallelCompare(IACC, Imm))
     return true;
-  if (HasPlain) {
+  // A NaT test guards compares that may read a NaT.
+  if (HasPlain || IA64CC::isNaTTest(IACC)) {
     Ops.truncate(Start);
     return false;
   }
@@ -1013,6 +1025,15 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
     SDNode *New = CurDAG->SelectNodeTo(Node, Opcodes[Form], MVT::i64, Ops);
     if (Form == FloatingPoint)
       setNoFPExcept(New);
+    return;
+  }
+  case ISD::INTRINSIC_WO_CHAIN: {
+    if (Node->getConstantOperandVal(0) != Intrinsic::ia64_tnat)
+      break;
+    SDValue Ops[] = {CurDAG->getTargetConstant(IA64CC::NaT, DL, MVT::i64),
+                     Node->getOperand(1),
+                     CurDAG->getTargetConstant(0, DL, MVT::i64)};
+    CurDAG->SelectNodeTo(Node, IA64::SETCCi, MVT::i64, Ops);
     return;
   }
   case ISD::BR_CC: {

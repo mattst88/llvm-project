@@ -61,6 +61,9 @@ public:
   }
   // Loads zero-extend as well, so a loaded value used in other blocks is
   // passed to them as it was loaded, not sign-extended for signed compares.
+  void getTgtMemIntrinsic(SmallVectorImpl<IntrinsicInfo> &Infos,
+                          const CallBase &I, MachineFunction &MF,
+                          unsigned Intrinsic) const override;
   bool isZExtFree(SDValue Val, EVT VT2) const override;
   bool shouldScopeInlinedMemcpy() const override { return true; }
   ISD::NodeType getPreferredExtendForValue(const Instruction *I) const override;

@@ -180,6 +180,9 @@ bool IA64CC::isLegalImmediate(CondCode CC, int64_t Imm) {
   case BitClear:
   case BitSet:
     return isUInt<6>(Imm);
+  case NotNaT:
+  case NaT:
+    return Imm == 0;
   default:
     return isInt<8>(Imm);
   }
@@ -317,6 +320,16 @@ void IA64InstrInfo::emitCompare(MachineBasicBlock &MBB,
         .addReg(Set ? IA64::P6 : IA64::P7, RegState::Define)
         .add(L)
         .addImm(RHS.getImm())
+        .addReg(IA64::P0);
+    return;
+  }
+
+  if (IA64CC::isNaTTest(CC)) {
+    bool Set = CC == IA64CC::NaT;
+    BuildMI(MBB, I, DL, get(IA64::TNAT_Z))
+        .addReg(Set ? IA64::P7 : IA64::P6, RegState::Define)
+        .addReg(Set ? IA64::P6 : IA64::P7, RegState::Define)
+        .add(L)
         .addReg(IA64::P0);
     return;
   }
@@ -925,6 +938,23 @@ bool IA64InstrInfo::isSafeToSink(MachineInstr &MI,
     return Succ == SuccToSinkTo ||
            (Succ->succ_size() == 1 && *Succ->succ_begin() == SuccToSinkTo);
   });
+}
+
+bool IA64::isControlSpeculativeLoad(unsigned Opcode) {
+  switch (Opcode) {
+  case IA64::LD1_S:
+  case IA64::LD2_S:
+  case IA64::LD4_S:
+  case IA64::LD8_S:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// A control-speculative load is up above the branches to start early.
+bool IA64InstrInfo::shouldSink(const MachineInstr &MI) const {
+  return !IA64::isControlSpeculativeLoad(MI.getOpcode());
 }
 
 // alloc must not move: it has to precede the first write of a register it

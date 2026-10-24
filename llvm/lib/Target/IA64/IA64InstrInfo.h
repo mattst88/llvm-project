@@ -35,12 +35,16 @@ enum : uint8_t {
   // schedule IA64InsertStops keeps by ending the group before it.
   StartsCycle = MachineInstr::TAsmComments << 2,
 };
+
+// Whether the opcode is a control-speculative integer load, ld.s.
+bool isControlSpeculativeLoad(unsigned Opcode);
 } // namespace IA64
 
 namespace IA64CC {
 // Compare conditions, integer then FP, then tests of the bit of the left
-// operand that the right one, a constant, numbers, then the integer
-// conditions again for compares of only the low 32 bits (cmp4). Each is next
+// operand that the right one, a constant, numbers, then tests of whether the
+// left operand is NaT, the right one being 0, then the integer conditions
+// again for compares of only the low 32 bits (cmp4). Each is next
 // to its inverse; for FP that is the one that differs in its result for
 // unordered operands.
 enum CondCode : unsigned {
@@ -68,6 +72,8 @@ enum CondCode : unsigned {
   ORD,
   BitClear,
   BitSet,
+  NotNaT,
+  NaT,
   EQ4,
   NE4,
   LT4,
@@ -83,6 +89,8 @@ enum CondCode : unsigned {
 inline bool isFloatingPoint(CondCode CC) { return CC >= OEQ && CC <= ORD; }
 
 inline bool isBitTest(CondCode CC) { return CC == BitClear || CC == BitSet; }
+
+inline bool isNaTTest(CondCode CC) { return CC == NotNaT || CC == NaT; }
 
 inline bool isWord(CondCode CC) { return CC >= EQ4; }
 
@@ -157,6 +165,7 @@ public:
   bool isAsCheapAsAMove(const MachineInstr &MI) const override;
   bool isSafeToSink(MachineInstr &MI, MachineBasicBlock *SuccToSinkTo,
                     MachineCycleInfo *CI) const override;
+  bool shouldSink(const MachineInstr &MI) const override;
 
   bool isSchedulingBoundary(const MachineInstr &MI,
                             const MachineBasicBlock *MBB,

@@ -139,6 +139,7 @@ bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       : MI.getFlag(MachineInstr::FrameDestroy) ? MachineInstr::FrameDestroy
                                                : MachineInstr::NoFlags;
 
+  bool SpillsNaTs = MF.getInfo<IA64MachineFunctionInfo>()->spillsNaTs();
   Register FrameReg;
   int64_t Offset = TFL.getFrameIndexReference(
                           MF, MI.getOperand(FIOperandNum).getIndex(), FrameReg)
@@ -178,9 +179,10 @@ bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   case IA64::SPILL_GR:
   case IA64::SPILL_FR:
     FormAddress(IA64::R2);
-    BuildMI(
-        MBB, II, DL,
-        TII.get(MI.getOpcode() == IA64::SPILL_GR ? IA64::ST8 : IA64::STF_SPILL))
+    BuildMI(MBB, II, DL,
+            TII.get(MI.getOpcode() == IA64::SPILL_FR ? IA64::STF_SPILL
+                    : SpillsNaTs                     ? IA64::ST8_SPILL
+                                                     : IA64::ST8))
         .addReg(IA64::R2, RegState::Kill)
         .add(MI.getOperand(0))
         .addImm(0)
@@ -226,7 +228,11 @@ bool IA64RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     Register Reg = MI.getOperand(0).getReg();
     Register Addr = IsGR ? Reg : Register(IA64::R2);
     FormAddress(Addr);
-    BuildMI(MBB, II, DL, TII.get(IsGR ? IA64::LD8 : IA64::LDF_FILL), Reg)
+    BuildMI(MBB, II, DL,
+            TII.get(!IsGR        ? IA64::LDF_FILL
+                    : SpillsNaTs ? IA64::LD8_FILL
+                                 : IA64::LD8),
+            Reg)
         .addReg(Addr, RegState::Kill)
         .addImm(0)
         .addReg(IA64::P0)

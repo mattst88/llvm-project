@@ -76,7 +76,7 @@ void IA64FrameLowering::emitPrologue(MachineFunction &MF,
   bool SaveRP = MF.getFrameInfo().hasCalls() || !MRI.def_empty(IA64::B0);
   bool RestorePFS = SaveRP || !MRI.def_empty(IA64::AR64);
   // Spilling a GR puts its NaT bit in ar.unat, which is callee-saved.
-  bool SaveUNAT = FI->spillsVarArgs() ||
+  bool SaveUNAT = FI->spillsVarArgs() || FI->spillsNaTs() ||
                   any_of(MF.getFrameInfo().getCalleeSavedInfo(),
                          [](const CalleeSavedInfo &CS) {
                            return IA64::GRRegClass.contains(CS.getReg());
@@ -368,6 +368,56 @@ void IA64FrameLowering::adjustStackPointer(MachineBasicBlock &MBB,
       .addReg(IA64::R12)
       .addReg(IA64::P0)
       .setMIFlag(Flag);
+}
+
+// A control-speculative load may leave a GR NaT, and a plain st8 of a NaT
+// faults, so GR spills in a function with such loads are st8.spill and
+// ld8.fill. Those keep the NaT bit in ar.unat at bits 8:3 of the address,
+// so two slots 512 bytes apart share a bit, and that includes the
+// callee-saved GRs' slots and the variadic argument area above the frame.
+// A larger frame cannot keep a NaT across a spill; there the loads give 0
+// instead, and every NaT test says the value is NaT, which takes the path
+// that does not speculate.
+void IA64FrameLowering::processFunctionBeforeFrameFinalized(
+    MachineFunction &MF, RegScavenger *RS) const {
+  SmallVector<MachineInstr *, 8> Loads;
+  bool Spills = false;
+  for (MachineBasicBlock &MBB : MF)
+    for (MachineInstr &MI : MBB) {
+      if (IA64::isControlSpeculativeLoad(MI.getOpcode()))
+        Loads.push_back(&MI);
+      Spills |= MI.getOpcode() == IA64::SPILL_GR;
+    }
+  if (Loads.empty() || !Spills)
+    return;
+  constexpr unsigned VarArgsAreaSize = 64;
+  if (MF.getFrameInfo().estimateStackSize(MF) + ScratchAreaSize +
+          VarArgsAreaSize <=
+      512) {
+    MF.getInfo<IA64MachineFunctionInfo>()->setSpillsNaTs(true);
+    return;
+  }
+  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  for (MachineInstr *MI : Loads) {
+    BuildMI(*MI->getParent(), MI, MI->getDebugLoc(), TII.get(IA64::ADDL),
+            MI->getOperand(0).getReg())
+        .addImm(0)
+        .addReg(IA64::R0)
+        .add(MI->getOperand(MI->getNumExplicitOperands() - 1));
+    MI->eraseFromParent();
+  }
+  for (MachineBasicBlock &MBB : MF)
+    for (MachineInstr &MI : MBB) {
+      unsigned Opcode = MI.getOpcode();
+      if (Opcode != IA64::BRCCi && Opcode != IA64::SETCCi)
+        continue;
+      // Both have the condition, then the LHS. r0 == 0 always holds.
+      auto CC = IA64CC::CondCode(MI.getOperand(1).getImm());
+      if (!IA64CC::isNaTTest(CC))
+        continue;
+      MI.getOperand(1).setImm(CC == IA64CC::NaT ? IA64CC::EQ : IA64CC::NE);
+      MI.getOperand(2).ChangeToRegister(IA64::R0, /*isDef=*/false);
+    }
 }
 
 // The branch registers, predicates and ar.lc are saved by the prologue in
