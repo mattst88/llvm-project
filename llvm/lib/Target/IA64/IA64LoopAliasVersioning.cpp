@@ -23,6 +23,12 @@
 // inlined call passes two rows of one global array, needs no copy: its
 // accesses get the same metadata in place.
 //
+// The vectorizer gives up on a loop that reads what an earlier iteration
+// wrote through the same pointer, as a stencil that updates a row in place
+// does. Those accesses are a constant distance apart, which the schedulers
+// see for themselves, so such a loop is still versioned on the checks between
+// its other pointers.
+//
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
@@ -61,6 +67,11 @@ static cl::opt<bool>
     UnitStrides("ia64-alias-versioning-unit-strides", cl::Hidden,
                 cl::init(true),
                 cl::desc("Version loops on symbolic strides being 1"));
+
+static cl::opt<bool> KnownDistances(
+    "ia64-alias-versioning-known-distances", cl::Hidden, cl::init(true),
+    cl::desc("Version loops whose only dependences that stop vectorization "
+             "are a known distance apart"));
 
 static bool isEqualPredicate(const SCEVPredicate *P) {
   const auto *C = dyn_cast<SCEVComparePredicate>(P);
@@ -181,13 +192,43 @@ static bool annotateLoop(Loop &L, const LoopAccessInfo &LAI) {
   return Changed;
 }
 
+/// Whether the only dependences that keep the vectorizer from \p LAI's loop
+/// are between accesses a known distance apart, which do not need the
+/// runtime checks that the analysis found for its other pointers.
+static bool hasOnlyKnownDistanceDeps(const LoopAccessInfo &LAI) {
+  using Dependence = MemoryDepChecker::Dependence;
+  const auto *Deps = LAI.getDepChecker().getDependences();
+  if (!KnownDistances || !Deps)
+    return false;
+  bool Unsafe = false;
+  for (const Dependence &D : *Deps) {
+    switch (D.Type) {
+    case Dependence::NoDep:
+    case Dependence::Forward:
+    case Dependence::ForwardButPreventsForwarding:
+    case Dependence::BackwardVectorizable:
+    case Dependence::BackwardVectorizableButPreventsForwarding:
+      break;
+    case Dependence::Backward:
+      Unsafe = true;
+      break;
+    default:
+      return false;
+    }
+  }
+  // The analysis looks at dependences only once it has the bounds of every
+  // pointer.
+  return Unsafe;
+}
+
 static bool versionLoop(Loop &L, LoopInfo &LI, DominatorTree &DT,
                         ScalarEvolution &SE, LoopAccessInfoManager &LAIs) {
   if (!L.isLoopSimplifyForm() || !L.getExitingBlock())
     return false;
   const LoopAccessInfo &LAI = LAIs.getInfo(L);
   const RuntimePointerChecking &Checking = *LAI.getRuntimePointerChecking();
-  if (!LAI.canVectorizeMemory() || LAI.hasConvergentOp() ||
+  if (!(LAI.canVectorizeMemory() || hasOnlyKnownDistanceDeps(LAI)) ||
+      LAI.hasConvergentOp() ||
       !(LAI.getPSE().getPredicate().isAlwaysTrue() ||
         (UnitStrides && isUnitStridePredicate(LAI.getPSE().getPredicate()))))
     return false;
