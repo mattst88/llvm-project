@@ -89,12 +89,14 @@ define i64 @sext_load(ptr %p) {
 }
 
 ; A narrow shift right needs the bits above the value to be its own, and
-; the count of any narrow shift is all of the register.
+; the count of any narrow shift is all of the register. A count that is
+; only a count is extended by addp4, which is at least 64 exactly when zxt4
+; is and can issue on an M unit.
 
 define i32 @lshr32(i32 %a, i32 %b) {
 ; CHECK-LABEL: lshr32:
 ; CHECK-DAG:   zxt4 [[A:r[0-9]+]] = r32
-; CHECK-DAG:   zxt4 [[B:r[0-9]+]] = r33
+; CHECK-DAG:   addp4 [[B:r[0-9]+]] = r33, r0
 ; CHECK:       shr.u r8 = [[A]], [[B]]
   %r = lshr i32 %a, %b
   ret i32 %r
@@ -103,8 +105,24 @@ define i32 @lshr32(i32 %a, i32 %b) {
 define i32 @ashr32(i32 %a, i32 %b) {
 ; CHECK-LABEL: ashr32:
 ; CHECK-DAG:   sxt4 [[A:r[0-9]+]] = r32
-; CHECK-DAG:   zxt4 [[B:r[0-9]+]] = r33
+; CHECK-DAG:   addp4 [[B:r[0-9]+]] = r33, r0
 ; CHECK:       shr r8 = [[A]], [[B]]
   %r = ashr i32 %a, %b
   ret i32 %r
+}
+
+; ~(-1 << n) zero-extended from i32 is the 64-bit mask; no zxt4.
+define i64 @low_mask(i64 %v, i32 %n) {
+; CHECK-LABEL: low_mask:
+; CHECK-NOT:   zxt4
+; CHECK:       addp4 [[N:r[0-9]+]] = r33, r0
+; CHECK:       shl [[S:r[0-9]+]] = {{r[0-9]+}}, [[N]]
+; CHECK:       andcm r8 = r32, [[S]]
+; CHECK-NOT:   zxt4
+; CHECK:       .endp low_mask
+  %s = shl nsw i32 -1, %n
+  %m = xor i32 %s, -1
+  %z = zext nneg i32 %m to i64
+  %r = and i64 %v, %z
+  ret i64 %r
 }

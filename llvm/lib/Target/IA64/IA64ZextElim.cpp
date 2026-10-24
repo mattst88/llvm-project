@@ -17,6 +17,11 @@
 // and phis, and replaces a zxt1, zxt2, zxt4 or "extr.u r = s, 0, len" whose
 // source already fits with that source.
 //
+// A zxt4 that only feeds shift counts, as zstd's bit position does, becomes
+// "addp4 r = s, r0" instead, which an M unit can issue as well as an I unit:
+// it keeps the low 32 bits and copies bits 30 and 31 to 61 and 62, so the
+// count is at least 64 exactly when the zero-extended one is.
+//
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
@@ -24,7 +29,10 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/InitializePasses.h"
 
 using namespace llvm;
@@ -33,6 +41,7 @@ using namespace llvm;
 #define PASS_NAME "IA64 redundant zero extension elimination"
 
 STATISTIC(NumZextsRemoved, "Number of redundant zero extensions removed");
+STATISTIC(NumCountZexts, "Number of zxt4 of shift counts made addp4");
 
 namespace {
 
@@ -61,6 +70,7 @@ public:
 
 private:
   bool fitsIn(Register Reg, unsigned Bits, unsigned Depth);
+  bool onlyShiftCounts(Register Reg) const;
 };
 
 } // end anonymous namespace
@@ -152,6 +162,19 @@ bool IA64ZextElim::fitsIn(Register Reg, unsigned Bits, unsigned Depth) {
   return false;
 }
 
+// Whether every use of Reg is the count of a variable shift.
+bool IA64ZextElim::onlyShiftCounts(Register Reg) const {
+  if (MRI->use_nodbg_empty(Reg))
+    return false;
+  for (const MachineOperand &MO : MRI->use_nodbg_operands(Reg)) {
+    unsigned Opc = MO.getParent()->getOpcode();
+    if ((Opc != IA64::SHL && Opc != IA64::SHR_U && Opc != IA64::SHR) ||
+        MO.getOperandNo() != 2)
+      return false;
+  }
+  return true;
+}
+
 bool IA64ZextElim::runOnMachineFunction(MachineFunction &MF) {
   if (skipFunction(MF.getFunction()))
     return false;
@@ -186,8 +209,20 @@ bool IA64ZextElim::runOnMachineFunction(MachineFunction &MF) {
         continue;
       Budget = 256;
       if (!fitsIn(Src, Bits, 0) ||
-          !MRI->constrainRegClass(Src, MRI->getRegClass(Dst)))
+          !MRI->constrainRegClass(Src, MRI->getRegClass(Dst))) {
+        if (MI.getOpcode() == IA64::ZXT4 && onlyShiftCounts(Dst)) {
+          LLVM_DEBUG(dbgs() << "Count as addp4: " << MI);
+          const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+          BuildMI(MBB, MI, MI.getDebugLoc(), TII.get(IA64::ADDP4), Dst)
+              .addReg(Src)
+              .addReg(IA64::R0)
+              .addReg(IA64::P0);
+          MI.eraseFromParent();
+          ++NumCountZexts;
+          Changed = true;
+        }
         continue;
+      }
       LLVM_DEBUG(dbgs() << "Removing " << MI);
       MRI->replaceRegWith(Dst, Src);
       MRI->clearKillFlags(Src);

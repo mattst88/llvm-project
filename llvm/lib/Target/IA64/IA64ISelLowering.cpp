@@ -446,6 +446,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // Counted loops branch with br.cloop.
   setTargetDAGCombine({ISD::BRCOND, ISD::INTRINSIC_VOID});
   setTargetDAGCombine({ISD::ADD, ISD::SUB, ISD::MUL, ISD::FDIV});
+  setTargetDAGCombine(ISD::ZERO_EXTEND);
 
   // va_list is a pointer to the next argument; each argument occupies one or
   // more 8-byte slots.
@@ -966,6 +967,30 @@ combineSubOfMulBySignificand(SDNode *N, SelectionDAG &DAG,
       DAG.getNode(IA64ISD::XMA_L, DL, MVT::f64, Q.getOperand(0), NegB, A));
 }
 
+// zext (~(-1 << n)) from i32, a mask of the low n bits, is the same mask
+// made in 64 bits: the i32 shift is poison for n of 32 or more, and for
+// smaller n the 64-bit mask has no bits above 31. zstd's BIT_mask[n] lookup
+// becomes this, and the zxt4 it would need waits for an I unit.
+static SDValue combineZextOfLowMask(SDNode *N, SelectionDAG &DAG,
+                                    TargetLowering::DAGCombinerInfo &DCI) {
+  SDValue Not = N->getOperand(0);
+  if (!DCI.isBeforeLegalize() || N->getValueType(0) != MVT::i64 ||
+      Not.getValueType() != MVT::i32 || !isBitwiseNot(Not))
+    return SDValue();
+  SDValue Shl = Not.getOperand(0);
+  if (Shl.getOpcode() != ISD::SHL || !isAllOnesConstant(Shl.getOperand(0)))
+    return SDValue();
+  SDLoc DL(N);
+  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+  SDValue Count =
+      DAG.getZExtOrTrunc(Shl.getOperand(1), DL,
+                         TLI.getShiftAmountTy(MVT::i64, DAG.getDataLayout()));
+  return DAG.getNOT(DL,
+                    DAG.getNode(ISD::SHL, DL, MVT::i64,
+                                DAG.getAllOnesConstant(DL, MVT::i64), Count),
+                    MVT::i64);
+}
+
 SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -982,6 +1007,8 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
     return combineMulOfHalfwords(N, DAG, DCI);
   case ISD::FDIV:
     return combineFDivByConstant(N, DAG);
+  case ISD::ZERO_EXTEND:
+    return combineZextOfLowMask(N, DAG, DCI);
   case ISD::INTRINSIC_VOID:
     if (N->getConstantOperandVal(1) == Intrinsic::set_loop_iterations) {
       SDLoc DL(N);
