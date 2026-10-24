@@ -93,16 +93,32 @@ none:
   ret i64 -1
 }
 
+; The speculated pass of the search goes on by one branch after and-type
+; compares, in one instruction group, which also stand for the NaT tests of
+; what they read. The chain of branches finding where the pass leaves comes
+; after it.
+
 ; CHECK-LABEL: find:
 ; CHECK:         mov [[PR:r[0-9]+]] = pr
 ; CHECK:       .LBB2_2:
-; CHECK:         cmp.eq p6, p7 = r{{[0-9]+}}, r14
-; CHECK:         tnat.z p9, p8 =
-; CHECK:         tnat.z p25, p24 =
+; CHECK-NOT:     tnat
+; CHECK:         cmp.eq p6, p7 = r0, r0
+; CHECK-NOT:     tnat
+; CHECK:         ;;
+; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
+; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
+; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
+; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
+; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
+; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
+; CHECK-NEXT:    (p6) br.cond.dptk.few .LBB2_2
+; CHECK-NEXT:  // %bb.3:
+; CHECK-NEXT:    cmp.eq p9, p8 = r{{[0-9]+}}, r14
+; CHECK:       .LBB2_6:
+; CHECK:         tnat.z p7, p6 =
+; CHECK:         cmp.eq p16, p17 = 0,
 ; CHECK:         (p6) br.cond.dpnt.few
-; CHECK:         (p8) br.cond.dpnt.few
-; CHECK:         (p24) br.cond.dpnt.few
-; CHECK:         (p26) br.cond.dptk.few .LBB2_2
+; CHECK:         (p16) br.cond.dpnt.few
 ; CHECK:         mov pr = [[PR]], 65598
 ; CHECK-NEXT:    br.ret.sptk.many b0
 define ptr @find(ptr %list, i16 %key) {

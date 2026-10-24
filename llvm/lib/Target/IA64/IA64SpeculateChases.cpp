@@ -28,6 +28,18 @@
 // it and the exit read is not NaT. If one is, the original loop takes over
 // from the pointer that pass started with.
 //
+// A pass also loads, with ld.s, the pointers of the next pass's iterations
+// after the first, so that a pass starts with all of its pointers and the
+// chain of next pointers overlaps the tests instead of coming before them.
+// On CoreMark that took 1.5% off on an Itanium 9340.
+//
+// A pass that goes on to the next takes one branch, on all of its compares
+// going on and nothing they read being NaT, kept whole with !unpredictable.
+// Instruction selection makes it and-type compares, which fail on a NaT, so
+// the NaT tests of what the compares read go. Only a pass that leaves runs
+// the branches above, which find where it leaves. On CoreMark that took
+// 3.3% off on an Itanium 9340.
+//
 // Written by hand, core_list_find two nodes a pass took 5.2% off CoreMark
 // on an Itanium 9340.
 //
@@ -63,6 +75,16 @@ static cl::opt<unsigned>
     ChaseCopies("ia64-chase-copies", cl::Hidden, cl::init(3),
                 cl::desc("Iterations of a pointer-chasing search that a pass "
                          "of its speculative loop does"));
+
+static cl::opt<bool> ChaseAhead(
+    "ia64-chase-ahead", cl::Hidden, cl::init(true),
+    cl::desc("Start each pass of a speculative search with the pointers of "
+             "all its iterations, loaded by the pass before"));
+
+static cl::opt<bool> MergeChaseTests(
+    "ia64-merge-chase-tests", cl::Hidden, cl::init(true),
+    cl::desc("End each pass of a speculative search in one branch that "
+             "continues if all its tests do"));
 
 namespace {
 
@@ -265,8 +287,94 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
   IRBuilder<> B(SpecHeader);
   PHINode *SpecPtr =
       B.CreatePHI(C.Ptr->getType(), 2, C.Ptr->getName() + ".spec");
-  SpecPtr->addIncoming(C.Ptr->getIncomingValueForBlock(Preheader), Preheader);
-  Preheader->getTerminator()->replaceSuccessorWith(Header, SpecHeader);
+  Value *Start = C.Ptr->getIncomingValueForBlock(Preheader);
+  Value *Next = C.Ptr->getIncomingValueForBlock(Latch);
+
+  // What the next pointer is computed from. With ChaseAhead, a pass starts
+  // with the pointers of all its iterations, loaded speculatively by the
+  // pass before, which loads the next pass's while it tests them: the
+  // chain of next pointers, which took most of a pass, overlaps the tests.
+  SetVector<Instruction *> Slice;
+  SmallPtrSet<Instruction *, 8> AdvanceOnly;
+  if (ChaseAhead) {
+    SmallVector<Instruction *, 8> Worklist = {cast<Instruction>(Next)};
+    while (!Worklist.empty()) {
+      Instruction *I = Worklist.pop_back_val();
+      if (I == C.Ptr || !L->contains(I) || !Slice.insert(I))
+        continue;
+      for (Value *Op : I->operands())
+        if (auto *OpI = dyn_cast<Instruction>(Op))
+          Worklist.push_back(OpI);
+    }
+    // In program order.
+    SetVector<Instruction *> Ordered;
+    for (BasicBlock *BB : C.Blocks)
+      for (Instruction &I : *BB)
+        if (Slice.contains(&I))
+          Ordered.insert(&I);
+    Slice = std::move(Ordered);
+    // What only the next pointer needs is not computed again for the
+    // iterations whose next pointer the pass starts with.
+    AdvanceOnly.insert_range(Slice);
+    for (bool Changed = true; Changed;) {
+      Changed = false;
+      for (Instruction *I : Slice)
+        if (AdvanceOnly.contains(I) && any_of(I->users(), [&](const User *U) {
+              return U != C.Ptr && !AdvanceOnly.contains(cast<Instruction>(U));
+            }))
+          Changed |= AdvanceOnly.erase(I);
+    }
+  }
+  // The next pointer of a pointer, every load speculative: the value and
+  // what the ld.s gave.
+  auto Advance = [&](Value *Ptr) {
+    DenseMap<Value *, Value *> M = {{C.Ptr, Ptr}};
+    Value *Raw = nullptr;
+    for (Instruction *I : Slice) {
+      if (auto *LI = dyn_cast<LoadInst>(I)) {
+        Type *Ty = LI->getType();
+        unsigned Size = DL.getTypeStoreSize(Ty);
+        Value *Load = B.CreateIntrinsic(
+            getSpeculativeLoad(Size), {},
+            {M.lookup_or(LI->getPointerOperand(), LI->getPointerOperand())},
+            nullptr, LI->getName() + ".s");
+        M[LI] = Ty->isPointerTy()
+                    ? B.CreateIntToPtr(Load, Ty, LI->getName())
+                    : B.CreateZExtOrTrunc(Load, Ty, LI->getName());
+        if (LI == Next)
+          Raw = Load;
+        continue;
+      }
+      Instruction *New = I->clone();
+      for (Use &U : New->operands())
+        U.set(M.lookup_or(U, U));
+      M[I] = B.Insert(New, I->getName());
+    }
+    return std::make_pair(M[Next], Raw);
+  };
+
+  // The pointers but the first that a pass starts with, as the ld.s gave
+  // them, which may be NaT.
+  SmallVector<PHINode *, 4> Ahead;
+  BasicBlock *Entry = Preheader;
+  if (ChaseAhead) {
+    Entry =
+        BasicBlock::Create(Ctx, Header->getName() + ".ahead", &F, SpecHeader);
+    for (unsigned Copy = 1; Copy != Copies; ++Copy)
+      Ahead.push_back(
+          B.CreatePHI(B.getInt64Ty(), 2, C.Ptr->getName() + ".ahead"));
+    B.SetInsertPoint(Entry);
+    Value *P = Start;
+    for (PHINode *Phi : Ahead) {
+      auto [V, Raw] = Advance(P);
+      Phi->addIncoming(Raw, Entry);
+      P = V;
+    }
+    B.CreateBr(SpecHeader);
+    B.SetInsertPoint(SpecHeader);
+  }
+  SpecPtr->addIncoming(Start, Entry);
+  Preheader->getTerminator()->replaceSuccessorWith(Header, Entry);
   int Idx = C.Ptr->getBasicBlockIndex(Preheader);
   C.Ptr->setIncomingBlock(Idx, NaT);
   C.Ptr->setIncomingValue(Idx, SpecPtr);
@@ -307,13 +415,21 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
           }))
         Sunk.insert(&I);
   }
-  Value *Next = C.Ptr->getIncomingValueForBlock(Latch);
+  Maps[0][C.Ptr] = SpecPtr;
+  for (auto [Index, Phi] : enumerate(Ahead)) {
+    Value *V = B.CreateIntToPtr(Phi, C.Ptr->getType(), C.Ptr->getName());
+    Leaves[V].insert(Phi);
+    Maps[Index][Next] = V;
+    Maps[Index + 1][C.Ptr] = V;
+  }
   Value *Cur = SpecPtr;
   for (unsigned Copy = 0; Copy != Copies; ++Copy) {
     Maps[Copy][C.Ptr] = Cur;
     for (auto [Index, BB] : enumerate(C.Blocks))
       for (Instruction &I : *BB) {
-        if (isa<PHINode, ICmpInst, CondBrInst>(I) || Sunk.contains(&I))
+        if (isa<PHINode, ICmpInst, CondBrInst>(I) || Sunk.contains(&I) ||
+            Maps[Copy].contains(&I) ||
+            (Copy != Copies - 1 && AdvanceOnly.contains(&I)))
           continue;
         auto *LI = dyn_cast<LoadInst>(&I);
         unsigned Used = LI ? getUsedSize(*LI, DL) : 0;
@@ -343,11 +459,65 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
       }
     Cur = Map(Copy, Next);
   }
+  // The next pass's pointers.
+  SmallVector<Value *, 4> AheadNext;
+  for (Value *P = Cur; AheadNext.size() != Ahead.size();) {
+    auto [V, Raw] = Advance(P);
+    AheadNext.push_back(Raw);
+    P = V;
+  }
+
+  // With MergeChaseTests, a pass that goes on to the next takes one branch,
+  // on all of its compares going on and none of what they read being NaT.
+  // A compare of a NaT is false on Itanium, so instruction selection drops
+  // the NaT tests of what the compares read. Otherwise the pass goes to the
+  // branches below, which find where it leaves.
+  BasicBlock *At = SpecHeader;
+  if (MergeChaseTests) {
+    SmallVector<Value *, 16> Conds;
+    SmallSetVector<Value *, 8> Need;
+    auto Read = [&](unsigned Copy, Value *V) {
+      auto It = Leaves.find(Map(Copy, V));
+      if (It != Leaves.end())
+        Need.insert_range(It->second);
+    };
+    for (unsigned Copy = 0; Copy != Copies; ++Copy)
+      for (BasicBlock *BB : C.Blocks) {
+        auto *Br = cast<CondBrInst>(BB->getTerminator());
+        auto *Cmp = cast<ICmpInst>(Br->getCondition());
+        for (Instruction &I : *BB)
+          if (Sunk.contains(&I))
+            B.Insert(Clone(Copy, I), I.getName());
+        auto *NewCmp = cast<ICmpInst>(Cmp->clone());
+        for (Use &U : NewCmp->operands())
+          U.set(Map(Copy, U));
+        if (!L->contains(Br->getSuccessor(0)))
+          NewCmp->setPredicate(NewCmp->getInversePredicate());
+        Conds.push_back(B.Insert(NewCmp, Cmp->getName()));
+        for (Value *Op : Cmp->operands())
+          Read(Copy, Op);
+      }
+    Read(Copies - 1, Next);
+    for (Value *Leaf : Need)
+      Conds.push_back(B.CreateICmpEQ(
+          B.CreateIntrinsic(Intrinsic::ia64_tnat, {}, {Leaf}), B.getInt64(0)));
+    auto *Dispatch =
+        BasicBlock::Create(Ctx, Header->getName() + ".dispatch", &F, Header);
+    Dispatch->moveAfter(SpecHeader);
+    // Kept whole: split into branches, it would be the chain below.
+    Instruction *Br =
+        B.CreateCondBr(B.CreateAnd(Conds), SpecHeader, Dispatch,
+                       MDBuilder(Ctx).createLikelyBranchWeights());
+    Br->setMetadata(LLVMContext::MD_unpredictable, MDNode::get(Ctx, {}));
+    SpecPtr->addIncoming(Cur, SpecHeader);
+    for (auto [Phi, V] : zip(Ahead, AheadNext))
+      Phi->addIncoming(V, SpecHeader);
+    At = Dispatch;
+  }
 
   // The branches, each after a test of what it and its exit read. A test
   // covers the later ones too.
   SmallPtrSet<Value *, 8> Tested;
-  BasicBlock *At = SpecHeader;
   for (unsigned Copy = 0; Copy != Copies; ++Copy)
     for (auto [Index, BB] : enumerate(C.Blocks)) {
       auto *Br = cast<CondBrInst>(BB->getTerminator());
@@ -395,16 +565,21 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
       for (Use &U : NewCmp->operands())
         U.set(Map(Copy, U));
       B.Insert(NewCmp, Cmp->getName());
+      // After the merged branch, the last test has nothing to go on to, but
+      // the original loop is always right.
       BasicBlock *Cont =
-          Last ? SpecHeader
+          Last ? (MergeChaseTests ? NaT : SpecHeader)
                : BasicBlock::Create(Ctx, BB->getName() + ".spec", &F, Header);
       B.CreateCondBr(NewCmp, ExitsOnTrue ? Exit : Cont,
                      ExitsOnTrue ? Cont : Exit,
                      Br->getMetadata(LLVMContext::MD_prof));
       for (PHINode &Phi : Exit->phis())
         Phi.addIncoming(Map(Copy, Phi.getIncomingValueForBlock(BB)), At);
-      if (Last)
+      if (Last && !MergeChaseTests) {
         SpecPtr->addIncoming(Cur, At);
+        for (auto [Phi, V] : zip(Ahead, AheadNext))
+          Phi->addIncoming(V, At);
+      }
       At = Cont;
     }
 }

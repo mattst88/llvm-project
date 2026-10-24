@@ -4,7 +4,8 @@
 ; CoreMark's core_list_find: each node is two loads and a compare, and the
 ; next pointer and a test for null. Two nodes a pass, the second node's
 ; loads ld.s at the top, each test of one first checking that it is not
-; NaT, and the original loop where one is.
+; NaT, and the original loop where one is. Each pass loads the second
+; node's pointer for the next one (%l.ahead).
 
 define ptr @find(ptr %list, i16 %key) {
 ; CHECK-LABEL: @find(
@@ -13,14 +14,18 @@ define ptr @find(ptr %list, i16 %key) {
 ; CHECK-NEXT:    br i1 [[EMPTY]], label [[RETURN:%.*]], label [[LOOP_PREHEADER:%.*]]
 ; CHECK:       loop.preheader:
 ; CHECK-NEXT:    br label [[LOOP_SPEC:%.*]]
+; CHECK:       loop.ahead:
+; CHECK-NEXT:    [[NEXT_S1:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[LIST]])
+; CHECK-NEXT:    [[NEXT1:%.*]] = inttoptr i64 [[NEXT_S1]] to ptr
+; CHECK-NEXT:    br label [[LOOP_SPEC1:%.*]]
 ; CHECK:       loop.spec:
-; CHECK-NEXT:    [[L_SPEC:%.*]] = phi ptr [ [[LIST]], [[LOOP_PREHEADER]] ], [ [[NEXT11:%.*]], [[BODY_SPEC19:%.*]] ]
+; CHECK-NEXT:    [[L_SPEC:%.*]] = phi ptr [ [[LIST]], [[LOOP_SPEC]] ], [ [[NEXT11:%.*]], [[LOOP_SPEC1]] ]
+; CHECK-NEXT:    [[NEXT_S:%.*]] = phi i64 [ [[NEXT_S1]], [[LOOP_SPEC]] ], [ [[NEXT_S13:%.*]], [[LOOP_SPEC1]] ]
+; CHECK-NEXT:    [[NEXT5:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
 ; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr inbounds nuw i8, ptr [[L_SPEC]], i64 8
 ; CHECK-NEXT:    [[TMP1:%.*]] = load ptr, ptr [[TMP0]], align 8
 ; CHECK-NEXT:    [[TMP2:%.*]] = getelementptr inbounds nuw i8, ptr [[TMP1]], i64 2
 ; CHECK-NEXT:    [[TMP3:%.*]] = load i16, ptr [[TMP2]], align 2
-; CHECK-NEXT:    [[NEXT_S:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[L_SPEC]])
-; CHECK-NEXT:    [[NEXT5:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
 ; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw i8, ptr [[NEXT5]], i64 8
 ; CHECK-NEXT:    [[INFO_S:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[TMP4]])
 ; CHECK-NEXT:    [[INFO7:%.*]] = inttoptr i64 [[INFO_S]] to ptr
@@ -29,31 +34,51 @@ define ptr @find(ptr %list, i16 %key) {
 ; CHECK-NEXT:    [[IDX9:%.*]] = trunc i64 [[IDX_S]] to i16
 ; CHECK-NEXT:    [[NEXT_S10:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT5]])
 ; CHECK-NEXT:    [[NEXT11]] = inttoptr i64 [[NEXT_S10]] to ptr
-; CHECK-NEXT:    [[TMP6:%.*]] = icmp eq i16 [[TMP3]], [[KEY:%.*]]
+; CHECK-NEXT:    [[NEXT_S13]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT11]])
+; CHECK-NEXT:    [[NEXT14:%.*]] = inttoptr i64 [[NEXT_S13]] to ptr
+; CHECK-NEXT:    [[FOUND15:%.*]] = icmp ne i16 [[TMP3]], [[KEY:%.*]]
+; CHECK-NEXT:    [[END16:%.*]] = icmp ne ptr [[NEXT5]], null
+; CHECK-NEXT:    [[FOUND17:%.*]] = icmp ne i16 [[IDX9]], [[KEY]]
+; CHECK-NEXT:    [[END18:%.*]] = icmp ne ptr [[NEXT11]], null
+; CHECK-NEXT:    [[TMP16:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S]])
+; CHECK-NEXT:    [[TMP17:%.*]] = icmp eq i64 [[TMP16]], 0
+; CHECK-NEXT:    [[TMP18:%.*]] = call i64 @llvm.ia64.tnat(i64 [[IDX_S]])
+; CHECK-NEXT:    [[TMP19:%.*]] = icmp eq i64 [[TMP18]], 0
+; CHECK-NEXT:    [[TMP20:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S10]])
+; CHECK-NEXT:    [[TMP21:%.*]] = icmp eq i64 [[TMP20]], 0
+; CHECK-NEXT:    [[TMP22:%.*]] = and i1 [[FOUND15]], [[END16]]
+; CHECK-NEXT:    [[TMP23:%.*]] = and i1 [[TMP22]], [[FOUND17]]
+; CHECK-NEXT:    [[TMP24:%.*]] = and i1 [[TMP23]], [[END18]]
+; CHECK-NEXT:    [[TMP25:%.*]] = and i1 [[TMP24]], [[TMP17]]
+; CHECK-NEXT:    [[TMP26:%.*]] = and i1 [[TMP25]], [[TMP19]]
+; CHECK-NEXT:    [[TMP27:%.*]] = and i1 [[TMP26]], [[TMP21]]
+; CHECK-NEXT:    br i1 [[TMP27]], label [[LOOP_SPEC1]], label [[LOOP_DISPATCH:%.*]], !prof [[PROF0:![0-9]+]], !unpredictable [[META1:![0-9]+]]
+; CHECK:       loop.dispatch:
+; CHECK-NEXT:    [[TMP6:%.*]] = icmp eq i16 [[TMP3]], [[KEY]]
 ; CHECK-NEXT:    br i1 [[TMP6]], label [[RETURN]], label [[LOOP_SPEC13:%.*]]
 ; CHECK:       loop.nat:
 ; CHECK-NEXT:    br label [[LOOP:%.*]]
-; CHECK:       loop.spec13:
+; CHECK:       loop.spec20:
 ; CHECK-NEXT:    [[TMP7:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S]])
 ; CHECK-NEXT:    [[TMP8:%.*]] = icmp ne i64 [[TMP7]], 0
-; CHECK-NEXT:    br i1 [[TMP8]], label [[LOOP_NAT:%.*]], label [[BODY_SPEC:%.*]], !prof [[PROF0:![0-9]+]]
+; CHECK-NEXT:    br i1 [[TMP8]], label [[LOOP_NAT:%.*]], label [[BODY_SPEC:%.*]], !prof [[PROF2:![0-9]+]]
 ; CHECK:       body.spec:
 ; CHECK-NEXT:    [[TMP9:%.*]] = icmp eq ptr [[NEXT5]], null
 ; CHECK-NEXT:    br i1 [[TMP9]], label [[RETURN]], label [[BODY_SPEC15:%.*]]
-; CHECK:       body.spec15:
+; CHECK:       body.spec22:
 ; CHECK-NEXT:    [[TMP10:%.*]] = call i64 @llvm.ia64.tnat(i64 [[IDX_S]])
 ; CHECK-NEXT:    [[TMP11:%.*]] = icmp ne i64 [[TMP10]], 0
-; CHECK-NEXT:    br i1 [[TMP11]], label [[LOOP_NAT]], label [[LOOP_SPEC16:%.*]], !prof [[PROF0]]
-; CHECK:       loop.spec16:
+; CHECK-NEXT:    br i1 [[TMP11]], label [[LOOP_NAT]], label [[LOOP_SPEC23:%.*]], !prof [[PROF2]]
+; CHECK:       loop.spec23:
 ; CHECK-NEXT:    [[TMP12:%.*]] = icmp eq i16 [[IDX9]], [[KEY]]
 ; CHECK-NEXT:    br i1 [[TMP12]], label [[RETURN]], label [[LOOP_SPEC18:%.*]]
-; CHECK:       loop.spec18:
+; CHECK:       loop.spec25:
 ; CHECK-NEXT:    [[TMP13:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S10]])
 ; CHECK-NEXT:    [[TMP14:%.*]] = icmp ne i64 [[TMP13]], 0
-; CHECK-NEXT:    br i1 [[TMP14]], label [[LOOP_NAT]], label [[BODY_SPEC19]], !prof [[PROF0]]
-; CHECK:       body.spec19:
+; CHECK-NEXT:    br i1 [[TMP14]], label [[LOOP_NAT]], label [[BODY_SPEC26:%.*]], !prof [[PROF2]]
+; CHECK:       body.spec26:
 ; CHECK-NEXT:    [[TMP15:%.*]] = icmp eq ptr [[NEXT11]], null
-; CHECK-NEXT:    br i1 [[TMP15]], label [[RETURN]], label [[LOOP_SPEC]]
+; CHECK-NEXT:    br i1 [[TMP15]], label [[RETURN]], label [[LOOP_NAT]]
 ; CHECK:       loop:
 ; CHECK-NEXT:    [[L:%.*]] = phi ptr [ [[NEXT:%.*]], [[BODY:%.*]] ], [ [[L_SPEC]], [[LOOP_NAT]] ]
 ; CHECK-NEXT:    [[INFOP:%.*]] = getelementptr inbounds nuw i8, ptr [[L]], i64 8
@@ -67,7 +92,7 @@ define ptr @find(ptr %list, i16 %key) {
 ; CHECK-NEXT:    [[END:%.*]] = icmp eq ptr [[NEXT]], null
 ; CHECK-NEXT:    br i1 [[END]], label [[RETURN]], label [[LOOP]]
 ; CHECK:       return:
-; CHECK-NEXT:    [[R:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[L]], [[LOOP]] ], [ null, [[BODY]] ], [ [[L_SPEC]], [[LOOP_SPEC]] ], [ null, [[BODY_SPEC]] ], [ [[NEXT5]], [[LOOP_SPEC16]] ], [ null, [[BODY_SPEC19]] ]
+; CHECK-NEXT:    [[R:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[L]], [[LOOP]] ], [ null, [[BODY]] ], [ [[L_SPEC]], [[LOOP_DISPATCH]] ], [ null, [[BODY_SPEC]] ], [ [[NEXT5]], [[LOOP_SPEC23]] ], [ null, [[BODY_SPEC26]] ]
 ; CHECK-NEXT:    ret ptr [[R]]
 ;
 entry:
@@ -168,12 +193,16 @@ define ptr @flag(ptr %list) {
 ; CHECK-LABEL: @flag(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br label [[LOOP_SPEC:%.*]]
+; CHECK:       loop.ahead:
+; CHECK-NEXT:    [[NEXT_S1:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[LIST:%.*]])
+; CHECK-NEXT:    [[NEXT1:%.*]] = inttoptr i64 [[NEXT_S1]] to ptr
+; CHECK-NEXT:    br label [[LOOP_SPEC1:%.*]]
 ; CHECK:       loop.spec:
-; CHECK-NEXT:    [[L_SPEC:%.*]] = phi ptr [ [[LIST:%.*]], [[ENTRY:%.*]] ], [ [[NEXT9:%.*]], [[BODY_SPEC20:%.*]] ]
+; CHECK-NEXT:    [[L_SPEC:%.*]] = phi ptr [ [[LIST]], [[LOOP_SPEC]] ], [ [[NEXT9:%.*]], [[LOOP_SPEC1]] ]
+; CHECK-NEXT:    [[NEXT_S:%.*]] = phi i64 [ [[NEXT_S1]], [[LOOP_SPEC]] ], [ [[NEXT_S14:%.*]], [[LOOP_SPEC1]] ]
+; CHECK-NEXT:    [[NEXT3:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
 ; CHECK-NEXT:    [[INFOP1:%.*]] = getelementptr inbounds nuw i8, ptr [[L_SPEC]], i64 8
 ; CHECK-NEXT:    [[INFO2:%.*]] = load ptr, ptr [[INFOP1]], align 8
-; CHECK-NEXT:    [[NEXT_S:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[L_SPEC]])
-; CHECK-NEXT:    [[NEXT3:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
 ; CHECK-NEXT:    [[FLAGP4:%.*]] = getelementptr inbounds nuw i8, ptr [[L_SPEC]], i64 16
 ; CHECK-NEXT:    [[FLAG_S:%.*]] = call i64 @llvm.ia64.ld1.s(ptr [[FLAGP4]])
 ; CHECK-NEXT:    [[FLAG5:%.*]] = trunc i64 [[FLAG_S]] to i8
@@ -185,33 +214,56 @@ define ptr @flag(ptr %list) {
 ; CHECK-NEXT:    [[FLAGP10:%.*]] = getelementptr inbounds nuw i8, ptr [[NEXT3]], i64 16
 ; CHECK-NEXT:    [[FLAG_S11:%.*]] = call i64 @llvm.ia64.ld1.s(ptr [[FLAGP10]])
 ; CHECK-NEXT:    [[FLAG12:%.*]] = trunc i64 [[FLAG_S11]] to i8
+; CHECK-NEXT:    [[NEXT_S14]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT9]])
+; CHECK-NEXT:    [[NEXT15:%.*]] = inttoptr i64 [[NEXT_S14]] to ptr
+; CHECK-NEXT:    [[FOUND16:%.*]] = icmp ne ptr [[INFO2]], null
+; CHECK-NEXT:    [[END17:%.*]] = icmp eq i8 [[FLAG5]], 0
+; CHECK-NEXT:    [[FOUND19:%.*]] = icmp ne ptr [[INFO7]], null
+; CHECK-NEXT:    [[END19:%.*]] = icmp eq i8 [[FLAG12]], 0
+; CHECK-NEXT:    [[TMP15:%.*]] = call i64 @llvm.ia64.tnat(i64 [[FLAG_S]])
+; CHECK-NEXT:    [[TMP16:%.*]] = icmp eq i64 [[TMP15]], 0
+; CHECK-NEXT:    [[TMP17:%.*]] = call i64 @llvm.ia64.tnat(i64 [[INFO_S]])
+; CHECK-NEXT:    [[TMP18:%.*]] = icmp eq i64 [[TMP17]], 0
+; CHECK-NEXT:    [[TMP19:%.*]] = call i64 @llvm.ia64.tnat(i64 [[FLAG_S11]])
+; CHECK-NEXT:    [[TMP20:%.*]] = icmp eq i64 [[TMP19]], 0
+; CHECK-NEXT:    [[TMP21:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S8]])
+; CHECK-NEXT:    [[TMP22:%.*]] = icmp eq i64 [[TMP21]], 0
+; CHECK-NEXT:    [[TMP8:%.*]] = and i1 [[FOUND16]], [[END17]]
+; CHECK-NEXT:    [[TMP9:%.*]] = and i1 [[TMP8]], [[FOUND19]]
+; CHECK-NEXT:    [[TMP10:%.*]] = and i1 [[TMP9]], [[END19]]
+; CHECK-NEXT:    [[TMP11:%.*]] = and i1 [[TMP10]], [[TMP16]]
+; CHECK-NEXT:    [[TMP12:%.*]] = and i1 [[TMP11]], [[TMP18]]
+; CHECK-NEXT:    [[TMP13:%.*]] = and i1 [[TMP12]], [[TMP20]]
+; CHECK-NEXT:    [[TMP14:%.*]] = and i1 [[TMP13]], [[TMP22]]
+; CHECK-NEXT:    br i1 [[TMP14]], label [[LOOP_SPEC1]], label [[LOOP_DISPATCH:%.*]], !prof [[PROF0]], !unpredictable [[META1]]
+; CHECK:       loop.dispatch:
 ; CHECK-NEXT:    [[FOUND13:%.*]] = icmp eq ptr [[INFO2]], null
 ; CHECK-NEXT:    br i1 [[FOUND13]], label [[RETURN:%.*]], label [[LOOP_SPEC14:%.*]]
 ; CHECK:       loop.nat:
 ; CHECK-NEXT:    br label [[LOOP:%.*]]
-; CHECK:       loop.spec14:
+; CHECK:       loop.spec21:
 ; CHECK-NEXT:    [[TMP0:%.*]] = call i64 @llvm.ia64.tnat(i64 [[FLAG_S]])
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp ne i64 [[TMP0]], 0
-; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[BODY_SPEC:%.*]], !prof [[PROF0]]
+; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[BODY_SPEC:%.*]], !prof [[PROF2]]
 ; CHECK:       body.spec:
 ; CHECK-NEXT:    [[END15:%.*]] = icmp ne i8 [[FLAG5]], 0
 ; CHECK-NEXT:    br i1 [[END15]], label [[RETURN]], label [[BODY_SPEC16:%.*]]
-; CHECK:       body.spec16:
+; CHECK:       body.spec23:
 ; CHECK-NEXT:    [[TMP2:%.*]] = or i64 [[INFO_S]], [[NEXT_S]]
 ; CHECK-NEXT:    [[TMP3:%.*]] = call i64 @llvm.ia64.tnat(i64 [[TMP2]])
 ; CHECK-NEXT:    [[TMP4:%.*]] = icmp ne i64 [[TMP3]], 0
-; CHECK-NEXT:    br i1 [[TMP4]], label [[LOOP_NAT]], label [[LOOP_SPEC17:%.*]], !prof [[PROF0]]
-; CHECK:       loop.spec17:
+; CHECK-NEXT:    br i1 [[TMP4]], label [[LOOP_NAT]], label [[LOOP_SPEC24:%.*]], !prof [[PROF2]]
+; CHECK:       loop.spec24:
 ; CHECK-NEXT:    [[FOUND18:%.*]] = icmp eq ptr [[INFO7]], null
 ; CHECK-NEXT:    br i1 [[FOUND18]], label [[RETURN]], label [[LOOP_SPEC19:%.*]]
-; CHECK:       loop.spec19:
+; CHECK:       loop.spec26:
 ; CHECK-NEXT:    [[TMP5:%.*]] = or i64 [[FLAG_S11]], [[NEXT_S8]]
 ; CHECK-NEXT:    [[TMP6:%.*]] = call i64 @llvm.ia64.tnat(i64 [[TMP5]])
 ; CHECK-NEXT:    [[TMP7:%.*]] = icmp ne i64 [[TMP6]], 0
-; CHECK-NEXT:    br i1 [[TMP7]], label [[LOOP_NAT]], label [[BODY_SPEC20]], !prof [[PROF0]]
-; CHECK:       body.spec20:
+; CHECK-NEXT:    br i1 [[TMP7]], label [[LOOP_NAT]], label [[BODY_SPEC27:%.*]], !prof [[PROF2]]
+; CHECK:       body.spec27:
 ; CHECK-NEXT:    [[END21:%.*]] = icmp ne i8 [[FLAG12]], 0
-; CHECK-NEXT:    br i1 [[END21]], label [[RETURN]], label [[LOOP_SPEC]]
+; CHECK-NEXT:    br i1 [[END21]], label [[RETURN]], label [[LOOP_NAT]]
 ; CHECK:       loop:
 ; CHECK-NEXT:    [[L:%.*]] = phi ptr [ [[NEXT:%.*]], [[BODY:%.*]] ], [ [[L_SPEC]], [[LOOP_NAT]] ]
 ; CHECK-NEXT:    [[INFOP:%.*]] = getelementptr inbounds nuw i8, ptr [[L]], i64 8
@@ -225,7 +277,7 @@ define ptr @flag(ptr %list) {
 ; CHECK-NEXT:    [[END:%.*]] = icmp ne i8 [[FLAG]], 0
 ; CHECK-NEXT:    br i1 [[END]], label [[RETURN]], label [[LOOP]]
 ; CHECK:       return:
-; CHECK-NEXT:    [[R:%.*]] = phi ptr [ [[L]], [[LOOP]] ], [ null, [[BODY]] ], [ [[L_SPEC]], [[LOOP_SPEC]] ], [ null, [[BODY_SPEC]] ], [ [[NEXT3]], [[LOOP_SPEC17]] ], [ null, [[BODY_SPEC20]] ]
+; CHECK-NEXT:    [[R:%.*]] = phi ptr [ [[L]], [[LOOP]] ], [ null, [[BODY]] ], [ [[L_SPEC]], [[LOOP_DISPATCH]] ], [ null, [[BODY_SPEC]] ], [ [[NEXT3]], [[LOOP_SPEC24]] ], [ null, [[BODY_SPEC27]] ]
 ; CHECK-NEXT:    ret ptr [[R]]
 ;
 entry:
@@ -268,7 +320,7 @@ define ptr @reverse(ptr %list) {
 ; CHECK-NEXT:    [[NEXT2:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
 ; CHECK-NEXT:    [[TMP0:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S]])
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp ne i64 [[TMP0]], 0
-; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[LOOP_SPLIT:%.*]], !prof [[PROF0]]
+; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[LOOP_SPLIT:%.*]], !prof [[PROF2]]
 ; CHECK:       loop.nat:
 ; CHECK-NEXT:    [[NEXT3:%.*]] = load ptr, ptr [[L]], align 8
 ; CHECK-NEXT:    br label [[LOOP_SPLIT]]
@@ -282,7 +334,7 @@ define ptr @reverse(ptr %list) {
 ; CHECK-NEXT:    [[NEXT2_1:%.*]] = inttoptr i64 [[DOTS]] to ptr
 ; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @llvm.ia64.tnat(i64 [[DOTS]])
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp ne i64 [[TMP2]], 0
-; CHECK-NEXT:    br i1 [[TMP3]], label [[LOOP_NAT_1:%.*]], label [[LOOP_SPLIT_1]], !prof [[PROF0]]
+; CHECK-NEXT:    br i1 [[TMP3]], label [[LOOP_NAT_1:%.*]], label [[LOOP_SPLIT_1]], !prof [[PROF2]]
 ; CHECK:       loop.nat.1:
 ; CHECK-NEXT:    [[NEXT3_1:%.*]] = load ptr, ptr [[NEXT]], align 8
 ; CHECK-NEXT:    br label [[LOOP_SPLIT_1]]
@@ -359,14 +411,18 @@ define ptr @low_byte(ptr %list, i16 %key) {
 ; CHECK-NEXT:    br i1 [[EMPTY]], label [[RETURN:%.*]], label [[LOOP_PREHEADER:%.*]]
 ; CHECK:       loop.preheader:
 ; CHECK-NEXT:    br label [[LOOP_SPEC:%.*]]
+; CHECK:       loop.ahead:
+; CHECK-NEXT:    [[NEXT_S1:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[LIST]])
+; CHECK-NEXT:    [[NEXT1:%.*]] = inttoptr i64 [[NEXT_S1]] to ptr
+; CHECK-NEXT:    br label [[LOOP_SPEC1:%.*]]
 ; CHECK:       loop.spec:
-; CHECK-NEXT:    [[L_SPEC:%.*]] = phi ptr [ [[LIST]], [[LOOP_PREHEADER]] ], [ [[NEXT9:%.*]], [[BODY_SPEC21:%.*]] ]
+; CHECK-NEXT:    [[L_SPEC:%.*]] = phi ptr [ [[LIST]], [[LOOP_SPEC]] ], [ [[NEXT9:%.*]], [[LOOP_SPEC1]] ]
+; CHECK-NEXT:    [[NEXT_S:%.*]] = phi i64 [ [[NEXT_S1]], [[LOOP_SPEC]] ], [ [[NEXT_S11:%.*]], [[LOOP_SPEC1]] ]
+; CHECK-NEXT:    [[NEXT4:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
 ; CHECK-NEXT:    [[INFOP1:%.*]] = getelementptr inbounds nuw i8, ptr [[L_SPEC]], i64 8
 ; CHECK-NEXT:    [[INFO2:%.*]] = load ptr, ptr [[INFOP1]], align 8
 ; CHECK-NEXT:    [[DATA_LOW:%.*]] = load i8, ptr [[INFO2]], align 2
 ; CHECK-NEXT:    [[DATA3:%.*]] = zext i8 [[DATA_LOW]] to i16
-; CHECK-NEXT:    [[NEXT_S:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[L_SPEC]])
-; CHECK-NEXT:    [[NEXT4:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
 ; CHECK-NEXT:    [[INFOP5:%.*]] = getelementptr inbounds nuw i8, ptr [[NEXT4]], i64 8
 ; CHECK-NEXT:    [[INFO_S:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[INFOP5]])
 ; CHECK-NEXT:    [[INFO6:%.*]] = inttoptr i64 [[INFO_S]] to ptr
@@ -374,35 +430,59 @@ define ptr @low_byte(ptr %list, i16 %key) {
 ; CHECK-NEXT:    [[DATA7:%.*]] = trunc i64 [[DATA_S]] to i16
 ; CHECK-NEXT:    [[NEXT_S8:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT4]])
 ; CHECK-NEXT:    [[NEXT9]] = inttoptr i64 [[NEXT_S8]] to ptr
+; CHECK-NEXT:    [[NEXT_S11]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT9]])
+; CHECK-NEXT:    [[NEXT12:%.*]] = inttoptr i64 [[NEXT_S11]] to ptr
 ; CHECK-NEXT:    [[DIFF10:%.*]] = xor i16 [[DATA3]], [[KEY:%.*]]
 ; CHECK-NEXT:    [[LOW11:%.*]] = and i16 [[DIFF10]], 255
-; CHECK-NEXT:    [[FOUND12:%.*]] = icmp eq i16 [[LOW11]], 0
+; CHECK-NEXT:    [[FOUND15:%.*]] = icmp ne i16 [[LOW11]], 0
+; CHECK-NEXT:    [[END16:%.*]] = icmp ne ptr [[NEXT4]], null
+; CHECK-NEXT:    [[DIFF18:%.*]] = xor i16 [[DATA7]], [[KEY]]
+; CHECK-NEXT:    [[LOW19:%.*]] = and i16 [[DIFF18]], 255
+; CHECK-NEXT:    [[FOUND20:%.*]] = icmp ne i16 [[LOW19]], 0
+; CHECK-NEXT:    [[END20:%.*]] = icmp ne ptr [[NEXT9]], null
+; CHECK-NEXT:    [[TMP12:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S]])
+; CHECK-NEXT:    [[TMP13:%.*]] = icmp eq i64 [[TMP12]], 0
+; CHECK-NEXT:    [[TMP14:%.*]] = call i64 @llvm.ia64.tnat(i64 [[DATA_S]])
+; CHECK-NEXT:    [[TMP15:%.*]] = icmp eq i64 [[TMP14]], 0
+; CHECK-NEXT:    [[TMP16:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S8]])
+; CHECK-NEXT:    [[TMP17:%.*]] = icmp eq i64 [[TMP16]], 0
+; CHECK-NEXT:    [[TMP6:%.*]] = and i1 [[FOUND15]], [[END16]]
+; CHECK-NEXT:    [[TMP7:%.*]] = and i1 [[TMP6]], [[FOUND20]]
+; CHECK-NEXT:    [[TMP8:%.*]] = and i1 [[TMP7]], [[END20]]
+; CHECK-NEXT:    [[TMP9:%.*]] = and i1 [[TMP8]], [[TMP13]]
+; CHECK-NEXT:    [[TMP10:%.*]] = and i1 [[TMP9]], [[TMP15]]
+; CHECK-NEXT:    [[TMP11:%.*]] = and i1 [[TMP10]], [[TMP17]]
+; CHECK-NEXT:    br i1 [[TMP11]], label [[LOOP_SPEC1]], label [[LOOP_DISPATCH:%.*]], !prof [[PROF0]], !unpredictable [[META1]]
+; CHECK:       loop.dispatch:
+; CHECK-NEXT:    [[DIFF21:%.*]] = xor i16 [[DATA3]], [[KEY]]
+; CHECK-NEXT:    [[LOW22:%.*]] = and i16 [[DIFF21]], 255
+; CHECK-NEXT:    [[FOUND12:%.*]] = icmp eq i16 [[LOW22]], 0
 ; CHECK-NEXT:    br i1 [[FOUND12]], label [[RETURN]], label [[LOOP_SPEC13:%.*]]
 ; CHECK:       loop.nat:
 ; CHECK-NEXT:    br label [[LOOP:%.*]]
-; CHECK:       loop.spec13:
+; CHECK:       loop.spec24:
 ; CHECK-NEXT:    [[TMP0:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S]])
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp ne i64 [[TMP0]], 0
-; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[BODY_SPEC:%.*]], !prof [[PROF0]]
+; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[BODY_SPEC:%.*]], !prof [[PROF2]]
 ; CHECK:       body.spec:
 ; CHECK-NEXT:    [[END14:%.*]] = icmp eq ptr [[NEXT4]], null
 ; CHECK-NEXT:    br i1 [[END14]], label [[RETURN]], label [[BODY_SPEC15:%.*]]
-; CHECK:       body.spec15:
+; CHECK:       body.spec26:
 ; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @llvm.ia64.tnat(i64 [[DATA_S]])
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp ne i64 [[TMP2]], 0
-; CHECK-NEXT:    br i1 [[TMP3]], label [[LOOP_NAT]], label [[LOOP_SPEC16:%.*]], !prof [[PROF0]]
-; CHECK:       loop.spec16:
+; CHECK-NEXT:    br i1 [[TMP3]], label [[LOOP_NAT]], label [[LOOP_SPEC27:%.*]], !prof [[PROF2]]
+; CHECK:       loop.spec27:
 ; CHECK-NEXT:    [[DIFF17:%.*]] = xor i16 [[DATA7]], [[KEY]]
 ; CHECK-NEXT:    [[LOW18:%.*]] = and i16 [[DIFF17]], 255
 ; CHECK-NEXT:    [[FOUND19:%.*]] = icmp eq i16 [[LOW18]], 0
 ; CHECK-NEXT:    br i1 [[FOUND19]], label [[RETURN]], label [[LOOP_SPEC20:%.*]]
-; CHECK:       loop.spec20:
+; CHECK:       loop.spec31:
 ; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S8]])
 ; CHECK-NEXT:    [[TMP5:%.*]] = icmp ne i64 [[TMP4]], 0
-; CHECK-NEXT:    br i1 [[TMP5]], label [[LOOP_NAT]], label [[BODY_SPEC21]], !prof [[PROF0]]
-; CHECK:       body.spec21:
+; CHECK-NEXT:    br i1 [[TMP5]], label [[LOOP_NAT]], label [[BODY_SPEC32:%.*]], !prof [[PROF2]]
+; CHECK:       body.spec32:
 ; CHECK-NEXT:    [[END22:%.*]] = icmp eq ptr [[NEXT9]], null
-; CHECK-NEXT:    br i1 [[END22]], label [[RETURN]], label [[LOOP_SPEC]]
+; CHECK-NEXT:    br i1 [[END22]], label [[RETURN]], label [[LOOP_NAT]]
 ; CHECK:       loop:
 ; CHECK-NEXT:    [[L:%.*]] = phi ptr [ [[NEXT:%.*]], [[BODY:%.*]] ], [ [[L_SPEC]], [[LOOP_NAT]] ]
 ; CHECK-NEXT:    [[INFOP:%.*]] = getelementptr inbounds nuw i8, ptr [[L]], i64 8
@@ -417,7 +497,7 @@ define ptr @low_byte(ptr %list, i16 %key) {
 ; CHECK-NEXT:    [[END:%.*]] = icmp eq ptr [[NEXT]], null
 ; CHECK-NEXT:    br i1 [[END]], label [[RETURN]], label [[LOOP]]
 ; CHECK:       return:
-; CHECK-NEXT:    [[R:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[L]], [[LOOP]] ], [ null, [[BODY]] ], [ [[L_SPEC]], [[LOOP_SPEC]] ], [ null, [[BODY_SPEC]] ], [ [[NEXT4]], [[LOOP_SPEC16]] ], [ null, [[BODY_SPEC21]] ]
+; CHECK-NEXT:    [[R:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[L]], [[LOOP]] ], [ null, [[BODY]] ], [ [[L_SPEC]], [[LOOP_DISPATCH]] ], [ null, [[BODY_SPEC]] ], [ [[NEXT4]], [[LOOP_SPEC27]] ], [ null, [[BODY_SPEC32]] ]
 ; CHECK-NEXT:    ret ptr [[R]]
 ;
 entry:
