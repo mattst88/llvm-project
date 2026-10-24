@@ -72,6 +72,10 @@ static cl::opt<bool> EnableZextLoopSteps(
     "ia64-zext-loop-steps", cl::Hidden, cl::init(true),
     cl::desc("Zero-extend the steps of loops that count up to a bound"));
 
+static cl::opt<bool> EnableHoistCommonInsts(
+    "ia64-hoist-common-insts", cl::Hidden, cl::init(true),
+    cl::desc("Hoist what both arms of a branch compute, in any order"));
+
 static cl::opt<bool>
     EnableLoopPrefetch("ia64-loop-prefetch", cl::Hidden, cl::init(true),
                        cl::desc("Prefetch strided loads in loops with lfetch"));
@@ -361,6 +365,10 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
           MPM.addPass(
               createModuleToFunctionPassAdaptor(IA64ZextLoopStepsPass()));
+        if (EnableHoistCommonInsts &&
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+          MPM.addPass(
+              createModuleToFunctionPassAdaptor(IA64HoistCommonInstsPass()));
       });
 }
 
