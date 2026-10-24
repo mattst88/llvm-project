@@ -91,6 +91,10 @@ void initializeIA64SpeculateLoadsPass(PassRegistry &);
 void initializeIA64SplitSingleAddsPass(PassRegistry &);
 void initializeIA64PostIncPointersPass(PassRegistry &);
 
+struct IA64DeferMathErrnoPass : OptionalPassInfoMixin<IA64DeferMathErrnoPass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 struct IA64LoopAliasVersioningPass
     : OptionalPassInfoMixin<IA64LoopAliasVersioningPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);

@@ -40,6 +40,10 @@ static cl::opt<bool> EnableAliasVersioning(
     "ia64-alias-versioning", cl::Hidden, cl::init(true),
     cl::desc("Version small loops on whether their pointers overlap"));
 
+static cl::opt<bool> EnableDeferMathErrno(
+    "ia64-defer-math-errno", cl::Hidden, cl::init(true),
+    cl::desc("Set errno for the sqrt calls of a loop after the loop"));
+
 static cl::opt<bool> EnableWidenByteOps(
     "ia64-widen-bytewise-logic", cl::Hidden, cl::init(true),
     cl::desc("Do and, or and xor of the bytes of a doubleword at once"));
@@ -293,6 +297,14 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
   // Before the vectorizer and the unroller, which copy the versioned loop.
   PB.registerVectorizerStartEPCallback(
       [](FunctionPassManager &FPM, OptimizationLevel Level) {
+        // Before alias versioning, which the calls would stop. The loads that
+        // the calls kept in the loop can then be hoisted out of it.
+        if (EnableDeferMathErrno && (Level == OptimizationLevel::O2 ||
+                                     Level == OptimizationLevel::O3)) {
+          FPM.addPass(IA64DeferMathErrnoPass());
+          FPM.addPass(createFunctionToLoopPassAdaptor(LICMPass(LICMOptions()),
+                                                      /*UseMemorySSA=*/true));
+        }
         if (EnableAliasVersioning &&
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3)) {
           FPM.addPass(IA64LoopAliasVersioningPass());
