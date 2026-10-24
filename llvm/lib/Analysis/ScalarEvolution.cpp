@@ -16179,6 +16179,14 @@ void ScalarEvolution::LoopGuards::collectFromBlock(
           Predicate = CmpInst::getSwappedPredicate(Predicate);
         }
         GuardsToProcess.emplace_back(Predicate, LHS, RHS);
+        // An unsigned lower bound at or above zero on a value of the same
+        // sign is a signed lower bound too, which survives sign extension.
+        if (Cmp->hasSameSign() &&
+            (Predicate == ICmpInst::ICMP_UGT ||
+             Predicate == ICmpInst::ICMP_UGE) &&
+            SE.isKnownNonNegative(RHS))
+          GuardsToProcess.emplace_back(ICmpInst::getSignedPredicate(Predicate),
+                                       LHS, RHS);
         continue;
       }
 
