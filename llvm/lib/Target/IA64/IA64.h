@@ -112,6 +112,11 @@ struct IA64MulRecurrencePass : OptionalPassInfoMixin<IA64MulRecurrencePass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
+struct IA64SpeculateChasesPass
+    : OptionalPassInfoMixin<IA64SpeculateChasesPass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 struct IA64MemmoveVersioningPass
     : OptionalPassInfoMixin<IA64MemmoveVersioningPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);

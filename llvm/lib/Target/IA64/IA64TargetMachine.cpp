@@ -60,6 +60,10 @@ static cl::opt<bool> EnableMulRecurrence(
     "ia64-mul-recurrence", cl::Hidden, cl::init(true),
     cl::desc("Replace a multiply of induction variables with additions"));
 
+static cl::opt<bool> EnableSpeculateChases(
+    "ia64-speculative-chases", cl::Hidden, cl::init(true),
+    cl::desc("Search linked lists ahead with control-speculative loads"));
+
 static cl::opt<bool>
     EnableLoopPrefetch("ia64-loop-prefetch", cl::Hidden, cl::init(true),
                        cl::desc("Prefetch strided loads in loops with lfetch"));
@@ -326,6 +330,11 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
           MPM.addPass(
               createModuleToFunctionPassAdaptor(IA64WidenByteOpsPass()));
+        // After unrolling, which would copy the checks.
+        if (EnableSpeculateChases &&
+            (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))
+          MPM.addPass(
+              createModuleToFunctionPassAdaptor(IA64SpeculateChasesPass()));
         // After widening, which takes the byte stores it can do better.
         if (EnableMergeByteStores &&
             (Level == OptimizationLevel::O2 || Level == OptimizationLevel::O3))

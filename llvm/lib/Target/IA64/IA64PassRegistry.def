@@ -21,5 +21,6 @@ FUNCTION_PASS("ia64-loop-alias-versioning", IA64LoopAliasVersioningPass())
 FUNCTION_PASS("ia64-memmove-versioning", IA64MemmoveVersioningPass())
 FUNCTION_PASS("ia64-merge-byte-stores", IA64MergeByteStoresPass())
 FUNCTION_PASS("ia64-mul-recurrence", IA64MulRecurrencePass())
+FUNCTION_PASS("ia64-speculate-chases", IA64SpeculateChasesPass())
 FUNCTION_PASS("ia64-widen-byte-ops", IA64WidenByteOpsPass())
 #undef FUNCTION_PASS
