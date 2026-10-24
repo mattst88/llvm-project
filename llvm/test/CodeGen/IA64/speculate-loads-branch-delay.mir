@@ -5,7 +5,8 @@
 # later than the compare of the branch that ends it: nothing moved there is
 # scheduled after the branch, which would wait for them. Operands of a branch
 # or store count only the instructions after a load; an address counts every
-# instruction.
+# instruction. A chain of operands that waits for no load may still be at most
+# two instructions longer than the compare's, counting every one.
 
 # The compare of bb.0's branch waits for no load, but ADDS waits for LD1.
 # CHECK-LABEL: name: operands_after_load
@@ -134,5 +135,79 @@ body:             |
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
   bb.2:
     $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# No instruction in the chain waits for a load, but it is three longer than
+# the compare's, and the store's block does not rejoin bb.0's other
+# successor, so bb.0's branch would wait for all of it.
+# CHECK-LABEL: name: operands_hold_branch
+# CHECK:      bb.0:
+# CHECK-NOT:    EXTR_U
+# CHECK:      bb.1:
+# CHECK:        ADD
+# CHECK-NEXT:   EXTR_U
+# CHECK-NEXT:   ADD
+# CHECK-NEXT:   EXTR
+# CHECK-NEXT:   ST4
+---
+name:            operands_hold_branch
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.3(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    BRCC %bb.1, 7, %0, %1, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.3
+  bb.1:
+    successors: %bb.2(0x80000000)
+    %3:gr = ADD %0, %1, $p0
+    %4:gr = EXTR_U %3, 31, 1, $p0
+    %5:gr = ADD %3, %4, $p0
+    %6:gr = EXTR %5, 1, 31, $p0
+    ST4 %2, %6, 0, $p0 :: (store (s32))
+  bb.2:
+    $r8 = ADDS 1, %0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+  bb.3:
+    $r8 = MOVL 4294967295, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+
+# The same chain leaves the then-block of an if without an else, which can
+# then be if-converted.
+# CHECK-LABEL: name: operands_leave_then_block
+# CHECK:      bb.0:
+# CHECK:        ADD
+# CHECK-NEXT:   EXTR_U
+# CHECK-NEXT:   ADD
+# CHECK-NEXT:   EXTR
+# CHECK:      bb.1:
+# CHECK-NOT:    EXTR
+# CHECK:        ST4
+---
+name:            operands_leave_then_block
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    successors: %bb.1(0x7c000000), %bb.2(0x04000000)
+    liveins: $r32, $r33, $r34
+    %0:gr = COPY $r32
+    %1:gr = COPY $r33
+    %2:gr = COPY $r34
+    BRCC %bb.1, 7, %0, %1, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+  bb.1:
+    successors: %bb.2(0x80000000)
+    %3:gr = ADD %0, %1, $p0
+    %4:gr = EXTR_U %3, 31, 1, $p0
+    %5:gr = ADD %3, %4, $p0
+    %6:gr = EXTR %5, 1, 31, $p0
+    ST4 %2, %6, 0, $p0 :: (store (s32))
+  bb.2:
+    $r8 = ADDS 1, %0, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
 ...

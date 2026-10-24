@@ -135,6 +135,12 @@ static cl::opt<bool> NoBranchDelay(
     cl::desc("Do not compute operands early where they would hold back the "
              "branch that ends the block"));
 
+static cl::opt<int> OperandMaxExcess(
+    "ia64-early-operand-max-excess", cl::init(2), cl::Hidden,
+    cl::desc("Counting every instruction, how many more an operand chain "
+             "may wait for than the branch that ends its new block (-1: no "
+             "limit)"));
+
 static cl::opt<bool> InPredecessors(
     "ia64-speculate-in-preds", cl::init(true), cl::Hidden,
     cl::desc("Issue a load early in each predecessor of a block that other "
@@ -281,7 +287,8 @@ private:
   int depthIn(const MachineInstr &MI, const MachineBasicBlock *MBB,
               const Walk &W, DenseMap<const MachineInstr *, int> &Memo,
               unsigned Limit, bool FromLoads) const;
-  bool delaysBranch(const Walk &W, bool FromLoads) const;
+  bool delaysBranch(const Walk &W, bool FromLoads,
+                    const MachineBasicBlock *UserMBB) const;
   bool moveChain(Walk &W, const MachineInstr &User, bool IsAddress);
   std::pair<Register, int64_t> splitAddress(Register Addr) const;
   bool speculate(MachineInstr &Load, unsigned Pair);
@@ -520,7 +527,8 @@ int IA64SpeculateLoads::depthIn(const MachineInstr &MI,
 // the branch that ends the block. An address counts every instruction, but
 // an operand chain only those after a load: counting every one also kept
 // bzip2's BZ2_hbMakeCodeLengths from computing the next heap index early.
-bool IA64SpeculateLoads::delaysBranch(const Walk &W, bool FromLoads) const {
+bool IA64SpeculateLoads::delaysBranch(const Walk &W, bool FromLoads,
+                                      const MachineBasicBlock *UserMBB) const {
   auto Br = find_if(W.MBB->terminators(), [](const MachineInstr &MI) {
     return MI.getOpcode() == IA64::BRCC || MI.getOpcode() == IA64::BRCCi ||
            MI.getOpcode() == IA64::BRCCf;
@@ -529,8 +537,27 @@ bool IA64SpeculateLoads::delaysBranch(const Walk &W, bool FromLoads) const {
     return false;
   DenseMap<const MachineInstr *, int> Memo;
   int BrDepth = depthIn(*Br, W.MBB, W, Memo, 8, FromLoads);
+  if (any_of(W.Chain, [&](const MachineInstr *MI) {
+        return depthIn(*MI, W.MBB, W, Memo, 8, FromLoads) > BrDepth;
+      }))
+    return true;
+  // A chain that waits for no load is invisible to the count above. Unless
+  // it leaves the then-block of an if without an else, which can then be
+  // if-converted, the branch waits for all of it.
+  bool Triangle =
+      UserMBB->succ_size() == 1 && W.MBB->isSuccessor(*UserMBB->succ_begin());
+  if (!FromLoads || OperandMaxExcess < 0 || Triangle ||
+      any_of(
+          W.Chain,
+          [&](const MachineInstr *MI) {
+            return depthIn(*MI, W.MBB, W, Memo, 8, FromLoads) >= 0;
+          }))
+    return false;
+  DenseMap<const MachineInstr *, int> AllMemo;
+  int AllBrDepth = depthIn(*Br, W.MBB, W, AllMemo, 8, false);
   return any_of(W.Chain, [&](const MachineInstr *MI) {
-    return depthIn(*MI, W.MBB, W, Memo, 8, FromLoads) > BrDepth;
+    return depthIn(*MI, W.MBB, W, AllMemo, 8, false) >
+           AllBrDepth + OperandMaxExcess;
   });
 }
 
@@ -539,7 +566,8 @@ bool IA64SpeculateLoads::moveChain(Walk &W, const MachineInstr &User,
                                    bool IsAddress) {
   if (W.MBB == User.getParent() || W.Chain.empty() || !W.Crossed ||
       W.Distance < MinDistance ||
-      (NoBranchDelay && delaysBranch(W, /*FromLoads=*/!IsAddress)))
+      (NoBranchDelay &&
+       delaysBranch(W, /*FromLoads=*/!IsAddress, User.getParent())))
     return false;
   // The chain was found from User up, so the last found goes first.
   for (MachineInstr *MI : reverse(W.Chain)) {
