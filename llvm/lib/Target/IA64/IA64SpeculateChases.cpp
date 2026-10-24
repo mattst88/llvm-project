@@ -44,6 +44,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicsIA64.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/LoopSimplify.h"
@@ -51,6 +52,7 @@
 #include "llvm/Transforms/Utils/UnrollLoop.h"
 
 using namespace llvm;
+using namespace PatternMatch;
 
 #define DEBUG_TYPE "ia64-speculate-chases"
 
@@ -223,6 +225,29 @@ static Intrinsic::ID getSpeculativeLoad(unsigned Size) {
   }
 }
 
+// The bytes of a load that are used: on a little-endian target, a load whose
+// value only reaches a mask of low bytes, through operations whose low bits
+// depend only on their operands' low bits, can read just those.
+static unsigned getUsedSize(const LoadInst &LI, const DataLayout &DL) {
+  unsigned Size = DL.getTypeStoreSize(LI.getType());
+  if (DL.isBigEndian() || !LI.getType()->isIntegerTy())
+    return Size;
+  const Value *V = &LI;
+  while (V->hasOneUse()) {
+    auto *I = cast<Instruction>(V->user_back());
+    const APInt *Mask;
+    if (match(I, m_And(m_Value(), m_APInt(Mask))) && Mask->isMask()) {
+      unsigned Used = PowerOf2Ceil(divideCeil(Mask->countr_one(), 8));
+      return std::min(Size, std::max(Used, 1u));
+    }
+    if (!match(I, m_CombineOr(m_c_Xor(m_Specific(V), m_Value()),
+                              m_c_Or(m_Specific(V), m_Value()))))
+      break;
+    V = I;
+  }
+  return Size;
+}
+
 static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
   Loop *L = C.L;
   BasicBlock *Header = C.Blocks.front();
@@ -256,21 +281,57 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
     auto It = Maps[Copy].find(V);
     return It == Maps[Copy].end() ? V : It->second;
   };
+  auto Clone = [&](unsigned Copy, Instruction &I) {
+    Instruction *New = I.clone();
+    SmallSetVector<Value *, 2> &L = Leaves[New];
+    for (Use &U : New->operands()) {
+      U.set(Map(Copy, U));
+      auto It = Leaves.find(U);
+      if (It != Leaves.end())
+        L.insert_range(It->second);
+    }
+    Maps[Copy][&I] = New;
+    return New;
+  };
+
+  // What only a block's compare reads goes with the compare rather than at
+  // the top, so that instruction selection, which sees one block at a time,
+  // can fold it into the compare.
+  SmallPtrSet<Instruction *, 8> Sunk;
+  for (BasicBlock *BB : C.Blocks) {
+    Value *Cmp = cast<CondBrInst>(BB->getTerminator())->getCondition();
+    for (Instruction &I : reverse(*BB))
+      if (!isa<PHINode, LoadInst, ICmpInst>(I) && !I.isTerminator() &&
+          !I.user_empty() && all_of(I.users(), [&](const User *U) {
+            return U == Cmp || Sunk.contains(cast<Instruction>(U));
+          }))
+        Sunk.insert(&I);
+  }
   Value *Next = C.Ptr->getIncomingValueForBlock(Latch);
   Value *Cur = SpecPtr;
   for (unsigned Copy = 0; Copy != Copies; ++Copy) {
     Maps[Copy][C.Ptr] = Cur;
     for (auto [Index, BB] : enumerate(C.Blocks))
       for (Instruction &I : *BB) {
-        if (isa<PHINode, ICmpInst, CondBrInst>(I))
+        if (isa<PHINode, ICmpInst, CondBrInst>(I) || Sunk.contains(&I))
           continue;
         auto *LI = dyn_cast<LoadInst>(&I);
+        unsigned Used = LI ? getUsedSize(*LI, DL) : 0;
+        if (LI && !Copy && !Index &&
+            Used < DL.getTypeStoreSize(LI->getType())) {
+          Type *Ty = LI->getType();
+          LoadInst *Load = B.CreateAlignedLoad(
+              B.getIntNTy(Used * 8), Map(Copy, LI->getPointerOperand()),
+              LI->getAlign(), LI->getName() + ".low");
+          Load->copyMetadata(*LI, {LLVMContext::MD_tbaa});
+          Maps[Copy][LI] = B.CreateZExt(Load, Ty, LI->getName());
+          continue;
+        }
         if (LI && (Copy || Index)) {
           Type *Ty = LI->getType();
-          Value *Load =
-              B.CreateIntrinsic(getSpeculativeLoad(DL.getTypeStoreSize(Ty)), {},
-                                {Map(Copy, LI->getPointerOperand())}, nullptr,
-                                LI->getName() + ".s");
+          Value *Load = B.CreateIntrinsic(getSpeculativeLoad(Used), {},
+                                          {Map(Copy, LI->getPointerOperand())},
+                                          nullptr, LI->getName() + ".s");
           Value *V = Ty->isPointerTy()
                          ? B.CreateIntToPtr(Load, Ty, LI->getName())
                          : B.CreateZExtOrTrunc(Load, Ty, LI->getName());
@@ -278,16 +339,7 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
           Maps[Copy][LI] = V;
           continue;
         }
-        Instruction *New = I.clone();
-        SmallSetVector<Value *, 2> &L = Leaves[New];
-        for (Use &U : New->operands()) {
-          U.set(Map(Copy, U));
-          auto It = Leaves.find(U);
-          if (It != Leaves.end())
-            L.insert_range(It->second);
-        }
-        B.Insert(New, I.getName());
-        Maps[Copy][&I] = New;
+        B.Insert(Clone(Copy, I), I.getName());
       }
     Cur = Map(Copy, Next);
   }
@@ -302,6 +354,10 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
       auto *Cmp = cast<ICmpInst>(Br->getCondition());
       bool ExitsOnTrue = !L->contains(Br->getSuccessor(0));
       BasicBlock *Exit = Br->getSuccessor(!ExitsOnTrue);
+      SmallVector<std::pair<Instruction *, Instruction *>, 4> Sinking;
+      for (Instruction &I : *BB)
+        if (Sunk.contains(&I))
+          Sinking.emplace_back(Clone(Copy, I), &I);
       SmallSetVector<Value *, 4> Need;
       auto Read = [&](Value *V) {
         auto It = Leaves.find(Map(Copy, V));
@@ -333,6 +389,8 @@ static void speculate(const Chase &C, unsigned Copies, const DataLayout &DL) {
         At = Test;
         B.SetInsertPoint(At);
       }
+      for (auto [New, I] : Sinking)
+        B.Insert(New, I->getName());
       Instruction *NewCmp = Cmp->clone();
       for (Use &U : NewCmp->operands())
         U.set(Map(Copy, U));

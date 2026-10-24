@@ -347,3 +347,99 @@ return:
   %r = phi ptr [ %l, %loop ]
   ret ptr %r
 }
+
+; The other search of core_list_find compares the low byte of a 16-bit
+; field, inlined in core_bench_list as ((data ^ key) & 0xff) == 0: each copy
+; reads just that byte, and the xor and mask go with the compare.
+
+define ptr @low_byte(ptr %list, i16 %key) {
+; CHECK-LABEL: @low_byte(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[EMPTY:%.*]] = icmp eq ptr [[LIST:%.*]], null
+; CHECK-NEXT:    br i1 [[EMPTY]], label [[RETURN:%.*]], label [[LOOP_PREHEADER:%.*]]
+; CHECK:       loop.preheader:
+; CHECK-NEXT:    br label [[LOOP_SPEC:%.*]]
+; CHECK:       loop.spec:
+; CHECK-NEXT:    [[L_SPEC:%.*]] = phi ptr [ [[LIST]], [[LOOP_PREHEADER]] ], [ [[NEXT9:%.*]], [[BODY_SPEC21:%.*]] ]
+; CHECK-NEXT:    [[INFOP1:%.*]] = getelementptr inbounds nuw i8, ptr [[L_SPEC]], i64 8
+; CHECK-NEXT:    [[INFO2:%.*]] = load ptr, ptr [[INFOP1]], align 8
+; CHECK-NEXT:    [[DATA_LOW:%.*]] = load i8, ptr [[INFO2]], align 2
+; CHECK-NEXT:    [[DATA3:%.*]] = zext i8 [[DATA_LOW]] to i16
+; CHECK-NEXT:    [[NEXT_S:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[L_SPEC]])
+; CHECK-NEXT:    [[NEXT4:%.*]] = inttoptr i64 [[NEXT_S]] to ptr
+; CHECK-NEXT:    [[INFOP5:%.*]] = getelementptr inbounds nuw i8, ptr [[NEXT4]], i64 8
+; CHECK-NEXT:    [[INFO_S:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[INFOP5]])
+; CHECK-NEXT:    [[INFO6:%.*]] = inttoptr i64 [[INFO_S]] to ptr
+; CHECK-NEXT:    [[DATA_S:%.*]] = call i64 @llvm.ia64.ld1.s(ptr [[INFO6]])
+; CHECK-NEXT:    [[DATA7:%.*]] = trunc i64 [[DATA_S]] to i16
+; CHECK-NEXT:    [[NEXT_S8:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[NEXT4]])
+; CHECK-NEXT:    [[NEXT9]] = inttoptr i64 [[NEXT_S8]] to ptr
+; CHECK-NEXT:    [[DIFF10:%.*]] = xor i16 [[DATA3]], [[KEY:%.*]]
+; CHECK-NEXT:    [[LOW11:%.*]] = and i16 [[DIFF10]], 255
+; CHECK-NEXT:    [[FOUND12:%.*]] = icmp eq i16 [[LOW11]], 0
+; CHECK-NEXT:    br i1 [[FOUND12]], label [[RETURN]], label [[LOOP_SPEC13:%.*]]
+; CHECK:       loop.nat:
+; CHECK-NEXT:    br label [[LOOP:%.*]]
+; CHECK:       loop.spec13:
+; CHECK-NEXT:    [[TMP0:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S]])
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp ne i64 [[TMP0]], 0
+; CHECK-NEXT:    br i1 [[TMP1]], label [[LOOP_NAT:%.*]], label [[BODY_SPEC:%.*]], !prof [[PROF0]]
+; CHECK:       body.spec:
+; CHECK-NEXT:    [[END14:%.*]] = icmp eq ptr [[NEXT4]], null
+; CHECK-NEXT:    br i1 [[END14]], label [[RETURN]], label [[BODY_SPEC15:%.*]]
+; CHECK:       body.spec15:
+; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @llvm.ia64.tnat(i64 [[DATA_S]])
+; CHECK-NEXT:    [[TMP3:%.*]] = icmp ne i64 [[TMP2]], 0
+; CHECK-NEXT:    br i1 [[TMP3]], label [[LOOP_NAT]], label [[LOOP_SPEC16:%.*]], !prof [[PROF0]]
+; CHECK:       loop.spec16:
+; CHECK-NEXT:    [[DIFF17:%.*]] = xor i16 [[DATA7]], [[KEY]]
+; CHECK-NEXT:    [[LOW18:%.*]] = and i16 [[DIFF17]], 255
+; CHECK-NEXT:    [[FOUND19:%.*]] = icmp eq i16 [[LOW18]], 0
+; CHECK-NEXT:    br i1 [[FOUND19]], label [[RETURN]], label [[LOOP_SPEC20:%.*]]
+; CHECK:       loop.spec20:
+; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @llvm.ia64.tnat(i64 [[NEXT_S8]])
+; CHECK-NEXT:    [[TMP5:%.*]] = icmp ne i64 [[TMP4]], 0
+; CHECK-NEXT:    br i1 [[TMP5]], label [[LOOP_NAT]], label [[BODY_SPEC21]], !prof [[PROF0]]
+; CHECK:       body.spec21:
+; CHECK-NEXT:    [[END22:%.*]] = icmp eq ptr [[NEXT9]], null
+; CHECK-NEXT:    br i1 [[END22]], label [[RETURN]], label [[LOOP_SPEC]]
+; CHECK:       loop:
+; CHECK-NEXT:    [[L:%.*]] = phi ptr [ [[NEXT:%.*]], [[BODY:%.*]] ], [ [[L_SPEC]], [[LOOP_NAT]] ]
+; CHECK-NEXT:    [[INFOP:%.*]] = getelementptr inbounds nuw i8, ptr [[L]], i64 8
+; CHECK-NEXT:    [[INFO:%.*]] = load ptr, ptr [[INFOP]], align 8
+; CHECK-NEXT:    [[DATA:%.*]] = load i16, ptr [[INFO]], align 2
+; CHECK-NEXT:    [[DIFF:%.*]] = xor i16 [[DATA]], [[KEY]]
+; CHECK-NEXT:    [[LOW:%.*]] = and i16 [[DIFF]], 255
+; CHECK-NEXT:    [[FOUND:%.*]] = icmp eq i16 [[LOW]], 0
+; CHECK-NEXT:    br i1 [[FOUND]], label [[RETURN]], label [[BODY]]
+; CHECK:       body:
+; CHECK-NEXT:    [[NEXT]] = load ptr, ptr [[L]], align 8
+; CHECK-NEXT:    [[END:%.*]] = icmp eq ptr [[NEXT]], null
+; CHECK-NEXT:    br i1 [[END]], label [[RETURN]], label [[LOOP]]
+; CHECK:       return:
+; CHECK-NEXT:    [[R:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[L]], [[LOOP]] ], [ null, [[BODY]] ], [ [[L_SPEC]], [[LOOP_SPEC]] ], [ null, [[BODY_SPEC]] ], [ [[NEXT4]], [[LOOP_SPEC16]] ], [ null, [[BODY_SPEC21]] ]
+; CHECK-NEXT:    ret ptr [[R]]
+;
+entry:
+  %empty = icmp eq ptr %list, null
+  br i1 %empty, label %return, label %loop
+
+loop:
+  %l = phi ptr [ %next, %body ], [ %list, %entry ]
+  %infop = getelementptr inbounds nuw i8, ptr %l, i64 8
+  %info = load ptr, ptr %infop, align 8
+  %data = load i16, ptr %info, align 2
+  %diff = xor i16 %data, %key
+  %low = and i16 %diff, 255
+  %found = icmp eq i16 %low, 0
+  br i1 %found, label %return, label %body
+
+body:
+  %next = load ptr, ptr %l, align 8
+  %end = icmp eq ptr %next, null
+  br i1 %end, label %return, label %loop
+
+return:
+  %r = phi ptr [ null, %entry ], [ %l, %loop ], [ null, %body ]
+  ret ptr %r
+}
