@@ -31,6 +31,7 @@
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/MDBuilder.h"
@@ -56,9 +57,63 @@ static cl::opt<unsigned>
     MaxChecks("ia64-alias-versioning-max-checks", cl::Hidden, cl::init(8),
               cl::desc("The most pointer overlap checks for a loop"));
 
+static cl::opt<bool>
+    UnitStrides("ia64-alias-versioning-unit-strides", cl::Hidden,
+                cl::init(true),
+                cl::desc("Version loops on symbolic strides being 1"));
+
+static bool isEqualPredicate(const SCEVPredicate *P) {
+  const auto *C = dyn_cast<SCEVComparePredicate>(P);
+  return C && C->getPredicate() == ICmpInst::ICMP_EQ;
+}
+
+/// Whether \p P only assumes that symbolic strides are 1.
+static bool isUnitStridePredicate(const SCEVPredicate &P) {
+  if (isEqualPredicate(&P))
+    return true;
+  if (const auto *U = dyn_cast<SCEVUnionPredicate>(&P))
+    return all_of(U->getPredicates(),
+                  [](const SCEVPredicate *Q) { return isEqualPredicate(Q); });
+  return false;
+}
+
 /// Marks the copy that runs when pointers overlap, which is not versioned
 /// again.
 static constexpr char VersionedMD[] = "llvm.loop.ia64.alias.versioned";
+
+/// Replaces the strides that \p Pred assumes to be constants with them in
+/// \p L, which runs only when it holds.
+static void replaceStrides(Loop &L, const SCEVPredicate &Pred) {
+  auto InLoop = [&L](Use &U) {
+    auto *I = dyn_cast<Instruction>(U.getUser());
+    return I && L.contains(I);
+  };
+  SmallVector<const SCEVPredicate *> Preds;
+  if (const auto *U = dyn_cast<SCEVUnionPredicate>(&Pred))
+    append_range(Preds, U->getPredicates());
+  else
+    Preds.push_back(&Pred);
+  for (const SCEVPredicate *P : Preds) {
+    const auto *Cmp = dyn_cast<SCEVComparePredicate>(P);
+    const auto *Stride = Cmp ? dyn_cast<SCEVUnknown>(Cmp->getLHS()) : nullptr;
+    const auto *C = Cmp ? dyn_cast<SCEVConstant>(Cmp->getRHS()) : nullptr;
+    if (!Stride || !C || Cmp->getPredicate() != ICmpInst::ICMP_EQ)
+      continue;
+    Value *V = Stride->getValue();
+    const APInt &CV = C->getAPInt();
+    // The stride may be used through a cast of it.
+    for (User *U : make_early_inc_range(V->users())) {
+      auto *Cast = dyn_cast<CastInst>(U);
+      if (!Cast || !isa<SExtInst, ZExtInst, TruncInst>(Cast) ||
+          L.contains(Cast))
+        continue;
+      unsigned BW = Cast->getType()->getScalarSizeInBits();
+      APInt CC = isa<SExtInst>(Cast) ? CV.sext(BW) : CV.zextOrTrunc(BW);
+      Cast->replaceUsesWithIf(ConstantInt::get(Cast->getType(), CC), InLoop);
+    }
+    V->replaceUsesWithIf(ConstantInt::get(V->getType(), CV), InLoop);
+  }
+}
 
 /// Whether \p L is small enough to version and stores to memory.
 static bool isCandidate(const Loop &L) {
@@ -133,11 +188,13 @@ static bool versionLoop(Loop &L, LoopInfo &LI, DominatorTree &DT,
   const LoopAccessInfo &LAI = LAIs.getInfo(L);
   const RuntimePointerChecking &Checking = *LAI.getRuntimePointerChecking();
   if (!LAI.canVectorizeMemory() || LAI.hasConvergentOp() ||
-      !LAI.getPSE().getPredicate().isAlwaysTrue())
+      !(LAI.getPSE().getPredicate().isAlwaysTrue() ||
+        (UnitStrides && isUnitStridePredicate(LAI.getPSE().getPredicate()))))
     return false;
-  if (!Checking.Need)
+  const SCEVPredicate &Pred = LAI.getPSE().getPredicate();
+  if (!Checking.Need && Pred.isAlwaysTrue())
     return annotateLoop(L, LAI);
-  if (Checking.getChecks().size() > MaxChecks)
+  if (Checking.getChecks().size() + Pred.getComplexity() > MaxChecks)
     return false;
 
   // Versioning splits the checks off the preheader, which needs a
@@ -150,6 +207,8 @@ static bool versionLoop(Loop &L, LoopInfo &LI, DominatorTree &DT,
   LoopVersioning LVer(LAI, Checking.getChecks(), &L, &LI, &DT, &SE);
   LVer.versionLoop();
   LVer.annotateLoopWithNoAlias();
+  if (!Pred.isAlwaysTrue())
+    replaceStrides(L, Pred);
   addStringMetadataToLoop(LVer.getNonVersionedLoop(), VersionedMD);
   ++NumVersioned;
   return true;
