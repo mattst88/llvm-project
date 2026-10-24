@@ -93,20 +93,18 @@ none:
   ret i64 -1
 }
 
-; The speculated pass of the search goes on by one branch after and-type
-; compares, in one instruction group, which also stand for the NaT tests of
-; what they read. The chain of branches finding where the pass leaves comes
-; after it.
+; The speculated pass of the search goes on by one branch after a compare
+; of a pointer it loads first and and-type compares, in one instruction
+; group, which also stand for the NaT tests of what they read. The chain of
+; branches finding where the pass leaves comes after it.
 
 ; CHECK-LABEL: find:
 ; CHECK:         mov [[PR:r[0-9]+]] = pr
 ; CHECK:       .LBB2_2:
 ; CHECK-NOT:     tnat
-; CHECK:         cmp.eq p6, p7 = r0, r0
+; CHECK:         cmp.eq p7, p6 = 0, r{{[0-9]+}} ;;
 ; CHECK-NOT:     tnat
-; CHECK:         ;;
-; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
-; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
+; CHECK:         cmp.ne.and p6, p0 = {{[^;]+$}}
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}

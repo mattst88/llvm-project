@@ -7,13 +7,14 @@
 ; goes where a compare reads it or a value it makes NaT. The branch is
 ; never inverted, which would take it on a NaT.
 
-; All have and-type forms: they start from "cmp.eq p6, p7 = r0, r0". %b is
-; read by "%b + 1 == 5", which is "%b == 4", and %c through a speculative
-; load's address, so only the NaT test of %d is left.
+; All have and-type forms, so the ordinary compare is of a condition on
+; arguments, ahead of the one on the load. %b is read by "%b + 1 == 5",
+; which is "%b == 4", and %c through a speculative load's address, so only
+; the NaT test of %d is left.
 ; CHECK-LABEL: all:
 ; CHECK-NOT:     tnat
-; CHECK:         cmp.eq p6, p7 = r0, r0 ;;
-; CHECK-NEXT:    tnat.z.and p6, p0 = r35
+; CHECK:         tnat.z p6, p7 = r35
+; CHECK-NEXT:    ld8.s
 ; CHECK-NEXT:    cmp.eq.and p6, p0 = 4, r33
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = 0, r32
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = r{{[0-9]+}}, r33
@@ -40,6 +41,30 @@ entry:
   %x3 = and i1 %x2, %n2
   %x4 = and i1 %x3, %n3
   br i1 %x4, label %yes, label %no, !prof !0, !unpredictable !1
+
+no:
+  ret i64 0
+
+yes:
+  %r = call i64 @f()
+  ret i64 %r
+}
+
+; Every condition is on the result of a load: "cmp.eq p6, p7 = r0, r0"
+; starts them, since an ordinary compare of either would wait for its load.
+; CHECK-LABEL: loads:
+; CHECK:         cmp.eq p6, p7 = r0, r0
+; CHECK:         cmp.ne.and p6, p0 = 0, r{{[0-9]+}}
+; CHECK-NEXT:    cmp.ne.and p6, p0 = 0, r{{[0-9]+}}
+; CHECK-NEXT:    (p6) br.cond.dptk.few
+define i64 @loads(ptr %p, ptr %q) {
+entry:
+  %a = load i64, ptr %p
+  %b = load i64, ptr %q
+  %c0 = icmp ne i64 %a, 0
+  %c1 = icmp ne i64 %b, 0
+  %x = and i1 %c0, %c1
+  br i1 %x, label %yes, label %no, !prof !0, !unpredictable !1
 
 no:
   ret i64 0

@@ -36,6 +36,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
+#include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetMachine.h"
@@ -536,24 +537,28 @@ static void expandLoopBranch(MachineBasicBlock &MBB, MachineInstr &MI,
   MI.eraseFromParent();
 }
 
-// Expand a branch on all of several compares: an ordinary compare, or
-// "cmp.eq p6, p7 = r0, r0" if every compare has an and-type form, then the
+// Expand a branch on all of several compares: an ordinary compare, then the
 // and-type compares clearing p6, then the branch on p6. An and-type compare
 // may not share an instruction group with a normal one writing the same
-// predicate, but the r0 compare depends on nothing and can issue early.
+// predicate, so if every compare has an and-type form, the ordinary one is
+// of the condition whose operands are ready first, when they are ready
+// before some other condition's or none is computed in the block, and
+// otherwise "cmp.eq p6, p7 = r0, r0", which depends on nothing and can issue
+// early.
 // Branch analysis cannot see past the pseudo, so a branch after it to the
 // next block is still there, and goes.
 static void expandAndBranch(MachineBasicBlock &MBB, MachineInstr &MI,
                             const IA64InstrInfo &TII,
                             const MachineBranchProbabilityInfo &MBPI,
                             DenseMap<MachineBasicBlock *, unsigned> &Pairs,
-                            const TargetRegisterInfo &TRI, unsigned NumPairs) {
+                            const TargetRegisterInfo &TRI, unsigned NumPairs,
+                            const TargetSchedModel &SchedModel) {
   const DebugLoc &DL = MI.getDebugLoc();
   MachineBasicBlock *Target = MI.getOperand(0).getMBB();
   unsigned Pair =
       RenameBranchPredicates ? choosePair(MI, Pairs, TRI, NumPairs) : 0;
   Register P = PredicatePairs[Pair][0], NotP = PredicatePairs[Pair][1];
-  unsigned First = 1;
+  unsigned First = 1, E = MI.getNumExplicitOperands();
   auto CC = [&](unsigned I) {
     return IA64CC::CondCode(MI.getOperand(I).getImm());
   };
@@ -563,17 +568,47 @@ static void expandAndBranch(MachineBasicBlock &MBB, MachineInstr &MI,
       Imm = MI.getOperand(I + 2).getImm();
     return IA64CC::getAndCompare(CC(I), Imm) != 0;
   };
-  if (HasAndForm(First)) {
-    BuildMI(MBB, MI, DL, TII.get(IA64::CMP_EQ))
-        .addReg(P, RegState::Define)
-        .addReg(NotP, RegState::Define)
-        .addReg(IA64::R0)
-        .addReg(IA64::R0)
-        .addReg(IA64::P0);
+  // The condition the ordinary compare tests, if any.
+  std::optional<unsigned> Plain;
+  if (!HasAndForm(First)) {
+    Plain = First;
   } else {
+    // When each register is ready, in cycles from the start of the block if
+    // each instruction issued as soon as its operands were ready.
+    DenseMap<MCRegister, unsigned> ReadyAt;
+    for (MachineInstr &Def :
+         make_range(MBB.begin(), MachineBasicBlock::iterator(MI))) {
+      unsigned Issue = 0;
+      for (const MachineOperand &MO : Def.operands())
+        if (MO.isReg() && MO.isUse() && MO.getReg().isPhysical())
+          Issue = std::max(Issue, ReadyAt.lookup(MO.getReg().asMCReg()));
+      unsigned Done = Issue + SchedModel.computeInstrLatency(&Def);
+      for (const MachineOperand &MO : Def.operands())
+        if (MO.isReg() && MO.isDef() && MO.getReg().isPhysical())
+          for (MCRegAliasIterator AI(MO.getReg(), &TRI, true); AI.isValid();
+               ++AI)
+            ReadyAt[*AI] = Done;
+    }
+    auto Ready = [&](unsigned I) {
+      unsigned R = 0;
+      for (unsigned J = I + 1; J <= I + 2; ++J)
+        if (MI.getOperand(J).isReg())
+          R = std::max(R, ReadyAt.lookup(MI.getOperand(J).getReg().asMCReg()));
+      return R;
+    };
+    unsigned Best = First, Latest = 0;
+    for (unsigned I = First; I + 2 < E; I += 3) {
+      if (Ready(I) < Ready(Best))
+        Best = I;
+      Latest = std::max(Latest, Ready(I));
+    }
+    if (Ready(Best) < Latest || Latest == 0)
+      Plain = Best;
+  }
+  if (Plain) {
     MachineInstr *Before = MI.getPrevNode();
-    TII.emitCompare(MBB, MI, DL, CC(First), MI.getOperand(First + 1),
-                    MI.getOperand(First + 2));
+    TII.emitCompare(MBB, MI, DL, CC(*Plain), MI.getOperand(*Plain + 1),
+                    MI.getOperand(*Plain + 2));
     for (MachineInstr &New :
          make_range(Before ? std::next(MachineBasicBlock::iterator(Before))
                            : MBB.begin(),
@@ -581,9 +616,17 @@ static void expandAndBranch(MachineBasicBlock &MBB, MachineInstr &MI,
       for (MachineOperand &MO : New.operands())
         if (MO.isReg() && (MO.getReg() == IA64::P6 || MO.getReg() == IA64::P7))
           MO.setReg(MO.getReg() == IA64::P6 ? P : NotP);
-    First += 3;
+  } else {
+    BuildMI(MBB, MI, DL, TII.get(IA64::CMP_EQ))
+        .addReg(P, RegState::Define)
+        .addReg(NotP, RegState::Define)
+        .addReg(IA64::R0)
+        .addReg(IA64::R0)
+        .addReg(IA64::P0);
   }
-  for (unsigned I = First, E = MI.getNumExplicitOperands(); I + 2 < E; I += 3) {
+  for (unsigned I = First; I + 2 < E; I += 3) {
+    if (I == Plain)
+      continue;
     bool Emitted = TII.emitAndCompare(MBB, MI, DL, CC(I), MI.getOperand(I + 1),
                                       MI.getOperand(I + 2), P);
     assert(Emitted && "condition has no and-type compare");
@@ -637,6 +680,8 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
   }
 
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+  TargetSchedModel SchedModel;
+  SchedModel.init(&MF.getSubtarget());
   DenseMap<MachineBasicBlock *, unsigned> Pairs;
   unsigned NumPairs = getNumPairs(MF);
   for (MachineBasicBlock &MBB : MF) {
@@ -647,7 +692,7 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
         break;
       }
       if (MI.getOpcode() == IA64::BRCC_AND) {
-        expandAndBranch(MBB, MI, TII, MBPI, Pairs, TRI, NumPairs);
+        expandAndBranch(MBB, MI, TII, MBPI, Pairs, TRI, NumPairs, SchedModel);
         Changed = true;
         break;
       }
