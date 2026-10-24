@@ -51,6 +51,32 @@ static bool alwaysReachesLatch(const Loop &L) {
   return true;
 }
 
+/// The test of \p L branches on poison unless its step \p Narrow is not, so
+/// if the step shifts a value left without unsigned wrap, that value is not
+/// negative wherever the loop runs. Zero-extend it there.
+static void zextShiftedValue(Loop &L, Value *Narrow, ScalarEvolution &SE) {
+  Value *X;
+  const APInt *Amt;
+  if (!match(Narrow, m_NUWShl(m_Value(X), m_APInt(Amt))) || Amt->isZero())
+    return;
+  BasicBlock *Preheader = L.getLoopPreheader();
+  bool PreheaderReachesLoop = all_of(*Preheader, [](Instruction &I) {
+    return isGuaranteedToTransferExecutionToSuccessor(&I);
+  });
+  for (User *U : make_early_inc_range(X->users())) {
+    auto *SExt = dyn_cast<SExtInst>(U);
+    if (!SExt || !(L.contains(SExt) ||
+                   (SExt->getParent() == Preheader && PreheaderReachesLoop)))
+      continue;
+    auto *Zext = new ZExtInst(X, SExt->getType(), "", SExt->getIterator());
+    Zext->setNonNeg();
+    Zext->takeName(SExt);
+    SE.forgetValue(SExt);
+    SExt->replaceAllUsesWith(Zext);
+    SExt->eraseFromParent();
+  }
+}
+
 static bool zextStep(Loop &L, ScalarEvolution &SE) {
   if (!alwaysReachesLatch(L))
     return false;
@@ -109,6 +135,7 @@ static bool zextStep(Loop &L, ScalarEvolution &SE) {
                             Preheader->getTerminator()->getIterator());
   Add->replaceUsesOfWith(Step, Zext);
   Add->setHasNoUnsignedWrap(false);
+  zextShiftedValue(L, Narrow, SE);
   SE.forgetLoop(&L);
   ++NumZexted;
   return true;

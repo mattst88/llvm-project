@@ -124,3 +124,29 @@ loop:
 exit:
   ret void
 }
+
+; The step 2 * d is poison for a negative d, so d is not negative wherever the
+; loop runs.
+; CHECK-LABEL: @shifted
+; CHECK: %d.out = sext i32 %d to i64
+; CHECK: %d.ext = zext nneg i32 %d to i64
+define i64 @shifted(ptr %a, i32 %d, i64 %n) {
+entry:
+  %d.out = sext i32 %d to i64
+  br label %loop.ph
+loop.ph:
+  %step.32 = shl nuw i32 %d, 1
+  %step = sext i32 %step.32 to i64
+  %d.ext = sext i32 %d to i64
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %loop.ph ], [ %i.next, %loop ]
+  %j = add nsw i64 %i, %d.ext
+  %p = getelementptr inbounds double, ptr %a, i64 %j
+  store double 0.0, ptr %p
+  %i.next = add nsw i64 %i, %step
+  %cmp = icmp slt i64 %i.next, %n
+  br i1 %cmp, label %loop, label %exit
+exit:
+  ret i64 %d.out
+}
