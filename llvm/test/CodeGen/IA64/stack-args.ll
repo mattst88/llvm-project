@@ -59,12 +59,11 @@ define i64 @both(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f, i64 %g,
 ; CHECK:       adds r15 = 72, r12
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  adds r37 = 40, r12 ;;
-; CHECK-NEXT:  .mmi
+; CHECK-NEXT:  ld8 r34 = [r14]
 ; CHECK-NEXT:  ld8 r32 = [r15]
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  ld8 r34 = [r14]
 ; CHECK-NEXT:  br.call.sptk.many b0 = sink ;;
 ; CHECK-NEXT:  .mmf
 ; CHECK-NEXT:  adds r14 = 24, r12

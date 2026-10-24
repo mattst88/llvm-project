@@ -145,12 +145,12 @@ body: |
 ...
 ---
 # bb.0's last group continues into bb.1, whose return then shares its bundle
-# with the store and the branch once the compare moves up a group.
+# with the branch.
 # OBJ-LABEL: <open_next>:
-# OBJ:       add r19 = r19, r20 // [MMI]
+# OBJ:       add r19 = r19, r20 ;; // [MMI]
+# OBJ-NEXT:  st4 [r14] = r19, 4
 # OBJ-NEXT:  cmp.eq p7, p6 = 0, r18
-# OBJ-NEXT:  nop.i 0 ;;
-# OBJ-NEXT:  st4 [r14] = r19, 4 // [MBB]
+# OBJ-NEXT:  nop.m 0 // [MBB]
 # OBJ-NEXT:  (p6) br.cond.dptk.few
 # OBJ-NEXT:  br.ret.sptk.many b0 ;;
 name: open_next

@@ -152,9 +152,9 @@ define ptr @callee_big(ptr byval(%struct.big) align 8 %p, i64 %x) {
 ; CHECK-LABEL: callee_big:
 ; CHECK:       adds r12 = -48, r12 ;;
 ; CHECK:       mov r8 = r12 ;;
+; CHECK:       adds r14 = 56, r8
 ; CHECK:       or r20 = 8, r8
-; CHECK-NEXT:  st8 [r8] = r32
-; CHECK-NEXT:  adds r14 = 56, r8 ;;
+; CHECK-NEXT:  st8 [r8] = r32 ;;
 ; CHECK-NEXT:  st8 [r14] = r39
 ; CHECK:       adds r12 = 48, r12
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;

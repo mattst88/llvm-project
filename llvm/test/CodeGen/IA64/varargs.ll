@@ -146,13 +146,14 @@ define i32 @call(double %d, double %e) {
 ; CHECK-NEXT:  mov r36 = 1
 ; CHECK-NEXT:  mov r39 = 2
 ; CHECK-NEXT:  getf.d r38 = f9
-; CHECK-NEXT:  mov r35 = r0
+; CHECK-NEXT:  mov r35 = r0 ;;
 ; CHECK-NEXT:  .save rp, r34
-; CHECK-NEXT:  mov r34 = b0 ;;
+; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
+; CHECK-NEXT:  .mlx
 ; CHECK-NEXT:  stfd [r14] = f8
-; CHECK-NEXT:  stfd [r15] = f8
 ; CHECK-NEXT:  mov r40 = r37
+; CHECK-NEXT:  stfd [r15] = f8
 ; CHECK-NEXT:  mov r41 = r37
 ; CHECK-NEXT:  mov r42 = r37
 ; CHECK-NEXT:  br.call.sptk.many b0 = pf ;;

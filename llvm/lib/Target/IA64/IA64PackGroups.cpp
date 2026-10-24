@@ -59,6 +59,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include <map>
+#include <optional>
 
 using namespace llvm;
 
@@ -705,20 +706,24 @@ static SmallVector<unsigned, 16> fillingOrder(ArrayRef<Item> Group,
   SmallVector<unsigned, 16> Order;
   while (Order.size() != N) {
     SmallVector<unsigned, 3> Best;
-    unsigned BestScore = 0, BestLeast = 0;
+    unsigned BestScore = 0, BestLeast = 0, BestIPorts = 0;
     for (const IA64II::BundleTemplate &T : IA64II::BundleTemplates) {
       if (!T.Name || T.MidStop != -1)
         continue;
       SmallVector<unsigned, 3> Taken;
-      unsigned Score = 0;
+      unsigned Score = 0, IPorts = 0;
       for (unsigned Slot = 0; Slot < 3; ++Slot) {
         int Pick = -1;
         for (unsigned K = 0; K != N; ++K) {
           if (Placed[K] || !slotTakes(T.Slots[Slot], Group[K].Units) ||
               (Slot != 2 && Group[K].LastSlot) || !Ready(K))
             continue;
+          // Of those that fit only this unit, one that only I0 executes
+          // goes first: it must take its cycle's first I slot.
           if (Pick < 0 ||
-              popcount(Group[K].Units) < popcount(Group[Pick].Units))
+              popcount(Group[K].Units) < popcount(Group[Pick].Units) ||
+              (popcount(Group[K].Units) == popcount(Group[Pick].Units) &&
+               Group[K].I0Only && !Group[Pick].I0Only))
             Pick = K;
         }
         if (Pick < 0)
@@ -726,15 +731,19 @@ static SmallVector<unsigned, 16> fillingOrder(ArrayRef<Item> Group,
         Placed[Pick] = true;
         Taken.push_back(Pick);
         Score += popcount(Group[Pick].Units) == 1 ? 2 : 1;
+        IPorts += T.Slots[Slot] == IA64II::UnitI;
         if (T.Slots[Slot] == IA64II::UnitL)
           ++Slot;
       }
       unsigned Least = LeastBundles();
       for (unsigned K : Taken)
         Placed[K] = false;
-      if (Score > BestScore || (Score == BestScore && Least < BestLeast)) {
+      if (Score > BestScore || (Score == BestScore &&
+                                (Least < BestLeast || (Least == BestLeast &&
+                                                       IPorts < BestIPorts)))) {
         BestScore = Score;
         BestLeast = Least;
+        BestIPorts = IPorts;
         Best = Taken;
       }
     }
@@ -1057,10 +1066,15 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         Window.append(Items.begin(), Items.end());
         return plan(Window, Dispersal());
       }
-      if (Begin != 0)
+      // A result from a few groups before may still stall this one, as a
+      // multimedia op's takes three cycles to reach an ALU, and the stall
+      // delays what issues before it in its cycle. Looking further back
+      // costs compile time and measured no better.
+      for (unsigned Before = 0; Before != 3 && Begin != 0; ++Before) {
         --Begin;
-      while (Begin != 0 && !Items[Begin - 1].Stop)
-        --Begin;
+        while (Begin != 0 && !Items[Begin - 1].Stop)
+          --Begin;
+      }
       while (End != Items.size() && !Items[End].Stop)
         ++End;
       End = std::min<unsigned>(End + 1, Items.size());
@@ -1213,21 +1227,26 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
       auto StopBefore = [&](unsigned NewMid) -> bool & {
         return NewMid ? Items[NewMid - 1].Stop : Run.back().Stop;
       };
-      auto Try = [&](unsigned From, unsigned To, unsigned NewMid) {
+      // Of the moves that cost less, the one that costs least: the first
+      // to cost less may only trade one stall for another.
+      struct Move {
+        unsigned From, To, NewMid;
+      };
+      std::optional<Move> Best;
+      auto Apply = [&](Move M) {
         bool FirstStop = Items[Mid - 1].Stop, SecondStop = Items[End - 1].Stop;
-        Rotate(From, To);
+        Rotate(M.From, M.To);
         Items[Mid - 1].Stop = false;
         Items[End - 1].Stop = SecondStop;
-        StopBefore(NewMid) = FirstStop;
+        StopBefore(M.NewMid) = FirstStop;
+        return std::make_pair(FirstStop, SecondStop);
+      };
+      auto Try = [&](unsigned From, unsigned To, unsigned NewMid) {
+        auto [FirstStop, SecondStop] = Apply({From, To, NewMid});
         Dispersal Cost = CostAround(Begin, End);
         if (Cost < Current) {
           Current = Cost;
-          Mid = Groups[G].second = Groups[G + 1].first = NewMid;
-          if (NewMid == 0)
-            Run.back().MI->setAsmPrinterFlag(IA64::StopAfter);
-          Reordered = true;
-          ++NumCrossed;
-          return true;
+          Best = Move{From, To, NewMid};
         }
         StopBefore(NewMid) = false;
         Items[End - 1].Stop = false;
@@ -1302,6 +1321,15 @@ bool IA64PackGroups::runOnMachineFunction(MachineFunction &MF) {
         }
         if (Legal)
           Moved = Try(From, Mid, Mid + 1);
+      }
+      if (Best) {
+        Apply(*Best);
+        Mid = Groups[G].second = Groups[G + 1].first = Best->NewMid;
+        if (Best->NewMid == 0)
+          Run.back().MI->setAsmPrinterFlag(IA64::StopAfter);
+        Reordered = true;
+        ++NumCrossed;
+        Moved = true;
       }
       if (Moved) {
         ReorderGroup(G);
