@@ -43,8 +43,13 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/LiveIntervals.h"
@@ -71,7 +76,9 @@
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/MC/LaneBitmask.h"
@@ -157,6 +164,11 @@ static cl::opt<bool>
 #ifndef NDEBUG
 static cl::opt<int> SwpLoopLimit("pipeliner-max", cl::Hidden, cl::init(-1));
 #endif
+
+static cl::opt<bool> SwpSCEVDisjoint(
+    "pipeliner-scev-disjoint", cl::Hidden, cl::init(true),
+    cl::desc("Use scalar evolution to separate memory accesses whose "
+             "pointers step by an unknown amount"));
 
 static cl::opt<bool> SwpIgnoreRecMII("pipeliner-ignore-recmii",
                                      cl::ReallyHidden,
@@ -1245,6 +1257,8 @@ static bool hasLoopCarriedMemDep(const SUnitWithMemInfo &Src,
   MachineInstr &DstMI = *Dst.SU->getInstr();
 
   if (!SSD->mayOverlapInLaterIter(&SrcMI, &DstMI, &Distance))
+    return false;
+  if (SSD->provesDisjointWithSCEV(SrcMI, DstMI, /*LaterIter=*/true))
     return false;
 
   // Second, the more expensive check that uses alias analysis on the
@@ -3462,6 +3476,105 @@ static std::optional<int64_t> getAccessDistance(const MachineMemOperand &A,
   return *Dist + A.getOffset() - B.getOffset();
 }
 
+namespace llvm {
+struct PipelinerIRAnalyses {
+  TargetLibraryInfoImpl TLII;
+  TargetLibraryInfo TLI;
+  AssumptionCache AC;
+  DominatorTree DT;
+  LoopInfo LI;
+  ScalarEvolution SE;
+  std::optional<ScalarEvolution::LoopGuards> Guards;
+
+  PipelinerIRAnalyses(Function &F)
+      : TLII(F.getParent()->getTargetTriple()), TLI(TLII, &F), AC(F), DT(F),
+        LI(DT), SE(F, TLI, AC, DT, LI) {}
+};
+} // namespace llvm
+
+bool SwingSchedulerDAG::provesDisjointWithSCEV(const MachineInstr &BaseMI,
+                                               const MachineInstr &OtherMI,
+                                               bool LaterIter) const {
+  if (!SwpSCEVDisjoint || !BaseMI.hasOneMemOperand() ||
+      !OtherMI.hasOneMemOperand())
+    return false;
+  const MachineMemOperand &A = **BaseMI.memoperands_begin();
+  const MachineMemOperand &B = **OtherMI.memoperands_begin();
+  const Value *VA = A.getValue(), *VB = B.getValue();
+  const BasicBlock *IRBB = Loop.getHeader()->getBasicBlock();
+  LocationSize SizeA = A.getSize(), SizeB = B.getSize();
+  if (!VA || !VB || !IRBB || !VA->getType()->isPointerTy() ||
+      VA->getType() != VB->getType() || !SizeA.hasValue() ||
+      SizeA.isScalable() || !SizeB.hasValue() || SizeB.isScalable())
+    return false;
+
+  if (!IRAnalyses)
+    IRAnalyses = std::make_shared<PipelinerIRAnalyses>(MF.getFunction());
+  ScalarEvolution &SE = IRAnalyses->SE;
+  const llvm::Loop *L = IRAnalyses->LI.getLoopFor(IRBB);
+  if (!L)
+    return false;
+
+  const SCEV *PA = SE.getSCEV(const_cast<Value *>(VA));
+  const SCEV *PB = SE.getSCEV(const_cast<Value *>(VB));
+  Type *IntTy = SE.getEffectiveSCEVType(VA->getType());
+  // Dist is the distance from the access of BaseMI to that of OtherMI.
+  const SCEV *Dist;
+  const SCEV *Step = nullptr;
+  if (LaterIter) {
+    // Both pointers must step by the same amount each iteration, so that
+    // OtherMI's access K iterations later is Dist + K * Step away.
+    const auto *ARA = dyn_cast<SCEVAddRecExpr>(PA);
+    const auto *ARB = dyn_cast<SCEVAddRecExpr>(PB);
+    if (!ARA || !ARB || ARA->getLoop() != L || ARB->getLoop() != L ||
+        !ARA->isAffine() || !ARB->isAffine())
+      return false;
+    Step = ARA->getStepRecurrence(SE);
+    if (Step != ARB->getStepRecurrence(SE))
+      return false;
+    Dist = SE.getMinusSCEV(ARB->getStart(), ARA->getStart());
+  } else {
+    Dist = SE.getMinusSCEV(PB, PA);
+  }
+  if (isa<SCEVCouldNotCompute>(Dist) || !SE.isLoopInvariant(Dist, L))
+    return false;
+  Dist = SE.getAddExpr(
+      Dist, SE.getConstant(IntTy, B.getOffset() - A.getOffset(), true));
+
+  if (!IRAnalyses->Guards)
+    IRAnalyses->Guards.emplace(ScalarEvolution::LoopGuards::collect(L, SE));
+  const ScalarEvolution::LoopGuards &Guards = *IRAnalyses->Guards;
+  auto IsKnown = [&](ICmpInst::Predicate Pred, const SCEV *LHS,
+                     const SCEV *RHS) {
+    return SE.isKnownPredicate(Pred, SE.applyLoopGuards(LHS, Guards),
+                               SE.applyLoopGuards(RHS, Guards));
+  };
+  const SCEV *SA = SE.getConstant(IntTy, SizeA.getValue());
+  const SCEV *NegSB = SE.getConstant(IntTy, -(int64_t)SizeB.getValue(), true);
+  if (!LaterIter)
+    return IsKnown(ICmpInst::ICMP_SGE, Dist, SA) ||
+           IsKnown(ICmpInst::ICMP_SLE, Dist, NegSB);
+
+  // The accesses K iterations later are Dist + K * Step apart, which for a
+  // step that is never negative is at least Dist + Step, and the reverse.
+  const SCEV *Zero = SE.getZero(IntTy);
+  int Sign = 0;
+  if (IsKnown(ICmpInst::ICMP_SGE, Step, Zero))
+    Sign = 1;
+  else if (IsKnown(ICmpInst::ICMP_SLE, Step, Zero))
+    Sign = -1;
+
+  // Accesses stepping up only meet later if OtherMI's access starts below
+  // the end of BaseMI's one iteration later, and the reverse for those
+  // stepping down.
+  const SCEV *Next = SE.getAddExpr(Dist, Step);
+  if (Sign > 0)
+    return IsKnown(ICmpInst::ICMP_SGE, Next, SA);
+  if (Sign < 0)
+    return IsKnown(ICmpInst::ICMP_SLE, Next, NegSB);
+  return false;
+}
+
 /// Remove the memory dependences between accesses a constant distance apart
 /// that do not overlap. IR alias analysis cannot separate a[i + 1] from
 /// a[i + 2] when loop strength reduction gives each its own pointer.
@@ -3482,8 +3595,9 @@ void SwingSchedulerDAG::removeDisjointMemoryDependences() {
           SizeB.isScalable())
         continue;
       std::optional<int64_t> Dist = getAccessDistance(A, B, DL);
-      if (Dist && (*Dist + (int64_t)SizeA.getValue() <= 0 ||
-                   (int64_t)SizeB.getValue() <= *Dist))
+      if (Dist ? *Dist + (int64_t)SizeA.getValue() <= 0 ||
+                     (int64_t)SizeB.getValue() <= *Dist
+               : provesDisjointWithSCEV(*MIA, *MIB, /*LaterIter=*/false))
         Disjoint.push_back(Pred);
     }
     for (const SDep &D : Disjoint)

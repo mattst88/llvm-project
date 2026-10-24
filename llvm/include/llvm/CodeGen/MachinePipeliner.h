@@ -54,12 +54,14 @@
 #include "llvm/CodeGen/WindowScheduler.h"
 
 #include <deque>
+#include <memory>
 
 namespace llvm {
 
 class AAResults;
 class LiveIntervals;
 class NodeSet;
+struct PipelinerIRAnalyses;
 class SMSchedule;
 
 /// Software pipelining policy for a loop, which a target can customize by
@@ -333,6 +335,10 @@ class LLVM_ABI SwingSchedulerDAG : public ScheduleDAGInstrs {
   /// addLoopCarriedDependences).
   BatchAAResults BAA;
 
+  /// IR scalar evolution for the loop, built on first use to separate
+  /// accesses whose pointers step by a value only known at run time.
+  mutable std::shared_ptr<PipelinerIRAnalyses> IRAnalyses;
+
   /// Helper class to implement Johnson's circuit finding algorithm.
   class Circuits {
     std::vector<SUnit> &SUnits;
@@ -447,6 +453,13 @@ public:
   bool mayOverlapInLaterIter(const MachineInstr *BaseMI,
                              const MachineInstr *OtherMI,
                              unsigned *Distance = nullptr) const;
+
+  /// Return true if scalar evolution proves that the access of \p BaseMI does
+  /// not overlap the access of \p OtherMI, in the same iteration or, if \p
+  /// LaterIter, in any later one.
+  bool provesDisjointWithSCEV(const MachineInstr &BaseMI,
+                              const MachineInstr &OtherMI,
+                              bool LaterIter) const;
 
 private:
   /// Set the policy for this loop, allowing the target to override it.
