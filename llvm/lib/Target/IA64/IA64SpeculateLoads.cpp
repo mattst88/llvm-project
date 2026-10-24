@@ -54,6 +54,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -161,9 +162,25 @@ static cl::opt<bool> Copies(
     "ia64-speculate-copies", cl::init(true), cl::Hidden,
     cl::desc("Issue a load early past stores of values loaded in its block"));
 
+static cl::opt<bool> SameObjectStores(
+    "ia64-speculate-same-object", cl::init(true), cl::Hidden,
+    cl::desc("Do not issue a load early past a store that may alias it into "
+             "the same object"));
+
 static cl::opt<unsigned> ChaseDepth(
     "ia64-speculate-chase-depth", cl::init(5), cl::Hidden,
     cl::desc("How many instructions back from the address a load may be"));
+
+// Whether Store writes through a pointer based on the same object as
+// Load's address.
+static bool storesToObjectOf(const MachineInstr &Store,
+                             const MachineInstr &Load) {
+  if (!Store.hasOneMemOperand() || !Load.hasOneMemOperand())
+    return false;
+  const Value *S = (*Store.memoperands_begin())->getValue();
+  const Value *L = (*Load.memoperands_begin())->getValue();
+  return S && L && getUnderlyingObject(S) == getUnderlyingObject(L);
+}
 
 namespace {
 
@@ -418,7 +435,12 @@ IA64SpeculateLoads::walkUp(MachineInstr &User, ArrayRef<Register> Regs,
     while (At != Begin) {
       MachineInstr &MI = *std::prev(At);
       if (!MI.isDebugInstr()) {
-        if (isBarrier(MI) || ++Distance > MaxDistance) {
+        // Counters in one table, as in a histogram, are stored to between
+        // their loads often enough to invalidate the ALAT entry.
+        if (isBarrier(MI) || ++Distance > MaxDistance ||
+            (Load && SameObjectStores && MI.mayStore() &&
+             storesToObjectOf(MI, *Load) &&
+             MI.mayAlias(AA, *Load, /*UseTBAA=*/true))) {
           Stop = true;
           break;
         }
