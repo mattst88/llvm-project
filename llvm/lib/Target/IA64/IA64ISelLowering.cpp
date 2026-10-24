@@ -2702,7 +2702,7 @@ bool IA64TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
 ISD::NodeType
 IA64TargetLowering::getPreferredExtendForValue(const Instruction *I) const {
   if (isa<LoadInst>(I))
-    return ISD::ANY_EXTEND;
+    return ISD::ZERO_EXTEND;
   return TargetLowering::getPreferredExtendForValue(I);
 }
 

@@ -1730,7 +1730,9 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
         }
       }
 
-      if (AllPredsVisited) {
+      // Incoming values from blocks not yet selected only contribute what
+      // their preferred extension guarantees, which FastISel does not honor.
+      if (AllPredsVisited || !FastIS) {
         for (const PHINode &PN : LLVMBB->phis())
           FuncInfo->ComputePHILiveOutRegInfo(&PN);
       } else {

@@ -287,6 +287,11 @@ public:
     LOI.Known.Zero = Known.Zero;
   }
 
+  bool isDefinitionVisited(const Value *V) const;
+  std::optional<LiveOutInfo> getZeroExtendedLiveOutInfo(const Value *V,
+                                                        unsigned NumRegisters,
+                                                        unsigned BitWidth);
+
   /// ComputePHILiveOutRegInfo - Compute LiveOutInfo for a PHI's destination
   /// register based on the LiveOutInfo of its operands.
   LLVM_ABI void ComputePHILiveOutRegInfo(const PHINode *);

@@ -400,6 +400,37 @@ FunctionLoweringInfo::GetLiveOutRegInfo(Register Reg, unsigned BitWidth) {
   return LOI;
 }
 
+/// Whether the block defining V has been selected, so that its live-out
+/// register info is computed.
+bool FunctionLoweringInfo::isDefinitionVisited(const Value *V) const {
+  const auto *I = dyn_cast<Instruction>(V);
+  return !I || VisitedBBs[I->getParent()->getNumber()];
+}
+
+/// Known bits of a value whose block has not been selected yet, from the
+/// zero extension its register is written with. A PHI's register is written
+/// with its incoming values' extensions instead, and a call's result may be
+/// copied out of the call's lowering directly.
+std::optional<FunctionLoweringInfo::LiveOutInfo>
+FunctionLoweringInfo::getZeroExtendedLiveOutInfo(const Value *V,
+                                                 unsigned NumRegisters,
+                                                 unsigned BitWidth) {
+  if (isa<PHINode>(V) || isa<CallBase>(V))
+    return std::nullopt;
+  auto It = PreferredExtendType.find(V);
+  if (NumRegisters != 1 || It == PreferredExtendType.end() ||
+      It->second != ISD::ZERO_EXTEND || !V->getType()->isIntegerTy())
+    return std::nullopt;
+  unsigned SrcBits = V->getType()->getIntegerBitWidth();
+  if (SrcBits >= BitWidth)
+    return std::nullopt;
+  LiveOutInfo LOI;
+  LOI.Known = KnownBits(BitWidth);
+  LOI.Known.Zero.setBitsFrom(SrcBits);
+  LOI.NumSignBits = BitWidth - SrcBits;
+  return LOI;
+}
+
 /// ComputePHILiveOutRegInfo - Compute LiveOutInfo for a PHI's destination
 /// register based on the LiveOutInfo of its operands.
 void FunctionLoweringInfo::ComputePHILiveOutRegInfo(const PHINode *PN) {
@@ -462,12 +493,19 @@ void FunctionLoweringInfo::ComputePHILiveOutRegInfo(const PHINode *PN) {
       }
       // Split registers are assigned sequentially.
       SrcReg = SrcReg.id() + RegIdx;
-      const LiveOutInfo *SrcLOI = GetLiveOutRegInfo(SrcReg, BitWidth);
+      const LiveOutInfo *SrcLOI = isDefinitionVisited(V)
+                                      ? GetLiveOutRegInfo(SrcReg, BitWidth)
+                                      : nullptr;
       if (!SrcLOI) {
-        DestLOI.IsValid = false;
-        continue;
-      }
-      DestLOI = *SrcLOI;
+        std::optional<LiveOutInfo> ExtLOI =
+            getZeroExtendedLiveOutInfo(V, NumRegisters, BitWidth);
+        if (!ExtLOI) {
+          DestLOI.IsValid = false;
+          continue;
+        }
+        DestLOI = *ExtLOI;
+      } else
+        DestLOI = *SrcLOI;
     }
 
     assert(DestLOI.Known.Zero.getBitWidth() == BitWidth &&
@@ -505,10 +543,17 @@ void FunctionLoweringInfo::ComputePHILiveOutRegInfo(const PHINode *PN) {
       }
       // Split registers are assigned sequentially.
       SrcReg = SrcReg.id() + RegIdx;
-      const LiveOutInfo *SrcLOI = GetLiveOutRegInfo(SrcReg, BitWidth);
+      const LiveOutInfo *SrcLOI = isDefinitionVisited(V)
+                                      ? GetLiveOutRegInfo(SrcReg, BitWidth)
+                                      : nullptr;
+      std::optional<LiveOutInfo> ExtLOI;
       if (!SrcLOI) {
-        DestLOI.IsValid = false;
-        break;
+        ExtLOI = getZeroExtendedLiveOutInfo(V, NumRegisters, BitWidth);
+        if (!ExtLOI) {
+          DestLOI.IsValid = false;
+          break;
+        }
+        SrcLOI = &*ExtLOI;
       }
       DestLOI.NumSignBits = std::min(DestLOI.NumSignBits, SrcLOI->NumSignBits);
       DestLOI.Known = DestLOI.Known.intersectWith(SrcLOI->Known);
