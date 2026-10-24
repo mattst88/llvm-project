@@ -1106,6 +1106,48 @@ static SDValue combineSetCCOfMaskedAdd(SDNode *N, SelectionDAG &DAG,
       DAG.getConstant(Lo - Hi - 1, DL, VT), ISD::SETUGE);
 }
 
+// X + zext(C) as C ? X + 1 : X, and X - zext(C) and X + sext(C) as
+// C ? X - 1 : X: the add runs beside the compare and the predicated move
+// after it, where the extension of the compare is a predicated move of 1
+// that the add then waits for. The count of samples under a curve. Once
+// the types are legal, when a zero-extended compare is the compare itself,
+// and after the compare's own combines, which a select would hide.
+static SDValue combineAddOfBool(SDNode *N, SelectionDAG &DAG,
+                                TargetLowering::DAGCombinerInfo &DCI) {
+  EVT VT = N->getValueType(0);
+  if (DCI.isBeforeLegalize() || !VT.isScalarInteger())
+    return SDValue();
+  bool IsSub = N->getOpcode() == ISD::SUB;
+  for (unsigned I = 0; I != (IsSub ? 1 : 2); ++I) {
+    SDValue X = N->getOperand(I), B = N->getOperand(1 - I);
+    if (!B.hasOneUse() || isa<ConstantSDNode>(X))
+      continue;
+    bool Negative = false;
+    SDValue C;
+    if (B.getOpcode() == ISD::SETCC) {
+      C = B;
+    } else if ((B.getOpcode() == ISD::ZERO_EXTEND ||
+                B.getOpcode() == ISD::SIGN_EXTEND) &&
+               B.getOperand(0).getOpcode() == ISD::SETCC) {
+      C = B.getOperand(0);
+      Negative =
+          B.getOpcode() == ISD::SIGN_EXTEND && C.getValueType() == MVT::i1;
+    }
+    if (!C)
+      continue;
+    if (SDValue V = combineSetCCOfMaskedAdd(C.getNode(), DAG, DCI))
+      C = V;
+    else if (SDValue V = combineSetCCOfXor(C.getNode(), DAG))
+      C = V;
+    bool Down = IsSub != Negative;
+    SDLoc DL(N);
+    SDValue Stepped = DAG.getNode(ISD::ADD, DL, VT, X,
+                                  DAG.getSignedConstant(Down ? -1 : 1, DL, VT));
+    return DAG.getSelect(DL, VT, C, Stepped, X);
+  }
+  return SDValue();
+}
+
 SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -1113,8 +1155,12 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::BRCOND:
     return combineLoopBranch(N, DAG);
   case ISD::ADD:
+    if (SDValue V = combineAddOfBool(N, DAG, DCI))
+      return V;
     return combineAddOfExtendedSelect(N, DAG);
   case ISD::SUB:
+    if (SDValue V = combineAddOfBool(N, DAG, DCI))
+      return V;
     return combineSubOfMulBySignificand(N, DAG, DCI);
   case ISD::MUL:
     if (SDValue V = combineMulByConstant(N, DAG, DCI))
