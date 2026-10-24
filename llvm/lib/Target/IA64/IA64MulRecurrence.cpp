@@ -41,6 +41,78 @@ using namespace llvm::PatternMatch;
 #define DEBUG_TYPE "ia64-mul-recurrence"
 
 STATISTIC(NumReplaced, "Number of multiplies replaced by a recurrence");
+STATISTIC(NumSplit, "Number of multiplies of a choice split into two");
+
+// Olden mst's compute_dist multiplies min(i, c) by an invariant n, where i
+// is the loop's induction variable and c is invariant. The product of a
+// choice is the choice of the products, and both of those loop strength
+// reduction makes cheap: i * n an addition an iteration and c * n one
+// multiply ahead of the loop. InstCombine folds the choice back, so this
+// runs after it.
+static bool splitChoiceMuls(Loop &L, LoopInfo &LI, ScalarEvolution &SE) {
+  BasicBlock *Preheader = L.getLoopPreheader();
+  if (!Preheader)
+    return false;
+  auto IsIV = [&](Value *V) {
+    auto *AR = dyn_cast<SCEVAddRecExpr>(SE.getSCEV(V));
+    return AR && AR->getLoop() == &L && AR->isAffine() &&
+           SE.isLoopInvariant(AR->getOperand(1), &L);
+  };
+  // A choice X between an induction variable and an invariant, times an
+  // invariant K.
+  auto IsSplittable = [&](Value *X, Value *K) {
+    Value *A, *B;
+    return !isa<Constant>(K) && L.isLoopInvariant(K) &&
+           match(X, m_OneUse(m_CombineOr(
+                        m_MaxOrMin(m_Value(A), m_Value(B)),
+                        m_Select(m_Value(), m_Value(A), m_Value(B))))) &&
+           ((IsIV(A) && L.isLoopInvariant(B)) ||
+            (IsIV(B) && L.isLoopInvariant(A)));
+  };
+  SmallVector<std::pair<Instruction *, unsigned>, 4> Muls;
+  for (BasicBlock *BB : L.blocks()) {
+    if (LI.getLoopFor(BB) != &L)
+      continue;
+    for (Instruction &I : *BB) {
+      if (!I.getType()->isIntegerTy() || I.getOpcode() != Instruction::Mul)
+        continue;
+      for (unsigned Op : {0, 1})
+        if (IsSplittable(I.getOperand(Op), I.getOperand(1 - Op))) {
+          Muls.push_back({&I, Op});
+          break;
+        }
+    }
+  }
+  for (auto [Mul, Op] : Muls) {
+    auto *X = cast<Instruction>(Mul->getOperand(Op));
+    Value *K = Mul->getOperand(1 - Op);
+    IRBuilder<> B(Mul);
+    Value *Cond, *A, *C;
+    if (auto *MM = dyn_cast<MinMaxIntrinsic>(X)) {
+      A = MM->getLHS();
+      C = MM->getRHS();
+      Cond = B.CreateICmp(MM->getPredicate(), A, C);
+    } else {
+      auto *Sel = cast<SelectInst>(X);
+      Cond = Sel->getCondition();
+      A = Sel->getTrueValue();
+      C = Sel->getFalseValue();
+    }
+    auto Product = [&](Value *V) {
+      IRBuilder<> PB(L.isLoopInvariant(V) ? Preheader->getTerminator() : Mul);
+      auto *P = cast<BinaryOperator>(PB.CreateMul(V, K, Mul->getName()));
+      P->copyIRFlags(Mul);
+      return P;
+    };
+    Value *Sel = B.CreateSelect(Cond, Product(A), Product(C));
+    Mul->replaceAllUsesWith(Sel);
+    Sel->takeName(Mul);
+    Mul->eraseFromParent();
+    X->eraseFromParent();
+    ++NumSplit;
+  }
+  return !Muls.empty();
+}
 
 static bool replaceMuls(Loop &L, LoopInfo &LI, DominatorTree &DT,
                         ScalarEvolution &SE) {
@@ -112,8 +184,10 @@ PreservedAnalyses IA64MulRecurrencePass::run(Function &F,
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   auto &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
   bool Changed = false;
-  for (Loop *L : LI.getLoopsInPreorder())
+  for (Loop *L : LI.getLoopsInPreorder()) {
     Changed |= replaceMuls(*L, LI, DT, SE);
+    Changed |= splitChoiceMuls(*L, LI, SE);
+  }
   if (!Changed)
     return PreservedAnalyses::all();
   PreservedAnalyses PA;

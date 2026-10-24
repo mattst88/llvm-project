@@ -147,3 +147,125 @@ loop:
 exit:
   ret void
 }
+
+; Olden mst's compute_dist: min(i, c) * n is i * n, which LSR strength
+; reduces, or c * n, computed once ahead of the loop.
+define void @min_times_invariant(ptr %p, i32 %c, i32 %n, i32 %e) {
+; CHECK-LABEL: define void @min_times_invariant(
+; CHECK-SAME: ptr [[P:%.*]], i32 [[C:%.*]], i32 [[N:%.*]], i32 [[E:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    [[M1:%.*]] = mul nsw i32 [[C]], [[N]]
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LATCH:.*]] ]
+; CHECK-NEXT:    [[SKIP:%.*]] = icmp eq i32 [[I]], [[E]]
+; CHECK-NEXT:    br i1 [[SKIP]], label %[[LATCH]], label %[[BODY:.*]]
+; CHECK:       [[BODY]]:
+; CHECK-NEXT:    [[TMP0:%.*]] = icmp slt i32 [[I]], [[C]]
+; CHECK-NEXT:    [[M2:%.*]] = mul nsw i32 [[I]], [[N]]
+; CHECK-NEXT:    [[M:%.*]] = select i1 [[TMP0]], i32 [[M2]], i32 [[M1]]
+; CHECK-NEXT:    [[IX:%.*]] = zext i32 [[I]] to i64
+; CHECK-NEXT:    [[PI:%.*]] = getelementptr inbounds i32, ptr [[P]], i64 [[IX]]
+; CHECK-NEXT:    store i32 [[M]], ptr [[PI]], align 4
+; CHECK-NEXT:    br label %[[LATCH]]
+; CHECK:       [[LATCH]]:
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i32 [[I]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[I_NEXT]], 100
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %loop
+loop:
+  %i = phi i32 [ 0, %entry ], [ %i.next, %latch ]
+  %skip = icmp eq i32 %i, %e
+  br i1 %skip, label %latch, label %body
+body:
+  %less = call i32 @llvm.smin.i32(i32 %i, i32 %c)
+  %m = mul nsw i32 %less, %n
+  %ix = zext i32 %i to i64
+  %pi = getelementptr inbounds i32, ptr %p, i64 %ix
+  store i32 %m, ptr %pi
+  br label %latch
+latch:
+  %i.next = add nuw nsw i32 %i, 1
+  %done = icmp eq i32 %i.next, 100
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
+
+define void @select_times_invariant(ptr %p, i1 %b, i32 %c, i32 %n) {
+; CHECK-LABEL: define void @select_times_invariant(
+; CHECK-SAME: ptr [[P:%.*]], i1 [[B:%.*]], i32 [[C:%.*]], i32 [[N:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    [[M2:%.*]] = mul i32 [[C]], [[N]]
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[M1:%.*]] = mul i32 [[I]], [[N]]
+; CHECK-NEXT:    [[M:%.*]] = select i1 [[B]], i32 [[M2]], i32 [[M1]]
+; CHECK-NEXT:    [[IX:%.*]] = zext i32 [[I]] to i64
+; CHECK-NEXT:    [[PI:%.*]] = getelementptr inbounds i32, ptr [[P]], i64 [[IX]]
+; CHECK-NEXT:    store i32 [[M]], ptr [[PI]], align 4
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i32 [[I]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[I_NEXT]], 100
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %loop
+loop:
+  %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+  %x = select i1 %b, i32 %c, i32 %i
+  %m = mul i32 %n, %x
+  %ix = zext i32 %i to i64
+  %pi = getelementptr inbounds i32, ptr %p, i64 %ix
+  store i32 %m, ptr %pi
+  %i.next = add nuw nsw i32 %i, 1
+  %done = icmp eq i32 %i.next, 100
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
+
+; Neither arm is invariant: both products would be multiplies in the loop.
+define void @max_of_two_ivs(ptr %p, ptr %q, i32 %n) {
+; CHECK-LABEL: define void @max_of_two_ivs(
+; CHECK-SAME: ptr [[P:%.*]], ptr [[Q:%.*]], i32 [[N:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[I:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[I_NEXT:%.*]], %[[LOOP]] ]
+; CHECK-NEXT:    [[IX:%.*]] = zext i32 [[I]] to i64
+; CHECK-NEXT:    [[QI:%.*]] = getelementptr inbounds i32, ptr [[Q]], i64 [[IX]]
+; CHECK-NEXT:    [[V:%.*]] = load i32, ptr [[QI]], align 4
+; CHECK-NEXT:    [[X:%.*]] = call i32 @llvm.smax.i32(i32 [[I]], i32 [[V]])
+; CHECK-NEXT:    [[M:%.*]] = mul i32 [[X]], [[N]]
+; CHECK-NEXT:    [[PI:%.*]] = getelementptr inbounds i32, ptr [[P]], i64 [[IX]]
+; CHECK-NEXT:    store i32 [[M]], ptr [[PI]], align 4
+; CHECK-NEXT:    [[I_NEXT]] = add nuw nsw i32 [[I]], 1
+; CHECK-NEXT:    [[DONE:%.*]] = icmp eq i32 [[I_NEXT]], 100
+; CHECK-NEXT:    br i1 [[DONE]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret void
+;
+entry:
+  br label %loop
+loop:
+  %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+  %ix = zext i32 %i to i64
+  %qi = getelementptr inbounds i32, ptr %q, i64 %ix
+  %v = load i32, ptr %qi
+  %x = call i32 @llvm.smax.i32(i32 %i, i32 %v)
+  %m = mul i32 %x, %n
+  %pi = getelementptr inbounds i32, ptr %p, i64 %ix
+  store i32 %m, ptr %pi
+  %i.next = add nuw nsw i32 %i, 1
+  %done = icmp eq i32 %i.next, 100
+  br i1 %done, label %exit, label %loop
+exit:
+  ret void
+}
