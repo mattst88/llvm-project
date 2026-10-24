@@ -1,0 +1,207 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -run-pass=ia64-speculate-loads \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck %s
+
+# The load in the latch bb.4 has its address from the join bb.3, whose hot
+# pred bb.2 reaches it from the loop header bb.1. The walk up stops at the
+# top of the header, where the address is the header PHI. Rather than load
+# there, after the copies that end the latch, the speculative load moves into
+# the header's preds: the latch, just after the check and the next address,
+# and the entry edge, which is split.
+
+# CHECK-LABEL: name: spread
+# CHECK:      bb.0.entry:
+# CHECK:        BRCCi
+# CHECK-NEXT: {{^ *$}}
+# CHECK-NEXT: bb.[[E:[0-9]+]]:
+# CHECK:        [[EA:%[0-9]+]]:gr = SHLADD
+# CHECK-NEXT:   [[EV:%[0-9]+]]:gr = SPEC_LD_GR [[EA]]
+# CHECK-NEXT:   BRUNCOND %bb.1
+# CHECK:      bb.1.head:
+# CHECK-NEXT:   successors:
+# CHECK-NEXT: {{^ *$}}
+# CHECK-NEXT:   [[HV:%[0-9]+]]:gr = PHI [[EV]], %bb.[[E]], [[LV:%[0-9]+]], %bb.4
+# CHECK-NEXT:   [[HA:%[0-9]+]]:gr = PHI [[EA]], %bb.[[E]], [[LA:%[0-9]+]], %bb.4
+# CHECK-NEXT:   PHI
+# CHECK-NEXT:   EXTR_U
+# CHECK:      bb.3.join:
+# CHECK:        PHI [[HV]], %bb.2,
+# CHECK:      bb.4.latch:
+# CHECK-NEXT:   successors:
+# CHECK-NEXT: {{^ *$}}
+# CHECK-NEXT:   [[V:%[0-9]+]]:gr = CHECK_LD_GR
+# CHECK-NEXT:   [[N:%[0-9]+]]:gr = EXTR_U [[V]], 8, 56
+# CHECK-NEXT:   [[LA]]:gr = SHLADD [[N]], 2
+# CHECK-NEXT:   [[LV]]:gr = SPEC_LD_GR [[LA]]
+# CHECK-NEXT:   BRUNCOND %bb.1
+
+# The loaded value itself goes round the loop. An early load in the latch
+# would have to live beside the checked one, so the speculative load stays at
+# the top of the header.
+
+# CHECK-LABEL: name: live_out
+# CHECK:      bb.1.head:
+# CHECK-NEXT:   successors:
+# CHECK-NEXT: {{^ *$}}
+# CHECK-NEXT:   PHI
+# CHECK-NEXT:   SHLADD
+# CHECK-NEXT:   SPEC_LD_GR
+# CHECK:      bb.4.latch:
+# CHECK-NEXT:   successors:
+# CHECK-NEXT: {{^ *$}}
+# CHECK-NEXT:   CHECK_LD_GR
+# CHECK-NEXT:   EXTR_U
+# CHECK-NEXT:   BRUNCOND %bb.1
+
+--- |
+  target triple = "ia64-unknown-linux-gnu"
+
+  define void @spread(ptr %tt, i64 %flags) {
+  entry:
+    %a = trunc i64 %flags to i1
+    br i1 %a, label %join, label %head
+
+  head:
+    %pos = phi i32 [ %next, %latch ], [ 0, %entry ]
+    %pos.half = lshr i32 %pos, 1
+    %done = icmp ne i32 %pos.half, 0
+    br i1 %done, label %exit, label %mid
+
+  mid:
+    br label %join
+
+  join:
+    %pos2 = phi i32 [ %pos, %mid ], [ 0, %entry ]
+    %flags.half = lshr i64 %flags, 1
+    %stop = icmp ne i64 %flags.half, 0
+    br i1 %stop, label %exit, label %latch
+
+  latch:
+    %idx = zext i32 %pos2 to i64
+    %p = getelementptr i32, ptr %tt, i64 %idx
+    %t = load i32, ptr %p, align 4
+    %next = lshr i32 %t, 8
+    br label %head
+
+  exit:
+    ret void
+  }
+
+  define void @live_out(ptr %tt, i64 %flags) {
+  entry:
+    %a = trunc i64 %flags to i1
+    br i1 %a, label %join, label %head
+
+  head:
+    %pos = phi i32 [ %t, %latch ], [ 0, %entry ]
+    %pos.half = lshr i32 %pos, 1
+    %done = icmp ne i32 %pos.half, 0
+    br i1 %done, label %exit, label %mid
+
+  mid:
+    br label %join
+
+  join:
+    %pos2 = phi i32 [ %pos, %mid ], [ 0, %entry ]
+    %flags.half = lshr i64 %flags, 1
+    %stop = icmp ne i64 %flags.half, 0
+    br i1 %stop, label %exit, label %latch
+
+  latch:
+    %idx = zext i32 %pos2 to i64
+    %p = getelementptr i32, ptr %tt, i64 %idx
+    %t = load i32, ptr %p, align 4
+    %next = lshr i32 %t, 8
+    br label %head
+
+  exit:
+    ret void
+  }
+...
+---
+name:            spread
+tracksRegLiveness: true
+body:             |
+  bb.0.entry:
+    successors: %bb.1, %bb.3
+    liveins: $r32, $r33
+
+    %3:gr = COPY $r32
+    %4:gr = COPY $r33
+    %7:gr = COPY $r0
+    BRCCi %bb.3, 22, %4, 0, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.1
+
+  bb.1.head:
+    successors: %bb.5(0x04000000), %bb.2(0x7c000000)
+
+    %0:gr = PHI %7, %bb.0, %2, %bb.4
+    %9:gr = EXTR_U %0, 1, 63, $p0
+    BRCCi %bb.5, 1, %9, 0, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+
+  bb.2.mid:
+    successors: %bb.3
+
+  bb.3.join:
+    successors: %bb.5(0x04000000), %bb.4(0x7c000000)
+
+    %1:gr = PHI %7, %bb.0, %0, %bb.2
+    %10:gr = EXTR_U %4, 1, 63, $p0
+    BRCCi %bb.5, 1, %10, 0, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.4
+
+  bb.4.latch:
+    successors: %bb.1
+
+    %12:gr = SHLADD %1, 2, %3, $p0
+    %13:gr = LD4 %12, 0, $p0 :: (load (s32) from %ir.p)
+    %2:gr = EXTR_U %13, 8, 56, $p0
+    BRUNCOND %bb.1
+
+  bb.5.exit:
+    BR_RET $b0, 0, 1, 0, $p0
+...
+---
+name:            live_out
+tracksRegLiveness: true
+body:             |
+  bb.0.entry:
+    successors: %bb.1, %bb.3
+    liveins: $r32, $r33
+
+    %3:gr = COPY $r32
+    %4:gr = COPY $r33
+    %7:gr = COPY $r0
+    BRCCi %bb.3, 22, %4, 0, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.1
+
+  bb.1.head:
+    successors: %bb.5(0x04000000), %bb.2(0x7c000000)
+
+    %0:gr = PHI %7, %bb.0, %13, %bb.4
+    %9:gr = EXTR_U %0, 1, 63, $p0
+    BRCCi %bb.5, 1, %9, 0, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.2
+
+  bb.2.mid:
+    successors: %bb.3
+
+  bb.3.join:
+    successors: %bb.5(0x04000000), %bb.4(0x7c000000)
+
+    %1:gr = PHI %7, %bb.0, %0, %bb.2
+    %10:gr = EXTR_U %4, 1, 63, $p0
+    BRCCi %bb.5, 1, %10, 0, implicit-def dead $p6, implicit-def dead $p7
+    BRUNCOND %bb.4
+
+  bb.4.latch:
+    successors: %bb.1
+
+    %12:gr = SHLADD %1, 2, %3, $p0
+    %13:gr = LD4 %12, 0, $p0 :: (load (s32) from %ir.p)
+    %2:gr = EXTR_U %13, 8, 56, $p0
+    BRUNCOND %bb.1
+
+  bb.5.exit:
+    BR_RET $b0, 0, 1, 0, $p0
+...

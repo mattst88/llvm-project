@@ -210,3 +210,58 @@ body:             |
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
 ...
+# A check in a loop whose next speculative load follows it in the same block
+# keeps the pair: the path round the loop ends at that load.
+
+# CHECK-LABEL: name: latch
+# CHECK: $r15 = LD4_SA $r14, 0, $p0
+# CHECK: $r15 = LD4_C_CLR killed $r14, 0, $p0, implicit $r15
+# CHECK: $r15 = LD4_SA $r14, 0, $p0
+# CHECK-NOT: {{SPEC|CHECK}}_LD
+---
+name:            latch
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r32, $r33
+    $r14 = SHLADD killed $r33, 2, $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 723, 0 :: (load (s32))
+  bb.1:
+    successors: %bb.2, %bb.1
+    liveins: $r14, $r15, $r32
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 723, 0 :: (load (s32))
+    $r16 = EXTR_U killed $r15, 8, 56, $p0
+    $r14 = SHLADD $r16, 2, $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 723, 0 :: (load (s32))
+    BRCCi %bb.2, 1, killed $r16, 0, implicit-def $p6, implicit-def $p7
+    BRUNCOND %bb.1
+  bb.2:
+    BR_RET $b0, 0, 1, 0, $p0
+...
+# Without one, the path round the loop meets the check itself.
+
+# CHECK-LABEL: name: latch_read
+# CHECK: $r15 = ADDS 0, $r0, $p0
+# CHECK: $r15 = LD4 $r14, 0, $p0
+---
+name:            latch_read
+tracksRegLiveness: true
+noVRegs:         true
+body:             |
+  bb.0:
+    successors: %bb.1
+    liveins: $r32, $r33
+    $r14 = SHLADD killed $r33, 2, $r32, $p0
+    $r15 = SPEC_LD_GR $r14, 723, 0 :: (load (s32))
+  bb.1:
+    successors: %bb.2, %bb.1
+    liveins: $r14, $r15, $r32
+    $r15 = CHECK_LD_GR $r14, killed $r15, 723, 0 :: (load (s32))
+    $r16 = EXTR_U $r15, 8, 56, $p0
+    BRCCi %bb.2, 1, killed $r16, 0, implicit-def $p6, implicit-def $p7
+    BRUNCOND %bb.1
+  bb.2:
+    BR_RET $b0, 0, 1, 0, $p0
+...

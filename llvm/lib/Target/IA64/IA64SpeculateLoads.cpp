@@ -140,6 +140,11 @@ static cl::opt<bool> InPredecessors(
     cl::desc("Issue a load early in each predecessor of a block that other "
              "paths also enter"));
 
+static cl::opt<bool> SpreadPreds(
+    "ia64-speculate-spread", cl::init(true), cl::Hidden,
+    cl::desc("Issue an early load in the predecessors of the block it "
+             "stopped at in turn"));
+
 static cl::opt<unsigned> SplitMaxPercent(
     "ia64-speculate-split-max", cl::init(10), cl::Hidden,
     cl::desc("How often, in percent of the times a block is entered, an "
@@ -281,6 +286,7 @@ private:
   std::pair<Register, int64_t> splitAddress(Register Addr) const;
   bool speculate(MachineInstr &Load, unsigned Pair);
   bool speculateInPreds(MachineInstr &Load, Walk &W, unsigned Pair);
+  bool spreadInPreds(MachineInstr &Spec);
   bool speculateCopy(MachineInstr &Load, unsigned Pair);
   bool hoistOperands(MachineInstr &User);
 
@@ -798,6 +804,7 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
   const TargetRegisterClass *RC = MRI->getRegClass(Load.getOperand(0).getReg());
   bool FP = IA64::FRRegClass.hasSubClassEq(RC);
   SmallVector<std::pair<Register, MachineBasicBlock *>, 4> Addrs, Earlies;
+  MachineInstr *Spread = nullptr;
   for (MachineBasicBlock *P : Preds) {
     // A predecessor that also leads elsewhere gets a block of its own on
     // the edge, so that the load is issued only on the way to the join.
@@ -874,6 +881,10 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
     if (PW.At == Spec->getIterator() ||
         (SkipAddressBranches && testsAddress(PW, InAddr)))
       continue;
+    // Whether the load is to sit at the top of another join.
+    if (P == Preds.front() && PW.Join && PW.MBB != In &&
+        PW.At == PW.MBB->getFirstNonPHI())
+      Spread = Spec;
     for (MachineInstr *MI : reverse(PW.Chain)) {
       if (PW.At != PW.MBB->end() && &*PW.At == MI)
         ++PW.At;
@@ -896,9 +907,19 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
   Register JoinEarly = MRI->createVirtualRegister(RC);
   JoinPhi(JoinAddr, Addrs);
   JoinPhi(JoinEarly, Earlies);
+  // An early load issued while the value of the last one is still live
+  // cannot have its register, and the pair would be undone. Where the value
+  // is used only in the block of the check, as in bzip2, it is dead by the
+  // time the latch issues the next.
+  Register Value = Load.getOperand(0).getReg();
+  if (Spread &&
+      !all_of(MRI->use_nodbg_instructions(Value), [&](const MachineInstr &MI) {
+        return MI.getParent() == Load.getParent() && !MI.isPHI() &&
+               !MI.isTerminator();
+      }))
+    Spread = nullptr;
   BuildMI(*Load.getParent(), Load, Load.getDebugLoc(),
-          TII->get(FP ? IA64::CHECK_LD_FR : IA64::CHECK_LD_GR),
-          Load.getOperand(0).getReg())
+          TII->get(FP ? IA64::CHECK_LD_FR : IA64::CHECK_LD_GR), Value)
       .addReg(JoinAddr)
       .addReg(JoinEarly)
       .addImm(Load.getOpcode())
@@ -912,8 +933,174 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
           return MRI->use_nodbg_empty(MO.getReg());
         }))
       MI->eraseFromParent();
+  if (Spread && SpreadPreds)
+    spreadInPreds(*Spread);
   ++NumSpeculated;
   Changed = true;
+  return true;
+}
+
+// The early load on the hottest path into a join may itself have stopped at
+// the top of a block that other paths enter, and whose phis give its
+// address. In bzip2's output loop that block is the loop header, and the
+// next index is known at the end of the latch, two groups earlier. Issue
+// the load there too, and in the other predecessors, and join the early
+// loads and their addresses in phis.
+bool IA64SpeculateLoads::spreadInPreds(MachineInstr &Spec) {
+  MachineBasicBlock *Join = Spec.getParent();
+  LLVM_DEBUG(dbgs() << "spread: " << Spec);
+  // The chain, then the load.
+  SmallVector<MachineInstr *, 4> Insts;
+  for (MachineBasicBlock::iterator I = Join->getFirstNonPHI(); &*I != &Spec;
+       ++I)
+    Insts.push_back(&*I);
+  bool HasChain = !Insts.empty();
+  Insts.push_back(&Spec);
+  SmallSet<Register, 8> Reads;
+  for (MachineInstr *MI : Insts)
+    for (const MachineOperand &MO : MI->all_uses())
+      Reads.insert(MO.getReg());
+  SmallVector<MachineInstr *, 4> Phis;
+  for (MachineInstr &Phi : Join->phis())
+    if (Reads.count(Phi.getOperand(0).getReg()))
+      Phis.push_back(&Phi);
+  auto Incoming = [&](MachineBasicBlock *P) {
+    SmallVector<Register, 4> Regs;
+    for (MachineInstr *Phi : Phis)
+      for (unsigned I = 1, E = Phi->getNumOperands(); I < E; I += 2)
+        if (Phi->getOperand(I + 1).getMBB() == P)
+          Regs.push_back(Phi->getOperand(I).getReg());
+    return Regs;
+  };
+  // Whether S, entered only from P, passes on to the join what P computed.
+  auto Feeds = [&](MachineBasicBlock *S, MachineBasicBlock *P) {
+    if (S->pred_size() != 1 || !S->isSuccessor(Join))
+      return false;
+    SmallVector<Register, 4> Regs = Incoming(S);
+    return Regs == Incoming(P) && none_of(Regs, [&](Register Reg) {
+             MachineInstr *Def = MRI->getVRegDef(Reg);
+             return Def && Def->getParent() == S;
+           });
+  };
+  // Whether every way out of P goes to the join, directly or through a
+  // block that P feeds.
+  auto Hosts = [&](MachineBasicBlock *P) {
+    return P != Join && !P->isEHPad() &&
+           all_of(P->successors(), [&](MachineBasicBlock *S) {
+             return S == Join || Feeds(S, P);
+           });
+  };
+  SmallVector<MachineBasicBlock *, 4> Preds;
+  for (MachineBasicBlock *P : Join->predecessors())
+    if (!is_contained(Preds, P))
+      Preds.push_back(P);
+  if (Preds.size() < 2 || Preds.size() > 4 || Join->isEHPad())
+    return false;
+  BlockFrequency JoinFreq = MBFI->getBlockFreq(Join);
+  // Where each predecessor's early load is issued; null for a block of its
+  // own on the edge.
+  SmallVector<MachineBasicBlock *, 4> Ins;
+  // Splitting an edge renames the predecessor in the phis.
+  SmallVector<SmallVector<Register, 4>, 4> Values;
+  MachineBasicBlock *Hottest = nullptr;
+  BlockFrequency HottestFreq;
+  for (MachineBasicBlock *P : Preds) {
+    MachineBasicBlock *In = nullptr;
+    if (P == Join || P->isEHPad())
+      return false;
+    if (P->succ_size() == 1 || Hosts(P))
+      In = P;
+    else if (P->pred_size() == 1 && Hosts(*P->pred_begin()) &&
+             Feeds(P, *P->pred_begin()))
+      In = *P->pred_begin();
+    else if (!P->canSplitCriticalEdge(Join) ||
+             MBFI->getBlockFreq(P) * MBPI->getEdgeProbability(P, Join) >
+                 JoinFreq * BranchProbability(SplitMaxPercent, 100)) {
+      LLVM_DEBUG(dbgs() << "spread: no place in " << printMBBReference(*P)
+                        << " for " << printMBBReference(*Join) << "\n");
+      return false;
+    }
+    BlockFrequency Freq =
+        MBFI->getBlockFreq(P) * MBPI->getEdgeProbability(P, Join);
+    if (!Hottest || Freq > HottestFreq) {
+      Hottest = In;
+      HottestFreq = Freq;
+    }
+    Ins.push_back(In);
+    Values.push_back(Incoming(P));
+  }
+  // On the edge, the load issues no earlier than at the top of the join.
+  if (!Hottest)
+    return false;
+
+  MachineFunction &MF = *Join->getParent();
+  Register Addr = Spec.getOperand(1).getReg();
+  Register Early = Spec.getOperand(0).getReg();
+  DenseMap<MachineBasicBlock *, std::pair<Register, Register>> Issued;
+  SmallVector<std::pair<Register, MachineBasicBlock *>, 4> Addrs, Earlies;
+  for (auto [P, In, Regs] : zip(Preds, Ins, Values)) {
+    MachineBasicBlock *Edge = P;
+    if (!In)
+      Edge = In = P->SplitCriticalEdge(
+          Join, MachineBasicBlock::SplitCriticalEdgeAnalyses{nullptr, nullptr,
+                                                             nullptr, MLI});
+    auto [It, New] = Issued.try_emplace(In);
+    if (New) {
+      DenseMap<Register, Register> Map;
+      for (auto [Phi, Reg] : zip_equal(Phis, Regs))
+        Map[Phi->getOperand(0).getReg()] = Reg;
+      auto Sub = [&](Register Reg) {
+        auto Found = Map.find(Reg);
+        return Found == Map.end() ? Reg : Found->second;
+      };
+      MachineBasicBlock::iterator Pos = In->getFirstTerminator();
+      for (MachineInstr *MI : Insts) {
+        MachineInstr *Clone = MF.CloneMachineInstr(MI);
+        for (MachineOperand &MO : Clone->operands()) {
+          if (!MO.isReg() || !MO.getReg().isVirtual())
+            continue;
+          if (MO.isDef()) {
+            Register Reg = MRI->cloneVirtualRegister(MO.getReg());
+            Map[MO.getReg()] = Reg;
+            MO.setReg(Reg);
+          } else {
+            MO.setReg(Sub(MO.getReg()));
+            MO.setIsKill(false);
+            MRI->clearKillFlags(MO.getReg());
+          }
+        }
+        In->insert(Pos, Clone);
+      }
+      It->second = {Sub(Addr), Sub(Early)};
+    }
+    Addrs.push_back({It->second.first, Edge});
+    Earlies.push_back({It->second.second, Edge});
+  }
+  auto JoinPhi = [&](Register Reg,
+                     ArrayRef<std::pair<Register, MachineBasicBlock *>> Ins) {
+    Register New = MRI->cloneVirtualRegister(Reg);
+    MachineInstrBuilder MIB = BuildMI(*Join, Join->begin(), Spec.getDebugLoc(),
+                                      TII->get(IA64::PHI), New);
+    for (auto [In, MBB] : Ins)
+      MIB.addReg(In).addMBB(MBB);
+    return New;
+  };
+  // An address that a phi gives is already joined.
+  auto ReplaceUses = [&](Register From, Register To) {
+    for (MachineOperand &MO :
+         make_early_inc_range(MRI->use_nodbg_operands(From)))
+      MO.setReg(To);
+  };
+  Insts.pop_back();
+  Spec.eraseFromParent();
+  if (HasChain)
+    ReplaceUses(Addr, JoinPhi(Addr, Addrs));
+  ReplaceUses(Early, JoinPhi(Early, Earlies));
+  for (MachineInstr *MI : reverse(Insts))
+    if (all_of(MI->all_defs(), [&](const MachineOperand &MO) {
+          return MRI->use_nodbg_empty(MO.getReg());
+        }))
+      MI->eraseFromParent();
   return true;
 }
 
@@ -1036,8 +1223,9 @@ static bool holds(const MachineInstr &Check, const TargetRegisterInfo *TRI) {
               4>
       Work{{Use, Check.getIterator()}};
   SmallPtrSet<const MachineBasicBlock *, 16> Seen;
-  // A block met again was or will be searched from its end, so only the
-  // paths through Check's own block back to it need be refused.
+  // A block met again was or will be searched from its end. A path back to
+  // Check that no early load after it ends, as one in a latch does, meets
+  // Check itself, which reads the register.
   for (unsigned Blocks = 0; !Work.empty(); ++Blocks) {
     if (Blocks == 16)
       return false;
@@ -1063,8 +1251,6 @@ static bool holds(const MachineInstr &Check, const TargetRegisterInfo *TRI) {
     if (MBB->pred_empty())
       return false;
     for (const MachineBasicBlock *Pred : MBB->predecessors()) {
-      if (Pred == Use)
-        return false;
       if (Seen.insert(Pred).second)
         Work.push_back({Pred, Pred->end()});
     }
