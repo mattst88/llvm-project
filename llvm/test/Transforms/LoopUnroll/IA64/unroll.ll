@@ -3,16 +3,16 @@
 ; RUN:   -ia64-unroll-threshold=0 | FileCheck %s --check-prefix=OFF
 
 ; A loop of unknown trip count unrolls, with a remainder loop for the
-; iterations left over: one store an iteration leaves a store unit idle
-; every cycle.
-define void @clear(ptr %a, i64 %n) {
-; CHECK-LABEL: @clear(
+; iterations left over: a shift and a store an iteration leave a store unit
+; idle every cycle.
+define void @fill(ptr %a, i64 %n) {
+; CHECK-LABEL: @fill(
 ; CHECK:       for.body:
-; CHECK-COUNT-8: store i64
+; CHECK-COUNT-4: store i64
 ; CHECK-NOT:   store i64
 ; CHECK:       br i1
 ; CHECK:       for.body.epil:
-; OFF-LABEL:   @clear(
+; OFF-LABEL:   @fill(
 ; OFF-COUNT-1: store i64
 ; OFF-NOT:     store i64
 entry:
@@ -20,7 +20,51 @@ entry:
 for.body:
   %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
   %p = getelementptr i64, ptr %a, i64 %i
+  %v = shl i64 %i, 3
+  store i64 %v, ptr %p
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %for.body
+exit:
+  ret void
+}
+
+; A loop that only loads and stores does not unroll at runtime: the dispatch
+; and the remainder cost more than it gains over a few iterations.
+define void @clear(ptr %a, i64 %n) {
+; CHECK-LABEL: @clear(
+; CHECK:       for.body:
+; CHECK-COUNT-1: store i64
+; CHECK-NOT:   store i64
+; CHECK-NOT:   for.body.epil:
+; OFF-LABEL:   @clear(
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %p = getelementptr i64, ptr %a, i64 %i
   store i64 0, ptr %p
+  %i.next = add nuw nsw i64 %i, 1
+  %done = icmp eq i64 %i.next, %n
+  br i1 %done, label %exit, label %for.body
+exit:
+  ret void
+}
+
+define void @copy(ptr noalias %d, ptr noalias %s, i64 %n) {
+; CHECK-LABEL: @copy(
+; CHECK:       for.body:
+; CHECK-COUNT-1: store double
+; CHECK-NOT:   store double
+; CHECK-NOT:   for.body.epil:
+entry:
+  br label %for.body
+for.body:
+  %i = phi i64 [ 0, %entry ], [ %i.next, %for.body ]
+  %ps = getelementptr double, ptr %s, i64 %i
+  %pd = getelementptr double, ptr %d, i64 %i
+  %v = load double, ptr %ps
+  store double %v, ptr %pd
   %i.next = add nuw nsw i64 %i, 1
   %done = icmp eq i64 %i.next, %n
   br i1 %done, label %exit, label %for.body

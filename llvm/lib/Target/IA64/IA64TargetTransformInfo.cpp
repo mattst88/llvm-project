@@ -357,6 +357,12 @@ static bool runtimeUnrollGains(const Loop *L) {
                                divideCeil(N * Mem, 4), divideCeil(N * FP, 2),
                                divideCeil(N * All, 6), uint64_t(N) * Rec});
   };
+  // A loop that only loads and stores, as a copy or a clear does, gains a
+  // cycle for every second iteration, but each time it runs, the runtime
+  // dispatch, a remainder loop and their setup take more than that over the
+  // few iterations such loops often run.
+  if (All == Loads + Stores)
+    return false;
   for (unsigned N = 2; N <= 8; N *= 2)
     if (Cycles(N) < N * Cycles(1))
       return true;
