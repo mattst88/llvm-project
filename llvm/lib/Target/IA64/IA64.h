@@ -37,6 +37,7 @@ FunctionPass *createIA64ISelDag(IA64TargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
 FunctionPass *createIA64BreakAntiDepsPass();
 FunctionPass *createIA64ExpandBranchesPass();
+bool wantsPreservedBranchPredicates(const MachineFunction &MF);
 FunctionPass *createIA64ExpandSpeculationPass();
 FunctionPass *createIA64FoldPredicatedCopiesPass();
 FunctionPass *createIA64ZextElimPass();

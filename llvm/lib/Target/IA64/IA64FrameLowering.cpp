@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "IA64FrameLowering.h"
+#include "IA64.h"
 #include "IA64InstrInfo.h"
 #include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
@@ -16,6 +17,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
 
@@ -439,6 +441,10 @@ void IA64FrameLowering::determineCalleeSaves(MachineFunction &MF,
     PR |= SavedRegs.test(IA64::P0 + I);
     SavedRegs.reset(IA64::P0 + I);
   }
+  // Long chains of branches test preserved predicates too.
+  if (!FI->rotates() && MF.getTarget().getOptLevel() != CodeGenOptLevel::None &&
+      wantsPreservedBranchPredicates(MF))
+    PR = true;
   FI->setChangesPR(PR);
   FI->setChangesLC(SavedRegs.test(IA64::AR65));
   SavedRegs.reset(IA64::AR65);

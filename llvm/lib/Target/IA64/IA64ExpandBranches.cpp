@@ -28,6 +28,7 @@
 
 #include "IA64.h"
 #include "IA64InstrInfo.h"
+#include "IA64MachineFunctionInfo.h"
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
@@ -60,6 +61,11 @@ static cl::opt<bool> HoistNaTTests("ia64-hoist-nat-tests", cl::init(true),
 static cl::opt<unsigned> HoistCompareDepth(
     "ia64-hoist-compare-depth", cl::init(4), cl::Hidden,
     cl::desc("How many falling-through branches a compare may go above"));
+
+static cl::opt<unsigned> PreservedHoistCompareDepth(
+    "ia64-preserved-hoist-compare-depth", cl::init(12), cl::Hidden,
+    cl::desc("How many falling-through branches a compare may go above when "
+             "the preserved predicates are free"));
 
 namespace {
 
@@ -329,11 +335,70 @@ static bool mergeBranches(MachineBasicBlock &MBB,
 }
 
 // The scratch predicate pairs a branch may test, p6 and p7 first.
-static const MCPhysReg PredicatePairs[][2] = {{IA64::P6, IA64::P7},
-                                              {IA64::P8, IA64::P9},
-                                              {IA64::P10, IA64::P11},
-                                              {IA64::P12, IA64::P13},
-                                              {IA64::P14, IA64::P15}};
+static const MCPhysReg PredicatePairs[][2] = {
+    {IA64::P6, IA64::P7},   {IA64::P8, IA64::P9},   {IA64::P10, IA64::P11},
+    {IA64::P12, IA64::P13}, {IA64::P14, IA64::P15}, {IA64::P16, IA64::P17},
+    {IA64::P18, IA64::P19}, {IA64::P20, IA64::P21}, {IA64::P22, IA64::P23},
+    {IA64::P24, IA64::P25}, {IA64::P26, IA64::P27}, {IA64::P28, IA64::P29},
+    {IA64::P30, IA64::P31}};
+
+// How many of PredicatePairs MF's branches may use: p16 and up only when
+// the prologue saves the predicates, and they do not rotate.
+static unsigned getNumPairs(const MachineFunction &MF) {
+  const auto *FI = MF.getInfo<IA64MachineFunctionInfo>();
+  return FI->getSavedPR() && !FI->rotates() ? std::size(PredicatePairs) : 5;
+}
+
+// How many falling-through branches a compare may go above, given how many
+// pairs there are: deeper with the preserved pairs, where it is the point
+// of saving them, but not otherwise, where it loses on hardware.
+static unsigned getHoistDepth(unsigned NumPairs) {
+  return NumPairs > 5 ? PreservedHoistCompareDepth : HoistCompareDepth;
+}
+
+// Whether MF has a chain of more conditional branches than there are
+// scratch pairs, each after the first alone in a block that only the one
+// before reaches, as a speculated list search unrolls into: the compares can
+// then all go above the first branch only in preserved predicates, which
+// the prologue must save. Only chains with a NaT test: in the long compare
+// chains of switches and parsers the saves cost more than they win.
+bool llvm::wantsPreservedBranchPredicates(const MachineFunction &MF) {
+  if (!HoistBranchCompares || PreservedHoistCompareDepth < 5)
+    return false;
+  auto IsNaTTest = [](const MachineInstr &Br) {
+    return IA64CC::isNaTTest(IA64CC::CondCode(Br.getOperand(1).getImm()));
+  };
+  // The length of the chain ending in each block, and whether it has a NaT
+  // test.
+  DenseMap<const MachineBasicBlock *, std::pair<unsigned, bool>> Length;
+  for (const MachineBasicBlock &MBB : MF) {
+    MachineBasicBlock::const_iterator Br = MBB.getFirstTerminator();
+    if (Br == MBB.end() || !IA64InstrInfo::isConditionalBranch(*Br))
+      continue;
+    unsigned N = 1;
+    bool NaT = IsNaTTest(*Br);
+    for (const MachineBasicBlock *B = &MBB;
+         B->pred_size() == 1 && &*B->getFirstNonDebugInstr() == &*Br;) {
+      const MachineBasicBlock *P = *B->pred_begin();
+      MachineBasicBlock::const_iterator PBr = P->getFirstTerminator();
+      if (PBr == P->end() || !IA64InstrInfo::isConditionalBranch(*PBr))
+        break;
+      if (auto It = Length.find(P); It != Length.end()) {
+        N += It->second.first;
+        NaT |= It->second.second;
+        break;
+      }
+      ++N;
+      NaT |= IsNaTTest(*PBr);
+      B = P;
+      Br = PBr;
+    }
+    Length[&MBB] = {N, NaT};
+    if (N > 5 && NaT)
+      return true;
+  }
+  return false;
+}
 
 // Which pair the compare for the conditional branch Br is to write, by
 // index into PredicatePairs. A branch that a block falls through to after
@@ -343,11 +408,13 @@ static const MCPhysReg PredicatePairs[][2] = {{IA64::P6, IA64::P7},
 // falling through to it in a row tests.
 static unsigned choosePair(MachineInstr &Br,
                            const DenseMap<MachineBasicBlock *, unsigned> &Pairs,
-                           const TargetRegisterInfo &TRI) {
+                           const TargetRegisterInfo &TRI, unsigned NumPairs) {
   MachineBasicBlock &MBB = *Br.getParent();
   const MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
+  // Not the pristine registers: the preserved predicates are only offered
+  // when the prologue saves them all.
   LivePhysRegs Live(TRI);
-  Live.addLiveOuts(MBB);
+  Live.addLiveOutsNoPristines(MBB);
   for (MachineInstr &MI : reverse(MBB)) {
     Live.stepBackward(MI);
     if (&MI == &Br)
@@ -355,7 +422,8 @@ static unsigned choosePair(MachineInstr &Br,
   }
   unsigned Avoid = 0;
   MachineBasicBlock *B = &MBB;
-  for (unsigned Depth = 0; Depth < 4 && B != &B->getParent()->front();
+  for (unsigned Depth = 0; Depth < std::max(4u, getHoistDepth(NumPairs)) &&
+                           B != &B->getParent()->front();
        ++Depth) {
     MachineBasicBlock *Prev = &*std::prev(B->getIterator());
     auto It = Pairs.find(Prev);
@@ -368,7 +436,7 @@ static unsigned choosePair(MachineInstr &Br,
     return Live.available(MRI, PredicatePairs[I][0]) &&
            Live.available(MRI, PredicatePairs[I][1]);
   };
-  for (unsigned I = 0; I != std::size(PredicatePairs); ++I)
+  for (unsigned I = 0; I != NumPairs; ++I)
     if (!(Avoid & (1u << I)) && Free(I))
       return I;
   return 0;
@@ -406,9 +474,10 @@ static MachineInstr *getHoistPoint(MachineInstr &Br,
 // The branches Br's compare can go above, nearest first: past a branch that
 // is itself alone in a block its compare left, to the branch before that.
 static void getHoistPoints(MachineInstr &Br, const MachineLoopInfo &MLI,
+                           unsigned Depth,
                            SmallVectorImpl<MachineInstr *> &Points) {
   for (MachineInstr *At = getHoistPoint(Br, MLI);
-       At && Points.size() < HoistCompareDepth;) {
+       At && Points.size() < Depth;) {
     Points.push_back(At);
     if (At != &*At->getParent()->getFirstNonDebugInstr())
       break;
@@ -422,7 +491,7 @@ static bool canHoistTo(MachineInstr &At, unsigned Pair,
                        const TargetRegisterInfo &TRI) {
   const MachineRegisterInfo &MRI = At.getMF()->getRegInfo();
   LivePhysRegs Live(TRI);
-  Live.addLiveIns(*At.getOperand(0).getMBB());
+  Live.addLiveInsNoPristines(*At.getOperand(0).getMBB());
   for (MCPhysReg P : PredicatePairs[Pair])
     if (At.readsRegister(P, &TRI) || !Live.available(MRI, P))
       return false;
@@ -501,6 +570,7 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
 
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   DenseMap<MachineBasicBlock *, unsigned> Pairs;
+  unsigned NumPairs = getNumPairs(MF);
   for (MachineBasicBlock &MBB : MF) {
     for (MachineInstr &MI : make_early_inc_range(MBB.terminators())) {
       if (MI.getOpcode() == IA64::BRLOOP) {
@@ -514,7 +584,7 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
       MachineBasicBlock *Target = MI.getOperand(0).getMBB();
       unsigned Pair = RenameBranchPredicates && MF.getTarget().getOptLevel() !=
                                                     CodeGenOptLevel::None
-                          ? choosePair(MI, Pairs, TRI)
+                          ? choosePair(MI, Pairs, TRI, NumPairs)
                           : 0;
       MachineInstr *Before = MI.getPrevNode();
       auto It = Chains.find(&MBB);
@@ -528,7 +598,7 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
             !It->second.Conds[0].FP) ||
            (HoistNaTTests && NaTTest))) {
         SmallVector<MachineInstr *, 4> Points;
-        getHoistPoints(MI, MLI, Points);
+        getHoistPoints(MI, MLI, getHoistDepth(NumPairs), Points);
         for (MachineInstr *At : Points) {
           if (!canHoistTo(*At, Pair, TRI))
             break;
