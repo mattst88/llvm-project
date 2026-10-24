@@ -74,6 +74,11 @@ static cl::opt<bool> KeepCycles(
     cl::desc("Group the kernel of a loop pipelined with rotating registers "
              "by the cycles of its schedule"));
 
+static cl::opt<bool> EnableStaticAccumulators(
+    "ia64-rotating-static-accumulators", cl::Hidden, cl::init(true),
+    cl::desc("Keep an accumulator of a loop pipelined with rotating "
+             "registers in one register"));
+
 // Rotating general registers leave the rest of the 88 locals to the rest of
 // the function.
 static const unsigned MaxRotatingGRs = 64;
@@ -115,6 +120,14 @@ class RotatingExpander {
   // Post-increment results and the phis they are tied to, which stay in
   // virtual registers.
   DenseSet<Register> Static;
+  // The accumulators among them, to tie to their phis: each defining
+  // instruction, phi and register class both take.
+  struct Accumulator {
+    MachineInstr *Def;
+    Register Phi;
+    const TargetRegisterClass *RC;
+  };
+  SmallVector<Accumulator, 2> Accumulators;
   // Copies of constant registers, such as f1, whose uses in the loop can
   // read the constant register instead.
   DenseMap<Register, MCRegister> Constants;
@@ -291,6 +304,34 @@ bool RotatingExpander::classify() {
       Static.insert(Res);
       Static.insert(Loop);
     }
+  }
+
+  // So does an accumulator, a phi that only the instruction defining its loop
+  // value reads, when nothing else in the loop reads either and the phi is
+  // not used after it: tying the two makes them one register, which the
+  // instruction, predicated off, leaves as it was, so the loop leaves the
+  // sum where its last iteration put it, with no copy out of a rotating
+  // register to wait for.
+  for (auto [Res, Loop] : LoopValueOf) {
+    if (!EnableStaticAccumulators || Static.contains(Res) ||
+        !MRI.hasOneNonDBGUse(Res))
+      continue;
+    MachineInstr *Def = MRI.getVRegDef(Loop);
+    MachineInstr &User = *MRI.use_instr_nodbg_begin(Res);
+    if (&User != Def || !inLoop(*Def) || Def->isPHI() || isUnguarded(*Def) ||
+        Def->getNumExplicitDefs() != 1 || Def->getOperand(0).getReg() != Loop ||
+        Def->getOperand(0).isTied())
+      continue;
+    const TargetRegisterClass *RC =
+        TRI.getCommonSubClass(MRI.getRegClass(Res), MRI.getRegClass(Loop));
+    if (!RC)
+      continue;
+    if (any_of(MRI.use_nodbg_instructions(Loop),
+               [&](MachineInstr &Use) { return inLoop(Use) && !Use.isPHI(); }))
+      continue;
+    Accumulators.push_back({Def, Res, RC});
+    Static.insert(Res);
+    Static.insert(Loop);
   }
 
   for (MachineInstr *MI : MS->getInstructions()) {
@@ -562,6 +603,13 @@ void RotatingExpander::expand(LiveIntervals &LIS) {
       if (MO.isReg() && MO.getReg().isVirtual())
         Touched.push_back(MO.getReg());
     LIS.RemoveMachineInstrFromMaps(MI);
+  }
+  for (auto [Def, Phi, RC] : Accumulators) {
+    Def->addOperand(MachineOperand::CreateReg(Phi, /*isDef=*/false,
+                                              /*isImp=*/true));
+    Def->tieOperands(0, Def->getNumOperands() - 1);
+    MRI.setRegClass(Phi, RC);
+    MRI.setRegClass(Def->getOperand(0).getReg(), RC);
   }
 
   // The registers whose names the function's loops rotate.

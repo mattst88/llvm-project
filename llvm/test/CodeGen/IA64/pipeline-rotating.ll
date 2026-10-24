@@ -10,26 +10,28 @@
 
 ; A pipelined loop is a single kernel that br.ctop runs ar.lc + ar.ec times,
 ; one stage predicate per stage turning on as the loop fills and off as it
-; drains. Each value lives in a rotating register, so the add in stage 1
-; reads the load from stage 0 one register up, and the sum from the
-; iteration before one register up from where it writes it. Its final value
-; is read one register up as well, before clrrrb renames the registers back.
+; drains. A value that a later stage reads lives in a rotating register, so
+; the add in stage 1 reads the load from stage 0 one register up. The sum,
+; which only the add reads, stays in one register that the add, predicated
+; off while the loop fills and drains, leaves as it was, so the loop leaves
+; it where the function returns it with nothing to copy before clrrrb renames
+; the registers back.
 ; The rotating region is a multiple of eight registers, and a predicate
 ; rotation clobbers p16-p63, so pr is saved.
 define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-LABEL: sum:
 ; CHECK:       alloc r{{[0-9]+}} = ar.pfs, 2, {{[0-9]+}}, 0, 8
 ; CHECK:       mov [[PR:r[0-9]+]] = pr
+; CHECK:       mov r8 = r0
 ; CHECK:       mov [[A:r[0-9]+]] = r32
-; CHECK:       mov r32 = r0
 ; CHECK:       mov ar.ec = 2
 ; CHECK-NEXT:  mov pr.rot = 65536 ;;
 ; CHECK-NEXT:  .p2align 5
 ; CHECK-NEXT:  .LBB0_[[LOOP:[0-9]+]]:
-; CHECK:       (p17) add r32 = r33, r35
-; CHECK-NEXT:  (p16) ld8 r34 = [[[A]]], 8
+; CHECK:       (p16) ld8 r32 = [[[A]]], 8
+; CHECK-NEXT:  (p17) add r8 = r8, r33
 ; CHECK-NEXT:  br.ctop.sptk.few .LBB0_[[LOOP]] ;;
-; CHECK:       mov r8 = r33
+; CHECK-NEXT:  // %bb
 ; CHECK-NEXT:  clrrrb ;;
 ; CHECK:       mov pr = [[PR]], 65598
 ; CHECK-NEXT:  br.ret.sptk.many b0
