@@ -1354,6 +1354,96 @@ static cl::opt<int> FDivLateDividend(
     cl::desc("Cycles by which a division's dividend must be ready after its "
              "divisor for the divisor's reciprocal to be refined first"));
 
+static cl::opt<bool> FDivSqrtSeed(
+    "ia64-fdiv-sqrt-seed", cl::Hidden, cl::init(true),
+    cl::desc("Seed a division by a square root with the square root's "
+             "reciprocal"));
+
+// Follows Reg through copies of virtual registers.
+static Register stripCopies(Register Reg, const MachineRegisterInfo &MRI) {
+  while (Reg.isVirtual()) {
+    const MachineInstr *Def = MRI.getVRegDef(Reg);
+    if (!Def || !Def->isCopy())
+      break;
+    Reg = Def->getOperand(1).getReg();
+  }
+  return Reg;
+}
+
+// Whether Reg is what a call of the library's sqrt returns for X: a copy of
+// f8 after a call of sqrt, which f8 was copied from X for.
+static bool isSqrtCall(Register Reg, Register X,
+                       const MachineRegisterInfo &MRI) {
+  const TargetRegisterInfo *TRI = MRI.getTargetRegisterInfo();
+  const MachineInstr *Copy = nullptr;
+  while (Reg.isVirtual()) {
+    Copy = MRI.getVRegDef(Reg);
+    if (!Copy || !Copy->isCopy())
+      return false;
+    Reg = Copy->getOperand(1).getReg();
+  }
+  if (!Copy || Reg != IA64::F8)
+    return false;
+  bool Called = false;
+  for (const MachineInstr &I :
+       make_range(std::next(MachineBasicBlock::const_reverse_iterator(Copy)),
+                  Copy->getParent()->rend())) {
+    if (!Called) {
+      if (I.isCall()) {
+        const MachineOperand &Callee = I.getOperand(0);
+        if (!Callee.isGlobal() || Callee.getGlobal()->getName() != "sqrt")
+          return false;
+        Called = true;
+      } else if (I.modifiesRegister(IA64::F8, TRI)) {
+        return false;
+      }
+    } else if (I.modifiesRegister(IA64::F8, TRI)) {
+      return I.isCopy() &&
+             stripCopies(I.getOperand(1).getReg(), MRI) == stripCopies(X, MRI);
+    } else if (I.isCall()) {
+      return false;
+    }
+  }
+  return false;
+}
+
+// When B is a double square root expanded as at FSQRT_D, returns the
+// approximation of 0.5 / sqrt(x) its last step uses. B may
+// also be the square root's result joined with that of a call of sqrt for
+// the same x, made where the expansion's result is a NaN, as
+// PartiallyInlineLibCalls arranges to set errno.
+static Register sqrtHalfReciprocal(Register B, MachineRegisterInfo &MRI) {
+  MachineInstr *Last = MRI.getVRegDef(B);
+  Register Other;
+  if (Last && Last->isPHI()) {
+    if (Last->getNumOperands() != 5)
+      return Register();
+    for (unsigned I : {1, 3}) {
+      MachineInstr *In = MRI.getVRegDef(Last->getOperand(I).getReg());
+      if (In && In->getOpcode() == IA64::FMA_D_MERGE) {
+        Other = Last->getOperand(4 - I).getReg();
+        Last = In;
+        break;
+      }
+    }
+  }
+  if (!Last || Last->getOpcode() != IA64::FMA_D_MERGE)
+    return Register();
+  // The last step is h * (b - g * g) + g.
+  MachineInstr *D = MRI.getVRegDef(Last->getOperand(2).getReg());
+  if (!D || D->getOpcode() != IA64::FNMA_SUM ||
+      D->getOperand(1).getReg() != D->getOperand(2).getReg() ||
+      D->getOperand(2).getReg() != Last->getOperand(4).getReg())
+    return Register();
+  if (Other && !isSqrtCall(Other, D->getOperand(3).getReg(), MRI))
+    return Register();
+  Register H = Last->getOperand(3).getReg();
+  // h is added in 2 * h = h * 1 + h.
+  if (!MRI.constrainRegClass(H, &IA64::FRAddendRegClass))
+    return Register();
+  return H;
+}
+
 // The cycle, counted from the start of MBB, at which Reg is ready: the
 // latency of the longest chain of instructions in MBB before MI that
 // computes it, followed at most Limit instructions deep.
@@ -1427,6 +1517,9 @@ MachineBasicBlock *IA64TargetLowering::emitFDiv(MachineInstr &MI,
   // and each step of q repeats that of y, so q is only formed when it is
   // rounded.
   bool Recip = isOne(A, MRI);
+  if (Register H;
+      IsDouble && !Recip && FDivSqrtSeed && (H = sqrtHalfReciprocal(B, MRI)))
+    return emitFDivBySqrt(MI, MBB, H, Y0, P);
   if (!Recip) {
     TargetSchedModel SM;
     SM.init(&Subtarget);
@@ -1520,6 +1613,65 @@ MachineBasicBlock *IA64TargetLowering::emitFDiv(MachineInstr &MI,
           TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
       .addReg(Kept)
       .addReg(E)
+      .addReg(Y)
+      .addReg(Q)
+      .addImm(0)
+      .addReg(P)
+      .setMIFlags(Flags);
+  MI.eraseFromParent();
+  return MBB;
+}
+
+// Division of a by b = sqrt(x), the result of a square root expanded as at
+// FSQRT_D, whose last step uses h, 0.5 / sqrt(x) to nearly the precision of
+// the register format. 2 * h then approximates 1 / b far better than frcpa
+// does: well enough that one Newton-Raphson step, for y and q = a * y
+// together, makes y as accurate and q, rounded to double, as close to a / b
+// as the steps of the throughput sequence at emitFDiv do, and its last two
+// steps follow. That is 4 steps after b where the latency sequence takes 7.
+// frcpa of a and b still runs for its predicate and for its result, which is
+// the quotient when the predicate is clear.
+//
+// h is only computed where frsqrta's predicate is set. frsqrta needs software
+// assistance, which clears it, only for an x at the extremes of the register
+// format's range, which a double is not. Otherwise it is clear for x of zero,
+// an infinity, a NaN or below zero, and then so is that of frcpa: b is zero,
+// an infinity or a NaN. Until the last step, which is predicated, the steps
+// raise no flag the program sees.
+MachineBasicBlock *IA64TargetLowering::emitFDivBySqrt(MachineInstr &MI,
+                                                      MachineBasicBlock *MBB,
+                                                      Register H, Register Y0,
+                                                      Register P) const {
+  const TargetInstrInfo &TII = *Subtarget.getInstrInfo();
+  MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Res = MI.getOperand(0).getReg();
+  Register A = MI.getOperand(1).getReg();
+  Register B = MI.getOperand(2).getReg();
+  uint32_t Flags = MI.getFlags();
+  auto Step = [&](unsigned Opcode, Register M1, Register M2, Register Addend,
+                  Register Pred = IA64::P0) {
+    Register R = MRI.createVirtualRegister(&IA64::FRRegClass);
+    BuildMI(*MBB, MI, DL, TII.get(Opcode), R)
+        .addReg(M1)
+        .addReg(M2)
+        .addReg(Addend)
+        .addImm(1)
+        .addReg(Pred)
+        .setMIFlags(Flags | MachineInstr::NoFPExcept);
+    return R;
+  };
+  Register Y = Step(IA64::FMA_SUM, H, IA64::F1, H);
+  Register E = Step(IA64::FNMA, B, Y, IA64::F1);
+  Register Q = Step(IA64::FMA, A, Y, IA64::F0);
+  Y = Step(IA64::FMA, E, Y, Y);
+  Q = Step(IA64::FMA_D, E, Q, Q);
+  // The dividend is added, so it cannot be f0.
+  Register R = Step(IA64::FNMA_SUM, B, Q, A, P);
+  Register Kept = keepApproximation(MI, MBB, TII, MRI, Y0);
+  BuildMI(*MBB, MI, DL, TII.get(IA64::FMA_D_MERGE), Res)
+      .addReg(Kept)
+      .addReg(R)
       .addReg(Y)
       .addReg(Q)
       .addImm(0)

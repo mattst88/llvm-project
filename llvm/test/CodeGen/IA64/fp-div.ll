@@ -267,3 +267,60 @@ define double @div_const_strict(double %a) strictfp {
   %r = call double @llvm.experimental.constrained.fdiv.f64(double %a, double 9.0, metadata !"round.dynamic", metadata !"fpexcept.strict") strictfp
   ret double %r
 }
+
+; A division by a square root starts from the square root's own reciprocal.
+; The sequence for sqrt(x) leaves h ~= 0.5/sqrt(x), refined to 1 ulp, so 2h
+; seeds Newton's method two steps nearer than frcpa's nine bits. frcpa still
+; sets the predicate, and its approximation is the result when it is clear.
+
+define double @div_sqrt(double %a, double %x) {
+; CHECK-LABEL: div_sqrt:
+; CHECK:         fma.s1 f6 = f10, f1, f10 ;;
+; CHECK-NEXT:    fnma.s1 f9 = f7, f6, f1
+; CHECK-NEXT:    fma.s1 f10 = f8, f6, f0
+; CHECK-NEXT:    frcpa f11, p8 = f8, f7 ;;
+; CHECK-NEXT:    fma.d.s1 f10 = f9, f10, f10
+; CHECK-NEXT:    fma.s1 f6 = f9, f6, f6 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f7 = f7, f10, f8
+; CHECK-NEXT:    mov f8 = f11 ;;
+; CHECK-NEXT:    (p8) fma.d f8 = f7, f6, f10
+  %s = call double @llvm.sqrt.f64(double %x)
+  %q = fdiv double %a, %s
+  ret double %q
+}
+
+; So does one by a sqrt that may set errno, which is inline but for a call
+; when the result is NaN. That result reaches the division, whose predicate
+; is then clear.
+
+define double @div_sqrt_errno(double %a, double %x) {
+; CHECK-LABEL: div_sqrt_errno:
+; CHECK:         frcpa f11, p8 = f8, f6
+; CHECK:         fma.s1 f7 = f7, f1, f7
+; CHECK:         (p8) fma.d f8 = f6, f7, f10
+  %s = call double @sqrt(double %x)
+  %q = fdiv double %a, %s
+  ret double %q
+}
+
+; A divisor that is only sometimes the square root keeps the usual sequence.
+
+define double @div_sqrt_or_other(double %a, double %x, double %y, i1 %p) {
+; CHECK-LABEL: div_sqrt_or_other:
+; CHECK:         frcpa f6, p8 = f8, f10 ;;
+; CHECK-NEXT:    (p8) fma.s1 f7 = f8, f6, f0
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f10, f6, f1 ;;
+entry:
+  %s = call double @llvm.sqrt.f64(double %x)
+  br i1 %p, label %split, label %other
+
+other:
+  br label %split
+
+split:
+  %b = phi double [ %s, %entry ], [ %y, %other ]
+  %q = fdiv double %a, %b
+  ret double %q
+}
+
+declare double @sqrt(double)
