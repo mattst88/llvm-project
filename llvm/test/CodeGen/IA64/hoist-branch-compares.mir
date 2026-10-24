@@ -3,6 +3,9 @@
 # RUN: llc -mtriple=ia64 -run-pass=ia64-expand-branches -verify-machineinstrs \
 # RUN:   -ia64-hoist-branch-compares=false -o - %s \
 # RUN:   | FileCheck %s --check-prefix=OFF
+# RUN: llc -mtriple=ia64 -run-pass=ia64-expand-branches -verify-machineinstrs \
+# RUN:   -ia64-hoist-compare-depth=1 -o - %s \
+# RUN:   | FileCheck %s --check-prefix=DEPTH1
 
 # A block that holds only a conditional branch, and that only the branch
 # before it falls through to, tests its condition before that branch, so
@@ -128,5 +131,66 @@ body: |
 
   bb.4:
     $r8 = ADDS 2, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+...
+# Up a chain of blocks that each hold only a branch, a NaT test among them,
+# every compare goes before the first branch.
+# CHECK-LABEL: name: chain
+# CHECK:      bb.0:
+# CHECK:      $p7, $p6 = CMP_EQi 0, $r14, $p0
+# CHECK-NEXT: $p9, $p8 = TNAT_Z $r15, $p0
+# CHECK-NEXT: $p10, $p11 = CMP_EQi 44, $r14, $p0
+# CHECK-NEXT: BR_COND %bb.4, {{.*}}, $p6
+# CHECK:      bb.1:
+# CHECK:      liveins: $r14, $r15, $p8, $p10
+# CHECK:      BR_COND %bb.5, {{.*}}, $p8
+# CHECK:      bb.2:
+# CHECK:      liveins: $r14, $p10
+# CHECK:      BR_COND %bb.6, {{.*}}, $p10
+# DEPTH1-LABEL: name: chain
+# DEPTH1:      bb.0:
+# DEPTH1:      $p7, $p6 = CMP_EQi 0, $r14, $p0
+# DEPTH1-NEXT: $p9, $p8 = TNAT_Z $r15, $p0
+# DEPTH1-NEXT: BR_COND %bb.4
+# DEPTH1:      bb.1:
+# DEPTH1:      $p10, $p11 = CMP_EQi 44, $r14, $p0
+# DEPTH1-NEXT: BR_COND %bb.5
+
+---
+name: chain
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1, %bb.4
+    liveins: $r14, $r15
+
+    BRCCi %bb.4, 1, $r14, 0, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.1:
+    successors: %bb.5, %bb.2
+    liveins: $r14, $r15
+
+    BRCCi %bb.5, 25, $r15, 0, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.2:
+    successors: %bb.6, %bb.3
+    liveins: $r14
+
+    BRCCi %bb.6, 0, $r14, 44, implicit-def dead $p6, implicit-def dead $p7
+
+  bb.3:
+    $r8 = ADDS 1, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.4:
+    $r8 = ADDS 0, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.5:
+    $r8 = ADDS 2, $r0, $p0
+    BR_RET $b0, 0, 1, 0, $p0, implicit $r8
+
+  bb.6:
+    $r8 = ADDS 3, $r0, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit $r8
 ...

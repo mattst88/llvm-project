@@ -54,6 +54,13 @@ static cl::opt<bool> HoistBranchCompares(
     cl::desc("Test a branch's condition before the branch that falls "
              "through to it"));
 
+static cl::opt<bool> HoistNaTTests("ia64-hoist-nat-tests", cl::init(true),
+                                   cl::Hidden);
+
+static cl::opt<unsigned> HoistCompareDepth(
+    "ia64-hoist-compare-depth", cl::init(4), cl::Hidden,
+    cl::desc("How many falling-through branches a compare may go above"));
+
 namespace {
 
 class IA64ExpandBranches : public MachineFunctionPass {
@@ -396,6 +403,19 @@ static MachineInstr *getHoistPoint(MachineInstr &Br,
   return &*Last;
 }
 
+// The branches Br's compare can go above, nearest first: past a branch that
+// is itself alone in a block its compare left, to the branch before that.
+static void getHoistPoints(MachineInstr &Br, const MachineLoopInfo &MLI,
+                           SmallVectorImpl<MachineInstr *> &Points) {
+  for (MachineInstr *At = getHoistPoint(Br, MLI);
+       At && Points.size() < HoistCompareDepth;) {
+    Points.push_back(At);
+    if (At != &*At->getParent()->getFirstNonDebugInstr())
+      break;
+    At = getHoistPoint(*At, MLI);
+  }
+}
+
 // Whether the compare for the branch Br can write the pair at the earlier
 // branch At: neither predicate is read by At or live where it goes.
 static bool canHoistTo(MachineInstr &At, unsigned Pair,
@@ -501,13 +521,21 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
       // Where the compares go: before MI, or before an earlier branch.
       MachineBasicBlock *CmpMBB = &MBB;
       MachineBasicBlock::iterator CmpAt = MI;
-      if (HoistBranchCompares && It != Chains.end() &&
-          It->second.Conds.size() == 1 && !It->second.Conds[0].FP)
-        if (MachineInstr *At = getHoistPoint(MI, MLI))
-          if (canHoistTo(*At, Pair, TRI)) {
-            CmpMBB = At->getParent();
-            CmpAt = At;
-          }
+      bool NaTTest =
+          IA64CC::isNaTTest(IA64CC::CondCode(MI.getOperand(1).getImm()));
+      if (HoistBranchCompares &&
+          ((It != Chains.end() && It->second.Conds.size() == 1 &&
+            !It->second.Conds[0].FP) ||
+           (HoistNaTTests && NaTTest))) {
+        SmallVector<MachineInstr *, 4> Points;
+        getHoistPoints(MI, MLI, Points);
+        for (MachineInstr *At : Points) {
+          if (!canHoistTo(*At, Pair, TRI))
+            break;
+          CmpMBB = At->getParent();
+          CmpAt = At;
+        }
+      }
       MachineInstr *CmpBefore = CmpAt->getPrevNode();
       if (It != Chains.end() && It->second.Conds.size() > 1) {
         // The one condition with no parallel compare, if there is one, is
@@ -558,7 +586,9 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
       Rename(MBB, Before, MI);
       if (CmpMBB != &MBB) {
         Rename(*CmpMBB, CmpBefore, CmpAt);
-        MBB.addLiveIn(PredicatePairs[Pair][0]);
+        for (MachineBasicBlock *B = &MBB; B != CmpMBB;
+             B = &*std::prev(B->getIterator()))
+          B->addLiveIn(PredicatePairs[Pair][0]);
       }
       Pairs[&MBB] = Pair;
       MI.eraseFromParent();
