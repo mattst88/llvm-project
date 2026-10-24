@@ -33,6 +33,21 @@ define i64 @ld8(ptr %p) {
   ret i64 %v
 }
 
+; The loads zero-extend, so masks to their width go.
+define i64 @zext(ptr %p, ptr %q) {
+; CHECK-LABEL: zext:
+; CHECK:         ld1.s r14 = [r32]
+; CHECK-NEXT:    ld4.s r15 = [r33] ;;
+; CHECK-NEXT:    add r8 = r14, r15
+; CHECK-NOT:     zxt
+  %a = call i64 @llvm.ia64.ld1.s(ptr %p)
+  %b = call i64 @llvm.ia64.ld4.s(ptr %q)
+  %am = and i64 %a, 255
+  %bm = and i64 %b, 4294967295
+  %s = add i64 %am, %bm
+  ret i64 %s
+}
+
 define i64 @isnat(i64 %x) {
 ; CHECK-LABEL: isnat:
 ; CHECK:         tnat.z p7, p6 = r32

@@ -447,7 +447,7 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
   // Counted loops branch with br.cloop.
   setTargetDAGCombine({ISD::BRCOND, ISD::INTRINSIC_VOID});
   setTargetDAGCombine({ISD::ADD, ISD::SUB, ISD::MUL, ISD::FDIV});
-  setTargetDAGCombine(ISD::ZERO_EXTEND);
+  setTargetDAGCombine({ISD::ZERO_EXTEND, ISD::AND, ISD::SETCC});
 
   // va_list is a pointer to the next argument; each argument occupies one or
   // more 8-byte slots.
@@ -992,6 +992,42 @@ static SDValue combineZextOfLowMask(SDNode *N, SelectionDAG &DAG,
                     MVT::i64);
 }
 
+// (and (xor X, Y), M) for a mask M of low bits, where X has no bits outside
+// M, is (xor X, (and Y, M)). CoreMark's list search compares a byte it loads
+// with ld1.s as ((X ^ Key) & 0xff) == 0: the mask of Key moves out of the
+// loop and the compare takes X and Key directly, instead of after an xor and
+// a zxt1.
+static SDValue combineAndOfXorWithinMask(SDNode *N, SelectionDAG &DAG) {
+  auto *M = dyn_cast<ConstantSDNode>(N->getOperand(1));
+  SDValue Xor = N->getOperand(0);
+  if (!M || !M->getAPIntValue().isMask() || Xor.getOpcode() != ISD::XOR ||
+      !Xor.hasOneUse())
+    return SDValue();
+  const APInt &Mask = M->getAPIntValue();
+  for (unsigned I = 0; I != 2; ++I) {
+    SDValue X = Xor.getOperand(I), Y = Xor.getOperand(1 - I);
+    if (!(~Mask).isSubsetOf(DAG.computeKnownBits(X).Zero))
+      continue;
+    SDLoc DL(N);
+    EVT VT = N->getValueType(0);
+    return DAG.getNode(ISD::XOR, DL, VT, X,
+                       DAG.getNode(ISD::AND, DL, VT, Y, N->getOperand(1)));
+  }
+  return SDValue();
+}
+
+// (setcc (xor X, Y), 0, eq/ne) is (setcc X, Y, eq/ne): cmp takes two
+// registers, and the xor would cost a group ahead of it.
+static SDValue combineSetCCOfXor(SDNode *N, SelectionDAG &DAG) {
+  SDValue Xor = N->getOperand(0);
+  auto CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+  if ((CC != ISD::SETEQ && CC != ISD::SETNE) || Xor.getOpcode() != ISD::XOR ||
+      !Xor.hasOneUse() || !isNullConstant(N->getOperand(1)))
+    return SDValue();
+  return DAG.getSetCC(SDLoc(N), N->getValueType(0), Xor.getOperand(0),
+                      Xor.getOperand(1), CC);
+}
+
 SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -1010,6 +1046,10 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
     return combineFDivByConstant(N, DAG);
   case ISD::ZERO_EXTEND:
     return combineZextOfLowMask(N, DAG, DCI);
+  case ISD::AND:
+    return combineAndOfXorWithinMask(N, DAG);
+  case ISD::SETCC:
+    return combineSetCCOfXor(N, DAG);
   case ISD::INTRINSIC_VOID:
     if (N->getConstantOperandVal(1) == Intrinsic::set_loop_iterations) {
       SDLoc DL(N);
@@ -2509,6 +2549,31 @@ bool IA64TargetLowering::SimplifyDemandedBitsForTargetNode(
                        TLO.DAG.getNode(IA64ISD::PMPY2_R, SDLoc(Op), MVT::i64,
                                        Ops[0] ? Ops[0] : Op.getOperand(0),
                                        Ops[1] ? Ops[1] : Op.getOperand(1)));
+}
+
+// A control-speculative load zero-extends what it reads, as ld does. One
+// that defers a fault leaves zero beneath the NaT.
+void IA64TargetLowering::computeKnownBitsForTargetNode(
+    const SDValue Op, KnownBits &Known, const APInt &DemandedElts,
+    const SelectionDAG &DAG, unsigned Depth) const {
+  Known.resetAll();
+  if (Op.getOpcode() != ISD::INTRINSIC_W_CHAIN || Op.getResNo() != 0)
+    return;
+  unsigned Bits;
+  switch (Op.getConstantOperandVal(1)) {
+  case Intrinsic::ia64_ld1_s:
+    Bits = 8;
+    break;
+  case Intrinsic::ia64_ld2_s:
+    Bits = 16;
+    break;
+  case Intrinsic::ia64_ld4_s:
+    Bits = 32;
+    break;
+  default:
+    return;
+  }
+  Known.Zero.setBitsFrom(Bits);
 }
 
 // A control-speculative load reads memory like any other, so the scheduler
