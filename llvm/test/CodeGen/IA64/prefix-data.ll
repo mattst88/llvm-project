@@ -6,7 +6,7 @@
 ; multiple of 16.
 
 define void @f() prefix i32 7 {
-; CHECK:      .p2align 4
+; CHECK:      .p2align 6
 ; CHECK:      data4.ua 7
 ; CHECK-NEXT: .proc f
 ; CHECK-NEXT: f:
@@ -18,4 +18,4 @@ define void @g() prefix i32 9 {
 }
 
 ; NM: 0000000000000010 T f
-; NM: 0000000000000030 T g
+; NM: 0000000000000050 T g

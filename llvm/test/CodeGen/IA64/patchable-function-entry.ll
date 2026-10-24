@@ -51,14 +51,14 @@ define i32 @after(i32 %x) "patchable-function-entry"="2" {
 ; CHECK: .section __patchable_function_entries,"awo",@progbits,both
 ; CHECK: data8.ua [[BEFORE]]
 
-; OBJ: 20: nop.m 0 // [MII]
-; OBJ-NEXT: 26: nop.i 0
-; OBJ-NEXT: 2c: nop.i 0
+; OBJ: 40: nop.m 0 // [MII]
+; OBJ-NEXT: 46: nop.i 0
+; OBJ-NEXT: 4c: nop.i 0
 ; OBJ-LABEL: <both>:
-; OBJ-NEXT: 30: nop.m 0 // [MII]
-; OBJ-NEXT: 36: nop.i 0
-; OBJ-NEXT: 3c: nop.i 0 ;;
-; OBJ-NEXT: 40: alloc r34 = ar.pfs,
+; OBJ-NEXT: 50: nop.m 0 // [MII]
+; OBJ-NEXT: 56: nop.i 0
+; OBJ-NEXT: 5c: nop.i 0 ;;
+; OBJ-NEXT: 60: alloc r34 = ar.pfs,
 define i32 @both(i32 %x) "patchable-function-entry"="3" "patchable-function-prefix"="1" {
   %y = call i32 @ext(i32 %x)
   ret i32 %y
@@ -84,7 +84,7 @@ define i32 @before(i32 %x) "patchable-function-entry"="0" "patchable-function-pr
 declare i32 @ext(i32)
 
 ; REL: R_IA64_DIR64LSB .text 0x0
-; REL: R_IA64_DIR64LSB .text 0x20
+; REL: R_IA64_DIR64LSB .text 0x40
 
 ;--- xray.ll
 ; XRAY: An attempt to perform XRay instrumentation for an unsupported target.

@@ -315,8 +315,12 @@ IA64TargetLowering::IA64TargetLowering(const IA64TargetMachine &TM,
 
   setStackPointerRegisterToSaveRestore(IA64::R12);
 
-  // Functions start on a 16-byte bundle boundary.
+  // Functions start on a 16-byte bundle boundary, and preferably on a
+  // 64-byte one, the size of a line of the instruction cache: an entry part
+  // way into a line wastes the rest of its first fetch, and a short function
+  // spreads over one line more.
   setMinFunctionAlignment(Align(16));
+  setPrefFunctionAlignment(Align(64));
 
   // The front end reads a 32-byte pair of bundles a cycle, so a loop whose
   // first bundle is the second of a pair takes a cycle more a pass when its

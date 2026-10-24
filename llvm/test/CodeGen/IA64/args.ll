@@ -2,8 +2,9 @@
 
 ; The first eight arguments are in the input registers, and a result is in r8.
 
-; A function starts at a bundle, and is a procedure to the assembler.
-; CHECK:       .p2align 4
+; A function starts at a line of the instruction cache, and is a procedure to
+; the assembler.
+; CHECK:       .p2align 6
 ; CHECK:       .proc nothing
 define void @nothing() {
 ; CHECK-LABEL: nothing:

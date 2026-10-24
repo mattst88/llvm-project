@@ -89,7 +89,7 @@ define internal void @internal() {
 ; RELOC-NEXT:   0x8 R_IA64_DIR64LSB object 0x0
 ; RELOC-NEXT:   0x10 R_IA64_IPLTLSB extern 0x0
 ; RELOC-NEXT:   0x20 R_IA64_IPLTLSB local 0x0
-; RELOC-NEXT:   0x30 R_IA64_IPLTLSB .text 0x10
+; RELOC-NEXT:   0x30 R_IA64_IPLTLSB .text 0x40
 ; RELOC-NEXT:   0x40 R_IA64_IPLTLSB alias 0x0
 ; RELOC-NEXT:   0x68 R_IA64_DIR64LSB object 0x0
 ; RELOC-NEXT:   0x70 R_IA64_IPLTLSB local 0x0

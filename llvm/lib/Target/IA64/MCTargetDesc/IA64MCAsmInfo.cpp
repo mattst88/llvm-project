@@ -193,5 +193,9 @@ IA64MCAsmInfo::IA64MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
 
   UsesELFSectionDirectiveForBSS = true;
   SupportsDebugInformation = true;
+  // .prefalign pads by a distance only known after relaxation, but a
+  // procedure's unwind information is written from the distances between its
+  // instructions; GNU as has no .prefalign either.
+  HasPreferredAlignment = false;
   ExceptionsType = ExceptionHandling::IA64;
 }
