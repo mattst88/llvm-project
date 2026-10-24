@@ -536,6 +536,74 @@ static void expandLoopBranch(MachineBasicBlock &MBB, MachineInstr &MI,
   MI.eraseFromParent();
 }
 
+// Expand a branch on all of several compares: an ordinary compare, or
+// "cmp.eq p6, p7 = r0, r0" if every compare has an and-type form, then the
+// and-type compares clearing p6, then the branch on p6. An and-type compare
+// may not share an instruction group with a normal one writing the same
+// predicate, but the r0 compare depends on nothing and can issue early.
+// Branch analysis cannot see past the pseudo, so a branch after it to the
+// next block is still there, and goes.
+static void expandAndBranch(MachineBasicBlock &MBB, MachineInstr &MI,
+                            const IA64InstrInfo &TII,
+                            const MachineBranchProbabilityInfo &MBPI,
+                            DenseMap<MachineBasicBlock *, unsigned> &Pairs,
+                            const TargetRegisterInfo &TRI, unsigned NumPairs) {
+  const DebugLoc &DL = MI.getDebugLoc();
+  MachineBasicBlock *Target = MI.getOperand(0).getMBB();
+  unsigned Pair =
+      RenameBranchPredicates ? choosePair(MI, Pairs, TRI, NumPairs) : 0;
+  Register P = PredicatePairs[Pair][0], NotP = PredicatePairs[Pair][1];
+  unsigned First = 1;
+  auto CC = [&](unsigned I) {
+    return IA64CC::CondCode(MI.getOperand(I).getImm());
+  };
+  auto HasAndForm = [&](unsigned I) {
+    std::optional<int64_t> Imm;
+    if (MI.getOperand(I + 2).isImm())
+      Imm = MI.getOperand(I + 2).getImm();
+    return IA64CC::getAndCompare(CC(I), Imm) != 0;
+  };
+  if (HasAndForm(First)) {
+    BuildMI(MBB, MI, DL, TII.get(IA64::CMP_EQ))
+        .addReg(P, RegState::Define)
+        .addReg(NotP, RegState::Define)
+        .addReg(IA64::R0)
+        .addReg(IA64::R0)
+        .addReg(IA64::P0);
+  } else {
+    MachineInstr *Before = MI.getPrevNode();
+    TII.emitCompare(MBB, MI, DL, CC(First), MI.getOperand(First + 1),
+                    MI.getOperand(First + 2));
+    for (MachineInstr &New :
+         make_range(Before ? std::next(MachineBasicBlock::iterator(Before))
+                           : MBB.begin(),
+                    MachineBasicBlock::iterator(MI)))
+      for (MachineOperand &MO : New.operands())
+        if (MO.isReg() && (MO.getReg() == IA64::P6 || MO.getReg() == IA64::P7))
+          MO.setReg(MO.getReg() == IA64::P6 ? P : NotP);
+    First += 3;
+  }
+  for (unsigned I = First, E = MI.getNumExplicitOperands(); I + 2 < E; I += 3) {
+    bool Emitted = TII.emitAndCompare(MBB, MI, DL, CC(I), MI.getOperand(I + 1),
+                                      MI.getOperand(I + 2), P);
+    assert(Emitted && "condition has no and-type compare");
+    (void)Emitted;
+  }
+  bool Taken = MBPI.getEdgeProbability(&MBB, Target) >= BranchProbability(1, 2);
+  BuildMI(MBB, MI, DL, TII.get(IA64::BR_COND))
+      .addMBB(Target)
+      .addImm(Taken ? IA64II::WhetherDPTK : IA64II::WhetherDPNT)
+      .addImm(0)
+      .addImm(0)
+      .addReg(P);
+  Pairs[&MBB] = Pair;
+  MachineBasicBlock::iterator Next = std::next(MI.getIterator());
+  MI.eraseFromParent();
+  if (Next != MBB.end() && Next->getOpcode() == IA64::BRUNCOND &&
+      MBB.isLayoutSuccessor(Next->getOperand(0).getMBB()))
+    Next->eraseFromParent();
+}
+
 bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
   const IA64InstrInfo &TII = *MF.getSubtarget<IA64Subtarget>().getInstrInfo();
   const MachineBranchProbabilityInfo &MBPI =
@@ -575,6 +643,11 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
     for (MachineInstr &MI : make_early_inc_range(MBB.terminators())) {
       if (MI.getOpcode() == IA64::BRLOOP) {
         expandLoopBranch(MBB, MI, TII, MBPI);
+        Changed = true;
+        break;
+      }
+      if (MI.getOpcode() == IA64::BRCC_AND) {
+        expandAndBranch(MBB, MI, TII, MBPI, Pairs, TRI, NumPairs);
         Changed = true;
         break;
       }

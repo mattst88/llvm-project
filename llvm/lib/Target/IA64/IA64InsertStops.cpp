@@ -130,6 +130,36 @@ static bool isParallelCompare(unsigned Opcode) {
   }
 }
 
+// And-type compares and bit and NaT tests, which clear both predicates
+// unless the condition holds, and write neither otherwise.
+static bool isAndCompare(unsigned Opcode) {
+  switch (Opcode) {
+  default:
+    return false;
+  case IA64::CMP_EQ_AND:
+  case IA64::CMP_EQ_ANDi:
+  case IA64::CMP_NE_AND:
+  case IA64::CMP_NE_ANDi:
+  case IA64::CMP_GT_ANDz:
+  case IA64::CMP_GE_ANDz:
+  case IA64::CMP_LT_ANDz:
+  case IA64::CMP_LE_ANDz:
+  case IA64::CMP4_EQ_AND:
+  case IA64::CMP4_EQ_ANDi:
+  case IA64::CMP4_NE_AND:
+  case IA64::CMP4_NE_ANDi:
+  case IA64::CMP4_GT_ANDz:
+  case IA64::CMP4_GE_ANDz:
+  case IA64::CMP4_LT_ANDz:
+  case IA64::CMP4_LE_ANDz:
+  case IA64::TBIT_Z_AND:
+  case IA64::TBIT_NZ_AND:
+  case IA64::TNAT_Z_AND:
+  case IA64::TNAT_NZ_AND:
+    return true;
+  }
+}
+
 // Whether the group open at the end of \p MBB may continue into the next
 // block. \p Last is the last instruction that emits code, if any.
 static bool continuesGroup(const MachineBasicBlock &MBB,
@@ -157,6 +187,9 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   // by whether those compares would set or clear them.
   BitVector OnlySet(TRI.getNumRegs());
   BitVector OnlyCleared(TRI.getNumRegs());
+  // Those written only by and-type compares, which may not share a group
+  // with parallel compares of another type.
+  BitVector OnlyAnded(TRI.getNumRegs());
   // Which predicates exclude each other, and for each register written in
   // the group, the qualifying predicate of its writes (P0 if they differ).
   IA64ExclusivePredicates Exclusive(TRI);
@@ -188,6 +221,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     WrittenByF.reset();
     OnlySet.reset();
     OnlyCleared.reset();
+    OnlyAnded.reset();
     NewFrame = false;
     RaisedFlags = false;
     Joined = false;
@@ -243,6 +277,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       // alloc, calls and returns change RSE state without declaring it, and a
       // read of the RSE registers sees the change only from a later group.
       bool Parallel = isParallelCompare(MI.getOpcode());
+      bool Anded = isAndCompare(MI.getOpcode());
 
       int QPIdx = MI.findFirstPredOperandIdx();
       MCRegister QP = IA64ExclusivePredicates::qualifyingPredicate(MI);
@@ -297,6 +332,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
             if (Parallel && MO.isDef())
               return !(MO.getOperandNo() == 0 ? OnlySet : OnlyCleared)
                           .test(MO.getReg().id());
+            if (Anded && MO.isDef())
+              return !OnlyAnded.test(MO.getReg().id());
             return true;
           })) {
         JoinStop |= Joined;
@@ -313,9 +350,12 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         if (Parallel && !Written.test(MO.getReg().id()))
           (MO.getOperandNo() == 0 ? OnlySet : OnlyCleared)
               .set(MO.getReg().id());
-        else if (!Parallel) {
+        else if (Anded && !Written.test(MO.getReg().id()))
+          OnlyAnded.set(MO.getReg().id());
+        else if (!Parallel && !Anded) {
           OnlySet.reset(MO.getReg().id());
           OnlyCleared.reset(MO.getReg().id());
+          OnlyAnded.reset(MO.getReg().id());
         }
         unsigned R = MO.getReg().id();
         WriterQP[R] =
@@ -366,8 +406,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       Scan(MBB);
       continue;
     }
-    BitVector Written0 = Written, WrittenByF0 = WrittenByF,
-              OnlySet0 = OnlySet, OnlyCleared0 = OnlyCleared;
+    BitVector Written0 = Written, WrittenByF0 = WrittenByF, OnlySet0 = OnlySet,
+              OnlyCleared0 = OnlyCleared, OnlyAnded0 = OnlyAnded;
     std::vector<MCRegister> WriterQP0 = WriterQP;
     bool NewFrame0 = NewFrame, RaisedFlags0 = RaisedFlags;
     auto Restore = [&] {
@@ -380,6 +420,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       WrittenByF = WrittenByF0;
       OnlySet = OnlySet0;
       OnlyCleared = OnlyCleared0;
+      OnlyAnded = OnlyAnded0;
       WriterQP = WriterQP0;
       NewFrame = NewFrame0;
       RaisedFlags = RaisedFlags0;

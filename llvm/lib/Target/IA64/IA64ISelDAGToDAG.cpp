@@ -59,8 +59,9 @@ public:
   bool selectScaledField(SDNode *Node);
   bool appendChainCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                           const SDLoc &DL, SmallVectorImpl<SDValue> &Ops,
-                          unsigned First, bool &HasPlain);
+                          unsigned First, bool &HasPlain, bool AndType = false);
   bool selectCompareChain(SDNode *Node);
+  bool selectBranchChain(SDNode *Node);
   bool selectSelectChain(SDNode *Node);
   CompareForm selectCompare(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                             const SDLoc &DL, SmallVectorImpl<SDValue> &Ops);
@@ -352,19 +353,22 @@ static void setNoFPExcept(SDNode *Node) {
 // Append the operands of another compare to a chain of compares whose
 // operands start at Ops[First]. The compares after the first must have
 // parallel forms, which only integer compares do, so a compare without one
-// goes first, and HasPlain records that the chain has one. Returns false,
-// appending nothing, if the chain cannot take the compare.
+// goes first, and HasPlain records that the chain has one. With AndType the
+// later compares must have and-type forms instead. Returns false, appending
+// nothing, if the chain cannot take the compare.
 bool IA64DAGToDAGISel::appendChainCompare(SDValue LHS, SDValue RHS,
                                           ISD::CondCode CC, const SDLoc &DL,
                                           SmallVectorImpl<SDValue> &Ops,
-                                          unsigned First, bool &HasPlain) {
+                                          unsigned First, bool &HasPlain,
+                                          bool AndType) {
   unsigned Start = Ops.size();
   selectCompare(LHS, RHS, CC, DL, Ops);
   auto IACC = IA64CC::CondCode(Ops[Start]->getAsZExtVal());
   std::optional<int64_t> Imm;
   if (Ops[Start + 2].getOpcode() == ISD::TargetConstant)
     Imm = Ops[Start + 2]->getAsAPIntVal().getSExtValue();
-  if (IA64CC::getParallelCompare(IACC, Imm))
+  if (AndType ? IA64CC::getAndCompare(IACC, Imm)
+              : IA64CC::getParallelCompare(IACC, Imm))
     return true;
   // A NaT test guards compares that may read a NaT.
   if (HasPlain || IA64CC::isNaTTest(IACC)) {
@@ -417,6 +421,110 @@ bool IA64DAGToDAGISel::selectCompareChain(SDNode *Node) {
                                      MVT::i64, Ops);
   if (FP)
     setNoFPExcept(New);
+  return true;
+}
+
+// Add to Sources the values whose NaT would make V a NaT, through the
+// arithmetic that propagates one and the address of a speculative load.
+static void addNaTSources(SDValue V, SmallPtrSetImpl<SDNode *> &Sources,
+                          unsigned Depth = 0) {
+  if (Depth > 8 || !Sources.insert(V.getNode()).second)
+    return;
+  switch (V.getOpcode()) {
+  case ISD::ADD:
+  case ISD::SUB:
+  case ISD::AND:
+  case ISD::OR:
+  case ISD::XOR:
+  case ISD::SHL:
+  case ISD::SRL:
+  case ISD::SRA:
+  case ISD::ZERO_EXTEND:
+  case ISD::SIGN_EXTEND:
+  case ISD::ANY_EXTEND:
+  case ISD::TRUNCATE:
+  case ISD::AssertZext:
+  case ISD::AssertSext:
+  case ISD::SIGN_EXTEND_INREG:
+    for (SDValue Op : V->ops())
+      if (Op.getValueType().isInteger())
+        addNaTSources(Op, Sources, Depth + 1);
+    break;
+  case ISD::INTRINSIC_W_CHAIN:
+    switch (V.getConstantOperandVal(1)) {
+    case Intrinsic::ia64_ld1_s:
+    case Intrinsic::ia64_ld2_s:
+    case Intrinsic::ia64_ld4_s:
+    case Intrinsic::ia64_ld8_s:
+      addNaTSources(V.getOperand(2), Sources, Depth + 1);
+      break;
+    }
+    break;
+  }
+}
+
+// Select a branch on an AND of integer compares as one compare and and-type
+// compares that clear its predicate, then a branch on it. Normal and
+// and-type compares clear their predicates when an operand is NaT, so a
+// test that a value is not NaT can go where a compare reads the value or
+// something it makes NaT. The branch is never inverted, which would take it
+// on a NaT.
+bool IA64DAGToDAGISel::selectBranchChain(SDNode *Node) {
+  SDValue Cond = Node->getOperand(2);
+  if (cast<CondCodeSDNode>(Node->getOperand(1))->get() != ISD::SETNE ||
+      !isNullConstant(Node->getOperand(3)) || Cond.getOpcode() != ISD::AND ||
+      Cond.getValueType() != MVT::i64)
+    return false;
+
+  SmallVector<SDNode *, 16> Compares;
+  SmallVector<SDNode *, 16> Worklist = {Cond.getNode()};
+  while (!Worklist.empty()) {
+    SDNode *N = Worklist.pop_back_val();
+    for (SDValue Op : N->ops()) {
+      if (!Op.hasOneUse())
+        return false;
+      if (Op.getOpcode() == ISD::AND)
+        Worklist.push_back(Op.getNode());
+      else if (Op.getOpcode() == ISD::SETCC &&
+               Op.getOperand(0).getValueType().isInteger())
+        Compares.push_back(Op.getNode());
+      else
+        return false;
+    }
+  }
+
+  auto NaTTested = [](SDNode *Compare) -> SDNode * {
+    SDValue LHS = Compare->getOperand(0);
+    if (cast<CondCodeSDNode>(Compare->getOperand(2))->get() == ISD::SETEQ &&
+        isNullConstant(Compare->getOperand(1)) &&
+        LHS.getOpcode() == ISD::INTRINSIC_WO_CHAIN &&
+        LHS.getConstantOperandVal(0) == Intrinsic::ia64_tnat)
+      return LHS.getOperand(1).getNode();
+    return nullptr;
+  };
+  SmallPtrSet<SDNode *, 16> Read;
+  for (SDNode *Compare : Compares)
+    if (!NaTTested(Compare)) {
+      addNaTSources(Compare->getOperand(0), Read);
+      addNaTSources(Compare->getOperand(1), Read);
+    }
+  SmallVector<SDNode *, 16> Kept;
+  for (SDNode *Compare : Compares)
+    if (SDNode *V = NaTTested(Compare); !V || !Read.contains(V))
+      Kept.push_back(Compare);
+  if (Kept.size() < 2)
+    return false;
+
+  SDLoc DL(Node);
+  SmallVector<SDValue, 32> Ops = {Node->getOperand(4)};
+  bool HasPlain = false;
+  for (SDNode *Compare : Kept)
+    if (!appendChainCompare(Compare->getOperand(0), Compare->getOperand(1),
+                            cast<CondCodeSDNode>(Compare->getOperand(2))->get(),
+                            DL, Ops, 1, HasPlain, /*AndType=*/true))
+      return false;
+  Ops.push_back(Node->getOperand(0));
+  CurDAG->SelectNodeTo(Node, IA64::BRCC_AND, MVT::Other, Ops);
   return true;
 }
 
@@ -1038,6 +1146,8 @@ void IA64DAGToDAGISel::Select(SDNode *Node) {
   }
   case ISD::BR_CC: {
     static const unsigned Opcodes[] = {IA64::BRCC, IA64::BRCCi, IA64::BRCCf};
+    if (selectBranchChain(Node))
+      return;
     SmallVector<SDValue, 5> Ops = {Node->getOperand(4)};
     CompareForm Form = selectCompare(
         Node->getOperand(2), Node->getOperand(3),

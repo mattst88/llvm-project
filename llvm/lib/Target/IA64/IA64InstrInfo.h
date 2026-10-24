@@ -111,6 +111,11 @@ bool isLegalImmediate(CondCode CC, int64_t Imm);
 // zero, which also covers ordering against its neighbors 1 and -1, and for
 // bit tests. If CC has one, so does its opposite.
 unsigned getParallelCompare(CondCode CC, std::optional<int64_t> Imm);
+
+// The and-type compare testing CC, for the same conditions as
+// getParallelCompare and for NaT tests; 0 if there is none. It clears its
+// predicates if the condition does not hold or an operand is NaT.
+unsigned getAndCompare(CondCode CC, std::optional<int64_t> Imm);
 } // namespace IA64CC
 
 class IA64InstrInfo : public IA64GenInstrInfo {
@@ -252,6 +257,14 @@ public:
                            IA64CC::CondCode CC, const MachineOperand &LHS,
                            const MachineOperand &RHS, Register Set,
                            Register Clear) const;
+
+  /// Compare \p LHS with \p RHS with an and-type compare before \p I,
+  /// which clears \p Pred unless \p CC holds. Returns false and emits
+  /// nothing if no and-type compare tests \p CC on these operands.
+  bool emitAndCompare(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                      const DebugLoc &DL, IA64CC::CondCode CC,
+                      const MachineOperand &LHS, const MachineOperand &RHS,
+                      Register Pred) const;
 
   /// Emit parallel compares before \p MI for the compares whose operands
   /// start at operand \p First of \p MI, combining them into the predicates

@@ -448,6 +448,94 @@ unsigned IA64CC::getParallelCompare(CondCode CC, std::optional<int64_t> Imm) {
   }
 }
 
+unsigned IA64CC::getAndCompare(CondCode CC, std::optional<int64_t> Imm) {
+  if (isNaTTest(CC))
+    return CC == NotNaT ? IA64::TNAT_Z_AND : IA64::TNAT_NZ_AND;
+  switch (getParallelCompare(CC, Imm)) {
+  case IA64::CMP_EQ_OR_ANDCM:
+    return IA64::CMP_EQ_AND;
+  case IA64::CMP_EQ_OR_ANDCMi:
+    return IA64::CMP_EQ_ANDi;
+  case IA64::CMP_NE_OR_ANDCM:
+    return IA64::CMP_NE_AND;
+  case IA64::CMP_NE_OR_ANDCMi:
+    return IA64::CMP_NE_ANDi;
+  case IA64::CMP_GT_OR_ANDCMz:
+    return IA64::CMP_GT_ANDz;
+  case IA64::CMP_GE_OR_ANDCMz:
+    return IA64::CMP_GE_ANDz;
+  case IA64::CMP_LT_OR_ANDCMz:
+    return IA64::CMP_LT_ANDz;
+  case IA64::CMP_LE_OR_ANDCMz:
+    return IA64::CMP_LE_ANDz;
+  case IA64::CMP4_EQ_OR_ANDCM:
+    return IA64::CMP4_EQ_AND;
+  case IA64::CMP4_EQ_OR_ANDCMi:
+    return IA64::CMP4_EQ_ANDi;
+  case IA64::CMP4_NE_OR_ANDCM:
+    return IA64::CMP4_NE_AND;
+  case IA64::CMP4_NE_OR_ANDCMi:
+    return IA64::CMP4_NE_ANDi;
+  case IA64::CMP4_GT_OR_ANDCMz:
+    return IA64::CMP4_GT_ANDz;
+  case IA64::CMP4_GE_OR_ANDCMz:
+    return IA64::CMP4_GE_ANDz;
+  case IA64::CMP4_LT_OR_ANDCMz:
+    return IA64::CMP4_LT_ANDz;
+  case IA64::CMP4_LE_OR_ANDCMz:
+    return IA64::CMP4_LE_ANDz;
+  case IA64::TBIT_Z_OR_ANDCM:
+    return IA64::TBIT_Z_AND;
+  case IA64::TBIT_NZ_OR_ANDCM:
+    return IA64::TBIT_NZ_AND;
+  default:
+    return 0;
+  }
+}
+
+// The operands of a parallel or and-type compare after its predicates: an
+// equality compare's immediate comes first, a bit test's last, and the
+// compares against zero and the NaT tests have only the register.
+static void addCompareOperands(MachineInstrBuilder &MIB, IA64CC::CondCode CC,
+                               const MachineOperand &LHS,
+                               const MachineOperand &RHS) {
+  // As in emitCompare, keep only the register and its undef flag.
+  MachineOperand L = MachineOperand::CreateReg(
+      LHS.getReg(), /*isDef=*/false, /*isImp=*/false, /*isKill=*/false,
+      /*isDead=*/false, LHS.isUndef());
+  CC = IA64CC::getDoubleword(CC);
+  if (CC == IA64CC::EQ || CC == IA64CC::NE) {
+    if (RHS.isImm())
+      MIB.addImm(RHS.getImm()).add(L);
+    else
+      MIB.add(L).addReg(RHS.getReg(), getUndefRegState(RHS.isUndef()));
+  } else if (IA64CC::isBitTest(CC)) {
+    MIB.add(L).addImm(RHS.getImm());
+  } else {
+    MIB.add(L);
+  }
+  MIB.addReg(IA64::P0);
+}
+
+bool IA64InstrInfo::emitAndCompare(MachineBasicBlock &MBB,
+                                   MachineBasicBlock::iterator I,
+                                   const DebugLoc &DL, IA64CC::CondCode CC,
+                                   const MachineOperand &LHS,
+                                   const MachineOperand &RHS,
+                                   Register Pred) const {
+  std::optional<int64_t> Imm;
+  if (RHS.isImm())
+    Imm = RHS.getImm();
+  unsigned Opcode = IA64CC::getAndCompare(CC, Imm);
+  if (!Opcode)
+    return false;
+  MachineInstrBuilder MIB = BuildMI(MBB, I, DL, get(Opcode))
+                                .addReg(Pred, RegState::Define)
+                                .addReg(IA64::P0, RegState::Define);
+  addCompareOperands(MIB, CC, LHS, RHS);
+  return true;
+}
+
 bool IA64InstrInfo::emitParallelCompare(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator I,
                                         const DebugLoc &DL, IA64CC::CondCode CC,
@@ -463,22 +551,7 @@ bool IA64InstrInfo::emitParallelCompare(MachineBasicBlock &MBB,
   MachineInstrBuilder MIB = BuildMI(MBB, I, DL, get(Opcode))
                                 .addReg(Set, RegState::Define)
                                 .addReg(Clear, RegState::Define);
-  // As in emitCompare, keep only the register and its undef flag.
-  MachineOperand L = MachineOperand::CreateReg(
-      LHS.getReg(), /*isDef=*/false, /*isImp=*/false, /*isKill=*/false,
-      /*isDead=*/false, LHS.isUndef());
-  CC = IA64CC::getDoubleword(CC);
-  if (CC == IA64CC::EQ || CC == IA64CC::NE) {
-    if (Imm)
-      MIB.addImm(*Imm).add(L);
-    else
-      MIB.add(L).addReg(RHS.getReg(), getUndefRegState(RHS.isUndef()));
-  } else if (IA64CC::isBitTest(CC)) {
-    MIB.add(L).addImm(*Imm);
-  } else {
-    MIB.add(L);
-  }
-  MIB.addReg(IA64::P0);
+  addCompareOperands(MIB, CC, LHS, RHS);
   return true;
 }
 
@@ -1514,6 +1587,9 @@ unsigned IA64InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   // signaling behavior.
   case IA64::BRCCf:
     return 48;
+  // Up to one compare more than it has conditions, and the branch.
+  case IA64::BRCC_AND:
+    return 16 * ((MI.getNumExplicitOperands() - 1) / 3 + 2);
   default:
     return 16;
   }

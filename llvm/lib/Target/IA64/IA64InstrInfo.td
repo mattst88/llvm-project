@@ -216,6 +216,16 @@ let SchedRW = [WriteBr] in
 def BRCCf : IA64Pseudo<(outs),
                        (ins brtarget:$target, i64imm:$cc, FR:$lhs, FR:$rhs),
                        "#BRCCf", []>;
+
+// A branch taken if all of two or more integer compares hold, whose
+// operands follow $target as in SETCC_AND. The compares are and-type ones
+// but for at most one with no such form, which goes first, and a compare of
+// a NaT fails, which is the point: the compares stand in for NaT tests of
+// what they read. Its condition has no inverse, so branch analysis leaves it
+// alone.
+let SchedRW = [WriteBr] in
+def BRCC_AND : IA64Pseudo<(outs), (ins brtarget:$target, variable_ops),
+                          "#BRCC_AND", []>;
 }
 }
 
