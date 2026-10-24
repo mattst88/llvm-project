@@ -74,6 +74,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64ExpandSpeculationPass(PR);
   initializeIA64FoldPredicatedCopiesPass(PR);
   initializeIA64ZextElimPass(PR);
+  initializeIA64SetfPhisPass(PR);
   initializeIA64HoistFallThroughPass(PR);
   initializeIA64HoistLoadUsesPass(PR);
   initializeIA64HoistRestoresPass(PR);
@@ -216,8 +217,10 @@ bool IA64PassConfig::addGlobalInstructionSelect() {
 // later passes remove.
 void IA64PassConfig::addMachineSSAOptimization() {
   addPass(createIA64LocalDynamicTLSPass());
-  if (getOptLevel() != CodeGenOptLevel::None)
+  if (getOptLevel() != CodeGenOptLevel::None) {
     addPass(createIA64ZextElimPass());
+    addPass(createIA64SetfPhisPass());
+  }
   TargetPassConfig::addMachineSSAOptimization();
 }
 
