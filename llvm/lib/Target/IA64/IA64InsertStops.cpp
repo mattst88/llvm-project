@@ -40,6 +40,7 @@
 #include "IA64Subtarget.h"
 #include "MCTargetDesc/IA64BaseInfo.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/LazyMachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
@@ -62,6 +63,8 @@ static cl::opt<bool> StopAfterLoadUse("ia64-stop-after-load-use", cl::Hidden,
                                       cl::init(true));
 static cl::opt<unsigned> LoadUseGroups("ia64-load-use-groups", cl::Hidden,
                                        cl::init(2));
+static cl::opt<bool> GapBeforeRotating("ia64-gap-before-rotating", cl::Hidden,
+                                       cl::init(true));
 
 namespace {
 
@@ -173,8 +176,41 @@ static bool continuesGroup(const MachineBasicBlock &MBB,
          !MBB.isEndSection() && Next->getAlignment() == Align(1);
 }
 
+// On Madison a rotating loop of 5 stages takes 14 cycles more when its passes
+// are 1 modulo 4 and it is entered right after the writes of ar.ec and pr.rot
+// (5 passes a sparse matrix row: 55 cycles a row against 41). An empty group
+// after the writes avoids that. Moving them up the preheader instead does not
+// hold for every loop, and a gap before every loop costs nbody 1% and fdtd2d
+// 1%, so only stage counts that are 1 modulo 4 get one. Return the nops.
+static SmallPtrSet<MachineInstr *, 2> insertRotatingGaps(MachineFunction &MF) {
+  SmallPtrSet<MachineInstr *, 2> Gaps;
+  if (!GapBeforeRotating || !MF.getSubtarget<IA64Subtarget>().isMadison())
+    return Gaps;
+  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  for (MachineBasicBlock &MBB : MF) {
+    MachineInstr *Last = nullptr;
+    bool Hit = false;
+    for (MachineInstr &MI : MBB) {
+      bool EC = MI.getOpcode() == IA64::MOV_ARi &&
+                MI.getOperand(0).getReg() == IA64::AR66;
+      if (EC)
+        Hit = MI.getOperand(1).getImm() % 4 == 1;
+      if (EC || MI.getOpcode() == IA64::MOV_PR_ROT)
+        Last = &MI;
+    }
+    if (!Hit)
+      continue;
+    Gaps.insert(BuildMI(MBB, std::next(Last->getIterator()), Last->getDebugLoc(),
+                        TII.get(IA64::NOP))
+                    .addImm(0)
+                    .addReg(IA64::P0));
+  }
+  return Gaps;
+}
+
 bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
+  SmallPtrSet<MachineInstr *, 2> RotatingGaps = insertRotatingGaps(MF);
   // Computed only for a block that needs it.
   auto &LazyMBFI = getAnalysis<LazyMachineBlockFrequencyInfoPass>();
   AAResults *AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
@@ -387,7 +423,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
       // see the register stack state from before the flush. br.ctop and
       // clrrrb rename the rotating registers, and clrrrb must end its group.
       if (MI.isCall() || MI.getOpcode() == IA64::FLUSHRS ||
-          MI.getOpcode() == IA64::BR_CTOP || MI.getOpcode() == IA64::CLRRRB)
+          MI.getOpcode() == IA64::BR_CTOP || MI.getOpcode() == IA64::CLRRRB ||
+          RotatingGaps.contains(&MI) || RotatingGaps.contains(MI.getNextNode()))
         EndGroup();
     }
     if (!continuesGroup(MBB, BlockLast))
