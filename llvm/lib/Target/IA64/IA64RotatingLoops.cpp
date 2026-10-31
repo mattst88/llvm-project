@@ -56,8 +56,10 @@ STATISTIC(NumRotating, "Number of loops pipelined with rotating registers");
 DEBUG_COUNTER(RotatingCounter, "ia64-rotating",
               "Controls which loops are pipelined with rotating registers");
 
+// Sixteen rather than ten takes fdtd2d down 5.8% on a Madison, and coremark
+// 3.8% and fdtd2d 4-8% on a 9340; the rest of ia64perf does not move.
 static cl::opt<unsigned> RotatingMaxStages(
-    "ia64-rotating-max-stages", cl::Hidden, cl::init(10),
+    "ia64-rotating-max-stages", cl::Hidden, cl::init(16),
     cl::desc("The last stage, counting from 0, that a loop pipelined with "
              "rotating registers may have"));
 
