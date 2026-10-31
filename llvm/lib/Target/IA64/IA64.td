@@ -32,6 +32,7 @@ class Proc<string Name, list<SubtargetFeature> Features>
 def : Proc<"generic",  []>;
 def : Proc<"itanium",  []>;
 def : Proc<"itanium2", []>;
+def : ProcessorModel<"madison", Itanium2Model, [], [TuneMadison]>;
 
 //===----------------------------------------------------------------------===//
 // Target declaration.

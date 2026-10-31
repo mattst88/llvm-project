@@ -17,6 +17,12 @@ def FeatureConstantGP
     : SubtargetFeature<"constant-gp", "HasConstantGP", "true",
                        "The global pointer is the same in every function">;
 
+// Tune for Madison rather than for Montecito and its successors: shifts,
+// extracts, deposits, bit tests and popcnt issue only on I0, and a multimedia
+// result reaches an address without a pipeline flush.
+def TuneMadison
+    : SubtargetFeature<"madison", "IsMadison", "true", "Tune for Madison">;
+
 // Registers reserved from code generation. A kernel does not save most of the
 // FP registers on entry and so must not use them, and a program may keep a
 // global value in a register for its whole run. Stacked registers cannot be

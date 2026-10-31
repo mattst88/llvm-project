@@ -13,7 +13,9 @@
 // two. Only the multimedia multiplies and the moves to and from branch,
 // predicate and I-unit application registers need the first I port: the
 // Itanium 2 issued shifts, extracts, deposits, bit tests and popcnt only
-// there too, but Montecito and its successors issue them on either.
+// there too, but Montecito and its successors issue them on either. The
+// model is that of the 9340; TuneMadison selects what differs on Madison
+// (ia64probe disp_mii_*, lat_ld8_shl, lat_shl_ld on a 1.3 GHz Itanium 2).
 //
 //===----------------------------------------------------------------------===//
 
@@ -59,18 +61,40 @@ class I2Also<SchedWrite write, int latency> : WriteRes<write, []> {
 
 def : I2Write<WriteALU,   I2PortA, 1>;
 def : I2Write<WriteICmp,  I2PortA, 1>;
-def : I2Write<WriteMMALU, I2PortA, 3>;
 def : I2Also<WritePred2, 1>;
 
 // A copy is an add of zero or an fmerge of a register with itself; the
 // integer one is far more common.
 def : InstRW<[WriteALU], (instrs COPY)>;
 
-def : I2Write<WriteMMMul,    I2PortI0, 3>;
-def : I2Write<WriteMMShift,  I2PortI,  3>;
-def : I2Write<WriteMMShiftI, I2PortI,  3>;
-def : I2Write<WriteShift,    I2PortI,  1>;
-def : I2Write<WriteTBit,     I2PortI,  1>;
+// What Madison issues only on I0, the 9340 issues on either I port. A
+// multimedia result also needs a separate definition for each processor, for
+// the bypass to an address below.
+def I2IsMadison : FeatureSchedPredicate<TuneMadison>;
+class I2Res<ProcResourceKind port, int latency> : SchedWriteRes<[port]> {
+  let Latency = latency;
+}
+class I2ByCPU<SchedWrite madison, SchedWrite other>
+    : SchedWriteVariant<[SchedVar<I2IsMadison, [madison]>,
+                         SchedVar<NoSchedPred, [other]>]>;
+
+def I2ShiftI  : I2Res<I2PortI,  1>;
+def I2ShiftI0 : I2Res<I2PortI0, 1>;
+def : SchedAlias<WriteShift, I2ByCPU<I2ShiftI0, I2ShiftI>>;
+def : SchedAlias<WriteTBit,  I2ByCPU<I2ShiftI0, I2ShiftI>>;
+
+def I2MMALU      : I2Res<I2PortA,  3>;
+def I2MMALUMad   : I2Res<I2PortA,  3>;
+def I2MMMul      : I2Res<I2PortI0, 3>;
+def I2MMMulMad   : I2Res<I2PortI0, 3>;
+def I2MMShift    : I2Res<I2PortI,  3>;
+def I2MMShiftMad : I2Res<I2PortI,  3>;
+def I2PopcntMad  : I2Res<I2PortI0, 3>;
+def : SchedAlias<WriteMMALU,    I2ByCPU<I2MMALUMad,   I2MMALU>>;
+def : SchedAlias<WriteMMMul,    I2ByCPU<I2MMMulMad,   I2MMMul>>;
+def : SchedAlias<WriteMMShift,  I2ByCPU<I2MMShiftMad, I2MMShift>>;
+def : SchedAlias<WriteMMShiftI, I2ByCPU<I2MMShiftMad, I2MMShift>>;
+def : InstRW<[I2ByCPU<I2PopcntMad, I2MMShift>, ReadMM], (instrs POPCNT)>;
 def : I2Write<WriteExt,      I2PortI,  1>;
 def : I2Write<WriteToBR,     I2PortI0, 1>;
 def : I2Write<WriteFromBR,   I2PortI0, 2>;
@@ -125,9 +149,12 @@ def : I2Also<WritePostInc, 1>;
 // no bypass from the multimedia units to an address, so it waits thirteen
 // more for them, while the core flushes and replays the access (308065-001
 // Table 2-8, and ia64probe's lat_ld8_shl and lat_shl_ld: 19 cycles each).
-defvar I2ALUWrites = [WriteALU, WriteICmp, WriteSelect, WriteShift, WriteExt,
-                      WriteMovL, WritePostInc, WriteLoad];
-defvar I2MMWrites = [WriteMMALU, WriteMMMul, WriteMMShift, WriteMMShiftI];
+// Madison just waits one more, the same as for a load (7 cycles each there).
+defvar I2ALUWrites = [WriteALU, WriteICmp, WriteSelect, I2ShiftI, I2ShiftI0,
+                      WriteExt, WriteMovL, WritePostInc, WriteLoad];
+defvar I2MMFlushWrites = [I2MMALU, I2MMMul, I2MMShift];
+defvar I2MMMadWrites = [I2MMALUMad, I2MMMulMad, I2MMShiftMad, I2PopcntMad];
+defvar I2MMWrites = !listconcat(I2MMFlushWrites, I2MMMadWrites);
 defvar I2IEU2Writes = [WriteGetF, WriteFromBR, WriteFromPR, WriteFromAR,
                        WriteAlloc];
 def : ReadAdvance<ReadMM, 0, !listconcat(I2ALUWrites, I2MMWrites,
@@ -136,8 +163,9 @@ def : ReadAdvance<ReadMM, 0, !listconcat(I2ALUWrites, I2MMWrites,
                               !listsplat(1, !size(I2MMWrites)),
                               !listsplat(-1, !size(I2IEU2Writes)))>;
 def : ReadAdvance<ReadAddr, 0, !listconcat([WriteLoad, WriteGetF],
-                                           I2MMWrites),
-                  !listconcat([-1, -1], !listsplat(-13, !size(I2MMWrites)))>;
+                                           I2MMMadWrites, I2MMFlushWrites),
+                  !listconcat([-1, -1], !listsplat(-1, !size(I2MMMadWrites)),
+                              !listsplat(-13, !size(I2MMFlushWrites)))>;
 
 def : I2Write<WriteSetF, I2PortM23, 6>;
 def : I2Write<WriteGetF, I2PortM2,  5>;

@@ -121,6 +121,11 @@
 // RUN: %clang --target=ia64-unknown-linux-gnu -mtune=merced -### -c %s 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=TUNE1
 // TUNE1: "-tune-cpu" "itanium"
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtune=madison -### -c %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=TUNE-MADISON
+// TUNE-MADISON: "-tune-cpu" "madison"
+// RUN: %clang --target=ia64-unknown-linux-gnu -mtune=madison -Werror \
+// RUN:   -fsyntax-only %s
 // RUN: %clang --target=ia64-unknown-linux-gnu -mtune=mckinley -Werror \
 // RUN:   -fsyntax-only %s
 // RUN: not %clang --target=ia64-unknown-linux-gnu -mtune=pentium \

@@ -39,6 +39,7 @@ class IA64Subtarget : public IA64GenSubtargetInfo {
   // Registers reserved by the user.
   std::bitset<IA64::NUM_TARGET_REGS> UserReservedRegister;
   bool HasConstantGP = false;
+  bool IsMadison = false;
   bool HasStoppedPadding = false;
 
   IA64InstrInfo InstrInfo;
@@ -92,6 +93,7 @@ public:
   }
 
   bool hasConstantGP() const { return HasConstantGP; }
+  bool isMadison() const { return IsMadison; }
 
   // The processors execute in order and stall at an instruction that needs
   // an earlier result, so instruction order decides how many issue together.

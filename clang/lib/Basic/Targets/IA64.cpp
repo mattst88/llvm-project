@@ -150,7 +150,7 @@ bool IA64TargetInfo::validateAsmConstraint(
 }
 
 static constexpr llvm::StringLiteral ValidCPUNames[] = {
-    {"generic"}, {"itanium"}, {"itanium2"}};
+    {"generic"}, {"itanium"}, {"itanium2"}, {"madison"}};
 
 bool IA64TargetInfo::isValidCPUName(StringRef Name) const {
   return llvm::is_contained(ValidCPUNames, Name);
