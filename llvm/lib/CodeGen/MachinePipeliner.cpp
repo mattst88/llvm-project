@@ -73,6 +73,7 @@
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Attributes.h"
@@ -1683,10 +1684,13 @@ namespace {
 struct FuncUnitSorter {
   const InstrItineraryData *InstrItins;
   const MCSubtargetInfo *STI;
+  TargetSchedModel SchedModel;
   DenseMap<InstrStage::FuncUnits, unsigned> Resources;
 
   FuncUnitSorter(const TargetSubtargetInfo &TSI)
-      : InstrItins(TSI.getInstrItineraryData()), STI(&TSI) {}
+      : InstrItins(TSI.getInstrItineraryData()), STI(&TSI) {
+    SchedModel.init(&TSI);
+  }
 
   // Compute the number of functional unit alternatives needed
   // at each stage, and take the minimum value. We prioritize the
@@ -1710,7 +1714,7 @@ struct FuncUnitSorter {
     }
     if (STI && STI->getSchedModel().hasInstrSchedModel()) {
       const MCSchedClassDesc *SCDesc =
-          STI->getSchedModel().getSchedClassDesc(SchedClass);
+          SchedModel.resolveSchedClass(Inst);
       if (!SCDesc->isValid())
         // No valid Schedule Class Desc for schedClass, should be
         // Pseudo/PostRAPseudo
@@ -1753,7 +1757,7 @@ struct FuncUnitSorter {
     }
     if (STI && STI->getSchedModel().hasInstrSchedModel()) {
       const MCSchedClassDesc *SCDesc =
-          STI->getSchedModel().getSchedClassDesc(SchedClass);
+          SchedModel.resolveSchedClass(&MI);
       if (!SCDesc->isValid())
         // No valid Schedule Class Desc for schedClass, should be
         // Pseudo/PostRAPseudo
