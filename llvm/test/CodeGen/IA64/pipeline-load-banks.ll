@@ -3,7 +3,7 @@
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
 ; RUN:   -ia64-pipeline-load-banks=0 < %s | FileCheck %s --check-prefix=OFF
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -mcpu=madison \
-; RUN:   -verify-machineinstrs < %s | FileCheck %s
+; RUN:   -ia64-stream-prefetch-max=0 -verify-machineinstrs < %s | FileCheck %s
 
 ; for (j = 1; j < n; j++) ex[j] -= 0.5 * (hz[j] - hz[j - 1]);
 ; with hz[j - 1] taken from the iteration before. ex and hz, as large as

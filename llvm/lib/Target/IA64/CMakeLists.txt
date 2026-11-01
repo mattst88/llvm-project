@@ -53,6 +53,7 @@ add_llvm_target(IA64CodeGen
   IA64RotatingLoops.cpp
   IA64SelectionDAGInfo.cpp
   IA64PostIncPointers.cpp
+  IA64PrefetchStreams.cpp
   IA64SpeculateLoads.cpp
   IA64SplitSingleAdds.cpp
   IA64Subtarget.cpp

@@ -103,6 +103,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64SpeculateLoadsPass(PR);
   initializeIA64SplitSingleAddsPass(PR);
   initializeIA64PostIncPointersPass(PR);
+  initializeIA64PrefetchStreamsPass(PR);
 }
 
 // Code addresses data relative to GP and other code relative to IP, so it is
@@ -197,6 +198,9 @@ public:
 
 void IA64PassConfig::addIRPasses() {
   addPass(createAtomicExpandLegacyPass());
+  // Ahead of HardwareLoops, which hides loop bounds from ScalarEvolution.
+  if (getOptLevel() != CodeGenOptLevel::None && EnableLoopPrefetch)
+    addPass(createIA64PrefetchStreamsPass());
   if (getOptLevel() != CodeGenOptLevel::None && EnableCountedLoops)
     addPass(createHardwareLoopsLegacyPass());
   if (getOptLevel() != CodeGenOptLevel::None && EnableLoopPrefetch)
