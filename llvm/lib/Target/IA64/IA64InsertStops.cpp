@@ -42,6 +42,7 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/LazyMachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -65,6 +66,8 @@ static cl::opt<unsigned> LoadUseGroups("ia64-load-use-groups", cl::Hidden,
                                        cl::init(2));
 static cl::opt<bool> GapBeforeRotating("ia64-gap-before-rotating", cl::Hidden,
                                        cl::init(true));
+static cl::opt<bool> PartFPLoads("ia64-part-fp-loads", cl::Hidden,
+                                 cl::init(true));
 
 namespace {
 
@@ -208,6 +211,33 @@ static SmallPtrSet<MachineInstr *, 2> insertRotatingGaps(MachineFunction &MF) {
   return Gaps;
 }
 
+// Whether MI, an FP load, reads within 15 bytes of the FP load First. Each FP
+// load reads L2, whose banks serve one load a cycle on Madison even from one
+// chunk: the second takes 6 cycles more, against the 1 of a group of its own.
+static bool nearFPLoad(const MachineInstr &MI, const MachineInstr &First) {
+  auto Where = [&](const MachineInstr &L, int64_t &Off) -> const Value * {
+    if (!L.hasOneMemOperand())
+      return nullptr;
+    const MachineMemOperand *MMO = *L.memoperands_begin();
+    const Value *V = MMO->getValue();
+    if (!V)
+      return nullptr;
+    const DataLayout &DL = L.getMF()->getDataLayout();
+    const Value *Base = GetPointerBaseWithConstantOffset(V, Off, DL);
+    Off += MMO->getOffset();
+    return Base;
+  };
+  int64_t A = 0, B = 0;
+  const Value *BaseA = Where(MI, A), *BaseB = Where(First, B);
+  return BaseA && BaseA == BaseB && std::abs(A - B) < 16;
+}
+
+static bool isFPLoad(const MachineInstr &MI) {
+  return MI.mayLoad() && !MI.mayStore() && MI.getNumExplicitDefs() &&
+         MI.getOperand(0).isReg() &&
+         IA64::FRRegClass.contains(MI.getOperand(0).getReg());
+}
+
 bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   SmallPtrSet<MachineInstr *, 2> RotatingGaps = insertRotatingGaps(MF);
@@ -236,6 +266,9 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
   // current group reads.
   std::vector<std::pair<MachineInstr *, unsigned>> LoadedBy(TRI.getNumRegs());
   SmallVector<MachineInstr *, 4> ReadLoads;
+  // The FP loads of the current group, kept only where they are worth parting.
+  bool Parting = PartFPLoads && MF.getSubtarget<IA64Subtarget>().isMadison();
+  SmallVector<MachineInstr *, 4> GroupFPLoads;
   unsigned GroupNumber = 0;
   // The last instruction of the current group.
   MachineInstr *Last = nullptr;
@@ -262,6 +295,7 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     RaisedFlags = false;
     Joined = false;
     ReadLoads.clear();
+    GroupFPLoads.clear();
     ++GroupNumber;
   };
 
@@ -275,6 +309,10 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
     llvm::fill(LoadedBy, std::make_pair(nullptr, 0));
     // The last instruction of the block that emits code.
     MachineInstr *BlockLast = nullptr;
+    // The pipeliner has placed a kernel's cycles itself.
+    bool PartHere = Parting && none_of(MBB, [](const MachineInstr &MI) {
+      return MI.getAsmPrinterFlag(IA64::StartsCycle);
+    });
 
     for (MachineInstr &MI : MBB) {
       if (MI.isMetaInstruction())
@@ -347,6 +385,11 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
           StopAfterLoadUse && any_of(ReadLoads, [&](MachineInstr *Load) {
             return IA64InstrInfo::cancelsFill(*Load, MI, AA);
           });
+      bool FPLoad = PartHere && isFPLoad(MI);
+      if (FPLoad && any_of(GroupFPLoads, [&](MachineInstr *Load) {
+            return nearFPLoad(MI, *Load);
+          }))
+        AfterLoadUse = true;
       if (AfterLoadUse)
         MI.setAsmPrinterFlag(IA64::StartsGroup);
 
@@ -375,6 +418,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
         JoinStop |= Joined;
         EndGroup();
       }
+      if (FPLoad)
+        GroupFPLoads.push_back(&MI);
       NewFrame |= MI.getOpcode() == IA64::ALLOC;
       RaisedFlags |= Unit == IA64II::UnitF && UsesFPSR && !ReadsFlags;
 
