@@ -1,5 +1,5 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -filetype=obj < %s \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -filetype=obj < %s \
 ; RUN:   | llvm-objdump -d - | FileCheck %s --check-prefix=OBJ
 
 ; A test of a single bit is a tbit, which needs neither the mask nor an and.

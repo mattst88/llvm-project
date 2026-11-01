@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
 ; The join after the check of the inline sqrt runs whenever the loop body
 ; does. The store's address is not sunk into it, where it would wait for
 ; the sqrt, but computed alongside it.

@@ -1,11 +1,11 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
 ; RUN:   -ia64-rotating-min-stages=2 < %s | FileCheck %s
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s --check-prefix=MIN
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
 ; RUN:   -ia64-rotating-max-stages=1 -pass-remarks-analysis=pipeliner \
 ; RUN:   -o /dev/null < %s 2>&1 | FileCheck %s --check-prefix=CAP
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s --check-prefix=CYC
 
 ; A pipelined loop is a single kernel that br.ctop runs ar.lc + ar.ec times,

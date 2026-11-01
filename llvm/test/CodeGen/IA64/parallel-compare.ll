@@ -1,7 +1,7 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
 ; RUN:   -verify-machineinstrs < %s | FileCheck %s
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -O0 < %s | FileCheck %s --check-prefix=O0
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -O0 < %s | FileCheck %s --check-prefix=O0
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -tail-dup-placement-threshold=2 \
 ; RUN:   -filetype=obj < %s \
 ; RUN:   | llvm-objdump -d - | FileCheck %s --check-prefix=OBJ
 

@@ -1,6 +1,6 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -mtune=madison -verify-machineinstrs \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -mtune=madison -verify-machineinstrs \
 ; RUN:   < %s | FileCheck %s --check-prefixes=CHECK,MADISON
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s --check-prefixes=CHECK,DEFAULT
 
 ; On Madison a loop walking doubles through memory of unknown size prefetches

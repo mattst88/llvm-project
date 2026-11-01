@@ -1,6 +1,6 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
 ; RUN:   -ia64-early-restores=false < %s | FileCheck %s --check-prefix=OFF
 ; The option is not named after the pass, so tools that make an option of
 ; every pass name start.

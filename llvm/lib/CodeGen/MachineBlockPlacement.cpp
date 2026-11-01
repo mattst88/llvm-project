@@ -3601,7 +3601,10 @@ bool MachineBlockPlacement::run(MachineFunction &MF) {
   if (3 <= MF.size() && MF.size() <= ExtTspBlockPlacementMaxBlocks) {
     UseExtTspForSize = OptForSize && ApplyExtTspForSize;
     UseExtTspForPerf =
-        !UseExtTspForSize && EnableExtTspBlockPlacement &&
+        !UseExtTspForSize &&
+        (EnableExtTspBlockPlacement ||
+         (!EnableExtTspBlockPlacement.getNumOccurrences() &&
+          MF.getSubtarget().enableExtTspBlockPlacement())) &&
         (ApplyExtTspWithoutProfile || MF.getFunction().hasProfileData());
   }
 

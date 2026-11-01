@@ -1,5 +1,5 @@
 ; RUN: opt -mtriple=ia64 -passes=ia64-speculate-chases -S < %s \
-; RUN:   | llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs | FileCheck %s
+; RUN:   | llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs | FileCheck %s
 
 ; A chain of branches, each alone in a block only the one before reaches,
 ; has its compares all above the first branch, so that the branches issue

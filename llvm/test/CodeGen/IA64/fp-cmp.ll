@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
 
 ; There are compares for "equal", "less than", "less than or equal" and
 ; "unordered", and all but the last are false of operands that have no

@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s
 
 ; A taken branch costs more than a few instructions, so a short block that

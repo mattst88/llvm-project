@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -enable-ext-tsp-block-placement=0 -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s
 
 ; The index is loaded, so t[i] is likely to miss. It is issued with ld4.sa,
