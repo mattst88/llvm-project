@@ -64,6 +64,15 @@ public:
 
   llvm::SmallVector<Builtin::InfosShard> getTargetBuiltins() const override;
 
+  // Keep large globals on a 16-byte boundary, so that where the linker puts
+  // one does not decide which of a loop's loads and stores share a chunk.
+  // Only for our own definitions: the psABI does not promise this of objects
+  // defined elsewhere.
+  unsigned getMinGlobalAlign(uint64_t Size, bool HasNonWeakDef) const override {
+    unsigned Align = TargetInfo::getMinGlobalAlign(Size, HasNonWeakDef);
+    return HasNonWeakDef && Size >= 128 ? std::max(Align, 128u) : Align;
+  }
+
   BuiltinVaListKind getBuiltinVaListKind() const override {
     return TargetInfo::VoidPtrBuiltinVaList;
   }
