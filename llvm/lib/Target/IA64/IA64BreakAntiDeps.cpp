@@ -10,15 +10,16 @@
 // read from just before, so that the write of the second cannot issue in a
 // group before the read of the first, even where nothing else orders them.
 // The post-RA scheduler does not rename registers. IA64BreakAntiDeps does
-// it for it: a general register written where the block reads or writes it
-// before, whose value is read only in the block, moves to a scratch register
-// that nothing in the block holds over the same span, preferably one the
-// block refers to nowhere near.
+// it for it: a general or floating-point register written where the block
+// reads or writes it before, whose value is read only in the block, moves to a
+// scratch register that nothing in the block holds over the same span,
+// preferably one the block refers to nowhere near.
 //
 // Only plain writes move, along with their plain reads, which for a
 // predicated write must be under the same predicate. The registers of a
 // speculative load and its check stay together, since the check holds only
-// where they are the same.
+// where they are the same. The floating-point registers of a rotating kernel
+// stay, since their names change from one pass to the next.
 //
 //===----------------------------------------------------------------------===//
 
@@ -31,6 +32,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
+#include <bitset>
 
 using namespace llvm;
 
@@ -40,9 +42,17 @@ STATISTIC(NumRenamed, "Number of values moved to another register");
 
 static cl::opt<bool>
     EnableRenaming("ia64-anti-dep-breaking", cl::init(true), cl::Hidden,
-                   cl::desc("Rename general registers reused within a block"));
+                   cl::desc("Rename registers reused within a block"));
+
+static cl::opt<bool> EnableFPRenaming(
+    "ia64-fp-anti-dep-breaking", cl::init(true), cl::Hidden,
+    cl::desc("Rename floating-point registers reused within a block"));
 
 namespace {
+
+/// Enough for the 24 static general and 106 floating-point scratch registers.
+constexpr unsigned MaxScratch = 160;
+using ScratchSet = std::bitset<MaxScratch>;
 
 class IA64BreakAntiDeps : public MachineFunctionPass {
 public:
@@ -68,8 +78,9 @@ public:
 private:
   const IA64InstrInfo *TII = nullptr;
   const TargetRegisterInfo *TRI = nullptr;
-  /// The scratch registers a value may move to.
-  SmallVector<MCPhysReg, 24> Scratch;
+  /// The scratch registers a value may move to, the first NumGR general.
+  SmallVector<MCPhysReg, 128> Scratch;
+  unsigned NumGR = 0;
 
   bool runOnBlock(MachineBasicBlock &MBB);
 };
@@ -137,28 +148,41 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
   if (N < 2)
     return false;
 
-  // Live[I] has bit S set where Scratch[S] is live after Instrs[I], and
+  // A kernel's floating-point registers rotate.
+  bool RenameFP = EnableFPRenaming &&
+                  none_of(MBB.terminators(), [](const MachineInstr &MI) {
+                    return MI.getOpcode() == IA64::BR_CTOP;
+                  }) &&
+                  any_of(Instrs, [](const MachineInstr *MI) {
+                    return any_of(MI->all_defs(), [](const MachineOperand &MO) {
+                      return IA64::FRRegClass.contains(MO.getReg());
+                    });
+                  });
+  ArrayRef<MCPhysReg> Names =
+      ArrayRef<MCPhysReg>(Scratch).take_front(RenameFP ? Scratch.size() : NumGR);
+
+  // Live[I] has bit S set where Names[S] is live after Instrs[I], and
   // Refs[S] lists the instructions that refer to it.
   const MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
   LivePhysRegs LiveOut(*TRI);
   LiveOut.addLiveOuts(MBB);
-  SmallVector<uint32_t, 64> Live(N, 0);
-  SmallVector<SmallVector<unsigned, 8>, 24> Refs(Scratch.size());
+  SmallVector<ScratchSet, 64> Live(N);
+  SmallVector<SmallVector<unsigned, 8>, 24> Refs(Names.size());
   LivePhysRegs LPR(*TRI);
   LPR.addLiveOuts(MBB);
   for (unsigned I = N; I-- != 0;) {
-    for (auto [S, Reg] : enumerate(Scratch)) {
+    for (auto [S, Reg] : enumerate(Names)) {
       if (!LPR.available(MRI, Reg))
-        Live[I] |= 1u << S;
+        Live[I].set(S);
       if (refersTo(*Instrs[I], Reg))
         Refs[S].push_back(I);
     }
     LPR.stepBackward(*Instrs[I]);
   }
-  uint32_t LiveIn = 0;
-  for (auto [S, Reg] : enumerate(Scratch))
+  ScratchSet LiveIn;
+  for (auto [S, Reg] : enumerate(Names))
     if (!LPR.available(MRI, Reg))
-      LiveIn |= 1u << S;
+      LiveIn.set(S);
 
   // Move the value Instrs[From] writes in DefMO, read by Uses up to
   // Instrs[Last], to the free scratch register the block refers to farthest
@@ -175,16 +199,16 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
       };
       return Takes(&DefMO) && all_of(Uses, Takes);
     };
-    uint32_t LiveBefore = From ? Live[From - 1] : LiveIn;
+    const ScratchSet &LiveBefore = From ? Live[From - 1] : LiveIn;
     int Best = -1;
     unsigned BestGap = 0;
-    for (auto [S, New] : enumerate(Scratch)) {
-      if (New == Reg || (LiveBefore & (1u << S)) || !Fits(New) ||
+    for (auto [S, New] : enumerate(Names)) {
+      if (New == Reg || LiveBefore[S] || !Fits(New) ||
           any_of(Refs[S], [&](unsigned R) { return R >= From && R <= Last; }))
         continue;
       bool Free = true;
       for (unsigned J = From; J <= Last && Free; ++J)
-        Free = !(Live[J] & (1u << S));
+        Free = !Live[J][S];
       if (!Free)
         continue;
       unsigned Gap = N + 1;
@@ -197,7 +221,7 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
     }
     if (Best < 0)
       return false;
-    MCPhysReg New = Scratch[Best];
+    MCPhysReg New = Names[Best];
     MachineInstr &Def = *Instrs[From];
     LLVM_DEBUG(dbgs() << "Renaming " << printReg(Reg, TRI) << " to "
                       << printReg(New, TRI) << " in " << Def);
@@ -212,7 +236,7 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
           if (Op.isReg() && Op.getReg() == Reg)
             Op.setReg(New);
     for (unsigned J = From; J != Last; ++J)
-      Live[J] |= 1u << Best;
+      Live[J].set(Best);
     for (unsigned J = From; J <= Last; ++J)
       if (refersTo(*Instrs[J], New))
         Refs[Best].push_back(J);
@@ -244,7 +268,9 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
       if (!MO.isReg() || !MO.isDef() || MO.isTied() || MO.isDead())
         continue;
       Register Reg = MO.getReg();
-      if (!IA64::GRRegClass.contains(Reg) || MRI.isReserved(Reg) ||
+      bool Renamable = IA64::GRRegClass.contains(Reg) ||
+                       (RenameFP && IA64::FRRegClass.contains(Reg));
+      if (!Renamable || MRI.isReserved(Reg) ||
           Def.readsRegister(Reg, TRI) ||
           count_if(Def.operands(), [&](const MachineOperand &Op) {
             return Op.isReg() && Op.getReg() == Reg;
@@ -323,22 +349,22 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
         if (NumDefs != 1 || !EarlierMO)
           break;
         SmallVector<MachineOperand *, 4> EarlierUses;
-        bool Renamable = true;
-        for (unsigned K = E + 1; K <= Q && Renamable; ++K) {
+        bool CanMove = true;
+        for (unsigned K = E + 1; K <= Q && CanMove; ++K) {
           MachineInstr &MI = *Instrs[K];
           for (MachineOperand &Op : MI.operands()) {
             if (Op.isRegMask() && Op.clobbersPhysReg(Reg))
-              Renamable = false;
+              CanMove = false;
             if (!Op.isReg() || Op.getReg() != Reg)
               continue;
             if (Op.isDef() || Op.isImplicit() || Op.isTied() || Op.isUndef() ||
                 !hasRenamableReads(MI))
-              Renamable = false;
+              CanMove = false;
             else
               EarlierUses.push_back(&Op);
           }
         }
-        if (!Renamable || EarlierUses.empty() ||
+        if (!CanMove || EarlierUses.empty() ||
             !Rename(E, Q, *EarlierMO, EarlierUses))
           break;
         Changed = true;
@@ -367,7 +393,12 @@ bool IA64BreakAntiDeps::runOnMachineFunction(MachineFunction &MF) {
         MachineOperand::clobbersPhysReg(Preserved, Reg))
       Scratch.push_back(Reg);
   }
-  assert(Scratch.size() <= 32 && "too many scratch registers for a mask");
+  NumGR = Scratch.size();
+  for (MCPhysReg Reg : IA64::FRRegClass)
+    if (!MRI.isReserved(Reg) && MRI.isAllocatable(Reg) &&
+        MachineOperand::clobbersPhysReg(Preserved, Reg))
+      Scratch.push_back(Reg);
+  assert(Scratch.size() <= MaxScratch && "too many scratch registers");
   bool Changed = false;
   for (MachineBasicBlock &MBB : MF)
     Changed |= runOnBlock(MBB);

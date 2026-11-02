@@ -189,3 +189,52 @@ body: |
     $r15 = LD8 $r8, 0, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit $r15, implicit $r19
 ...
+---
+# A floating-point value moves the same way: the second product could not be
+# computed in the group of the first add, which reads the first.
+# CHECK-LABEL: name: fp_reuse
+# CHECK:         $f6 = FMA_D $f8, $f9, $f0, 0, $p0
+# CHECK-NEXT:    $f10 = FMA_D $f6, $f1, $f8, 0, $p0
+# CHECK-NEXT:    $[[F:f[0-9]+]] = FMA_D $f9, $f9, $f0, 0, $p0
+# CHECK-NEXT:    $f8 = FMA_D $[[F]], $f1, $f10, 0, $p0
+name: fp_reuse
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $f8, $f9
+
+    $f6 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $f10 = FMA_D $f6, $f1, $f8, 0, $p0, implicit $ar40
+    $f6 = FMA_D $f9, $f9, $f0, 0, $p0, implicit $ar40
+    $f8 = FMA_D $f6, $f1, $f10, 0, $p0, implicit $ar40
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...
+---
+# A kernel's floating-point registers rotate, so they stay put.
+# CHECK-LABEL: name: fp_kernel
+# CHECK:         $f6 = FMA_D $f8, $f9, $f0, 0, $p0
+# CHECK-NEXT:    $f10 = FMA_D $f6, $f1, $f8, 0, $p0
+# CHECK-NEXT:    $f6 = FMA_D $f9, $f9, $f0, 0, $p0
+# CHECK-NEXT:    $f8 = FMA_D $f6, $f1, $f10, 0, $p0
+name: fp_kernel
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1
+    liveins: $f8, $f9
+
+  bb.1:
+    successors: %bb.1, %bb.2
+    liveins: $f8, $f9
+
+    $f6 = FMA_D $f8, $f9, $f0, 0, $p0, implicit $ar40
+    $f10 = FMA_D $f6, $f1, $f8, 0, $p0, implicit $ar40
+    $f6 = FMA_D $f9, $f9, $f0, 0, $p0, implicit $ar40
+    $f8 = FMA_D $f6, $f1, $f10, 0, $p0, implicit $ar40
+    BR_CTOP %bb.1, 0, 0, 0, implicit-def $ar65, implicit-def $ar66, implicit $ar65, implicit $ar66
+
+  bb.2:
+    liveins: $f8
+
+    BR_RET $b0, 0, 1, 0, $p0, implicit $f8
+...

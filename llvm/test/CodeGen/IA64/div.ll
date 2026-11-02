@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-fp-anti-dep-breaking=0 -verify-machineinstrs < %s | FileCheck %s
 
 ; No instruction divides integers. The FP unit divides them as significands:
 ; converted to FP values, frcpa's approximation of 1 / b refined twice, the

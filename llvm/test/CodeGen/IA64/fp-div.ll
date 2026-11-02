@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s \
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-fp-anti-dep-breaking=0 -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s
 
 ; There is no instruction that divides. frcpa gives the reciprocal of the

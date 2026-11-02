@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -global-isel -global-isel-abort=1 < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -ia64-fp-anti-dep-breaking=0 -global-isel -global-isel-abort=1 < %s | FileCheck %s
 
 ; A vector is converted an element at a time.
 
