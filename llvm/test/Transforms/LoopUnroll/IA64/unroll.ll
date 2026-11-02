@@ -1,6 +1,7 @@
-; RUN: opt < %s -S -mtriple=ia64-unknown-linux-gnu -passes=loop-unroll | FileCheck %s
 ; RUN: opt < %s -S -mtriple=ia64-unknown-linux-gnu -passes=loop-unroll \
-; RUN:   -ia64-unroll-threshold=0 | FileCheck %s --check-prefix=OFF
+; RUN:   -ia64-full-unroll-threshold=0 | FileCheck %s
+; RUN: opt < %s -S -mtriple=ia64-unknown-linux-gnu -passes=loop-unroll \
+; RUN:   -ia64-unroll-threshold=0 -ia64-full-unroll-threshold=0 | FileCheck %s --check-prefix=OFF
 
 ; A loop of unknown trip count unrolls, with a remainder loop for the
 ; iterations left over: a shift and a store an iteration leave a store unit

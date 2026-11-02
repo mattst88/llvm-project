@@ -369,6 +369,19 @@ static bool runtimeUnrollGains(const Loop *L) {
   return false;
 }
 
+// A short loop unrolled away leaves its memory accesses to known addresses,
+// which the register file is large enough to hold for an enclosing loop: nbody
+// fully unrolled keeps every body in registers.
+static cl::opt<unsigned> FullUnrollThreshold(
+    "ia64-full-unroll-threshold", cl::Hidden, cl::init(600),
+    cl::desc("The size up to which a loop is fully unrolled"));
+
+// A longer loop is better left to the pipeliner: gemm's loops of 70 run at
+// half the speed fully unrolled.
+static cl::opt<unsigned> FullUnrollMaxTrip(
+    "ia64-full-unroll-max-trip", cl::Hidden, cl::init(20),
+    cl::desc("The longest loop the full unroll threshold applies to"));
+
 void IA64TTIImpl::getUnrollingPreferences(
     Loop *L, ScalarEvolution &SE, TTI::UnrollingPreferences &UP,
     OptimizationRemarkEmitter *ORE) const {
@@ -383,6 +396,9 @@ void IA64TTIImpl::getUnrollingPreferences(
           return;
       }
 
+  if (unsigned TC = SE.getSmallConstantTripCount(L);
+      TC && TC <= FullUnrollMaxTrip)
+    UP.Threshold = std::max(UP.Threshold, FullUnrollThreshold.getValue());
   UP.Partial = UP.Runtime = UP.UpperBound = true;
   UP.PartialThreshold = UnrollThreshold;
   // A loop of a known trip count that the unroll factor does not divide
