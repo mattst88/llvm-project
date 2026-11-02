@@ -787,17 +787,25 @@ bool IA64DAGToDAGISel::selectScaledField(SDNode *Node) {
   for (unsigned I : {0, 1}) {
     SDValue Masked = Node->getOperand(I);
     uint64_t Mask;
+    unsigned Pos = 0, Amount;
+    // The top byte of a 32-bit value comes as (x & (m << c)) >> (c - k).
+    if (isShiftBy(Masked, ISD::SRL, Amount) && Masked.hasOneUse()) {
+      Masked = Masked.getOperand(0);
+      Pos = Amount;
+    }
     if (!isMaskedBy(Masked, Mask) || !Masked.hasOneUse())
       continue;
+    Mask >>= Pos;
     unsigned Scale = llvm::countr_zero(Mask);
-    if (Scale < 1 || Scale > 4 || !isMask_64(Mask >> Scale))
+    if (Mask == 0 || Scale < 1 || Scale > 4 || !isMask_64(Mask >> Scale))
       continue;
     SDValue Source = Masked.getOperand(0);
-    unsigned Pos = Scale, Amount;
-    if (isShiftBy(Source, ISD::SRL, Amount) && Amount + Scale < 64) {
+    Pos += Scale;
+    if (Pos == Scale && isShiftBy(Source, ISD::SRL, Amount) &&
+        Amount + Scale < 64) {
       Source = Source.getOperand(0);
       Pos += Amount;
-    } else if (isInt<8>(Mask)) {
+    } else if (Pos == Scale && isInt<8>(Mask)) {
       // An and with an immediate and an add are as short, and need no I0.
       continue;
     }

@@ -265,6 +265,17 @@ define i64 @scaled_small(i64 %x, i64 %base) {
   ret i64 %r
 }
 
+; The top byte of a 32-bit value, masked before it is shifted.
+define i64 @scaled_masked_first(i64 %x, i64 %base) {
+; CHECK-LABEL: scaled_masked_first:
+; CHECK:       extr.u r14 = r32, 24, 8 ;;
+; CHECK-NEXT:  shladd r8 = r14, 2, r33
+  %m = and i64 %x, 4278190080
+  %s = lshr i64 %m, 22
+  %r = add i64 %s, %base
+  ret i64 %r
+}
+
 ; Scaling by 32 is beyond shladd.
 define i64 @scaled_too_far(i64 %x, i64 %base) {
 ; CHECK-LABEL: scaled_too_far:
