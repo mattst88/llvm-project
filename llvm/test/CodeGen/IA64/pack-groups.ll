@@ -1,8 +1,10 @@
 ; The registers the allocator reuses fix the groups that the packing sees.
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
-; RUN:   -ia64-anti-dep-breaking=false < %s | FileCheck %s
+; RUN:   -ia64-anti-dep-breaking=false -ia64-postinc-chain-gap=0 < %s \
+; RUN:   | FileCheck %s
 ; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
-; RUN:   -ia64-anti-dep-breaking=false -ia64-packing=false < %s \
+; RUN:   -ia64-anti-dep-breaking=false -ia64-packing=false \
+; RUN:   -ia64-postinc-chain-gap=0 < %s \
 ; RUN:   | FileCheck %s --check-prefix=OFF
 ; The option is not named after the pass, so tools that make an option of
 ; every pass name start.

@@ -23,6 +23,12 @@
 // few, and none where no add goes. The accesses keep their memory operands,
 // from which the pipeliner relates the new pointers to each other.
 //
+// In any other block, accesses at constant offsets from a pointer are chained
+// where that leaves the critical path of the block no longer: the first keeps
+// its add, and each steps the address on to the next, so that the rounds of a
+// cipher reading its key schedule off a context pointer take one add rather
+// than one for each word.
+//
 //===----------------------------------------------------------------------===//
 
 #include "IA64.h"
@@ -33,6 +39,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 
@@ -42,6 +49,7 @@ using namespace llvm;
 
 STATISTIC(NumPointers, "Number of accesses given a pointer of their own");
 STATISTIC(NumAdds, "Number of address adds removed from loops");
+STATISTIC(NumChained, "Number of address adds replaced by a chain");
 
 static cl::opt<bool>
     EnablePostIncPointers("ia64-enable-postinc-pointers", cl::init(true),
@@ -52,6 +60,15 @@ static cl::opt<bool>
 static cl::opt<unsigned>
     MaxPointers("ia64-postinc-max-pointers", cl::init(16), cl::Hidden,
                 cl::desc("The most pointers to add to one loop"));
+
+static cl::opt<unsigned> ChainGap(
+    "ia64-postinc-chain-gap", cl::init(2), cl::Hidden,
+    cl::desc("The fewest instructions from one access of a chain of accesses "
+             "in a block to the next, 0 to chain none"));
+
+static cl::opt<unsigned>
+    MaxChains("ia64-postinc-max-chains", cl::init(2), cl::Hidden,
+              cl::desc("The most chains of accesses in a block off a pointer"));
 
 namespace {
 class IA64PostIncPointers : public MachineFunctionPass {
@@ -77,9 +94,11 @@ public:
 
 private:
   const IA64InstrInfo *TII = nullptr;
+  TargetSchedModel SchedModel;
   MachineRegisterInfo *MRI = nullptr;
 
   bool runOnLoop(MachineBasicBlock &MBB, MachineBasicBlock &Preheader);
+  bool runOnBlock(MachineBasicBlock &MBB);
   bool isAccessThrough(const MachineInstr &MI, Register Base) const;
   bool isOffset(const MachineInstr &MI, Register Base,
                 const MachineBasicBlock &MBB) const;
@@ -310,14 +329,155 @@ bool IA64PostIncPointers::runOnLoop(MachineBasicBlock &MBB,
   return Changed;
 }
 
+// Chain accesses in MBB at constant offsets from a pointer. Each link holds
+// up the next until it has stepped the address, a cycle in which it would
+// otherwise have gone: bh's force calculation waits on loads that a chain
+// spreads out, so a link goes in only if the later access can wait that long
+// in the critical path of the block, counted through registers. A second
+// chain takes what the first cannot. A call ends the chains: an address held
+// across it would cost a register that the adds do not.
+bool IA64PostIncPointers::runOnBlock(MachineBasicBlock &MBB) {
+  struct Link {
+    MachineInstr *Access;
+    int64_t Offset;
+  };
+  struct Chain {
+    SmallVector<Link, 8> Links;
+    unsigned Last;
+  };
+  SmallDenseMap<Register, SmallVector<Chain, 2>, 8> Open;
+  bool Changed = false;
+
+  // The cycle each instruction can go in at the earliest, and the cycles from
+  // it to the end of the block on the longest path through it.
+  DenseMap<const MachineInstr *, unsigned> Depth, Height;
+  unsigned Critical = 0;
+  auto ForEachEdge = [&](MachineInstr &MI, auto Fn) {
+    for (auto [I, MO] : enumerate(MI.operands())) {
+      if (!MO.isReg() || !MO.isUse() || !MO.getReg().isVirtual())
+        continue;
+      MachineInstr *Def = MRI->getVRegDef(MO.getReg());
+      if (!Def || Def->getParent() != &MBB || Def->isPHI())
+        continue;
+      unsigned DefIdx = Def->findRegisterDefOperandIdx(MO.getReg(), nullptr);
+      Fn(*Def, SchedModel.computeOperandLatency(Def, DefIdx, &MI, I));
+    }
+  };
+  for (MachineInstr &MI : MBB) {
+    if (MI.isDebugInstr() || MI.isPHI())
+      continue;
+    unsigned &D = Depth[&MI];
+    ForEachEdge(MI, [&](MachineInstr &Def, unsigned Latency) {
+      D = std::max(D, Depth.lookup(&Def) + Latency);
+    });
+  }
+  for (MachineInstr &MI : reverse(MBB)) {
+    if (MI.isDebugInstr() || MI.isPHI())
+      continue;
+    unsigned H = Height.lookup(&MI);
+    ForEachEdge(MI, [&](MachineInstr &Def, unsigned Latency) {
+      unsigned &DH = Height[&Def];
+      DH = std::max(DH, H + Latency);
+    });
+    Critical = std::max(Critical, Depth.lookup(&MI) + H);
+  }
+
+  auto Finish = [&](Chain &C) {
+    if (C.Links.size() < 2)
+      return;
+    Changed = true;
+    unsigned Idx = C.Links[0].Access->getNumExplicitDefs();
+    Register Cur = C.Links[0].Access->getOperand(Idx).getReg();
+    for (unsigned I = 0, E = C.Links.size(); I != E; ++I) {
+      MachineInstr *Access = C.Links[I].Access;
+      unsigned BaseIdx = Access->getNumExplicitDefs();
+      Register Addr = Access->getOperand(BaseIdx).getReg();
+      if (I + 1 != E) {
+        Register Next = MRI->createVirtualRegister(&IA64::GRRegClass);
+        step(*Access, Cur, Next, C.Links[I + 1].Offset - C.Links[I].Offset);
+        Cur = Next;
+      } else {
+        Access->getOperand(BaseIdx).setReg(Cur);
+        Access->getOperand(BaseIdx).setIsKill(false);
+      }
+      if (I != 0) {
+        MachineInstr *Add = MRI->getVRegDef(Addr);
+        MRI->markUsesInDebugValueAsUndef(Addr);
+        Add->eraseFromParent();
+        ++NumChained;
+      }
+    }
+  };
+  auto FinishAll = [&] {
+    for (auto &Entry : Open)
+      for (Chain &C : Entry.second)
+        Finish(C);
+    Open.clear();
+  };
+
+  unsigned Pos = 0;
+  for (auto I = MBB.begin(), E = MBB.end(); I != E; ++I) {
+    MachineInstr &MI = *I;
+    if (MI.isDebugInstr())
+      continue;
+    ++Pos;
+    if (MI.isCall()) {
+      FinishAll();
+      continue;
+    }
+    if (!getPostIncOpcode(MI.getOpcode()))
+      continue;
+    Register Addr = MI.getOperand(MI.getNumExplicitDefs()).getReg();
+    if (!Addr.isVirtual() || !MRI->hasOneNonDBGUse(Addr))
+      continue;
+    MachineInstr *Add = MRI->getVRegDef(Addr);
+    if (!Add || Add->getOpcode() != IA64::ADDS || !Add->getOperand(1).isImm() ||
+        !Add->getOperand(2).isReg())
+      continue;
+    Register Base = Add->getOperand(2).getReg();
+    if (!Base.isVirtual() || !isOffset(*Add, Base, MBB) ||
+        !isAccessThrough(MI, Addr))
+      continue;
+    int64_t Offset = Add->getOperand(1).getImm();
+    SmallVector<Chain, 2> &Chains = Open[Base];
+    Chain *Into = nullptr;
+    for (Chain &C : Chains)
+      if (Pos - C.Last >= ChainGap &&
+          isInt<9>(Offset - C.Links.back().Offset) &&
+          Depth.lookup(C.Links.back().Access) + 1 + Height.lookup(&MI) <=
+              Critical) {
+        Into = &C;
+        // MI goes no earlier than this now, nor can the next link.
+        unsigned &D = Depth[&MI];
+        D = std::max(D, Depth.lookup(C.Links.back().Access) + 1);
+        break;
+      }
+    if (!Into) {
+      if (Chains.size() >= MaxChains)
+        continue;
+      Into = &Chains.emplace_back();
+    }
+    Into->Links.push_back({&MI, Offset});
+    Into->Last = Pos;
+  }
+  FinishAll();
+  return Changed;
+}
+
 bool IA64PostIncPointers::runOnMachineFunction(MachineFunction &MF) {
   if (!EnablePostIncPointers || skipFunction(MF.getFunction()))
     return false;
   TII = MF.getSubtarget<IA64Subtarget>().getInstrInfo();
   MRI = &MF.getRegInfo();
+  SchedModel.init(&MF.getSubtarget());
   bool Changed = false;
   for (MachineBasicBlock &MBB : MF) {
-    if (!MBB.isSuccessor(&MBB) || MBB.pred_size() != 2)
+    if (!MBB.isSuccessor(&MBB)) {
+      if (ChainGap)
+        Changed |= runOnBlock(MBB);
+      continue;
+    }
+    if (MBB.pred_size() != 2)
       continue;
     MachineBasicBlock *Preheader = *find_if(
         MBB.predecessors(), [&](MachineBasicBlock *P) { return P != &MBB; });

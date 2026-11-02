@@ -1,4 +1,6 @@
-; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs < %s | FileCheck %s
+; RUN: llc -mtriple=ia64-unknown-linux-gnu -verify-machineinstrs \
+; RUN:   -ia64-postinc-chain-gap=0 < %s \
+; RUN:   | FileCheck %s
 
 declare void @g(ptr, i64)
 
