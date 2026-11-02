@@ -13,16 +13,13 @@
 define float @div_float(float %a, float %b) {
 ; CHECK-LABEL: div_float:
 ; CHECK:         frcpa f6, p8 = f8, f9 ;;
-; CHECK-NEXT:    (p8) fma.s1 f7 = f8, f6, f0
-; CHECK-NEXT:    (p8) fnma.s1 f10 = f9, f6, f1 ;;
-; CHECK-NEXT:    (p8) fma.s1 f7 = f10, f7, f7
-; CHECK-NEXT:    (p8) fma.s1 f11 = f10, f10, f0
-; CHECK-NEXT:    (p8) fma.s1 f10 = f10, f6, f6 ;;
-; CHECK-NEXT:    (p8) fma.s.s1 f7 = f11, f7, f7
-; CHECK-NEXT:    (p8) fma.s1 f10 = f11, f10, f10 ;;
-; CHECK-NEXT:    (p8) fnma.s1 f9 = f9, f7, f8
+; CHECK-NEXT:    (p8) fnma.s1 f7 = f9, f6, f1 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f7, f6, f6 ;;
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f10, f6 ;;
+; CHECK-NEXT:    fma.s.s1 f10 = f8, f7, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f9, f10, f8
 ; CHECK-NEXT:    mov f8 = f6 ;;
-; CHECK-NEXT:    (p8) fma.s f8 = f9, f10, f7
+; CHECK-NEXT:    (p8) fma.s f8 = f9, f7, f10
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %r = fdiv float %a, %b
   ret float %r
@@ -33,19 +30,16 @@ define float @div_float(float %a, float %b) {
 define double @div_double(double %a, double %b) {
 ; CHECK-LABEL: div_double:
 ; CHECK:         frcpa f6, p8 = f8, f9 ;;
-; CHECK-NEXT:    (p8) fma.s1 f7 = f8, f6, f0
-; CHECK-NEXT:    (p8) fnma.s1 f10 = f9, f6, f1 ;;
-; CHECK-NEXT:    (p8) fma.s1 f7 = f10, f7, f7
-; CHECK-NEXT:    (p8) fma.s1 f11 = f10, f10, f0
-; CHECK-NEXT:    (p8) fma.s1 f10 = f10, f6, f6 ;;
-; CHECK-NEXT:    (p8) fma.s1 f7 = f11, f7, f7
-; CHECK-NEXT:    (p8) fma.s1 f12 = f11, f11, f0
-; CHECK-NEXT:    (p8) fma.s1 f10 = f11, f10, f10 ;;
-; CHECK-NEXT:    (p8) fma.d.s1 f7 = f12, f7, f7
-; CHECK-NEXT:    (p8) fma.s1 f10 = f12, f10, f10 ;;
-; CHECK-NEXT:    (p8) fnma.s1 f9 = f9, f7, f8
+; CHECK-NEXT:    (p8) fnma.s1 f7 = f9, f6, f1 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f7, f6, f6
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f7, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f7, f10, f10
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f7, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f10, f10 ;;
+; CHECK-NEXT:    fma.d.s1 f10 = f8, f7, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f9, f10, f8
 ; CHECK-NEXT:    mov f8 = f6 ;;
-; CHECK-NEXT:    (p8) fma.d f8 = f9, f10, f7
+; CHECK-NEXT:    (p8) fma.d f8 = f9, f7, f10
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %r = fdiv double %a, %b
   ret double %r
@@ -95,9 +89,18 @@ define double @div_select(double %a, double %b, double %x) {
 ; CHECK-LABEL: div_select:
 ; CHECK:         frcpa f6, p8 = f8, f9
 ; CHECK-NEXT:    fcmp.lt p6, p7 = f8, f10 ;;
-; CHECK:         (p8) fma.d f6 = f9, f11, f7 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f7 = f9, f6, f1 ;;
+; CHECK-NEXT:    (p8) fma.s1 f11 = f7, f6, f6
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f7, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f11 = f7, f11, f11
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f7, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f7 = f7, f11, f11 ;;
+; CHECK-NEXT:    fma.d.s1 f11 = f8, f7, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f9, f11, f8 ;;
+; CHECK-NEXT:    (p8) fma.d f6 = f9, f7, f11 ;;
 ; CHECK-NEXT:    (p6) mov f10 = f6 ;;
 ; CHECK-NEXT:    mov f8 = f10
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %c = fcmp olt double %a, %x
   %d = fdiv double %a, %b
   %r = select i1 %c, double %d, double %x
@@ -111,13 +114,26 @@ define double @two_div(double %a, double %b, double %c, double %d) {
 ; CHECK-LABEL: two_div:
 ; CHECK:         frcpa f6, p8 = f8, f9
 ; CHECK-NEXT:    frcpa f7, p9 = f10, f11 ;;
-; CHECK-NEXT:    (p8) fma.s1 f12 = f8, f6, f0
-; CHECK-NEXT:    (p8) fnma.s1 f13 = f9, f6, f1
-; CHECK-NEXT:    (p9) fma.s1 f14 = f10, f7, f0
-; CHECK-NEXT:    (p9) fnma.s1 f15 = f11, f7, f1 ;;
-; CHECK:         (p8) fma.d f6 = f8, f13, f12
-; CHECK-NEXT:    (p9) fma.d f7 = f10, f9, f14 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f12 = f9, f6, f1
+; CHECK-NEXT:    (p9) fnma.s1 f13 = f11, f7, f1 ;;
+; CHECK-NEXT:    (p8) fma.s1 f14 = f12, f6, f6
+; CHECK-NEXT:    (p8) fma.s1 f12 = f12, f12, f0
+; CHECK-NEXT:    (p9) fma.s1 f15 = f13, f7, f7
+; CHECK-NEXT:    (p9) fma.s1 f13 = f13, f13, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f14 = f12, f14, f14
+; CHECK-NEXT:    (p8) fma.s1 f12 = f12, f12, f0
+; CHECK-NEXT:    (p9) fma.s1 f15 = f13, f15, f15
+; CHECK-NEXT:    (p9) fma.s1 f13 = f13, f13, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f12 = f12, f14, f14
+; CHECK-NEXT:    (p9) fma.s1 f13 = f13, f15, f15 ;;
+; CHECK-NEXT:    fma.d.s1 f14 = f8, f12, f0
+; CHECK-NEXT:    fma.d.s1 f15 = f10, f13, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f8 = f9, f14, f8
+; CHECK-NEXT:    (p9) fnma.s1 f9 = f11, f15, f10 ;;
+; CHECK-NEXT:    (p8) fma.d f6 = f8, f12, f14
+; CHECK-NEXT:    (p9) fma.d f7 = f9, f13, f15 ;;
 ; CHECK-NEXT:    fma.d f8 = f6, f1, f7
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %x = fdiv double %a, %b
   %y = fdiv double %c, %d
   %s = fadd double %x, %y
@@ -238,9 +254,20 @@ define double @div_const_fraction(double %a) {
 
 define double @div_const_even(double %a) {
 ; CHECK-LABEL: div_const_even:
-; CHECK:         frcpa f7, p8 = f8, f6 ;;
-; CHECK-NEXT:    (p8) fma.s1 f9 = f8, f7, f0
-; CHECK-NEXT:    (p8) fnma.s1 f10 = f6, f7, f1 ;;
+; CHECK:         movl r14 = 4621819117588971520 ;;
+; CHECK-NEXT:    setf.d f6 = r14 ;;
+; CHECK-NEXT:    frcpa f7, p8 = f8, f6 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f6, f7, f1 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f9, f7, f7
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f9, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f9, f10, f10
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f9, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f10, f10 ;;
+; CHECK-NEXT:    fma.d.s1 f10 = f8, f9, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f6 = f6, f10, f8
+; CHECK-NEXT:    mov f8 = f7 ;;
+; CHECK-NEXT:    (p8) fma.d f8 = f6, f9, f10
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %r = fdiv double %a, 10.0
   ret double %r
 }
@@ -250,9 +277,20 @@ define double @div_const_even(double %a) {
 
 define double @div_const_long(double %a) {
 ; CHECK-LABEL: div_const_long:
-; CHECK:         frcpa f7, p8 = f8, f6 ;;
-; CHECK-NEXT:    (p8) fma.s1 f9 = f8, f7, f0
-; CHECK-NEXT:    (p8) fnma.s1 f10 = f6, f7, f1 ;;
+; CHECK:         movl r14 = 4599676419421066581 ;;
+; CHECK-NEXT:    setf.d f6 = r14 ;;
+; CHECK-NEXT:    frcpa f7, p8 = f8, f6 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f6, f7, f1 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f9, f7, f7
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f9, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f9, f10, f10
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f9, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f10, f10 ;;
+; CHECK-NEXT:    fma.d.s1 f10 = f8, f9, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f6 = f6, f10, f8
+; CHECK-NEXT:    mov f8 = f7 ;;
+; CHECK-NEXT:    (p8) fma.d f8 = f6, f9, f10
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %r = fdiv double %a, 0x3FD5555555555555
   ret double %r
 }
@@ -261,9 +299,20 @@ define double @div_const_long(double %a) {
 
 define double @div_const_strict(double %a) strictfp {
 ; CHECK-LABEL: div_const_strict:
-; CHECK:         frcpa f7, p8 = f8, f6 ;;
-; CHECK-NEXT:    (p8) fma.s1 f9 = f8, f7, f0
-; CHECK-NEXT:    (p8) fnma.s1 f10 = f6, f7, f1 ;;
+; CHECK:         movl r14 = 4621256167635550208 ;;
+; CHECK-NEXT:    setf.d f6 = r14 ;;
+; CHECK-NEXT:    frcpa f7, p8 = f8, f6 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f9 = f6, f7, f1 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f9, f7, f7
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f9, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f10 = f9, f10, f10
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f9, f0 ;;
+; CHECK-NEXT:    (p8) fma.s1 f9 = f9, f10, f10 ;;
+; CHECK-NEXT:    fma.d.s1 f10 = f8, f9, f0 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f6 = f6, f10, f8
+; CHECK-NEXT:    mov f8 = f7 ;;
+; CHECK-NEXT:    (p8) fma.d f8 = f6, f9, f10
+; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   %r = call double @llvm.experimental.constrained.fdiv.f64(double %a, double 9.0, metadata !"round.dynamic", metadata !"fpexcept.strict") strictfp
   ret double %r
 }
@@ -308,8 +357,7 @@ define double @div_sqrt_errno(double %a, double %x) {
 define double @div_sqrt_or_other(double %a, double %x, double %y, i1 %p) {
 ; CHECK-LABEL: div_sqrt_or_other:
 ; CHECK:         frcpa f6, p8 = f8, f10 ;;
-; CHECK-NEXT:    (p8) fma.s1 f7 = f8, f6, f0
-; CHECK-NEXT:    (p8) fnma.s1 f9 = f10, f6, f1 ;;
+; CHECK-NEXT:    (p8) fnma.s1 f7 = f10, f6, f1 ;;
 entry:
   %s = call double @llvm.sqrt.f64(double %x)
   br i1 %p, label %split, label %other
@@ -324,3 +372,29 @@ split:
 }
 
 declare double @sqrt(double)
+
+; A divisor from another block can have y refined outside a loop that the
+; dividend is computed in. The quotient is not predicated, so that the loop
+; can still rotate.
+
+define void @div_invariant(ptr %o, ptr %p, i64 %n, double %h) {
+; CHECK-LABEL: div_invariant:
+; CHECK:         frcpa.s1 {{f[0-9]+}}, {{p[0-9]+}} = f1, f8
+; CHECK:       .LBB{{[0-9_]+}}:
+; CHECK-NOT:     frcpa.s1
+; CHECK:         br.cloop
+entry:
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i1, %loop ]
+  %a = getelementptr double, ptr %p, i64 %i
+  %v = load double, ptr %a
+  %d = fdiv double %v, %h
+  %b = getelementptr double, ptr %o, i64 %i
+  store double %d, ptr %b
+  %i1 = add i64 %i, 1
+  %c = icmp ne i64 %i1, %n
+  br i1 %c, label %loop, label %exit
+exit:
+  ret void
+}

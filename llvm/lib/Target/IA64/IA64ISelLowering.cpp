@@ -1350,9 +1350,9 @@ static Register keepApproximation(MachineInstr &MI, MachineBasicBlock *MBB,
 }
 
 static cl::opt<int> FDivLateDividend(
-    "ia64-fdiv-late-dividend", cl::Hidden, cl::init(4),
+    "ia64-fdiv-late-dividend", cl::Hidden, cl::init(0),
     cl::desc("Cycles by which a division's dividend must be ready after its "
-             "divisor for the divisor's reciprocal to be refined first"));
+             "divisor for frcpa(1, b) to start the divisor's reciprocal"));
 
 static cl::opt<bool> FDivSqrtSeed(
     "ia64-fdiv-sqrt-seed", cl::Hidden, cl::init(true),
@@ -1524,86 +1524,89 @@ MachineBasicBlock *IA64TargetLowering::emitFDiv(MachineInstr &MI,
     TargetSchedModel SM;
     SM.init(&Subtarget);
     DenseMap<const MachineInstr *, unsigned> Ready;
-    // The latency sequence below has 7 dependent steps from frcpa; this one
-    // 8 from b's frcpa, but 3 from a, which q and frcpa both need.
-    if ((int)readyCycle(A, MBB, MRI, SM, Ready) >
-        (int)readyCycle(B, MBB, MRI, SM, Ready) + FDivLateDividend) {
-      Register PB = MRI.createVirtualRegister(&IA64::PRValueRegClass);
-      Register YB = NewFR();
-      BuildMI(*MBB, Y0Pos, DL, TII.get(IA64::FRCPA), YB)
+    // Refine y = 1 / b alone, then q = a * y, r = a - b * q and q + r * y:
+    // two steps fewer than refining q alongside y, one more on the longest
+    // path. y starts from frcpa(a, b) unless a dividend ready after the
+    // divisor would hold that back, or the divisor comes from another block:
+    // then from frcpa(1, b), which with y can leave a loop that a does not,
+    // or be shared with another division by b.
+    Register YB = Y0, PB = P;
+    MachineBasicBlock::iterator Pos = MI;
+    if (!B.isVirtual() || MRI.getVRegDef(B)->getParent() != MBB ||
+        (int)readyCycle(A, MBB, MRI, SM, Ready) >
+            (int)readyCycle(B, MBB, MRI, SM, Ready) + FDivLateDividend) {
+      PB = MRI.createVirtualRegister(&IA64::PRValueRegClass);
+      YB = NewFR();
+      Pos = Y0Pos;
+      BuildMI(*MBB, Pos, DL, TII.get(IA64::FRCPA), YB)
           .addReg(PB, RegState::Define)
           .addReg(IA64::F1)
           .addReg(B)
           .addImm(1)
           .addReg(IA64::P0)
           .setMIFlags(Flags | MachineInstr::NoFPExcept);
-      // The steps refining y are predicated on frcpa(1, b)'s predicate, which
-      // is set wherever frcpa(a, b)'s is.
-      auto BStep = [&](unsigned Opcode, Register M1, Register M2,
-                       Register Addend) {
-        Register R = NewFR();
-        BuildMI(*MBB, Y0Pos, DL, TII.get(Opcode), R)
-            .addReg(M1)
-            .addReg(M2)
-            .addReg(Addend)
-            .addImm(1)
-            .addReg(PB)
-            .setMIFlags(Flags | MachineInstr::NoFPExcept);
-        return R;
-      };
-      Register E = BStep(IA64::FNMA, B, YB, IA64::F1);
-      Register Y1 = BStep(IA64::FMA, E, YB, YB);
-      Register Y;
-      if (IsDouble) {
-        Register E1 = BStep(IA64::FMA, E, E, IA64::F0);
-        Register Y2 = BStep(IA64::FMA, E1, Y1, Y1);
-        Register E2 = BStep(IA64::FMA, E1, E1, IA64::F0);
-        Y = BStep(IA64::FMA, E2, Y2, Y2);
-      } else {
-        Y = BStep(IA64::FMA, E, Y1, YB);
-      }
-      // q waits for a, not for frcpa(a, b).
-      Register Q = NewFR();
-      BuildMI(*MBB, MI, DL, TII.get(IsDouble ? IA64::FMA_D : IA64::FMA_S), Q)
-          .addReg(A)
-          .addReg(Y)
-          .addReg(IA64::F0)
-          .addImm(1)
-          .addReg(IA64::P0)
-          .setMIFlags(Flags | MachineInstr::NoFPExcept);
-      // The dividend is added, so it cannot be f0.
-      Register R = Step(IA64::FNMA_SUM, B, Q, A);
-      Register Kept = keepApproximation(MI, MBB, TII, MRI, Y0);
-      BuildMI(*MBB, MI, DL,
-              TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
-          .addReg(Kept)
-          .addReg(R)
-          .addReg(Y)
-          .addReg(Q)
-          .addImm(0)
-          .addReg(P)
-          .setMIFlags(Flags);
-      MI.eraseFromParent();
-      return MBB;
     }
+    // The steps refining y are predicated on frcpa(1, b)'s predicate where
+    // that ran: it is set wherever frcpa(a, b)'s is.
+    auto BStep = [&](unsigned Opcode, Register M1, Register M2,
+                     Register Addend) {
+      Register R = NewFR();
+      BuildMI(*MBB, Pos, DL, TII.get(Opcode), R)
+          .addReg(M1)
+          .addReg(M2)
+          .addReg(Addend)
+          .addImm(1)
+          .addReg(PB)
+          .setMIFlags(Flags);
+      return R;
+    };
+    Register E = BStep(IA64::FNMA, B, YB, IA64::F1);
+    Register Y1 = BStep(IA64::FMA, E, YB, YB);
+    Register Y;
+    if (IsDouble) {
+      Register E1 = BStep(IA64::FMA, E, E, IA64::F0);
+      Register Y2 = BStep(IA64::FMA, E1, Y1, Y1);
+      Register E2 = BStep(IA64::FMA, E1, E1, IA64::F0);
+      Y = BStep(IA64::FMA, E2, Y2, Y2);
+    } else {
+      Y = BStep(IA64::FMA, E, Y1, YB);
+    }
+    // q is not predicated: where b's steps left a loop, a live-in predicate
+    // on it would keep the loop from rotating, and in status field 1 what it
+    // computes where the predicate is clear goes unseen.
+    Register Q = NewFR();
+    BuildMI(*MBB, MI, DL, TII.get(IsDouble ? IA64::FMA_D : IA64::FMA_S), Q)
+        .addReg(A)
+        .addReg(Y)
+        .addReg(IA64::F0)
+        .addImm(1)
+        .addReg(IA64::P0)
+        .setMIFlags(Flags);
+    // The dividend is added, so it cannot be f0.
+    Register R = Step(IA64::FNMA_SUM, B, Q, A);
+    Register Kept = keepApproximation(MI, MBB, TII, MRI, Y0);
+    BuildMI(*MBB, MI, DL,
+            TII.get(IsDouble ? IA64::FMA_D_MERGE : IA64::FMA_S_MERGE), Res)
+        .addReg(Kept)
+        .addReg(R)
+        .addReg(Y)
+        .addReg(Q)
+        .addImm(0)
+        .addReg(P)
+        .setMIFlags(Flags);
+    MI.eraseFromParent();
+    return MBB;
   }
-  Register Y = Y0, Q;
-  if (!Recip)
-    Q = Step(IA64::FMA, A, Y, IA64::F0);
+  Register Y = Y0;
   Register E = Step(IA64::FNMA, B, Y, IA64::F1);
-  if (!Recip)
-    Q = Step(IA64::FMA, E, Q, Q);
   Register T = Step(IA64::FMA, E, E, IA64::F0);
   Y = Step(IA64::FMA, E, Y, Y);
   if (IsDouble) {
-    if (!Recip)
-      Q = Step(IA64::FMA, T, Q, Q);
     Register T2 = Step(IA64::FMA, T, T, IA64::F0);
     Y = Step(IA64::FMA, T, Y, Y);
     T = T2;
   }
-  Register QIn = Recip ? Y : Q;
-  Q = Step(IsDouble ? IA64::FMA_D : IA64::FMA_S, T, QIn, QIn);
+  Register Q = Step(IsDouble ? IA64::FMA_D : IA64::FMA_S, T, Y, Y);
   Y = Step(IA64::FMA, T, Y, Y);
   // The dividend is added, so it cannot be f0, which would make the step a
   // multiply.
@@ -1628,7 +1631,7 @@ MachineBasicBlock *IA64TargetLowering::emitFDiv(MachineInstr &MI,
 // does: well enough that one Newton-Raphson step, for y and q = a * y
 // together, makes y as accurate and q, rounded to double, as close to a / b
 // as the steps of the throughput sequence at emitFDiv do, and its last two
-// steps follow. That is 4 steps after b where the latency sequence takes 7.
+// steps follow. That is 4 steps after b where that sequence takes 8.
 // frcpa of a and b still runs for its predicate and for its result, which is
 // the quotient when the predicate is clear.
 //
