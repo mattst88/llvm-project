@@ -3001,13 +3001,17 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
 
   // CUDA and HIP don't rely on the frontend to pass an ffp-contract option.
   // If one wasn't given by the user, don't pass it here.
+  // IA-64 follows GCC, which fuses across statements: fma is the machine's
+  // only add and its only multiply.
+  StringRef DefaultFPContract =
+      TC.getTriple().getArch() == llvm::Triple::ia64 ? "fast" : "on";
   StringRef FPContract;
   StringRef LastSeenFfpContractOption;
   StringRef LastFpContractOverrideOption;
   bool SeenUnsafeMathModeOption = false;
   if (!JA.isDeviceOffloading(Action::OFK_Cuda) &&
       !JA.isOffloading(Action::OFK_HIP))
-    FPContract = "on";
+    FPContract = DefaultFPContract;
   bool StrictFPModel = false;
   StringRef Float16ExcessPrecision = "";
   StringRef BFloat16ExcessPrecision = "";
@@ -3055,7 +3059,7 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
       if (LastSeenFfpContractOption != "")
         FPContract = LastSeenFfpContractOption;
       else if (SeenUnsafeMathModeOption)
-        FPContract = "on";
+        FPContract = DefaultFPContract;
     }
     // In this case, we're reverting to the last explicit fp-contract option
     // or the platform default
