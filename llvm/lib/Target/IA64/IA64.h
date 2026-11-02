@@ -122,6 +122,15 @@ struct IA64ZextLoopStepsPass : OptionalPassInfoMixin<IA64ZextLoopStepsPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
+class IA64WidenIndicesPass
+    : public OptionalPassInfoMixin<IA64WidenIndicesPass> {
+  const IA64TargetMachine &TM;
+
+public:
+  explicit IA64WidenIndicesPass(const IA64TargetMachine &TM) : TM(TM) {}
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 struct IA64LoadReusePass : OptionalPassInfoMixin<IA64LoadReusePass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };

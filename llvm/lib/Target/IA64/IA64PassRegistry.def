@@ -18,6 +18,7 @@
 #endif
 FUNCTION_PASS("ia64-defer-math-errno", IA64DeferMathErrnoPass())
 FUNCTION_PASS("ia64-hoist-common-insts", IA64HoistCommonInstsPass())
+FUNCTION_PASS("ia64-widen-indices", IA64WidenIndicesPass(*this))
 FUNCTION_PASS("ia64-load-reuse", IA64LoadReusePass())
 FUNCTION_PASS("ia64-loop-alias-versioning", IA64LoopAliasVersioningPass())
 FUNCTION_PASS("ia64-memmove-versioning", IA64MemmoveVersioningPass())

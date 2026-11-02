@@ -311,7 +311,8 @@ void IA64TargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
 
   // Before the vectorizer and the unroller, which copy the versioned loop.
   PB.registerVectorizerStartEPCallback(
-      [](FunctionPassManager &FPM, OptimizationLevel Level) {
+      [this](FunctionPassManager &FPM, OptimizationLevel Level) {
+        FPM.addPass(IA64WidenIndicesPass(*this));
         // Before alias versioning, which the calls would stop. The loads that
         // the calls kept in the loop can then be hoisted out of it.
         if (EnableDeferMathErrno && (Level == OptimizationLevel::O2 ||
