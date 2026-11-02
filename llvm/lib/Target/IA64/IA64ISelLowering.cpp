@@ -1937,6 +1937,28 @@ IA64TargetLowering::emitFDivConst(MachineInstr &MI,
   return MBB;
 }
 
+static cl::opt<bool> SqrtThroughput(
+    "ia64-sqrt-throughput", cl::Hidden, cl::init(true),
+    cl::desc("Expand a double square root in fewer, longer steps unless a "
+             "division by it starts from its approximation of 0.5 / sqrt(x)"));
+
+// Returns whether a division by R, or by a join of R with a call's result as
+// sqrtHalfReciprocal looks through, can start from R's square root steps.
+static bool dividesBySqrt(Register R, const MachineRegisterInfo &MRI) {
+  for (const MachineInstr &Use : MRI.use_nodbg_instructions(R)) {
+    if (Use.getOpcode() == IA64::FDIV_D && Use.getOperand(2).getReg() == R)
+      return true;
+    if (Use.isPHI()) {
+      Register Join = Use.getOperand(0).getReg();
+      for (const MachineInstr &JoinUse : MRI.use_nodbg_instructions(Join))
+        if (JoinUse.getOpcode() == IA64::FDIV_D &&
+            JoinUse.getOperand(2).getReg() == Join)
+          return true;
+    }
+  }
+  return false;
+}
+
 // Square root in steps after frsqrta, as described at FSQRT_S. Every step
 // but frsqrta is predicated on frsqrta's predicate, which is clear when
 // frsqrta's result is the square root already; the last step leaves that
@@ -1974,7 +1996,21 @@ MachineBasicBlock *IA64TargetLowering::emitFSqrt(MachineInstr &MI,
   // b and 0.5 are added, so they cannot be f0, which would make the step a
   // multiply.
   Register G, H;
-  if (IsDouble) {
+  if (IsDouble && SqrtThroughput && !dividesBySqrt(Res, MRI)) {
+    // Two steps taking g to sqrt(x) and h to 0.5 / sqrt(x) together double
+    // their accuracy, and one more corrects g from its residual. This is four
+    // fewer operations than the sequence below for one more step of chain,
+    // and h ends only half as accurate, which is why a division by the result
+    // uses the sequence below.
+    G = Step(IA64::FMA, B, Y, IA64::F0);
+    H = Step(IA64::FMA, Half, Y, IA64::F0);
+    for (unsigned I = 0; I != 2; ++I) {
+      Register E = Step(IA64::FNMA_SUM, G, H, Half);
+      G = Step(IA64::FMA, E, G, G);
+      H = Step(IA64::FMA, E, H, H);
+    }
+    G = Step(IA64::FMA, Step(IA64::FNMA_SUM, G, G, B), H, G);
+  } else if (IsDouble) {
     Register C1 = MI.getOperand(3).getReg(), C2 = MI.getOperand(4).getReg();
     Register C3 = MI.getOperand(5).getReg(), C4 = MI.getOperand(6).getReg();
     Register C5 = MI.getOperand(7).getReg();
