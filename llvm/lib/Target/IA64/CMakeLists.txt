@@ -47,6 +47,7 @@ add_llvm_target(IA64CodeGen
   IA64ISelLowering.cpp
   IA64RegisterInfo.cpp
   IA64RematInCallLoops.cpp
+  IA64ReplicateDispatch.cpp
   IA64SetfPhis.cpp
   IA64SinkPastCalls.cpp
   IA64SpeculateChases.cpp

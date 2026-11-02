@@ -99,6 +99,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64LocalDynamicTLSPass(PR);
   initializeIA64PackGroupsPass(PR);
   initializeIA64RematInCallLoopsPass(PR);
+  initializeIA64ReplicateDispatchPass(PR);
   initializeIA64SinkPastCallsPass(PR);
   initializeIA64SpeculateLoadsPass(PR);
   initializeIA64SplitSingleAddsPass(PR);
@@ -206,6 +207,8 @@ void IA64PassConfig::addIRPasses() {
   if (getOptLevel() != CodeGenOptLevel::None && EnableLoopPrefetch)
     addPass(createLoopDataPrefetchPass());
   TargetPassConfig::addIRPasses();
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createIA64ReplicateDispatch());
 }
 
 bool IA64PassConfig::addInstSelector() {

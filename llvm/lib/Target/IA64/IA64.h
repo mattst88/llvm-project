@@ -54,6 +54,7 @@ FunctionPass *createIA64SplitSingleAddsPass();
 FunctionPass *createIA64PostIncPointersPass();
 FunctionPass *createIA64PrefetchStreamsPass();
 FunctionPass *createIA64RematInCallLoopsPass();
+FunctionPass *createIA64ReplicateDispatch();
 FunctionPass *createIA64SinkPastCallsPass();
 
 /// A pipeliner mutation that issues the FP loads of different objects a
@@ -87,6 +88,7 @@ void initializeIA64InsertStopsPass(PassRegistry &);
 void initializeIA64LocalDynamicTLSPass(PassRegistry &);
 void initializeIA64PackGroupsPass(PassRegistry &);
 void initializeIA64RematInCallLoopsPass(PassRegistry &);
+void initializeIA64ReplicateDispatchPass(PassRegistry &);
 void initializeIA64SinkPastCallsPass(PassRegistry &);
 void initializeIA64SpeculateLoadsPass(PassRegistry &);
 void initializeIA64SplitSingleAddsPass(PassRegistry &);
