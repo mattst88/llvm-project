@@ -11,15 +11,22 @@
 #include "IA64FrameLowering.h"
 #include "IA64InstrInfo.h"
 #include "IA64MachineFunctionInfo.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "IA64GenRegisterInfo.inc"
 
 using namespace llvm;
+
+static cl::opt<unsigned> MaxCallerLocals(
+    "ia64-max-caller-locals", cl::Hidden, cl::init(32),
+    cl::desc("The most stacked registers the body of a function that makes "
+             "calls may use for its inputs and locals (0: no limit)"));
 
 IA64RegisterInfo::IA64RegisterInfo() : IA64GenRegisterInfo(/*RA=*/IA64::B0) {}
 
@@ -102,6 +109,25 @@ BitVector IA64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   unsigned FirstKept = MF.hasInlineAsm() ? IA64::R108 : IA64::R115;
   for (unsigned Reg = FirstKept; Reg <= IA64::R119; ++Reg)
     Reserved.set(Reg);
+
+  // A function's locals stay in the physical register stack across its
+  // calls, so every register they take is one fewer for the callees' frames
+  // before the RSE has to spill. Greedy allocation spreads values over every
+  // local it may use; a function that makes calls is held to a few, which
+  // it then uses more densely, to keep the RSE quiet. In CPython's eval
+  // loop the 92-register frame cost more in spills and fills around calls
+  // than the values it held. A leaf function's frame is gone before
+  // anything else allocates, and a function with rotating registers or
+  // inline asm lays out its locals itself. Whether it rotates is known only
+  // once its loops are pipelined, so the passes before that, all in SSA form,
+  // see every local: register allocation reserves the set again after SSA.
+  // Under the cap MachineLICM saw a pipelined function's pressure as high
+  // and left loop counts in the outer loop.
+  if (MaxCallerLocals && !MF.getRegInfo().isSSA() &&
+      MF.getFrameInfo().hasCalls() && !FI->rotates() && !MF.hasInlineAsm())
+    for (unsigned Reg = IA64::R32 + std::max(MaxCallerLocals.getValue(), 8u);
+         Reg < FirstKept; ++Reg)
+      Reserved.set(Reg);
 
   // The kernel may restart a syscall with the arguments left in its input
   // registers, so a syscall-linkage function must not modify them.
