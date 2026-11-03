@@ -312,6 +312,7 @@ private:
   bool speculateInPreds(MachineInstr &Load, Walk &W, unsigned Pair);
   bool spreadInPreds(MachineInstr &Spec);
   bool speculateCopy(MachineInstr &Load, unsigned Pair);
+  bool speculatePostIncrement(MachineInstr &Load, unsigned Pair);
   bool hoistOperands(MachineInstr &User);
 
   const IA64InstrInfo *TII;
@@ -641,8 +642,9 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
 
   Walk W = walkUp(Load, Addr, MinUsePercent, &Load);
   // Moving it within a block past nothing the scheduler cannot move it past
-  // gains nothing.
-  if (!W.Crossed || W.Distance < MinDistance)
+  // gains nothing, unless the walk stopped at a join it can go on above.
+  bool AtJoin = InPredecessors && W.Join && W.MBB->pred_size() > 1;
+  if (!AtJoin && (!W.Crossed || W.Distance < MinDistance))
     return false;
   // A branch that tests the address, or a value computed on the way to it,
   // resolves no sooner than the address is ready, so the load could issue
@@ -677,6 +679,8 @@ bool IA64SpeculateLoads::speculate(MachineInstr &Load, unsigned Pair) {
   }
   if (InPredecessors && W.Join && speculateInPreds(Load, W, Pair))
     return true;
+  if (!W.Crossed || W.Distance < MinDistance)
+    return false;
   MachineBasicBlock *MBB = W.MBB;
   MachineBasicBlock::iterator At = W.At;
   MachineBasicBlock *Use = Load.getParent();
@@ -810,6 +814,48 @@ bool IA64SpeculateLoads::speculateCopy(MachineInstr &Load, unsigned Pair) {
   return true;
 }
 
+// A post-increment load moves as the plain load, since ld.sa cannot step the
+// address the check also reads, and the increment becomes an add after the
+// check. An indirect call loads its target's entry point this way, and the
+// function descriptor it reads is often known well before the call.
+bool IA64SpeculateLoads::speculatePostIncrement(MachineInstr &Load,
+                                                unsigned Pair) {
+  std::optional<unsigned> Plain = getPlainLoad(Load.getOpcode());
+  if (!Plain || !getForms(*Plain) || !Load.getOperand(2).isReg() ||
+      Load.getOperand(5).getReg() != IA64::P0)
+    return false;
+  MachineBasicBlock &MBB = *Load.getParent();
+  const DebugLoc &DL = Load.getDebugLoc();
+  Register Data = Load.getOperand(0).getReg();
+  Register Next = Load.getOperand(1).getReg();
+  Register Addr = Load.getOperand(2).getReg();
+  const MachineOperand &Inc = Load.getOperand(3);
+  MachineInstr *PlainLoad = BuildMI(MBB, Load, DL, TII->get(*Plain), Data)
+                                .addReg(Addr)
+                                .add(Load.getOperand(4))
+                                .addReg(IA64::P0)
+                                .cloneMemRefs(Load);
+  MachineInstrBuilder Step =
+      Inc.isReg() ? BuildMI(MBB, Load, DL, TII->get(IA64::ADD), Next)
+                        .addReg(Addr)
+                        .add(Inc)
+                        .addReg(IA64::P0)
+                  : BuildMI(MBB, Load, DL, TII->get(IA64::ADDS), Next)
+                        .addImm(Inc.getImm())
+                        .addReg(Addr)
+                        .addReg(IA64::P0);
+  MBB.remove(&Load);
+  if (speculate(*PlainLoad, Pair)) {
+    MBB.getParent()->deleteMachineInstr(&Load);
+    return true;
+  }
+  // Nothing moved, so the load keeps its increment.
+  MBB.insert(PlainLoad->getIterator(), &Load);
+  PlainLoad->eraseFromParent();
+  Step->eraseFromParent();
+  return false;
+}
+
 // The walk from Load stopped at the top of a block that other paths also
 // enter, or whose phis compute the address. On the path through the hottest
 // of them the load can often issue much earlier: in bzip2's output loop the
@@ -828,11 +874,19 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
     return false;
   // The block on a split edge costs a taken branch, so only a rarely taken
   // edge is split.
+  // A predecessor that goes to the join nearly always can issue the load
+  // itself, at a small cost on its other ways out. CPython's _Py_Dealloc
+  // calls a rarely set tracer before the indirect call whose function
+  // descriptor it loads, and the edge around the tracer is the hot one.
+  auto Leads = [&](MachineBasicBlock *P) {
+    return P->succ_size() == 1 || MBPI->getEdgeProbability(P, Join) >=
+                                      BranchProbability(MinUsePercent, 100);
+  };
   BlockFrequency JoinFreq = MBFI->getBlockFreq(Join);
   for (MachineBasicBlock *P : Preds)
     if (P == Join || P->isEHPad() || MLI->getLoopFor(P) != L ||
         !Seen.insert(P).second ||
-        (P->succ_size() != 1 &&
+        (!Leads(P) &&
          (!P->canSplitCriticalEdge(Join) ||
           MBFI->getBlockFreq(P) * MBPI->getEdgeProbability(P, Join) >
               JoinFreq * BranchProbability(SplitMaxPercent, 100))))
@@ -846,7 +900,7 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
   llvm::stable_sort(Preds, [&](MachineBasicBlock *A, MachineBasicBlock *B) {
     return EdgeFreq(A) > EdgeFreq(B);
   });
-  if (Preds.front()->succ_size() != 1)
+  if (!Leads(Preds.front()))
     return false;
 
   MachineFunction &MF = *Join->getParent();
@@ -859,10 +913,10 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
     // A predecessor that also leads elsewhere gets a block of its own on
     // the edge, so that the load is issued only on the way to the join.
     MachineBasicBlock *In =
-        P->succ_size() == 1
-            ? P
-            : P->SplitCriticalEdge(Join, MachineBasicBlock::SplitCriticalEdgeAnalyses{
-                                             nullptr, nullptr, nullptr, MLI});
+        Leads(P) ? P
+                 : P->SplitCriticalEdge(
+                       Join, MachineBasicBlock::SplitCriticalEdgeAnalyses{
+                                 nullptr, nullptr, nullptr, MLI});
     DenseMap<Register, Register> Map;
     for (const MachineInstr &Phi : Join->phis())
       for (unsigned I = 1, E = Phi.getNumOperands(); I < E; I += 2)
@@ -1208,7 +1262,8 @@ bool IA64SpeculateLoads::runOnMachineFunction(MachineFunction &MF) {
       if (any_of(*Near, [&](int64_t O) { return std::abs(O - Offset) < 64; }))
         continue;
     }
-    if (!speculate(*MI, Pair) && !(Copies && speculateCopy(*MI, Pair)))
+    if (!speculate(*MI, Pair) && !speculatePostIncrement(*MI, Pair) &&
+        !(Copies && speculateCopy(*MI, Pair)))
       continue;
     if (Near)
       Near->push_back(Offset);
