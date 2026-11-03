@@ -3030,6 +3030,18 @@ static bool returnsTwice(const SelectionDAG &DAG, SDValue Callee,
   return F && F->hasFnAttribute(Attribute::ReturnsTwice);
 }
 
+/// Whether a call between functions of conventions \p A and \p B passes
+/// arguments and preserves registers alike. The C, fast and cold conventions
+/// all lower to the software conventions, and the optimizer gives an
+/// internal function the fast one, so its callers in C may tail call it.
+static bool sameConventions(CallingConv::ID A, CallingConv::ID B) {
+  auto IsC = [](CallingConv::ID CC) {
+    return CC == CallingConv::C || CC == CallingConv::Fast ||
+           CC == CallingConv::Cold;
+  };
+  return A == B || (IsC(A) && IsC(B));
+}
+
 SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
                                       SmallVectorImpl<SDValue> &InVals) const {
   SelectionDAG &DAG = CLI.DAG;
@@ -3080,7 +3092,7 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
          IndirectOK) &&
         CCInfo.getStackSize() == 0 && !Caller.isVarArg() &&
         !Caller.hasFnAttribute("syscall-linkage") &&
-        Caller.getCallingConv() == CLI.CallConv &&
+        sameConventions(Caller.getCallingConv(), CLI.CallConv) &&
         none_of(CLI.Outs,
                 [](const ISD::OutputArg &Out) { return Out.Flags.isByVal(); });
   }

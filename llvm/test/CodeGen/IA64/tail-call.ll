@@ -216,3 +216,28 @@ define i64 @shrinks(i64 %a, i64 %b, i64 %c, i64 %d, ptr %p) {
   %r = tail call i64 @local(i64 %b, i64 %y)
   ret i64 %r
 }
+
+; The fast and cold conventions pass arguments as C does, so a function may
+; branch to a callee of either, as to an internal function the optimizer gave
+; the fast one.
+
+declare dso_local fastcc i64 @local_fast(i64, i64)
+declare dso_local coldcc i64 @local_cold(i64)
+
+define i64 @to_fast(i64 %a, i64 %b) {
+; CHECK-LABEL: to_fast:
+; CHECK-NOT:     br.call
+; CHECK:         br.cond.sptk.many local_fast ;;
+; CHECK-NEXT:    .endp to_fast
+  %r = tail call fastcc i64 @local_fast(i64 %a, i64 %b)
+  ret i64 %r
+}
+
+define fastcc i64 @fast_to_cold(i64 %a) {
+; CHECK-LABEL: fast_to_cold:
+; CHECK-NOT:     br.call
+; CHECK:         br.cond.sptk.many local_cold ;;
+; CHECK-NEXT:    .endp fast_to_cold
+  %r = tail call coldcc i64 @local_cold(i64 %a)
+  ret i64 %r
+}
