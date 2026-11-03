@@ -94,6 +94,26 @@ yes:
   ret i64 %r
 }
 
+; With two such compares, the second is under the first's predicate.
+; CHECK-LABEL: two_plain:
+; CHECK:         cmp.ltu p6, p7 = r32, r33 ;;
+; CHECK-NEXT:    (p6) cmp.ltu p6, p7 = r34, r35
+; CHECK-NEXT:    (p6) br.cond.dptk.few
+define i64 @two_plain(i64 %a, i64 %b, i64 %c, i64 %d) {
+entry:
+  %c0 = icmp ult i64 %a, %b
+  %c1 = icmp ult i64 %c, %d
+  %x = and i1 %c0, %c1
+  br i1 %x, label %yes, label %no, !prof !0, !unpredictable !1
+
+no:
+  ret i64 0
+
+yes:
+  %r = call i64 @f()
+  ret i64 %r
+}
+
 declare i64 @f()
 declare i64 @llvm.ia64.ld8.s(ptr)
 declare i64 @llvm.ia64.tnat(i64)

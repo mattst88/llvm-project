@@ -68,16 +68,14 @@ define i64 @sel_inverted(i64 %a, i64 %b, i64 %c, i64 %d, i64 %x, i64 %y) {
 
 define i64 @sel_two_plain(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %x,
                           i64 %y) {
-; Only one compare can lack a parallel form, so the chain stops at the second,
-; whose select gives the value selected.
+; A compare with no parallel form after the first is an ordinary one under
+; p6, after the parallel ones.
 ; CHECK-LABEL: sel_two_plain:
-; CHECK:       mov r14 = r38
-; CHECK-NEXT:  cmp.ltu p6, p7 = r35, r36
+; CHECK:       cmp.ltu p6, p7 = r34, r35
 ; CHECK-NEXT:  mov r8 = r38 ;;
-; CHECK-NEXT:  (p6) mov r14 = r37
-; CHECK-NEXT:  cmp.ltu p6, p7 = r34, r35 ;;
 ; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = r32, r33 ;;
-; CHECK-NEXT:  (p6) mov r8 = r14
+; CHECK-NEXT:  (p6) cmp.ltu p6, p7 = r35, r36 ;;
+; CHECK-NEXT:  (p6) mov r8 = r37
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %c1 = icmp eq i64 %a, %b
   %c2 = icmp ult i64 %c, %d

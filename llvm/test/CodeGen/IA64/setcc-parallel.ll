@@ -56,10 +56,13 @@ define i64 @set_all(i64 %a, i64 %b, i64 %c, i64 %d, i64 %e) {
 }
 
 define i64 @set_two_plain(i64 %a, i64 %b, i64 %c, i64 %d) {
-; Only one compare can lack a parallel form.
+; A second compare with no parallel form is an ordinary one under p6.
 ; CHECK-LABEL: set_two_plain:
-; CHECK-NOT:   or.andcm
-; CHECK:       and r8 = r14, r15
+; CHECK:       cmp.lt p6, p7 = r32, r33
+; CHECK-NEXT:  mov r8 = r0 ;;
+; CHECK-NEXT:  (p6) cmp.ltu p6, p7 = r34, r35 ;;
+; CHECK-NEXT:  (p6) mov r8 = 1
+; CHECK-NEXT:  br.ret.sptk.many b0 ;;
   %c1 = icmp slt i64 %a, %b
   %c2 = icmp ult i64 %c, %d
   %and = and i1 %c1, %c2

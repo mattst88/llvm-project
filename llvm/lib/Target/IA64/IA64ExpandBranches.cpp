@@ -541,7 +541,9 @@ static void expandLoopBranch(MachineBasicBlock &MBB, MachineInstr &MI,
 }
 
 // Expand a branch on all of several compares: an ordinary compare, then the
-// and-type compares clearing p6, then the branch on p6. An and-type compare
+// and-type compares clearing p6, then the branch on p6. A condition after
+// the first with no and-type form is an ordinary compare under p6, which
+// leaves p6 clear if it already is. An and-type compare
 // may not share an instruction group with a normal one writing the same
 // predicate, so if every compare has an and-type form, the ordinary one is
 // of the condition whose operands are ready first, when they are ready
@@ -608,17 +610,28 @@ static void expandAndBranch(MachineBasicBlock &MBB, MachineInstr &MI,
     if (Ready(Best) < Latest || Latest == 0)
       Plain = Best;
   }
-  if (Plain) {
+  // An ordinary compare of condition I into P and NotP, under P if
+  // Predicated: then it leaves P clear if it already was.
+  auto EmitOrdinary = [&](unsigned I, bool Predicated) {
     MachineInstr *Before = MI.getPrevNode();
-    TII.emitCompare(MBB, MI, DL, CC(*Plain), MI.getOperand(*Plain + 1),
-                    MI.getOperand(*Plain + 2));
+    TII.emitCompare(MBB, MI, DL, CC(I), MI.getOperand(I + 1),
+                    MI.getOperand(I + 2));
     for (MachineInstr &New :
          make_range(Before ? std::next(MachineBasicBlock::iterator(Before))
                            : MBB.begin(),
-                    MachineBasicBlock::iterator(MI)))
+                    MachineBasicBlock::iterator(MI))) {
       for (MachineOperand &MO : New.operands())
         if (MO.isReg() && (MO.getReg() == IA64::P6 || MO.getReg() == IA64::P7))
           MO.setReg(MO.getReg() == IA64::P6 ? P : NotP);
+      if (Predicated) {
+        New.getOperand(New.getNumExplicitOperands() - 1).setReg(P);
+        New.addOperand(MachineOperand::CreateReg(NotP, /*isDef=*/false,
+                                                 /*isImp=*/true));
+      }
+    }
+  };
+  if (Plain) {
+    EmitOrdinary(*Plain, false);
   } else {
     BuildMI(MBB, MI, DL, TII.get(IA64::CMP_EQ))
         .addReg(P, RegState::Define)
@@ -630,10 +643,9 @@ static void expandAndBranch(MachineBasicBlock &MBB, MachineInstr &MI,
   for (unsigned I = First; I + 2 < E; I += 3) {
     if (I == Plain)
       continue;
-    bool Emitted = TII.emitAndCompare(MBB, MI, DL, CC(I), MI.getOperand(I + 1),
-                                      MI.getOperand(I + 2), P);
-    assert(Emitted && "condition has no and-type compare");
-    (void)Emitted;
+    if (!TII.emitAndCompare(MBB, MI, DL, CC(I), MI.getOperand(I + 1),
+                            MI.getOperand(I + 2), P))
+      EmitOrdinary(I, true);
   }
   bool Taken = MBPI.getEdgeProbability(&MBB, Target) >= BranchProbability(1, 2);
   BuildMI(MBB, MI, DL, TII.get(IA64::BR_COND))

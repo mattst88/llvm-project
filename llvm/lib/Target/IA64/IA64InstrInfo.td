@@ -120,8 +120,9 @@ def SETFCLASS : IA64Pseudo<(outs GR:$r1),
 // 1 if all (SETCC_AND) or any (SETCC_OR) of two or more compares hold, else
 // 0. The operands are a condition code, a register and a register or
 // immediate for each compare. The first compare may be any; the others must
-// be integer compares with parallel forms, which accumulate into its
-// predicates. In the "f" forms the first compare is of FP registers.
+// be integer compares, and those with parallel forms accumulate into its
+// predicates. The others are ordinary compares under the predicate still
+// undecided. In the "f" forms the first compare is of FP registers.
 let Defs = [P6, P7], hasSideEffects = 0 in {
 let SchedRW = [WriteSelect] in {
 def SETCC_AND : IA64Pseudo<(outs GR:$r1), (ins variable_ops), "#SETCC_AND",
@@ -229,7 +230,8 @@ def BRCCf : IA64Pseudo<(outs),
 
 // A branch taken if all of two or more integer compares hold, whose
 // operands follow $target as in SETCC_AND. The compares are and-type ones
-// but for at most one with no such form, which goes first, and a compare of
+// but for those with no such form: the first goes first, and the others are
+// ordinary compares predicated on the result so far. A compare of
 // a NaT fails, which is the point: the compares stand in for NaT tests of
 // what they read. Its condition has no inverse, so branch analysis leaves it
 // alone.

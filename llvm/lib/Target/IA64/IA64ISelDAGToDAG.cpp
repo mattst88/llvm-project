@@ -354,7 +354,10 @@ static void setNoFPExcept(SDNode *Node) {
 // operands start at Ops[First]. The compares after the first must have
 // parallel forms, which only integer compares do, so a compare without one
 // goes first, and HasPlain records that the chain has one. With AndType the
-// later compares must have and-type forms instead. Returns false, appending
+// later compares should have and-type forms instead. Integer compares
+// without the form after the first follow it, as ordinary compares
+// predicated on the result so far, which is slower: each needs its own
+// instruction group. Returns false, appending
 // nothing, if the chain cannot take the compare.
 bool IA64DAGToDAGISel::appendChainCompare(SDValue LHS, SDValue RHS,
                                           ISD::CondCode CC, const SDLoc &DL,
@@ -371,10 +374,14 @@ bool IA64DAGToDAGISel::appendChainCompare(SDValue LHS, SDValue RHS,
               : IA64CC::getParallelCompare(IACC, Imm))
     return true;
   // A NaT test guards compares that may read a NaT.
-  if (HasPlain || IA64CC::isNaTTest(IACC)) {
+  if (IA64CC::isNaTTest(IACC) || (HasPlain && IA64CC::isFloatingPoint(IACC))) {
     Ops.truncate(Start);
     return false;
   }
+  // Integer conditions after the first with no parallel form are ordinary
+  // compares under the predicate so far.
+  if (HasPlain)
+    return true;
   HasPlain = true;
   std::rotate(Ops.begin() + First, Ops.begin() + Start, Ops.end());
   return true;

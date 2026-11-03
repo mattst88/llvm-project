@@ -580,17 +580,28 @@ static std::optional<bool> isAndChain(unsigned Opcode) {
 
 // For an AND, each compare clears p6 and sets p7 if its condition is false;
 // for an OR, it sets p6 and clears p7 if it is true. They write the
-// predicates only one way, so they need no stops between them.
+// predicates only one way, so they need no stops between them. A condition
+// with no parallel compare is an ordinary compare instead, under p6 for an
+// AND and p7 for an OR, so it decides only when the others have not.
 void IA64InstrInfo::emitChainCompares(MachineBasicBlock &MBB, MachineInstr &MI,
                                       const DebugLoc &DL, unsigned First,
                                       bool And) const {
   for (unsigned I = First, E = MI.getNumExplicitOperands(); I < E; I += 3) {
     auto CC = IA64CC::CondCode(MI.getOperand(I).getImm());
-    [[maybe_unused]] bool Emitted = emitParallelCompare(
-        MBB, MI, DL, And ? IA64CC::getOpposite(CC) : CC, MI.getOperand(I + 1),
-        MI.getOperand(I + 2), And ? IA64::P7 : IA64::P6,
-        And ? IA64::P6 : IA64::P7);
-    assert(Emitted && "No parallel compare for this condition");
+    if (emitParallelCompare(MBB, MI, DL, And ? IA64CC::getOpposite(CC) : CC,
+                            MI.getOperand(I + 1), MI.getOperand(I + 2),
+                            And ? IA64::P7 : IA64::P6,
+                            And ? IA64::P6 : IA64::P7))
+      continue;
+    assert(!IA64CC::isFloatingPoint(CC) && !IA64CC::isNaTTest(CC) &&
+           "Only an integer compare may be predicated in a chain");
+    emitCompare(MBB, MI, DL, CC, MI.getOperand(I + 1), MI.getOperand(I + 2));
+    MachineInstr &Cmp = *std::prev(MachineBasicBlock::iterator(MI));
+    Cmp.getOperand(Cmp.getNumExplicitOperands() - 1)
+        .setReg(And ? IA64::P6 : IA64::P7);
+    Cmp.addOperand(MachineOperand::CreateReg(And ? IA64::P7 : IA64::P6,
+                                             /*isDef=*/false,
+                                             /*isImp=*/true));
   }
 }
 
