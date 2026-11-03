@@ -123,19 +123,19 @@ define void @tail() {
 }
 
 ; A pointer to a function is the address of its descriptor, which has the
-; entry point and the global pointer the function expects.
+; entry point and the global pointer the function expects. The global pointer
+; is loaded into r1 itself, so the call need not wait for a copy of it.
 define i64 @indirect(ptr %f, i64 %a) {
 ; CHECK-LABEL: indirect:
 ; CHECK:       alloc r35 = ar.pfs, 2, 3, 1, 0
 ; CHECK-NEXT:  ld8 r14 = [r32], 8
 ; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  mov r37 = r33 ;;
-; CHECK-NEXT:  ld8 r15 = [r32]
+; CHECK-NEXT:  ld8 r1 = [r32]
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov b6 = r14 ;;
-; CHECK-NEXT:  mov r1 = r15
+; CHECK-NEXT:  mov b6 = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
 ; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  mov r1 = r34
@@ -161,9 +161,8 @@ define i64 @variable(i64 %a) {
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  ld8 r14 = [r14]
-; CHECK-NEXT:  mov b6 = r15 ;;
-; CHECK-NEXT:  mov r1 = r14
+; CHECK-NEXT:  ld8 r1 = [r14]
+; CHECK-NEXT:  mov b6 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
   %r = call i64 @descriptors(i64 %a)
   ret i64 %r
@@ -178,15 +177,39 @@ define i64 @variable_offset(i64 %a) {
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  adds r15 = 24, r14
 ; CHECK-NEXT:  adds r14 = 16, r14 ;;
-; CHECK-NEXT:  ld8 r15 = [r15]
+; CHECK-NEXT:  ld8 r1 = [r15]
 ; CHECK-NEXT:  ld8 r14 = [r14]
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov r1 = r15
 ; CHECK-NEXT:  mov b6 = r14
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
   %r = call i64 getelementptr inbounds ([4 x ptr], ptr @descriptors, i64 0, i64 2)(i64 %a)
+  ret i64 %r
+}
+
+; The global pointer stays where it was loaded, and is copied to r1, when the
+; call passes it on as well or r1 is read after it is loaded.
+define i64 @gp_argument(ptr %f) {
+; CHECK-LABEL: gp_argument:
+; CHECK:       ld8 r36 = [r32]
+; CHECK:       mov r1 = r36
+; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
+  %p = getelementptr i8, ptr %f, i64 8
+  %gp = load i64, ptr %p
+  %r = call i64 %f(i64 %gp)
+  ret i64 %r
+}
+
+@v = external global i64
+
+define i64 @gp_between(ptr %f) {
+; CHECK-LABEL: gp_between:
+; CHECK:       addl r16 = @ltoffx(v), r1
+; CHECK:       ld8 r15 = [r32]
+; CHECK:       mov r1 = r15
+; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
+  %r = call i64 %f(ptr @v)
   ret i64 %r
 }
 

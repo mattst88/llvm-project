@@ -13,9 +13,8 @@ define ptr @leaf(ptr %f, ptr %t, i32 %op) {
 ; CHECK-LABEL: leaf:
 ; CHECK:         ld8 r14 = [r33] ;;
 ; CHECK-NEXT:    ld8 r15 = [r14], 8 ;;
-; CHECK-NEXT:    ld8 r14 = [r14]
-; CHECK-NEXT:    mov b6 = r15 ;;
-; CHECK-NEXT:    mov r1 = r14
+; CHECK-NEXT:    ld8 r1 = [r14]
+; CHECK-NEXT:    mov b6 = r15
 ; CHECK-NEXT:    br.cond.sptk.many b6 ;;
 ; OBJ-LABEL:   <leaf>:
 ; OBJ:         br.cond.sptk.many b6
@@ -37,9 +36,8 @@ define preserve_nonecc ptr @handler(ptr %f, ptr %t, i32 %op, i32 %arg) {
 ; CHECK:         mov b0 = r38 ;;
 ; CHECK:         mov ar.pfs = r37 ;;
 ; CHECK:         ld8 r15 = [r14], 8 ;;
-; CHECK-NEXT:    ld8 r14 = [r14]
-; CHECK-NEXT:    mov b6 = r15 ;;
-; CHECK-NEXT:    mov r1 = r14
+; CHECK-NEXT:    ld8 r1 = [r14]
+; CHECK-NEXT:    mov b6 = r15
 ; CHECK-NEXT:    br.cond.sptk.many b6 ;;
   call void @g()
   %i = zext i32 %op to i64

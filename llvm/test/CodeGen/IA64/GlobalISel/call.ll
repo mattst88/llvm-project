@@ -49,12 +49,11 @@ define i64 @indirect(ptr %fp, i64 %a) {
 ; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  mov r37 = r33
 ; CHECK-NEXT:  ld8 r15 = [r32] ;;
-; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  ld8 r1 = [r14]
 ; CHECK-NEXT:  .save rp, r36
 ; CHECK-NEXT:  mov r36 = b0
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov b6 = r15 ;;
-; CHECK-NEXT:  mov r1 = r14
+; CHECK-NEXT:  mov b6 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
 ; CHECK-NEXT:  mov b0 = r36
 ; CHECK-NEXT:  mov r1 = r34

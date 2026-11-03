@@ -649,6 +649,67 @@ MCInst IA64InstrInfo::getNop() const {
   return MCInstBuilder(IA64::NOP).addImm(0).addReg(IA64::P0);
 }
 
+// Make the instruction before Call that defines GP, whose value Call reads
+// for the last time, define r1 instead, so that an indirect call needs no
+// copy to r1. The copy has to wait for GP's load, and the call cannot issue
+// before it; a load into r1 issues with the call, since the call does not
+// read r1 itself. Nothing in between may read or write r1 or GP.
+static bool defineGPDirectly(MachineInstr &Call, const MachineOperand &GP,
+                             const TargetRegisterInfo &TRI,
+                             const IA64InstrInfo &TII) {
+  Register Reg = GP.getReg();
+  if (GP.isUndef() || Reg == IA64::R1)
+    return false;
+  // GP must be dead after the call: killed by it, clobbered by it, or the
+  // call is a tail call.
+  bool Dead = GP.isKill() || Call.isReturn();
+  for (const MachineOperand &MO : Call.operands()) {
+    if (MO.isRegMask() && MO.clobbersPhysReg(Reg))
+      Dead = true;
+    // The call's other operands must not read GP again, nor r1.
+    if (&MO != &GP && MO.isReg() && MO.readsReg() && MO.getReg() &&
+        (TRI.regsOverlap(MO.getReg(), Reg) ||
+         TRI.regsOverlap(MO.getReg(), IA64::R1)))
+      return false;
+  }
+  if (!Dead)
+    return false;
+  unsigned Limit = 32;
+  for (MachineInstr &I :
+       make_range(std::next(MachineBasicBlock::reverse_iterator(Call)),
+                  Call.getParent()->rend())) {
+    if (I.isDebugInstr())
+      continue;
+    if (!--Limit || I.isCall() || I.isInlineAsm())
+      return false;
+    if (I.modifiesRegister(Reg, &TRI)) {
+      MachineOperand &Def = I.getOperand(0);
+      if (!Def.isReg() || !Def.isDef() || Def.getReg() != Reg ||
+          Def.isImplicit() || TII.isPredicated(I) || !I.mayLoad())
+        return false;
+      // The load may read either register, but defines only GP.
+      for (const MachineOperand &MO : I.operands())
+        if (&MO != &Def && MO.isReg() && MO.isDef() && MO.getReg() &&
+            (TRI.regsOverlap(MO.getReg(), Reg) ||
+             TRI.regsOverlap(MO.getReg(), IA64::R1)))
+          return false;
+      for (MachineOperand &MO : I.operands())
+        if (MO.isReg() && MO.isUse() && MO.getReg() == Reg)
+          MO.setIsKill();
+      Def.setReg(IA64::R1);
+      return true;
+    }
+    if (I.readsRegister(Reg, &TRI) || I.readsRegister(IA64::R1, &TRI) ||
+        I.modifiesRegister(IA64::R1, &TRI))
+      return false;
+  }
+  return false;
+}
+
+static cl::opt<bool>
+    LoadCalleeGP("ia64-load-callee-gp", cl::Hidden, cl::init(true),
+                 cl::desc("Load an indirect callee's GP straight into r1"));
+
 bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   MachineBasicBlock &MBB = *MI.getParent();
   const DebugLoc &DL = MI.getDebugLoc();
@@ -778,14 +839,17 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
             Kill = false;
         return getKillRegState(Kill) | getUndefRegState(MO.isUndef());
       };
+      bool GPLoaded =
+          LoadCalleeGP && defineGPDirectly(MI, MI.getOperand(1), RI, *this);
       BuildMI(MBB, MI, DL, get(IA64::MOV_BR), IA64::B6)
           .addReg(MI.getOperand(0).getReg(), Read(0))
           .addImm(0)
           .addReg(IA64::P0);
-      BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
-          .addImm(0)
-          .addReg(MI.getOperand(1).getReg(), Read(1))
-          .addReg(IA64::P0);
+      if (!GPLoaded)
+        BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
+            .addImm(0)
+            .addReg(MI.getOperand(1).getReg(), Read(1))
+            .addReg(IA64::P0);
       Call = BuildMI(MBB, MI, DL, get(IA64::BR_CALL_B), IA64::B0)
                  .addReg(IA64::B6, RegState::Kill);
     } else {
@@ -827,14 +891,16 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
       const MachineOperand &GP = MI.getOperand(1);
       bool EntryKill =
           Entry.isKill() && !RI.regsOverlap(Entry.getReg(), GP.getReg());
+      bool GPLoaded = LoadCalleeGP && defineGPDirectly(MI, GP, RI, *this);
       BuildMI(MBB, MI, DL, get(IA64::MOV_BR), IA64::B6)
           .addReg(Entry.getReg(), getKillRegState(EntryKill))
           .addImm(0)
           .addReg(IA64::P0);
-      BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
-          .addImm(0)
-          .addReg(GP.getReg(), getKillRegState(GP.isKill()))
-          .addReg(IA64::P0);
+      if (!GPLoaded)
+        BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
+            .addImm(0)
+            .addReg(GP.getReg(), getKillRegState(GP.isKill()))
+            .addReg(IA64::P0);
     }
     // Shrink the register stack frame to just the outputs, which is the
     // frame a call would give the callee. A callee that allocates no frame
