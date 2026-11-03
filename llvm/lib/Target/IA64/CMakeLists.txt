@@ -50,6 +50,7 @@ add_llvm_target(IA64CodeGen
   IA64ReplicateDispatch.cpp
   IA64WidenIndices.cpp
   IA64SetfPhis.cpp
+  IA64ShortenRecurrences.cpp
   IA64SinkPastCalls.cpp
   IA64SmallRangeMul.cpp
   IA64SpeculateChases.cpp

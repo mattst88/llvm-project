@@ -1712,6 +1712,23 @@ static cl::opt<bool> ReassociateAdds(
     "ia64-reassociate-adds", cl::Hidden, cl::init(true),
     cl::desc("Move a constant added to a sum onto its earlier addend"));
 
+// Whether MI reads a phi of its own block that the block feeds itself.
+static bool readsCarriedPhi(const MachineInstr &MI) {
+  const MachineBasicBlock *MBB = MI.getParent();
+  const MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
+  for (const MachineOperand &MO : MI.explicit_uses()) {
+    if (!MO.isReg() || !MO.getReg().isVirtual())
+      continue;
+    const MachineInstr *Def = MRI.getUniqueVRegDef(MO.getReg());
+    if (!Def || !Def->isPHI() || Def->getParent() != MBB)
+      continue;
+    for (unsigned I = 2, E = Def->getNumOperands(); I < E; I += 2)
+      if (Def->getOperand(I).getMBB() == MBB)
+        return true;
+  }
+  return false;
+}
+
 bool IA64InstrInfo::getMachineCombinerPatterns(
     MachineInstr &Root, SmallVectorImpl<unsigned> &Patterns,
     bool DoRegPressureReduce) const {
@@ -1729,6 +1746,13 @@ bool IA64InstrInfo::getMachineCombinerPatterns(
       return true;
     }
   }
+  // A phi of a loop of one block that is added last is on the loop-carried
+  // path through a single op. The generic reassociation sees it ready at the
+  // start of the block, moves it under the other operands, and lengthens the
+  // recurrence, which bounds how often the pipeliner can start an iteration.
+  if (isAssociativeAndCommutative(Root, /*Invert=*/false) &&
+      readsCarriedPhi(Root))
+    return false;
   return TargetInstrInfo::getMachineCombinerPatterns(Root, Patterns,
                                                      DoRegPressureReduce);
 }

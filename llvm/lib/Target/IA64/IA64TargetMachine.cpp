@@ -81,6 +81,10 @@ static cl::opt<bool>
                        cl::desc("Prefetch strided loads in loops with lfetch"));
 
 // Not named after the pass, ia64-small-range-mul, which would collide.
+static cl::opt<bool> EnableShortenRecurrences(
+    "ia64-enable-shorten-recurrences", cl::Hidden, cl::init(true),
+    cl::desc("Move operands of an add off a loop-carried path"));
+
 static cl::opt<bool> EnableSmallRangeMul(
     "ia64-expand-small-range-mul", cl::Hidden, cl::init(true),
     cl::desc("Expand multiplies by a factor of few values into ALU work"));
@@ -107,6 +111,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64ReplicateDispatchPass(PR);
   initializeIA64SinkPastCallsPass(PR);
   initializeIA64SmallRangeMulPass(PR);
+  initializeIA64ShortenRecurrencesPass(PR);
   initializeIA64SpeculateLoadsPass(PR);
   initializeIA64SplitSingleAddsPass(PR);
   initializeIA64PostIncPointersPass(PR);
@@ -215,6 +220,8 @@ void IA64PassConfig::addIRPasses() {
   TargetPassConfig::addIRPasses();
   if (getOptLevel() != CodeGenOptLevel::None && EnableSmallRangeMul)
     addPass(createIA64SmallRangeMulPass());
+  if (getOptLevel() != CodeGenOptLevel::None && EnableShortenRecurrences)
+    addPass(createIA64ShortenRecurrencesPass());
   if (getOptLevel() != CodeGenOptLevel::None)
     addPass(createIA64ReplicateDispatch());
 }
