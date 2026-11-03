@@ -5,7 +5,7 @@
 # ld4.sa and ld4.c.clr. Anything between them that writes the register, reads
 # it, or writes the address undoes the pair: the speculative load becomes a
 # move from r0 and the check becomes a plain load. The pseudos name the load
-# by its opcode number, 724 for LD4, which changes when instructions are added.
+# by its opcode number, 726 for LD4, which changes when instructions are added.
 
 # CHECK-LABEL: name: keep
 # CHECK: $r15 = LD4_SA $r14, 0, $p0
@@ -21,12 +21,12 @@ body:             |
     liveins: $r32, $r33, $r34, $r35
     $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
     $r14 = SHLADD $r16, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
   bb.1:
     liveins: $r14, $r15, $r34
     ST4 $r34, $r0, 0, $p0 :: (store (s32))
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
   bb.2:
@@ -47,13 +47,13 @@ body:             |
     liveins: $r32, $r33, $r34, $r35
     $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
     $r14 = SHLADD $r16, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
   bb.1:
     liveins: $r14, $r15, $r34
     ST4 $r34, $r0, 0, $p0 :: (store (s32))
     $r15 = ADDS 1, $r34, $p0
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
   bb.2:
@@ -74,13 +74,13 @@ body:             |
     liveins: $r32, $r33, $r34, $r35
     $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
     $r14 = SHLADD $r16, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
   bb.1:
     liveins: $r14, $r15, $r34
     ST4 $r34, $r0, 0, $p0 :: (store (s32))
     $r34 = ADDS 1, $r15, $p0
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
   bb.2:
@@ -101,13 +101,13 @@ body:             |
     liveins: $r32, $r33, $r34, $r35
     $r16 = LD8 killed $r33, 0, $p0 :: (load (s64))
     $r14 = SHLADD $r16, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRCC %bb.2, 7, killed $r16, killed $r35, implicit-def $p6, implicit-def $p7
   bb.1:
     liveins: $r14, $r15, $r34
     ST4 $r34, $r0, 0, $p0 :: (store (s32))
     $r14 = ADDS 8, $r14, $p0
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
   bb.2:
@@ -133,17 +133,17 @@ body:             |
     successors: %bb.3
     liveins: $r32, $r33, $r34
     $r14 = SHLADD killed $r33, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRUNCOND %bb.3
   bb.2:
     successors: %bb.3
     liveins: $r32, $r34, $r35
     $r14 = SHLADD killed $r35, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
   bb.3:
     liveins: $r14, $r15, $r34
     ST4 $r34, $r0, 0, $p0 :: (store (s32))
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
 ...
@@ -165,7 +165,7 @@ body:             |
     successors: %bb.3
     liveins: $r32, $r33, $r34
     $r14 = SHLADD killed $r33, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRUNCOND %bb.3
   bb.2:
     successors: %bb.3
@@ -174,7 +174,7 @@ body:             |
   bb.3:
     liveins: $r14, $r15, $r34
     ST4 $r34, $r0, 0, $p0 :: (store (s32))
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
 ...
@@ -195,18 +195,18 @@ body:             |
     successors: %bb.3
     liveins: $r32, $r33, $r34
     $r14 = SHLADD killed $r33, 2, killed $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRUNCOND %bb.3
   bb.2:
     successors: %bb.3
     liveins: $r32, $r34, $r35
     $r14 = SHLADD killed $r35, 2, killed $r32, $p0
-    $r16 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r16 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     $r15 = COPY killed $r16
   bb.3:
     liveins: $r14, $r15, $r34
     ST4 $r34, $r0, 0, $p0 :: (store (s32))
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r8 = ADDS 1, killed $r15, $p0
     BR_RET $b0, 0, 1, 0, $p0, implicit killed $r8
 ...
@@ -227,14 +227,14 @@ body:             |
     successors: %bb.1
     liveins: $r32, $r33
     $r14 = SHLADD killed $r33, 2, $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
   bb.1:
     successors: %bb.2, %bb.1
     liveins: $r14, $r15, $r32
-    $r15 = CHECK_LD_GR killed $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR killed $r14, killed $r15, 726, 0 :: (load (s32))
     $r16 = EXTR_U killed $r15, 8, 56, $p0
     $r14 = SHLADD $r16, 2, $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
     BRCCi %bb.2, 1, killed $r16, 0, implicit-def $p6, implicit-def $p7
     BRUNCOND %bb.1
   bb.2:
@@ -254,11 +254,11 @@ body:             |
     successors: %bb.1
     liveins: $r32, $r33
     $r14 = SHLADD killed $r33, 2, $r32, $p0
-    $r15 = SPEC_LD_GR $r14, 724, 0 :: (load (s32))
+    $r15 = SPEC_LD_GR $r14, 726, 0 :: (load (s32))
   bb.1:
     successors: %bb.2, %bb.1
     liveins: $r14, $r15, $r32
-    $r15 = CHECK_LD_GR $r14, killed $r15, 724, 0 :: (load (s32))
+    $r15 = CHECK_LD_GR $r14, killed $r15, 726, 0 :: (load (s32))
     $r16 = EXTR_U $r15, 8, 56, $p0
     BRCCi %bb.2, 1, killed $r16, 0, implicit-def $p6, implicit-def $p7
     BRUNCOND %bb.1

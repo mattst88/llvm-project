@@ -7,7 +7,10 @@
 ; registers, the caller's registers restored, and a frame of the arguments
 ; and nothing else, which "alloc" makes of the one there is. That is the
 ; frame a call would have left it, and a callee that goes on to call without
-; a frame of its own passes on what are then its outputs.
+; a frame of its own passes on what are then its outputs. A function that
+; made no frame of its own still has the one it was given, which has at
+; least its inputs in it, and a callee whose arguments are among them can
+; have that frame as it is.
 
 declare dso_local i64 @local(i64, i64)
 declare dso_local double @local_fp(double, i64)
@@ -41,9 +44,7 @@ define i64 @swap(i64 %a, i64 %b) {
 ; CHECK-LABEL: swap:
 ; CHECK:         mov r14 = r32
 ; CHECK-NEXT:    mov r32 = r33 ;;
-; CHECK-NEXT:    mov r33 = r14 ;;
-; CHECK-NEXT:    .prologue
-; CHECK-NEXT:    alloc r2 = ar.pfs, 0, 0, 2, 0
+; CHECK-NEXT:    mov r33 = r14
 ; CHECK-NEXT:    br.cond.sptk.many local ;;
   %r = tail call i64 @local(i64 %b, i64 %a)
   ret i64 %r
@@ -194,22 +195,21 @@ define i64 @undefined() {
 
 define i64 @must(i64 %a, i64 %b) {
 ; CHECK-LABEL: must:
-; CHECK:         alloc r2 = ar.pfs, 0, 0, 2, 0
-; CHECK-NEXT:    br.cond.sptk.many local ;;
+; CHECK-NOT:     alloc
+; CHECK:         br.cond.sptk.many local ;;
   %r = musttail call i64 @local(i64 %a, i64 %b)
   ret i64 %r
 }
 
 ; The frame "alloc" leaves has only the arguments in it, so whatever reads a
-; register beyond them comes before it.
+; register beyond them comes before it. Here there is no alloc: the callee
+; has the frame of five, two of which are its arguments.
 
 define i64 @shrinks(i64 %a, i64 %b, i64 %c, i64 %d, ptr %p) {
 ; CHECK-LABEL: shrinks:
 ; CHECK:         ld8 r14 = [r36]
 ; CHECK-NEXT:    mov r32 = r33 ;;
-; CHECK-NEXT:    add r33 = r14, r35 ;;
-; CHECK-NEXT:    .prologue
-; CHECK-NEXT:    alloc r2 = ar.pfs, 0, 0, 2, 0
+; CHECK-NEXT:    add r33 = r14, r35
 ; CHECK-NEXT:    br.cond.sptk.many local ;;
   %x = load i64, ptr %p
   %y = add i64 %x, %d

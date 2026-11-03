@@ -400,7 +400,8 @@ bool IA64InsertStops::runOnMachineFunction(MachineFunction &MF) {
           ReadsRSE(MI) || (RaisedFlags && (ReadsFlags || SetsFPSR)) ||
           AfterLoadUse || MI.getAsmPrinterFlag(IA64::StartsCycle) ||
           (NewFrame && (MI.isCall() || MI.isReturn()) &&
-           MI.getOpcode() != IA64::BR_TAIL) ||
+           MI.getOpcode() != IA64::BR_TAIL &&
+           MI.getOpcode() != IA64::BR_TAIL_B) ||
           any_of(MI.operands(), [&](const MachineOperand &MO) {
             if (!Touches(MO) || !Written.test(MO.getReg().id()))
               return false;

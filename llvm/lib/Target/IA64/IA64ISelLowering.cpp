@@ -3066,12 +3066,18 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   // A tail call requires the callee to see the same GP, which holds only for
   // a DSO-local callee, and no stack arguments, so all arguments must be in
-  // registers.
+  // registers. An indirect tail call sets GP from the descriptor, so the
+  // callee sees its own, but returns with it to a caller that may expect
+  // this function's: that is right only with a constant GP, or when the
+  // call must be a tail call anyway.
   if (CLI.IsTailCall) {
     const auto *G = Direct;
     const Function &Caller = MF.getFunction();
+    bool IndirectOK = Indirect && ((CLI.CB && CLI.CB->isMustTailCall()) ||
+                                   Subtarget.hasConstantGP());
     CLI.IsTailCall =
-        G && getTargetMachine().shouldAssumeDSOLocal(G->getGlobal()) &&
+        ((G && getTargetMachine().shouldAssumeDSOLocal(G->getGlobal())) ||
+         IndirectOK) &&
         CCInfo.getStackSize() == 0 && !Caller.isVarArg() &&
         !Caller.hasFnAttribute("syscall-linkage") &&
         Caller.getCallingConv() == CLI.CallConv &&
@@ -3260,14 +3266,26 @@ SDValue IA64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   }
 
   if (CLI.IsTailCall) {
-    SmallVector<SDValue, 12> Ops = {
-        Chain, Callee, DAG.getTargetConstant(TailInputs, DL, MVT::i64)};
+    SmallVector<SDValue, 12> Ops = {Chain};
+    if (Indirect)
+      Ops.append({Entry, CalleeGP});
+    else
+      Ops.push_back(Callee);
+    // A preserve_none callee is code of ours, which does not count on
+    // having been given a frame of nothing but its inputs, as a callee
+    // that goes on to call without an alloc of its own would.
+    if (CLI.CallConv == CallingConv::PreserveNone &&
+        MF.getFunction().getCallingConv() == CallingConv::PreserveNone)
+      TailInputs |= IA64II::TailKeepsFrame;
+    Ops.push_back(DAG.getTargetConstant(TailInputs, DL, MVT::i64));
     for (auto [Reg, VT] : ArgRegs)
       Ops.push_back(DAG.getRegister(Reg, VT));
     if (Glue.getNode())
       Ops.push_back(Glue);
     MF.getFrameInfo().setHasTailCall();
-    SDValue Ret = DAG.getNode(IA64ISD::TAILCALL, DL, MVT::Other, Ops);
+    SDValue Ret =
+        DAG.getNode(Indirect ? IA64ISD::TAILCALL_IND : IA64ISD::TAILCALL, DL,
+                    MVT::Other, Ops);
     DAG.addNoMergeSiteInfo(Ret.getNode(), CLI.NoMerge);
     return Ret;
   }

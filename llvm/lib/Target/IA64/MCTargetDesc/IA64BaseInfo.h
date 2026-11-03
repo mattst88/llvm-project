@@ -52,6 +52,10 @@ enum : unsigned {
 /// The most registers a register stack frame can have.
 const unsigned MaxFrameSize = 96;
 
+/// Set in a tail call's count of argument registers when the callee can
+/// have the frame as it is, without an alloc to make it one of just those.
+const unsigned TailKeepsFrame = 0x100;
+
 /// Whether a branch is predicted taken, statically or dynamically.
 enum BranchWhether : unsigned {
   WhetherSPTK,

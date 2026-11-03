@@ -129,6 +129,13 @@ def IA64tailcall
     : SDNode<"IA64ISD::TAILCALL",
              SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>]>,
              [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+// An indirect tail call: the entry point, the callee's GP, then as for
+// TAILCALL.
+def IA64tailcall_ind
+    : SDNode<"IA64ISD::TAILCALL_IND",
+             SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>,
+                                   SDTCisVT<2, i64>]>,
+             [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 def IA64call_ind
     : SDNode<"IA64ISD::CALL_IND",
              SDTypeProfile<0, -1, [SDTCisVT<0, i64>, SDTCisVT<1, i64>,
@@ -166,6 +173,8 @@ def : Pat<(IA64call tglobaladdr:$target, GRSave:$gp),
           (CALL tglobaladdr:$target, GRSave:$gp)>;
 def : Pat<(IA64tailcall tglobaladdr:$target, timm:$inputs),
           (TCRETURN tglobaladdr:$target, timm:$inputs)>;
+def : Pat<(IA64tailcall_ind GR:$entry, GR:$calleegp, timm:$inputs),
+          (TCRETURN_IND GR:$entry, GR:$calleegp, timm:$inputs)>;
 def : Pat<(IA64call texternalsym:$target, GRSave:$gp),
           (CALL texternalsym:$target, GRSave:$gp)>;
 def : Pat<(IA64call_ind GR:$entry, GR:$calleegp, GRSave:$gp),

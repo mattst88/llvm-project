@@ -804,26 +804,63 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     return true;
   }
-  case IA64::TCRETURN: {
+  case IA64::TCRETURN:
+  case IA64::TCRETURN_IND: {
+    // An indirect tail call first moves the entry point to b6 and the
+    // callee's GP to r1, while the registers holding them are still in the
+    // frame.
+    bool Indirect = MI.getOpcode() == IA64::TCRETURN_IND;
+    unsigned InputsIdx = Indirect ? 2 : 1;
+    if (Indirect) {
+      const MachineOperand &Entry = MI.getOperand(0);
+      const MachineOperand &GP = MI.getOperand(1);
+      bool EntryKill =
+          Entry.isKill() && !RI.regsOverlap(Entry.getReg(), GP.getReg());
+      BuildMI(MBB, MI, DL, get(IA64::MOV_BR), IA64::B6)
+          .addReg(Entry.getReg(), getKillRegState(EntryKill))
+          .addImm(0)
+          .addReg(IA64::P0);
+      BuildMI(MBB, MI, DL, get(IA64::ADDS), IA64::R1)
+          .addImm(0)
+          .addReg(GP.getReg(), getKillRegState(GP.isKill()))
+          .addReg(IA64::P0);
+    }
     // Shrink the register stack frame to just the outputs, which is the
     // frame a call would give the callee. A callee that allocates no frame
-    // of its own then passes the outputs on as they are.
-    BuildMI(MBB, MI, DL, get(IA64::ALLOC), IA64::R2)
-        .addImm(0)
-        .addImm(0)
-        .add(MI.getOperand(1))
-        .addImm(0)
-        .addReg(IA64::P0)
-        ->getOperand(0)
-        .setIsDead();
-    MachineInstrBuilder Branch = BuildMI(MBB, MI, DL, get(IA64::BR_TAIL))
-                                     .add(MI.getOperand(0))
-                                     .addImm(IA64II::WhetherSPTK)
-                                     .addImm(1)
-                                     .addImm(0)
-                                     .addReg(IA64::P0);
+    // of its own then passes the outputs on as they are. A function that
+    // allocated none itself still has the frame it was given, which holds
+    // at least its inputs; if the outputs are among them, the callee can
+    // have that frame as it is, as the next one after it can.
+    // A callee that does not need that frame can have the function's own,
+    // which has the arguments where the callee looks for them.
+    unsigned Outputs = MI.getOperand(InputsIdx).getImm();
+    bool KeepsFrame = Outputs & IA64II::TailKeepsFrame;
+    Outputs &= ~IA64II::TailKeepsFrame;
+    const MachineFunction &MF = *MBB.getParent();
+    bool HasFrame = MF.getInfo<IA64MachineFunctionInfo>()->getSavedPFS();
+    unsigned Inputs = 0;
+    for (auto [Reg, VReg] : MF.getRegInfo().liveins())
+      if (Reg >= IA64::R32 && Reg <= IA64::R39)
+        Inputs = std::max(Inputs, unsigned(Reg - IA64::R32 + 1));
+    if (!KeepsFrame && (HasFrame || Outputs > Inputs))
+      BuildMI(MBB, MI, DL, get(IA64::ALLOC), IA64::R2)
+          .addImm(0)
+          .addImm(0)
+          .addImm(Outputs)
+          .addImm(0)
+          .addReg(IA64::P0)
+          ->getOperand(0)
+          .setIsDead();
+    MachineInstrBuilder Branch =
+        Indirect
+            ? BuildMI(MBB, MI, DL, get(IA64::BR_TAIL_B))
+                  .addReg(IA64::B6, RegState::Kill)
+            : BuildMI(MBB, MI, DL, get(IA64::BR_TAIL)).add(MI.getOperand(0));
+    Branch.addImm(IA64II::WhetherSPTK).addImm(1).addImm(0).addReg(IA64::P0);
+    if (Indirect)
+      Branch.addReg(IA64::R1, RegState::Implicit);
     // Carry over the argument register operands, including undef ones.
-    for (MachineOperand MO : drop_begin(MI.operands(), 2)) {
+    for (MachineOperand MO : drop_begin(MI.operands(), InputsIdx + 1)) {
       if (!MO.isReg())
         continue;
       MO.setImplicit();

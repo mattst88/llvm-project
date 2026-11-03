@@ -28,8 +28,7 @@ define i64 @swap(i64 %a, i64 %b) {
 ; CHECK-LABEL: swap:
 ; CHECK:       mov r14 = r32
 ; CHECK-NEXT:  mov r32 = r33 ;;
-; CHECK-NEXT:  mov r33 = r14 ;;
-; CHECK:       alloc r2 = ar.pfs, 0, 0, 2, 0
+; CHECK-NEXT:  mov r33 = r14
 ; CHECK-NEXT:  br.cond.sptk.many local ;;
   %r = tail call i64 @local(i64 %b, i64 %a)
   ret i64 %r
@@ -61,8 +60,8 @@ define i64 @after_call(i64 %a) {
 ; One that has to be a branch is one.
 define i64 @must(i64 %a, i64 %b) {
 ; CHECK-LABEL: must:
-; CHECK:       alloc r2 = ar.pfs, 0, 0, 2, 0
-; CHECK-NEXT:  br.cond.sptk.many local ;;
+; CHECK-NOT:   alloc
+; CHECK:       br.cond.sptk.many local ;;
   %r = musttail call i64 @local(i64 %a, i64 %b)
   ret i64 %r
 }

@@ -41,8 +41,7 @@ define void @forward(ptr sret(%big) %res, i64 %a) {
 ; CHECK-LABEL: forward:
 ; CHECK:         .body
 ; CHECK-NOT:     r8
-; CHECK:         alloc r2 = ar.pfs, 0, 0, 1, 0
-; CHECK-NEXT:    br.cond.sptk.many make_local ;;
+; CHECK:         br.cond.sptk.many make_local ;;
   tail call void @make_local(ptr sret(%big) %res, i64 %a)
   ret void
 }

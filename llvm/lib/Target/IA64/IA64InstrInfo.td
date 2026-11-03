@@ -59,6 +59,16 @@ def TCRETURN : IA64Pseudo<(outs),
                           (ins calltarget:$target, i64imm:$inputs,
                                variable_ops),
                           "#TCRETURN", []>;
+// An indirect tail call through a function descriptor whose entry point and
+// GP have been loaded: "mov b6 = entry", "mov r1 = gp", the alloc, and
+// "br.cond.sptk.many b6".
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1,
+    Defs = [B6, R1] in
+let SchedRW = [WriteBr] in
+def TCRETURN_IND : IA64Pseudo<(outs),
+                              (ins GR:$entry, GR:$calleegp, i64imm:$inputs,
+                                   variable_ops),
+                              "#TCRETURN_IND", []>;
 
 // An indirect call through a function descriptor. The entry point and GP have
 // already been loaded from it; the entry point goes to b6 and the GP to r1.
@@ -1090,6 +1100,9 @@ let isBranch = 1, isIndirectBranch = 1 in {
   def BR_COND_B : B4<0x20, 0, "br.cond">;
   def BR_IA     : B4<0x20, 1, "br.ia">;
 }
+// The indirect branch, used for tail calls.
+let isCodeGenOnly = 1, isCall = 1, isReturn = 1, isBarrier = 1 in
+def BR_TAIL_B : B4<0x20, 0, "br.cond">;
 let isReturn = 1, isBarrier = 1 in
 def BR_RET    : B4<0x21, 4, "br.ret">;
 let Defs = [AR64] in
