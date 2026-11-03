@@ -45,10 +45,21 @@ define i64 @zext32(i32 %a) {
 
 define i64 @sext1(i1 %a) {
 ; CHECK-LABEL: sext1:
-; CHECK:       and [[T:r[0-9]+]] = 1, r32 ;;
-; CHECK-NEXT:  sub r8 = 0, [[T]]
+; CHECK:       extr r8 = r32, 0, 1
+; CHECK-NEXT:  br.ret
   %r = sext i1 %a to i64
   ret i64 %r
+}
+
+define i64 @negbit(i64 %x) {
+; The negated bit of a register is one extr.
+; CHECK-LABEL: negbit:
+; CHECK:       extr r8 = r32, 5, 1
+; CHECK-NEXT:  br.ret
+  %s = lshr i64 %x, 5
+  %b = and i64 %s, 1
+  %n = sub i64 0, %b
+  ret i64 %n
 }
 
 define i64 @zext1(i1 %a) {

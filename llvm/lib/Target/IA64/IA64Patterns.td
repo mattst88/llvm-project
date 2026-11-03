@@ -361,6 +361,12 @@ def : Pat<(srl GR:$r3, shamt:$count),
 def : Pat<(sra GR:$r3, shamt:$count),
           (EXTR GR:$r3, shamt:$count, (RestOf64 shamt:$count))>;
 
+// The negated bit of a register is its signed one-bit extract.
+def : Pat<(sub 0, (and GR:$r3, 1)), (EXTR GR:$r3, 0, 1)>;
+def : Pat<(sub 0, (and (srl GR:$r3, shamt:$pos), 1)),
+          (EXTR GR:$r3, shamt:$pos, 1)>;
+def : Pat<(sext_inreg GR:$r3, i1), (EXTR GR:$r3, 0, 1)>;
+
 def : Pat<(IA64shrp GR:$r2, GR:$r3, timm:$count),
           (SHRP GR:$r2, GR:$r3, timm:$count)>;
 
