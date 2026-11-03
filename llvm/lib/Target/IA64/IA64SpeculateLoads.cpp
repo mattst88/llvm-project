@@ -972,8 +972,31 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
     }
     Walk PW =
         walkUp(*Spec, InAddr, MinUsePercent, nullptr, W.Reach, &Others);
+    // Whether the load reaches the top of a block that other paths also
+    // enter, from where it can be issued in each of them. In _Py_Dealloc
+    // the hottest predecessor only loads and tests the tracer, but the
+    // blocks above it both lead there, from one block that decides between
+    // them, where the load is issued once. Elsewhere the copies it takes
+    // cost more than they gain: CPython's interpreter slows by 0.4% to 3%.
+    auto OneHost = [&](MachineBasicBlock *J) {
+      MachineBasicBlock *Host = nullptr;
+      for (MachineBasicBlock *JP : J->predecessors()) {
+        MachineBasicBlock *H = JP;
+        if (JP->succ_size() != 1 && !all_of(JP->successors(), [&](auto *S) {
+              return S == J || (S->pred_size() == 1 && S->isSuccessor(J));
+            }))
+          H = JP->pred_size() == 1 ? *JP->pred_begin() : nullptr;
+        if (!H || (Host && H != Host))
+          return false;
+        Host = H;
+      }
+      return Host != nullptr;
+    };
+    bool ToJoin = SpreadPreds && !L && PW.Join && PW.MBB->pred_size() > 1 &&
+                  PW.At == PW.MBB->getFirstNonPHI() && OneHost(PW.MBB);
     if (P == Preds.front() &&
-        (PW.At == Spec->getIterator() || PW.Distance < MinDistance ||
+        (PW.At == Spec->getIterator() ||
+         (PW.Distance < MinDistance && !ToJoin) ||
          (SkipAddressBranches && testsAddress(PW, InAddr)))) {
       Spec->eraseFromParent();
       for (MachineInstr *MI : Clones)
@@ -986,7 +1009,7 @@ bool IA64SpeculateLoads::speculateInPreds(MachineInstr &Load, Walk &W,
         (SkipAddressBranches && testsAddress(PW, InAddr)))
       continue;
     // Whether the load is to sit at the top of another join.
-    if (P == Preds.front() && PW.Join && PW.MBB != In &&
+    if (P == Preds.front() && PW.Join && (PW.MBB != In || ToJoin) &&
         PW.At == PW.MBB->getFirstNonPHI())
       Spread = Spec;
     for (MachineInstr *MI : reverse(PW.Chain)) {
