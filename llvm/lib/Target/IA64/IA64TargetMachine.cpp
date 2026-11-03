@@ -80,6 +80,11 @@ static cl::opt<bool>
     EnableLoopPrefetch("ia64-loop-prefetch", cl::Hidden, cl::init(true),
                        cl::desc("Prefetch strided loads in loops with lfetch"));
 
+// Not named after the pass, ia64-small-range-mul, which would collide.
+static cl::opt<bool> EnableSmallRangeMul(
+    "ia64-expand-small-range-mul", cl::Hidden, cl::init(true),
+    cl::desc("Expand multiplies by a factor of few values into ALU work"));
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   RegisterTargetMachine<IA64TargetMachine> X(getTheIA64Target());
 
@@ -101,6 +106,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64RematInCallLoopsPass(PR);
   initializeIA64ReplicateDispatchPass(PR);
   initializeIA64SinkPastCallsPass(PR);
+  initializeIA64SmallRangeMulPass(PR);
   initializeIA64SpeculateLoadsPass(PR);
   initializeIA64SplitSingleAddsPass(PR);
   initializeIA64PostIncPointersPass(PR);
@@ -207,6 +213,8 @@ void IA64PassConfig::addIRPasses() {
   if (getOptLevel() != CodeGenOptLevel::None && EnableLoopPrefetch)
     addPass(createLoopDataPrefetchPass());
   TargetPassConfig::addIRPasses();
+  if (getOptLevel() != CodeGenOptLevel::None && EnableSmallRangeMul)
+    addPass(createIA64SmallRangeMulPass());
   if (getOptLevel() != CodeGenOptLevel::None)
     addPass(createIA64ReplicateDispatch());
 }

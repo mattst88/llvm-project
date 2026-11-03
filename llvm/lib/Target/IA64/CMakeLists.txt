@@ -51,6 +51,7 @@ add_llvm_target(IA64CodeGen
   IA64WidenIndices.cpp
   IA64SetfPhis.cpp
   IA64SinkPastCalls.cpp
+  IA64SmallRangeMul.cpp
   IA64SpeculateChases.cpp
   IA64RotatingLoops.cpp
   IA64SelectionDAGInfo.cpp

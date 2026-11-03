@@ -56,6 +56,7 @@ FunctionPass *createIA64PrefetchStreamsPass();
 FunctionPass *createIA64RematInCallLoopsPass();
 FunctionPass *createIA64ReplicateDispatch();
 FunctionPass *createIA64SinkPastCallsPass();
+FunctionPass *createIA64SmallRangeMulPass();
 
 /// A pipeliner mutation that issues the FP loads of different objects a
 /// cycle apart, so that they do not meet in an L2 bank.
@@ -90,6 +91,7 @@ void initializeIA64PackGroupsPass(PassRegistry &);
 void initializeIA64RematInCallLoopsPass(PassRegistry &);
 void initializeIA64ReplicateDispatchPass(PassRegistry &);
 void initializeIA64SinkPastCallsPass(PassRegistry &);
+void initializeIA64SmallRangeMulPass(PassRegistry &);
 void initializeIA64SpeculateLoadsPass(PassRegistry &);
 void initializeIA64SplitSingleAddsPass(PassRegistry &);
 void initializeIA64PostIncPointersPass(PassRegistry &);
