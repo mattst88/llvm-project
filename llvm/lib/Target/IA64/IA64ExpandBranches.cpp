@@ -18,6 +18,9 @@
 // holds, so each compare after the first accumulates its result into the
 // predicate the first one wrote, and a single branch tests them all.
 //
+// An indirect branch through a GR becomes its move to b6 and the branch, so
+// that stop insertion and packing place them like any other instructions.
+//
 // The pass also keeps a function from ending in a call. A call returns to
 // the following bundle, and an unwinder attributes that address to the
 // calling function, which would be wrong if the next function started
@@ -782,6 +785,29 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
       MI.eraseFromParent();
       Changed = true;
     }
+  }
+
+  // An indirect branch through a GR becomes its two instructions here, so
+  // that stop insertion and packing see the move to b6 apart from the
+  // branch, and order the other instructions of its group around them.
+  for (MachineBasicBlock &MBB : MF) {
+    MachineBasicBlock::iterator Br = MBB.getFirstTerminator();
+    if (Br == MBB.end() || Br->getOpcode() != IA64::BRIND)
+      continue;
+    const DebugLoc &DL = Br->getDebugLoc();
+    const MachineOperand &Target = Br->getOperand(0);
+    BuildMI(MBB, Br, DL, TII.get(IA64::MOV_BR), IA64::B6)
+        .addReg(Target.getReg(), getKillRegState(Target.isKill()))
+        .addImm(0)
+        .addReg(IA64::P0);
+    BuildMI(MBB, Br, DL, TII.get(IA64::BR_IND_B))
+        .addReg(IA64::B6, RegState::Kill)
+        .addImm(IA64II::WhetherSPTK)
+        .addImm(0)
+        .addImm(0)
+        .addReg(IA64::P0);
+    Br->eraseFromParent();
+    Changed = true;
   }
 
   for (MachineBasicBlock &MBB : reverse(MF)) {

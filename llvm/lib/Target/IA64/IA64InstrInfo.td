@@ -1100,6 +1100,10 @@ let isBranch = 1, isIndirectBranch = 1 in {
   def BR_COND_B : B4<0x20, 0, "br.cond">;
   def BR_IA     : B4<0x20, 1, "br.ia">;
 }
+// The indirect branch of a computed goto or a jump table, which BRIND
+// becomes before stops are inserted.
+let isCodeGenOnly = 1, isBranch = 1, isIndirectBranch = 1, isBarrier = 1 in
+def BR_IND_B : B4<0x20, 0, "br.cond">;
 // The indirect branch, used for tail calls.
 let isCodeGenOnly = 1, isCall = 1, isReturn = 1, isBarrier = 1 in
 def BR_TAIL_B : B4<0x20, 0, "br.cond">;

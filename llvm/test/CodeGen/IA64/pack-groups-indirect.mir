@@ -1,0 +1,42 @@
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -mcpu=madison \
+# RUN:   -start-before=ia64-expand-branches -verify-machineinstrs %s -o - \
+# RUN:   | FileCheck %s
+# RUN: llc -mtriple=ia64-unknown-linux-gnu -mcpu=madison \
+# RUN:   -start-before=ia64-expand-branches -filetype=obj %s -o - \
+# RUN:   | llvm-objdump -d - | FileCheck %s --check-prefix=OBJ
+
+# The dispatch of a computed goto, as in an interpreter loop. The indirect
+# branch becomes its move to b6 and the branch before stops are inserted, so
+# the packer orders the groups of the block like any other's. On Madison a
+# shift issues only on I0, so the shladd goes in an M slot of the bundle that
+# holds the shift, and the group issues in one cycle; as a pseudo the branch
+# left the block to be bundled in program order, with the shladd on I0 of one
+# bundle and the shift splitting issue into the next.
+
+# CHECK-LABEL: dispatch:
+# CHECK:       zxt1 r19 = r15 ;;
+# CHECK-NEXT:  .mmi
+# CHECK-NEXT:  shladd r20 = r19, 3, r61
+# CHECK-NEXT:  shr.u r40 = r15, 8 ;;
+# CHECK-NEXT:  ld8 r14 = [r20] ;;
+# CHECK-NEXT:  mov b6 = r14
+# CHECK-NEXT:  br.cond.sptk.few b6 ;;
+
+# OBJ:      shladd r20 = r19, 3, r61 // [MMI]
+# OBJ-NEXT: nop.m 0
+# OBJ-NEXT: shr.u r40 = r15, 8 ;;
+# OBJ:      mov b6 = r14
+# OBJ:      br.cond.sptk.few b6 ;;
+---
+name: dispatch
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $r15, $r61
+
+    $r19 = ZXT1 renamable $r15, $p0
+    $r20 = SHLADD killed $r19, 3, renamable $r61, $p0
+    renamable $r40 = EXTR_U killed renamable $r15, 8, 56, $p0
+    renamable $r14 = LD8 killed $r20, 0, $p0 :: (load (s64))
+    BRIND killed renamable $r14, implicit-def dead $b6
+...
