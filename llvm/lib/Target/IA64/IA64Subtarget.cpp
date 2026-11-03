@@ -9,6 +9,7 @@
 #include "IA64Subtarget.h"
 #include "IA64.h"
 #include "IA64TargetMachine.h"
+#include "llvm/CodeGen/MachinePipeliner.h"
 #include "llvm/CodeGen/ScheduleDAGMutation.h"
 
 #define DEBUG_TYPE "ia64-subtarget"
@@ -25,6 +26,18 @@ static cl::opt<bool>
 
 bool IA64Subtarget::enableMachinePipeliner() const {
   return EnablePipeliner && getSchedModel().hasInstrSchedModel();
+}
+
+static cl::opt<unsigned> PipelinerBranchSlots(
+    "ia64-pipeliner-branch-slots", cl::Hidden, cl::init(1),
+    cl::desc("Issue slots to keep for br.ctop in a kernel's last cycle"));
+
+// br.ctop issues with the kernel's last cycle, and two bundles hold six
+// instructions. A last cycle of six others spills into a third bundle and
+// takes a cycle more than the schedule planned.
+void IA64Subtarget::overridePipelinerPolicy(
+    MachinePipelinerPolicy &Policy) const {
+  Policy.LoopControlIssueSlots = PipelinerBranchSlots;
 }
 
 void IA64Subtarget::getSMSMutations(

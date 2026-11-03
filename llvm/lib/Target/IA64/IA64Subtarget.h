@@ -109,6 +109,7 @@ public:
   // an in-order machine is the only way they overlap.
   bool enableMachinePipeliner() const override;
   bool useDFAforSMS() const override { return false; }
+  void overridePipelinerPolicy(MachinePipelinerPolicy &Policy) const override;
   void getSMSMutations(
       std::vector<std::unique_ptr<ScheduleDAGMutation>> &Mutations)
       const override;

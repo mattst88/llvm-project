@@ -2979,6 +2979,50 @@ void SwingSchedulerDAG::initPolicy() {
     Policy.ShouldLimitRegPressure = LimitRegPressure;
 }
 
+/// Whether the kernel's last cycle, which the loop's branch issues in, has
+/// Policy.LoopControlIssueSlots free under the issue width. If it does not,
+/// try starting the kernel at an earlier cycle, so that a cycle with room
+/// comes last.
+bool SwingSchedulerDAG::leavesRoomForLoopControl(SMSchedule &Schedule) {
+  unsigned IssueWidth = SchedModel.getIssueWidth();
+  if (!IssueWidth)
+    return true;
+  int II = Schedule.getInitiationInterval();
+  int FirstCycle = Schedule.getFirstCycle();
+
+  // The micro-ops of each cycle of the kernel.
+  SmallVector<unsigned, 8> MicroOps(II, 0);
+  for (SUnit &SU : SUnits) {
+    const MachineInstr *MI = SU.getInstr();
+    if (Schedule.stageScheduled(&SU) < 0 || MI->isPHI() ||
+        MI->isMetaInstruction())
+      continue;
+    MicroOps[Schedule.cycleScheduled(&SU)] += SchedModel.getNumMicroOps(MI);
+  }
+  if (MicroOps[II - 1] + Policy.LoopControlIssueSlots <= IssueWidth)
+    return true;
+
+  // Starting the kernel Shift cycles earlier makes cycle II - 1 - Shift last.
+  for (int Shift = 1; Shift < II; ++Shift) {
+    if (MicroOps[II - 1 - Shift] + Policy.LoopControlIssueSlots > IssueWidth)
+      continue;
+    Schedule.setFirstCycle(FirstCycle - Shift);
+    SmallPtrSet<SUnit *, 8> DNP =
+        Schedule.computeUnpipelineableNodes(this, LoopPipelinerInfo);
+    bool Valid = llvm::all_of(
+        DNP, [&](SUnit *SU) { return Schedule.stageScheduled(SU) == 0; });
+    if (Valid && Schedule.isValidSchedule(this)) {
+      LLVM_DEBUG(dbgs() << "Started the kernel " << Shift
+                        << " cycles earlier to make room for its branch\n");
+      return true;
+    }
+    Schedule.setFirstCycle(FirstCycle);
+  }
+  LLVM_DEBUG(
+      dbgs() << "No room for the loop's branch in the kernel's last cycle\n");
+  return false;
+}
+
 /// Process the nodes in the computed order and create the pipelined schedule
 /// of the instructions, if possible. Return true if a schedule is found.
 bool SwingSchedulerDAG::schedulePipeline(SMSchedule &Schedule) {
@@ -3073,6 +3117,10 @@ bool SwingSchedulerDAG::schedulePipeline(SMSchedule &Schedule) {
     // If a schedule is found, check if it is a valid schedule too.
     if (scheduleFound)
       scheduleFound = Schedule.isValidSchedule(this);
+
+    // If a schedule is found, leave room for the loop's branch.
+    if (scheduleFound && Policy.LoopControlIssueSlots)
+      scheduleFound = leavesRoomForLoopControl(Schedule);
 
     // If a schedule was found and the detector is enabled, check if the
     // schedule might generate additional register spills/fills.

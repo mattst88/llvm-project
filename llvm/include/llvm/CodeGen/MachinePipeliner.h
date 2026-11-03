@@ -70,6 +70,10 @@ struct MachinePipelinerPolicy {
   /// Limit the register pressure of the scheduled loop, retrying at a higher
   /// II when a schedule needs too many registers.
   bool ShouldLimitRegPressure = false;
+  /// Issue slots the loop's branch takes in the last cycle of the kernel,
+  /// where the expander puts it. The schedule leaves them free there,
+  /// retrying at a higher II when it cannot.
+  unsigned LoopControlIssueSlots = 0;
 };
 
 class LLVM_ABI MachinePipelinerLegacy : public MachineFunctionPass {
@@ -483,6 +487,7 @@ private:
   void computeNodeOrder(NodeSetType &NodeSets);
   void checkValidNodeOrder(const NodeSetType &Circuits) const;
   bool schedulePipeline(SMSchedule &Schedule);
+  bool leavesRoomForLoopControl(SMSchedule &Schedule);
   bool computeDelta(const MachineInstr &MI, int &Delta) const;
   MachineInstr *findDefInLoop(Register Reg);
   bool canUseLastOffsetValue(MachineInstr *MI, unsigned &BasePos,
@@ -799,6 +804,10 @@ public:
 
   /// Return the last cycle in the finalized schedule.
   int getFinalCycle() const { return FirstCycle + InitiationInterval - 1; }
+
+  /// Start the kernel at another cycle. Every instruction keeps its cycle;
+  /// those in the kernel's last cycles move to a later stage.
+  void setFirstCycle(int Cycle) { FirstCycle = Cycle; }
 
   LLVM_ABI void computeStart(SUnit *SU, int *MaxEarlyStart, int *MinLateStart,
                              int II, SwingSchedulerDAG *DAG);
