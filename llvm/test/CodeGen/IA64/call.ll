@@ -152,16 +152,17 @@ define i64 @indirect(ptr %f, i64 %a) {
 
 define i64 @variable(i64 %a) {
 ; CHECK-LABEL: variable:
-; CHECK:       addl r14 = @ltoffx(descriptors), r1
+; CHECK:       addl r14 = @ltoffx(descriptors+8), r1
+; CHECK-NEXT:  addl r15 = @ltoffx(descriptors), r1
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = r32 ;;
-; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
-; CHECK-NEXT:  .mmi
-; CHECK-NEXT:  ld8 r15 = [r14], 8
+; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors+8
+; CHECK-NEXT:  ld8.mov r15 = [r15], descriptors ;;
+; CHECK-NEXT:  ld8 r1 = [r14]
+; CHECK-NEXT:  ld8 r15 = [r15]
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  ld8 r1 = [r14]
 ; CHECK-NEXT:  mov b6 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
   %r = call i64 @descriptors(i64 %a)
@@ -170,19 +171,18 @@ define i64 @variable(i64 %a) {
 
 define i64 @variable_offset(i64 %a) {
 ; CHECK-LABEL: variable_offset:
-; CHECK:       addl r14 = @ltoffx(descriptors), r1
+; CHECK:       addl r14 = @ltoffx(descriptors+24), r1
+; CHECK-NEXT:  addl r15 = @ltoffx(descriptors+16), r1
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  mov r36 = r32 ;;
-; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors ;;
-; CHECK-NEXT:  .mmi
-; CHECK-NEXT:  adds r15 = 24, r14
-; CHECK-NEXT:  adds r14 = 16, r14 ;;
-; CHECK-NEXT:  ld8 r1 = [r15]
-; CHECK-NEXT:  ld8 r14 = [r14]
+; CHECK-NEXT:  ld8.mov r14 = [r14], descriptors+24
+; CHECK-NEXT:  ld8.mov r15 = [r15], descriptors+16 ;;
+; CHECK-NEXT:  ld8 r1 = [r14]
+; CHECK-NEXT:  ld8 r15 = [r15]
 ; CHECK-NEXT:  .save rp, r35
 ; CHECK-NEXT:  mov r35 = b0 ;;
 ; CHECK-NEXT:  .body
-; CHECK-NEXT:  mov b6 = r14
+; CHECK-NEXT:  mov b6 = r15
 ; CHECK-NEXT:  br.call.sptk.many b0 = b6 ;;
   %r = call i64 getelementptr inbounds ([4 x ptr], ptr @descriptors, i64 0, i64 2)(i64 %a)
   ret i64 %r

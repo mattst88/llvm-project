@@ -2201,15 +2201,20 @@ SDValue IA64TargetLowering::LowerGlobalAddress(SDValue Op,
   }
 
   // An undefined weak symbol is not at a fixed offset from GP.
-  if (GV->getValueType()->isFunctionTy() || !TM.shouldAssumeDSOLocal(GV) ||
-      GV->hasExternalWeakLinkage()) {
-    unsigned Flags =
-        GV->getValueType()->isFunctionTy() ? IA64::S_LTOFF_FPTR : IA64::S_LTOFF;
+  //
+  // A variable's entry may hold an address inside it, which the linker
+  // turns into a GP-relative add when the variable is in reach: the add of
+  // the offset after the load is then gone.
+  if (GV->getValueType()->isFunctionTy())
     return WithOffset(
         loadLinkageTableEntry(
-            DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, Flags), DL, DAG),
+            DAG.getTargetGlobalAddress(GV, DL, MVT::i64, 0, IA64::S_LTOFF_FPTR),
+            DL, DAG),
         Offset);
-  }
+  if (!TM.shouldAssumeDSOLocal(GV) || GV->hasExternalWeakLinkage())
+    return loadLinkageTableEntry(
+        DAG.getTargetGlobalAddress(GV, DL, MVT::i64, Offset, IA64::S_LTOFF), DL,
+        DAG);
 
   // The folded offset must keep the address in reach of the 22-bit add,
   // which holds if it stays inside the object.

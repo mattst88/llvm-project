@@ -27,14 +27,13 @@ define void @write(i64 %v) {
   ret void
 }
 
-; An offset is added to what the entry holds, so that the symbol has the one
-; entry.
+; An offset into a variable is in the entry, which the linker can turn into a
+; gp-relative add of the address with the offset.
 
 define ptr @element() {
 ; CHECK-LABEL: element:
-; CHECK:         addl r14 = @ltoffx(a), r1 ;;
-; CHECK-NEXT:    ld8.mov r14 = [r14], a ;;
-; CHECK-NEXT:    adds r8 = 24, r14
+; CHECK:         addl r14 = @ltoffx(a+24), r1 ;;
+; CHECK-NEXT:    ld8.mov r8 = [r14], a+24
 ; CHECK-NEXT:    br.ret.sptk.many b0 ;;
   ret ptr getelementptr (i64, ptr @a, i64 3)
 }
