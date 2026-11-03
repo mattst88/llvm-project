@@ -208,6 +208,15 @@ public:
   bool isAssociativeAndCommutative(const MachineInstr &Inst,
                                    bool Invert) const override;
   std::optional<unsigned> getInverseOpcode(unsigned Opcode) const override;
+  bool getMachineCombinerPatterns(MachineInstr &Root,
+                                  SmallVectorImpl<unsigned> &Patterns,
+                                  bool DoRegPressureReduce) const override;
+  CombinerObjective getCombinerObjective(unsigned Pattern) const override;
+  void genAlternativeCodeSequence(
+      MachineInstr &Root, unsigned Pattern,
+      SmallVectorImpl<MachineInstr *> &InsInstrs,
+      SmallVectorImpl<MachineInstr *> &DelInstrs,
+      DenseMap<Register, unsigned> &InstrIdxForVirtReg) const override;
 
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
   // Bundles are emitted whole, when full or ended, not as each instruction

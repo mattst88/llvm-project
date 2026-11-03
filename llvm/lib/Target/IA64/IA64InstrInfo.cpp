@@ -1611,6 +1611,154 @@ std::optional<unsigned> IA64InstrInfo::getInverseOpcode(unsigned Opcode) const {
   }
 }
 
+// A constant added to a sum moves onto whichever addend arrives first, so
+// that the late one is added last. Memory takes only a register address,
+// so a field of an element of a loaded array is (adds C, (shladd I, n, A))
+// with A loaded; adding C to I first leaves one add after the load:
+//   (adds C, (shladd I, n, A)) -> (add A, (adds C, (shladd I, n, r0)))
+//   (adds C, (shladd I, n, A)) -> (shladd I, n, (adds C, A))
+//   (adds C, (add A, B))        -> (add A, (adds C, B)), or B with A
+// The combiner applies one only where it shortens the critical path.
+namespace {
+enum IA64MachineCombinerPattern : unsigned {
+  ADDS_SHLADD_INDEX = MachineCombinerPattern::TARGET_PATTERN_START,
+  ADDS_SHLADD_BASE,
+  ADDS_ADD_OP1,
+  ADDS_ADD_OP2,
+};
+} // namespace
+
+// The single-use, unpredicated definition of Reg in MBB by Opc.
+static MachineInstr *getCombinableDef(const MachineBasicBlock &MBB,
+                                      const MachineOperand &MO, unsigned Opc) {
+  if (!MO.isReg() || !MO.getReg().isVirtual())
+    return nullptr;
+  const MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
+  MachineInstr *MI = MRI.getUniqueVRegDef(MO.getReg());
+  if (!MI || MI->getParent() != &MBB || MI->getOpcode() != Opc ||
+      MI->getOperand(MI->getNumExplicitOperands() - 1).getReg() != IA64::P0 ||
+      !MRI.hasOneNonDBGUse(MO.getReg()))
+    return nullptr;
+  return MI;
+}
+
+static cl::opt<bool> ReassociateAdds(
+    "ia64-reassociate-adds", cl::Hidden, cl::init(true),
+    cl::desc("Move a constant added to a sum onto its earlier addend"));
+
+bool IA64InstrInfo::getMachineCombinerPatterns(
+    MachineInstr &Root, SmallVectorImpl<unsigned> &Patterns,
+    bool DoRegPressureReduce) const {
+  if (ReassociateAdds && Root.getOpcode() == IA64::ADDS &&
+      Root.getOperand(1).isImm() && Root.getOperand(3).getReg() == IA64::P0) {
+    const MachineBasicBlock &MBB = *Root.getParent();
+    if (getCombinableDef(MBB, Root.getOperand(2), IA64::SHLADD)) {
+      Patterns.push_back(ADDS_SHLADD_INDEX);
+      Patterns.push_back(ADDS_SHLADD_BASE);
+      return true;
+    }
+    if (getCombinableDef(MBB, Root.getOperand(2), IA64::ADD)) {
+      Patterns.push_back(ADDS_ADD_OP1);
+      Patterns.push_back(ADDS_ADD_OP2);
+      return true;
+    }
+  }
+  return TargetInstrInfo::getMachineCombinerPatterns(Root, Patterns,
+                                                     DoRegPressureReduce);
+}
+
+CombinerObjective IA64InstrInfo::getCombinerObjective(unsigned Pattern) const {
+  switch (Pattern) {
+  case ADDS_SHLADD_INDEX:
+  case ADDS_SHLADD_BASE:
+  case ADDS_ADD_OP1:
+  case ADDS_ADD_OP2:
+    return CombinerObjective::MustReduceDepth;
+  default:
+    return TargetInstrInfo::getCombinerObjective(Pattern);
+  }
+}
+
+void IA64InstrInfo::genAlternativeCodeSequence(
+    MachineInstr &Root, unsigned Pattern,
+    SmallVectorImpl<MachineInstr *> &InsInstrs,
+    SmallVectorImpl<MachineInstr *> &DelInstrs,
+    DenseMap<Register, unsigned> &InstrIdxForVirtReg) const {
+  switch (Pattern) {
+  case ADDS_SHLADD_INDEX:
+  case ADDS_SHLADD_BASE:
+  case ADDS_ADD_OP1:
+  case ADDS_ADD_OP2:
+    break;
+  default:
+    TargetInstrInfo::genAlternativeCodeSequence(Root, Pattern, InsInstrs,
+                                                DelInstrs, InstrIdxForVirtReg);
+    return;
+  }
+  MachineFunction &MF = *Root.getMF();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  MachineInstr *Inner = MRI.getUniqueVRegDef(Root.getOperand(2).getReg());
+  int64_t C = Root.getOperand(1).getImm();
+  Register Dst = Root.getOperand(0).getReg();
+  MIMetadata MIMD(Root);
+  auto NewReg = [&] {
+    Register R = MRI.createVirtualRegister(&IA64::GRRegClass);
+    InstrIdxForVirtReg.insert({R, InsInstrs.size()});
+    return R;
+  };
+  switch (Pattern) {
+  default:
+    llvm_unreachable("not an adds pattern");
+  case ADDS_SHLADD_INDEX: {
+    Register Scaled = NewReg();
+    InsInstrs.push_back(BuildMI(MF, MIMD, get(IA64::SHLADD), Scaled)
+                            .addReg(Inner->getOperand(1).getReg())
+                            .add(Inner->getOperand(2))
+                            .addReg(IA64::R0)
+                            .addReg(IA64::P0));
+    Register Offset = NewReg();
+    InsInstrs.push_back(BuildMI(MF, MIMD, get(IA64::ADDS), Offset)
+                            .addImm(C)
+                            .addReg(Scaled)
+                            .addReg(IA64::P0));
+    InsInstrs.push_back(BuildMI(MF, MIMD, get(IA64::ADD), Dst)
+                            .addReg(Inner->getOperand(3).getReg())
+                            .addReg(Offset)
+                            .addReg(IA64::P0));
+    break;
+  }
+  case ADDS_SHLADD_BASE: {
+    Register Base = NewReg();
+    InsInstrs.push_back(BuildMI(MF, MIMD, get(IA64::ADDS), Base)
+                            .addImm(C)
+                            .addReg(Inner->getOperand(3).getReg())
+                            .addReg(IA64::P0));
+    InsInstrs.push_back(BuildMI(MF, MIMD, get(IA64::SHLADD), Dst)
+                            .addReg(Inner->getOperand(1).getReg())
+                            .add(Inner->getOperand(2))
+                            .addReg(Base)
+                            .addReg(IA64::P0));
+    break;
+  }
+  case ADDS_ADD_OP1:
+  case ADDS_ADD_OP2: {
+    unsigned Late = Pattern == ADDS_ADD_OP1 ? 1 : 2;
+    Register Sum = NewReg();
+    InsInstrs.push_back(BuildMI(MF, MIMD, get(IA64::ADDS), Sum)
+                            .addImm(C)
+                            .addReg(Inner->getOperand(3 - Late).getReg())
+                            .addReg(IA64::P0));
+    InsInstrs.push_back(BuildMI(MF, MIMD, get(IA64::ADD), Dst)
+                            .addReg(Inner->getOperand(Late).getReg())
+                            .addReg(Sum)
+                            .addReg(IA64::P0));
+    break;
+  }
+  }
+  DelInstrs.push_back(Inner);
+  DelInstrs.push_back(&Root);
+}
+
 // An instruction's size is unknown until the assembler bundles it, three to
 // a 16-byte bundle if the templates and stops allow. This returns the upper
 // bound, a whole bundle, for branch relaxation, where overestimating a
