@@ -655,14 +655,14 @@ void IA64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   }
   if (MI->getOpcode() == IA64::BRIND) {
     OutMI.setOpcode(IA64::MOV_BR);
-    OutMI.addOperand(MCOperand::createReg(IA64::B6));
+    OutMI.addOperand(MCOperand::createReg(IA64::B7));
     OutMI.addOperand(lowerOperand(MI->getOperand(0)));
     OutMI.addOperand(MCOperand::createImm(0));
     OutMI.addOperand(MCOperand::createReg(IA64::P0));
     EmitToStreamer(*OutStreamer, OutMI);
     MCInst Branch;
     Branch.setOpcode(IA64::BR_COND_B);
-    Branch.addOperand(MCOperand::createReg(IA64::B6));
+    Branch.addOperand(MCOperand::createReg(IA64::B7));
     Branch.addOperand(MCOperand::createImm(IA64II::WhetherSPTK));
     Branch.addOperand(MCOperand::createImm(0));
     Branch.addOperand(MCOperand::createImm(0));

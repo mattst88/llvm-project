@@ -272,11 +272,13 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1 in
 let SchedRW = [WriteBr] in
 def BRLONG : IA64Pseudo<(outs), (ins brtarget:$target), "#BRLONG", []>;
 
-// An indirect branch through a GR, via b6: "mov b6 = r" and
-// "br.cond.sptk.few b6". It is a single pseudo because the mov is not a
-// terminator.
+// An indirect branch through a GR, via b7: "mov b7 = r" and
+// "br.cond.sptk.few b7". It is a single pseudo because the mov is not a
+// terminator. Indirect calls go through b6, so an interpreter's dispatch
+// does not overwrite the target a call site last used, and a call whose
+// target is unchanged is not stalled waiting on its move.
 let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1,
-    Defs = [B6] in
+    Defs = [B7] in
 let SchedRW = [WriteBr] in
 def BRIND : IA64Pseudo<(outs), (ins GR:$target), "#BRIND", []>;
 

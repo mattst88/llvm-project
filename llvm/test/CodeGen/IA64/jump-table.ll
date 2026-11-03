@@ -5,7 +5,7 @@
 ; RUN:   | llvm-readobj -r - | FileCheck %s --check-prefix=RELOC
 
 ; A switch reads the distance from the table to the block out of the table,
-; whose address is in the linkage table, and branches through b6. The
+; whose address is in the linkage table, and branches through b7. The
 ; distances are eight bytes, so they need no sign extension.
 define i64 @f(i64 %a) {
 ; CHECK-LABEL: f:
@@ -17,8 +17,8 @@ define i64 @f(i64 %a) {
 ; CHECK-NEXT:  shladd r15 = r32, 3, r14 ;;
 ; CHECK-NEXT:  ld8 r15 = [r15] ;;
 ; CHECK-NEXT:  add r14 = r14, r15 ;;
-; CHECK-NEXT:  mov b6 = r14
-; CHECK-NEXT:  br.cond.sptk.few b6 ;;
+; CHECK-NEXT:  mov b7 = r14
+; CHECK-NEXT:  br.cond.sptk.few b7 ;;
 ; CHECK:       .section .rodata
 ; CHECK-NEXT:  .p2align 3
 ; CHECK:       .LJTI0_0:
@@ -55,13 +55,13 @@ d:
 
 @tab = internal constant [2 x ptr] [ptr blockaddress(@g, %x), ptr blockaddress(@g, %y)]
 
-; A branch to a computed address goes through b6 as well.
+; A branch to a computed address goes through b7 as well.
 define i64 @g(i64 %i) {
 ; CHECK-LABEL: g:
 ; CHECK:       shladd r14 = r32, 3, r14 ;;
 ; CHECK-NEXT:  ld8 r14 = [r14] ;;
-; CHECK-NEXT:  mov b6 = r14
-; CHECK-NEXT:  br.cond.sptk.few b6 ;;
+; CHECK-NEXT:  mov b7 = r14
+; CHECK-NEXT:  br.cond.sptk.few b7 ;;
 ; CHECK-NEXT:  .Ltmp0:
 ; CHECK:       .Ltmp1:
   %p = getelementptr [2 x ptr], ptr @tab, i64 0, i64 %i

@@ -4,7 +4,7 @@
 ; A switch needs 64 cases for a jump table; fewer are compared and branched
 ; on.
 ; CHECK-LABEL: sixty_three:
-; CHECK-NOT:   b6
+; CHECK-NOT:   mov b7
 ; CHECK:       .endp sixty_three
 define i64 @sixty_three(i64 %a) {
   switch i64 %a, label %d [ i64 0, label %b0
@@ -202,7 +202,7 @@ d:
 
 ; CHECK-LABEL: sixty_four:
 ; CHECK:       @ltoffx(.LJTI1_0)
-; CHECK:       br.cond.sptk.few b6
+; CHECK:       br.cond.sptk.few b7
 ; CHECK:       .endp sixty_four
 define i64 @sixty_four(i64 %a) {
   switch i64 %a, label %d [ i64 0, label %b0

@@ -4,7 +4,7 @@
 
 ; The table holds the distance from itself to each block, in eight bytes. Its
 ; address is in the linkage table, the entry is added to it, and the branch
-; goes through b6. The linkage table entry's address is computed before the
+; goes through b7. The linkage table entry's address is computed before the
 ; range check.
 define i64 @f(i64 %a) {
 ; CHECK-LABEL: f:
@@ -17,8 +17,8 @@ define i64 @f(i64 %a) {
 ; CHECK-NEXT:  shladd r14 = r14, 3, r15 ;;
 ; CHECK-NEXT:  ld8 r14 = [r14] ;;
 ; CHECK-NEXT:  add r14 = r15, r14 ;;
-; CHECK-NEXT:  mov b6 = r14
-; CHECK-NEXT:  br.cond.sptk.few b6 ;;
+; CHECK-NEXT:  mov b7 = r14
+; CHECK-NEXT:  br.cond.sptk.few b7 ;;
 ; CHECK:       .LJTI0_0:
 ; CHECK-NEXT:  data8.ua .LBB0_2-.LJTI0_0
 ; CHECK-NEXT:  data8.ua .LBB0_6-.LJTI0_0
