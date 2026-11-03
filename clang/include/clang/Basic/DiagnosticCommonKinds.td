@@ -383,7 +383,6 @@ def err_mips_impossible_musttail: Error<
   >;
 def err_ia64_impossible_musttail: Error<
   "'musttail' attribute for this call is impossible because %select{"
-  "indirect calls cannot be tail called on IA-64|"
   "calls outside the current linkage unit cannot be tail called on IA-64|"
   "calls with arguments on the stack cannot be tail called on IA-64}0"
   >;

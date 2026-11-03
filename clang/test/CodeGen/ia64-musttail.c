@@ -1,8 +1,6 @@
 // RUN: %clang_cc1 -triple ia64-unknown-linux-gnu -pic-level 2 -verify \
 // RUN:   -fhalf-no-semantic-interposition -emit-llvm -o /dev/null %s
 // RUN: %clang_cc1 -triple ia64-unknown-linux-gnu -pic-level 2 -verify \
-// RUN:   -DPOINTER -emit-llvm -o /dev/null %s
-// RUN: %clang_cc1 -triple ia64-unknown-linux-gnu -pic-level 2 -verify \
 // RUN:   -DNINE -emit-llvm -o /dev/null %s
 // RUN: %clang_cc1 -triple ia64-unknown-linux-gnu -pic-level 2 -verify \
 // RUN:   -DODD -emit-llvm -o /dev/null %s
@@ -41,12 +39,23 @@ struct S to_hidden_sret(long a, long b, long c, long d, long e, long f,
   __attribute__((musttail)) return hidden_sret(a, b, c, d, e, f, g, h);
 }
 
-#elif defined(POINTER)
-
+// A pointer is to a descriptor that has the callee's global pointer, which
+// the backend loads before it branches.
 int (*pointer)(int);
 
-int to_pointer(int a) {
-  __attribute__((musttail)) return pointer(a); // expected-error {{'musttail' attribute for this call is impossible because indirect calls cannot be tail called on IA-64}}
+// CHECK-LABEL: define{{.*}} @to_pointer(
+// CHECK: musttail call{{.*}} %
+int to_pointer(int a) { __attribute__((musttail)) return pointer(a); }
+
+// The interpreter CPython builds of tail calls.
+__attribute__((preserve_none)) int handler(int);
+typedef __attribute__((preserve_none)) int (*Handler)(int);
+extern Handler table[];
+
+// CHECK-LABEL: define{{.*}} preserve_nonecc{{.*}} @dispatch(
+// CHECK: musttail call preserve_nonecc{{.*}} %
+__attribute__((preserve_none)) int dispatch(int op) {
+  __attribute__((musttail)) return table[op](op);
 }
 
 #elif defined(NINE)

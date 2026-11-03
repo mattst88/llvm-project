@@ -108,6 +108,18 @@ public:
   // widest integer type is 128 bits.
 
   bool hasBitIntType() const override { return true; }
+
+  // preserve_none lets a callee clobber any register, which the backend
+  // treats as the C convention: it saves what C saves.
+  CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
+    switch (CC) {
+    case CC_C:
+    case CC_PreserveNone:
+      return CCCR_OK;
+    default:
+      return CCCR_Warning;
+    }
+  }
   size_t getMaxBitIntWidth() const override { return 128; }
 
   bool isValidCPUName(StringRef Name) const override;

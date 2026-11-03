@@ -2037,7 +2037,7 @@ void CodeGenModule::Release() {
         StringRef MangledName = getMangledName(GlobalDecl(I.first));
         llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
         if (Entry && !Entry->isDSOLocal())
-          getDiags().Report(I.second, diag::err_ia64_impossible_musttail) << 1;
+          getDiags().Report(I.second, diag::err_ia64_impossible_musttail) << 0;
       }
     }
   }

@@ -6560,10 +6560,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
             Slots = llvm::alignTo(Slots, 2);
           Slots += llvm::alignTo(DL.getTypeAllocSize(Ty).getFixedValue(), 8) / 8;
         }
-        if (Call->isIndirectCall())
-          CGM.getDiags().Report(Loc, diag::err_ia64_impossible_musttail) << 0;
-        else if (InMemory || Slots > 8)
-          CGM.getDiags().Report(Loc, diag::err_ia64_impossible_musttail) << 2;
+        if (InMemory || Slots > 8)
+          CGM.getDiags().Report(Loc, diag::err_ia64_impossible_musttail) << 1;
         else if (const auto *FD = dyn_cast_or_null<FunctionDecl>(TargetDecl))
           CGM.addUndefinedGlobalForTailCall({FD, Loc});
       }
