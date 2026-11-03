@@ -1043,6 +1043,44 @@ bool IA64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   return true;
 }
 
+// The stage of a rotating loop that MI is qualified by, or -1.
+static int rotatingStage(const MachineInstr &MI) {
+  int Idx = MI.findFirstPredOperandIdx();
+  if (Idx < 0)
+    return -1;
+  Register P = MI.getOperand(Idx).getReg();
+  if (P < IA64::P16 || P > IA64::P63)
+    return -1;
+  return P - IA64::P16;
+}
+
+// The step of a post-incrementing load or store, or 0: its address is a
+// tied def and the step the immediate after it.
+static int64_t postIncrement(const MachineInstr &MI) {
+  if (MI.getNumOperands() < 4 || !MI.getOperand(3).isImm())
+    return 0;
+  for (unsigned I = 0, E = MI.getNumExplicitDefs(); I < E; ++I)
+    if (MI.getOperand(I).isReg() && MI.getOperand(I).isTied())
+      return MI.getOperand(3).getImm();
+  return 0;
+}
+
+// How many bytes Store's address lies past where Load's memory operand puts
+// it. The memory operands of a software-pipelined loop name the address of
+// one iteration, but an access qualified by stage S does the work of the
+// iteration S before the newest. When both step the same pointer by the
+// same amount, a store D stages behind the load writes D steps back.
+static int64_t iterationShift(const MachineInstr &Load,
+                              const MachineInstr &Store) {
+  int LStage = rotatingStage(Load), SStage = rotatingStage(Store);
+  if (LStage < 0 || SStage < 0 || LStage == SStage)
+    return 0;
+  int64_t Step = postIncrement(Load);
+  if (!Step || postIncrement(Store) != Step)
+    return 0;
+  return int64_t(LStage - SStage) * Step;
+}
+
 bool IA64InstrInfo::cancelsFill(const MachineInstr &Load,
                                 const MachineInstr &Store, AAResults *AA) {
   if (!Load.mayLoad() || Load.mayStore() || Load.getNumExplicitDefs() == 0 ||
@@ -1066,8 +1104,12 @@ bool IA64InstrInfo::cancelsFill(const MachineInstr &Load,
   int64_t SEnd = SBegin + S.getSize().getValue().getFixedValue();
   const Value *LV = L.getValue(), *SV = S.getValue();
   const PseudoSourceValue *LP = L.getPseudoValue(), *SP = S.getPseudoValue();
-  if ((LV && LV == SV) || (LP && LP == SP))
-    return LBegin < SEnd && SBegin < LEnd;
+  if ((LV && LV == SV) || (LP && LP == SP)) {
+    // In a rotating loop the store may belong to an earlier iteration than
+    // the load, and a pointer stepped by both then addresses other bytes.
+    int64_t Shift = iterationShift(Load, Store);
+    return LBegin < SEnd + Shift && SBegin + Shift < LEnd;
+  }
   if (!AA || !LV || !SV)
     return false;
   int64_t Min = std::min(LBegin, SBegin);

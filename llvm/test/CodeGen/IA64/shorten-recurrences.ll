@@ -20,16 +20,18 @@
 ; GENERIC-LABEL: @carry(
 ; GENERIC: %add = add nuw nsw i64 %carry, %conv
 
-; The machine combiner must not move the carry back under the other adds.
-; The kernel's last group leaves br.ctop a slot of its two bundles.
+; The machine combiner must not move the carry back under the other adds,
+; and the kernel takes two instruction groups. The second leaves br.ctop a
+; slot of its two bundles, and the store of the digit loaded two iterations
+; earlier needs no stop of its own.
 ; ASM-LABEL: carry:
 ; ASM: .LBB0_[[L:[0-9]+]]:
 ; ASM-NOT: ;;
 ; ASM: ;;
-; ASM-NEXT: add
-; ASM-SAME: ;;
+; ASM-NEXT: .mmi
 ; ASM-NEXT: st4
 ; ASM-NEXT: shr.u
+; ASM-NEXT: add
 ; ASM-NEXT: ld4
 ; ASM-NEXT: br.ctop.sptk.few .LBB0_[[L]] ;;
 define void @carry(ptr noalias %pz, ptr noalias %pa, i64 %n, i64 %f) {
