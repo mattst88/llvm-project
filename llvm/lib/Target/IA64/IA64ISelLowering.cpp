@@ -1016,6 +1016,36 @@ static SDValue combineAndOfXorWithinMask(SDNode *N, SelectionDAG &DAG) {
   return SDValue();
 }
 
+// (and (load i16 X), 0xff), where the load has other uses, is an ld1 of X:
+// the low byte comes first. CPython's dispatch loads a 16-bit code unit for
+// its opcode and argument; an ld1 of the opcode takes the zxt1 out of the
+// chain that ends in the indirect branch, at the cost of a second load.
+// Wider loads are left alone: the narrow load is not advanced with its
+// partner, so bzip2's walk of a 32-bit tt[] took the partner's cache miss in
+// it, and sha's 64-bit loads split into 32-bit halves scheduled worse.
+static cl::opt<bool> NarrowSharedLoads(
+    "ia64-narrow-shared-loads", cl::Hidden, cl::init(true),
+    cl::desc("Load the masked low bytes of a shared load separately"));
+
+static SDValue combineAndOfSharedLoad(SDNode *N, SelectionDAG &DAG) {
+  if (!NarrowSharedLoads)
+    return SDValue();
+  auto *M = dyn_cast<ConstantSDNode>(N->getOperand(1));
+  auto *Ld = dyn_cast<LoadSDNode>(N->getOperand(0));
+  if (!M || !Ld || !Ld->isSimple() || !Ld->isUnindexed() ||
+      Ld->getExtensionType() == ISD::SEXTLOAD || Ld->hasNUsesOfValue(1, 0) ||
+      !DAG.getDataLayout().isLittleEndian())
+    return SDValue();
+  if (M->getAPIntValue() != 0xff || Ld->getMemoryVT() != MVT::i16)
+    return SDValue();
+  SDValue NewLd = DAG.getExtLoad(
+      ISD::ZEXTLOAD, SDLoc(N), N->getValueType(0), Ld->getChain(),
+      Ld->getBasePtr(), Ld->getPointerInfo(), MVT::i8, Ld->getBaseAlign(),
+      Ld->getMemOperand()->getFlags(), Ld->getAAInfo());
+  DAG.makeEquivalentMemoryOrdering(Ld, NewLd);
+  return NewLd;
+}
+
 // (setcc (xor X, Y), 0, eq/ne) is (setcc X, Y, eq/ne): cmp takes two
 // registers, and the xor would cost a group ahead of it.
 static SDValue combineSetCCOfXor(SDNode *N, SelectionDAG &DAG) {
@@ -1171,6 +1201,8 @@ SDValue IA64TargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::ZERO_EXTEND:
     return combineZextOfLowMask(N, DAG, DCI);
   case ISD::AND:
+    if (SDValue V = combineAndOfSharedLoad(N, DAG))
+      return V;
     return combineAndOfXorWithinMask(N, DAG);
   case ISD::SETCC:
     if (SDValue V = combineSetCCOfMaskedAdd(N, DAG, DCI))
