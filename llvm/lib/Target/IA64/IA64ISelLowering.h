@@ -119,6 +119,13 @@ public:
            (AM.Scale == 0 || (AM.Scale == 1 && !AM.HasBaseReg));
   }
 
+  // adds takes a 14-bit signed immediate. Anything wider needs its own
+  // movl, so constant hoisting must not rebase one constant on another that
+  // far away.
+  bool isLegalAddImmediate(int64_t Imm) const override {
+    return isInt<14>(Imm);
+  }
+
   bool getPostIndexedAddressParts(SDNode *N, SDNode *Op, SDValue &Base,
                                   SDValue &Offset, ISD::MemIndexedMode &AM,
                                   SelectionDAG &DAG) const override;
