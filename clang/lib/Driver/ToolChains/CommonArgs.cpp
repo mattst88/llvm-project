@@ -2834,8 +2834,10 @@ void tools::addSplitMachineFunctionsArgs(const Driver &D,
   if (Arg *A = Args.getLastArg(options::OPT_fsplit_machine_functions,
                                options::OPT_fno_split_machine_functions)) {
     if (!A->getOption().matches(options::OPT_fno_split_machine_functions)) {
-      // This codegen pass is only available on x86 and AArch64 ELF targets.
-      if ((Triple.isX86() || Triple.isAArch64()) && Triple.isOSBinFormatELF())
+      // This codegen pass is only available on x86, AArch64 and IA-64 ELF
+      // targets.
+      if ((Triple.isX86() || Triple.isAArch64() || Triple.isIA64()) &&
+          Triple.isOSBinFormatELF())
         A->render(Args, CmdArgs);
       else
         D.Diag(diag::err_drv_unsupported_opt_for_target)
