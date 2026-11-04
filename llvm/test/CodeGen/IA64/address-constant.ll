@@ -16,7 +16,7 @@ define internal i32 @sf(i32 %x) {
 ; CHECK:      .section .data.rel.ro,"aw",@progbits
 ; CHECK:      fns:
 ; CHECK-NEXT: data8.ua @fptr(f)
-; CHECK-NEXT: data8.ua @fptr(sf)
+; CHECK-NEXT: data8.ua .Lsf.desc
 @fns = constant [2 x ptr] [ptr @f, ptr @sf]
 
 ; CHECK:      vars:

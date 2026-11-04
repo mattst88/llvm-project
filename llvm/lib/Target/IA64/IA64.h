@@ -23,6 +23,7 @@
 namespace llvm {
 
 class FunctionPass;
+class ModulePass;
 class IA64RegisterBankInfo;
 class LiveIntervals;
 class MachineBasicBlock;
@@ -55,6 +56,7 @@ FunctionPass *createIA64PostIncPointersPass();
 FunctionPass *createIA64PrefetchStreamsPass();
 FunctionPass *createIA64RematInCallLoopsPass();
 FunctionPass *createIA64ReplicateDispatch();
+ModulePass *createIA64LocalDescriptors();
 FunctionPass *createIA64SinkPastCallsPass();
 FunctionPass *createIA64SmallRangeMulPass();
 FunctionPass *createIA64ShortenRecurrencesPass();
@@ -91,6 +93,7 @@ void initializeIA64LocalDynamicTLSPass(PassRegistry &);
 void initializeIA64PackGroupsPass(PassRegistry &);
 void initializeIA64RematInCallLoopsPass(PassRegistry &);
 void initializeIA64ReplicateDispatchPass(PassRegistry &);
+void initializeIA64LocalDescriptorsPass(PassRegistry &);
 void initializeIA64SinkPastCallsPass(PassRegistry &);
 void initializeIA64SmallRangeMulPass(PassRegistry &);
 void initializeIA64ShortenRecurrencesPass(PassRegistry &);

@@ -40,6 +40,11 @@ static cl::opt<bool> EnableAliasVersioning(
     "ia64-alias-versioning", cl::Hidden, cl::init(true),
     cl::desc("Version small loops on whether their pointers overlap"));
 
+static cl::opt<bool> EnableLocalDescriptors(
+    "ia64-enable-local-descriptors",
+    cl::desc("Give address-taken local functions descriptors of their own"),
+    cl::init(true), cl::Hidden);
+
 static cl::opt<bool> EnableDeferMathErrno(
     "ia64-defer-math-errno", cl::Hidden, cl::init(true),
     cl::desc("Set errno for the sqrt calls of a loop after the loop"));
@@ -109,6 +114,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeIA64Target() {
   initializeIA64PackGroupsPass(PR);
   initializeIA64RematInCallLoopsPass(PR);
   initializeIA64ReplicateDispatchPass(PR);
+  initializeIA64LocalDescriptorsPass(PR);
   initializeIA64SinkPastCallsPass(PR);
   initializeIA64SmallRangeMulPass(PR);
   initializeIA64ShortenRecurrencesPass(PR);
@@ -224,6 +230,8 @@ void IA64PassConfig::addIRPasses() {
     addPass(createIA64ShortenRecurrencesPass());
   if (getOptLevel() != CodeGenOptLevel::None)
     addPass(createIA64ReplicateDispatch());
+  if (getOptLevel() != CodeGenOptLevel::None && EnableLocalDescriptors)
+    addPass(createIA64LocalDescriptors());
 }
 
 bool IA64PassConfig::addInstSelector() {
