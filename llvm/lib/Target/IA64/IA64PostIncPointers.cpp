@@ -35,6 +35,7 @@
 #include "IA64InstrInfo.h"
 #include "IA64Subtarget.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -50,6 +51,7 @@ using namespace llvm;
 STATISTIC(NumPointers, "Number of accesses given a pointer of their own");
 STATISTIC(NumAdds, "Number of address adds removed from loops");
 STATISTIC(NumChained, "Number of address adds replaced by a chain");
+STATISTIC(NumUnfolded, "Number of post-increments split from their access");
 
 static cl::opt<bool>
     EnablePostIncPointers("ia64-enable-postinc-pointers", cl::init(true),
@@ -65,6 +67,11 @@ static cl::opt<unsigned> ChainGap(
     "ia64-postinc-chain-gap", cl::init(2), cl::Hidden,
     cl::desc("The fewest instructions from one access of a chain of accesses "
              "in a block to the next, 0 to chain none"));
+
+static cl::opt<bool> UnfoldLiveBases(
+    "ia64-unfold-live-post-inc", cl::init(true), cl::Hidden,
+    cl::desc("Split the step from an access whose address register is used "
+             "after it"));
 
 static cl::opt<unsigned>
     MaxChains("ia64-postinc-max-chains", cl::init(2), cl::Hidden,
@@ -99,6 +106,8 @@ private:
 
   bool runOnLoop(MachineBasicBlock &MBB, MachineBasicBlock &Preheader);
   bool runOnBlock(MachineBasicBlock &MBB);
+  bool unfoldLiveBases(MachineFunction &MF);
+  bool isLiveOut(Register Reg, const MachineBasicBlock &MBB) const;
   bool isAccessThrough(const MachineInstr &MI, Register Base) const;
   bool isOffset(const MachineInstr &MI, Register Base,
                 const MachineBasicBlock &MBB) const;
@@ -153,6 +162,39 @@ static std::optional<int64_t> getPostIncrement(const MachineInstr &MI,
   if (!Inc.isImm())
     return std::nullopt;
   return Inc.getImm();
+}
+
+// The plain form of a load or store that adds an immediate or a register to
+// its address register, the opcode that does the add, or {0, 0}.
+static std::pair<unsigned, unsigned> getUnfoldedOpcodes(unsigned Opcode) {
+  switch (Opcode) {
+  default:
+    return {0, 0};
+#define LOAD(LOAD)                                                             \
+  case IA64::LOAD##_i:                                                         \
+    return {IA64::LOAD, IA64::ADDS};                                           \
+  case IA64::LOAD##_r:                                                         \
+    return {IA64::LOAD, IA64::ADD};
+#define STORE(STORE)                                                           \
+  case IA64::STORE##_i:                                                        \
+    return {IA64::STORE, IA64::ADDS};
+    LOAD(LD1)
+    LOAD(LD2)
+    LOAD(LD4)
+    LOAD(LD8)
+    LOAD(LDFS)
+    LOAD(LDFD)
+    LOAD(LDFE)
+    STORE(ST1)
+    STORE(ST2)
+    STORE(ST4)
+    STORE(ST8)
+    STORE(STFS)
+    STORE(STFD)
+    STORE(STFE)
+#undef LOAD
+#undef STORE
+  }
 }
 
 // Whether MI is a plain load or store that uses Base as its address and for
@@ -464,6 +506,100 @@ bool IA64PostIncPointers::runOnBlock(MachineBasicBlock &MBB) {
   return Changed;
 }
 
+// An access that steps its address register writes the new address over the
+// old one, so where the old address is used after the access as well,
+// register allocation copies it first, to another register for the access to
+// step. The copy takes a group of its own ahead of the access: in the
+// dispatch of CPython's interpreter loop, a mov ahead of the load of the
+// opcode, which steps the instruction pointer for the load of the argument.
+// Split the step from such an access into an add beside it instead, which
+// leaves the access where it was and gives the add the same register to read.
+// Whether Reg, which is in SSA form, is used on some path out of MBB before
+// the path reaches its definition again. A PHI reads it at the end of the
+// block it comes in from.
+bool IA64PostIncPointers::isLiveOut(Register Reg,
+                                    const MachineBasicBlock &MBB) const {
+  const MachineBasicBlock *DefMBB = MRI->getVRegDef(Reg)->getParent();
+  SmallPtrSet<const MachineBasicBlock *, 8> UseBlocks, PHIPreds;
+  for (const MachineOperand &MO : MRI->use_nodbg_operands(Reg)) {
+    const MachineInstr &U = *MO.getParent();
+    if (U.isPHI())
+      PHIPreds.insert(U.getOperand(MO.getOperandNo() + 1).getMBB());
+    else
+      UseBlocks.insert(U.getParent());
+  }
+  if (PHIPreds.contains(&MBB))
+    return true;
+  SmallVector<const MachineBasicBlock *, 8> Worklist(MBB.successors());
+  SmallPtrSet<const MachineBasicBlock *, 8> Visited;
+  while (!Worklist.empty()) {
+    const MachineBasicBlock *B = Worklist.pop_back_val();
+    if (B == DefMBB || !Visited.insert(B).second)
+      continue;
+    if (UseBlocks.contains(B) || PHIPreds.contains(B))
+      return true;
+    append_range(Worklist, B->successors());
+  }
+  return false;
+}
+
+bool IA64PostIncPointers::unfoldLiveBases(MachineFunction &MF) {
+  SmallVector<MachineInstr *, 8> Unfold;
+  for (MachineBasicBlock &MBB : MF) {
+    // Post-increments in this block whose address register has no use after
+    // them yet, by address register.
+    SmallDenseMap<Register, SmallVector<MachineInstr *, 2>, 8> Pending;
+    for (MachineInstr &MI : MBB) {
+      if (MI.isDebugInstr())
+        continue;
+      for (const MachineOperand &MO : MI.uses()) {
+        if (!MO.isReg() || !MO.getReg().isVirtual())
+          continue;
+        auto It = Pending.find(MO.getReg());
+        if (It == Pending.end())
+          continue;
+        append_range(Unfold, It->second);
+        Pending.erase(It);
+      }
+      if (!getUnfoldedOpcodes(MI.getOpcode()).first || !isUnpredicated(MI))
+        continue;
+      Register Base = MI.getOperand(MI.getNumExplicitDefs()).getReg();
+      if (Base.isVirtual())
+        Pending[Base].push_back(&MI);
+    }
+    for (auto &[Base, Accesses] : Pending)
+      if (isLiveOut(Base, MBB))
+        append_range(Unfold, Accesses);
+  }
+
+  for (MachineInstr *MI : Unfold) {
+    auto [Plain, AddOpc] = getUnfoldedOpcodes(MI->getOpcode());
+    unsigned Defs = MI->getNumExplicitDefs();
+    Register NewBase = MI->getOperand(Defs - 1).getReg();
+    Register Base = MI->getOperand(Defs).getReg();
+    unsigned IncIdx = Defs + (MI->mayStore() ? 2 : 1);
+    MachineBasicBlock &MBB = *MI->getParent();
+    MachineInstrBuilder Access =
+        BuildMI(MBB, *MI, MI->getDebugLoc(), TII->get(Plain));
+    for (unsigned I = 0, E = MI->getNumExplicitOperands(); I != E; ++I) {
+      if (I == Defs - 1 || I == IncIdx)
+        continue;
+      MachineOperand MO = MI->getOperand(I);
+      if (MO.isReg() && MO.isUse())
+        MO.setIsKill(false);
+      Access.add(MO);
+    }
+    Access.cloneMemRefs(*MI);
+    BuildMI(MBB, *MI, MI->getDebugLoc(), TII->get(AddOpc), NewBase)
+        .add(MI->getOperand(IncIdx))
+        .addReg(Base)
+        .addReg(IA64::P0);
+    MI->eraseFromParent();
+    ++NumUnfolded;
+  }
+  return !Unfold.empty();
+}
+
 bool IA64PostIncPointers::runOnMachineFunction(MachineFunction &MF) {
   if (!EnablePostIncPointers || skipFunction(MF.getFunction()))
     return false;
@@ -485,6 +621,8 @@ bool IA64PostIncPointers::runOnMachineFunction(MachineFunction &MF) {
       continue;
     Changed |= runOnLoop(MBB, *Preheader);
   }
+  if (UnfoldLiveBases)
+    Changed |= unfoldLiveBases(MF);
   return Changed;
 }
 

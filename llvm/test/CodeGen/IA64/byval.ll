@@ -77,17 +77,17 @@ define void @large(ptr %p, i64 %x) {
 ; One that is aligned to sixteen bytes begins at an even slot.
 define void @aligned(ptr %p) {
 ; CHECK-LABEL: aligned:
-; CHECK:       mov r14 = r32
-; CHECK-NEXT:  adds r15 = 16, r32
-; CHECK:       adds r16 = 8, r32
-; CHECK:       mov r35 = r0 ;;
-; CHECK-NEXT:  ld8 r37 = [r14], 24
-; CHECK-NEXT:  ld8 r39 = [r15]
-; CHECK-NEXT:  .save rp, r34
-; CHECK-NEXT:  mov r34 = b0 ;;
+; CHECK:       adds r16 = 16, r32
+; CHECK-NEXT:  adds r15 = 8, r32
+; CHECK-NEXT:  mov r35 = r0
+; CHECK-NEXT:  ld8 r37 = [r32]
+; CHECK-NEXT:  adds r14 = 24, r32 ;;
+; CHECK:       ld8 r39 = [r16]
+; CHECK:       .save rp, r34
+; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body
 ; CHECK-NEXT:  ld8 r40 = [r14]
-; CHECK-NEXT:  ld8 r38 = [r16]
+; CHECK-NEXT:  ld8 r38 = [r15]
 ; CHECK-NEXT:  br.call.sptk.many b0 = take_al ;;
   call void @take_al(i64 0, ptr byval(%struct.al) align 16 %p)
   ret void
@@ -96,14 +96,14 @@ define void @aligned(ptr %p) {
 ; It may be partly in registers and partly in memory.
 define void @split(ptr %p) {
 ; CHECK-LABEL: split:
-; CHECK:       adds [[HI:r[0-9]+]] = 24, r12
-; CHECK:       ld8 [[X:r[0-9]+]] = [r14]
-; CHECK-NEXT:  ld8 r42 = [r15]
-; CHECK:       ld8 r41 = [r32], 24
+; CHECK:       ld8 [[X:r[0-9]+]] = [r17]
+; CHECK-NEXT:  ld8 r42 = [r14]
+; CHECK-NEXT:  adds [[HI:r[0-9]+]] = 24, r12
+; CHECK:       ld8 r41 = [r32]
 ; CHECK-NEXT:  adds [[LO:r[0-9]+]] = 16, r12 ;;
 ; CHECK-NEXT:  st8 [[[LO]]] = [[X]]
-; CHECK-NEXT:  ld8 [[Y:r[0-9]+]] = [r32]
-; CHECK:       st8 [[[HI]]] = [[Y]]
+; CHECK:       ld8 [[Y:r[0-9]+]] = [r16] ;;
+; CHECK-NEXT:  st8 [[[HI]]] = [[Y]]
 ; CHECK-NEXT:  .save rp, r34
 ; CHECK-NEXT:  mov r34 = b0
 ; CHECK-NEXT:  .body

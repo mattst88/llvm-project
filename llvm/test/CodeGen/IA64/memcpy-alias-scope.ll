@@ -14,12 +14,12 @@
 ; That lets later loads issue alongside earlier stores.
 
 ; CHECK-LABEL: cp:
-; CHECK:      ld1 [[A:r[0-9]+]] = [{{r[0-9]+}}], 3
-; CHECK-NEXT: ld1 [[B:r[0-9]+]] = [{{r[0-9]+}}] ;;
-; CHECK-NEXT: st1 [{{r[0-9]+}}] = [[A]], 3
+; CHECK:      ld1 [[A:r[0-9]+]] = [r33] ;;
 ; CHECK-NEXT: ld1
 ; CHECK-NEXT: ld1
-; CHECK-NEXT: st1 [{{r[0-9]+}}] = [[B]] ;;
+; CHECK-NEXT: ld1 {{.*}} ;;
+; CHECK-NEXT: st1 [r32] = [[A]]
+; CHECK-NEXT: st1
 ; CHECK-NEXT: st1
 ; CHECK-NEXT: st1
 ; CHECK-NEXT: br.ret.sptk.many b0 ;;
@@ -35,14 +35,15 @@ define void @cp(ptr %d, ptr %s) {
 ; MIR: ST1_i {{.*}} :: (volatile store (s8) into %ir.d)
 
 ; CHECK-LABEL: vol:
-; CHECK:      ld1 {{r[0-9]+}} = [{{r[0-9]+}}], 3 ;;
-; CHECK-NEXT: st1
+; CHECK:      ld1 [[A:r[0-9]+]] = [r33]
+; CHECK:      st1 [r32] = [[A]]
+; CHECK-NEXT: ld1
+; CHECK:      st1
 ; CHECK-NEXT: ld1 {{.*}} ;;
 ; CHECK-NEXT: st1
 ; CHECK-NEXT: ld1 {{.*}} ;;
 ; CHECK-NEXT: st1
-; CHECK-NEXT: ld1 {{.*}} ;;
-; CHECK-NEXT: st1
+; CHECK-NEXT: br.ret.sptk.many b0 ;;
 define void @vol(ptr %d, ptr %s) {
   call void @llvm.memcpy.p0.p0.i64(ptr %d, ptr %s, i64 4, i1 true)
   ret void
