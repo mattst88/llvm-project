@@ -1217,10 +1217,16 @@ bool IA64InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
                                   SmallVectorImpl<MachineOperand> &Cond,
                                   bool AllowModify) const {
   // A predicated return cannot be analyzed: its predicate cannot be turned
-  // back into a compare.
+  // back into a compare. A branch after it to the block it falls through to,
+  // which moving its block leaves behind, can go.
   for (const MachineInstr &MI : MBB.terminators())
-    if (MI.isReturn() && isPredicated(MI))
+    if (MI.isReturn() && isPredicated(MI)) {
+      MachineInstr &Last = MBB.back();
+      if (AllowModify && &Last != &MI && Last.getOpcode() == IA64::BRUNCOND &&
+          MBB.isLayoutSuccessor(Last.getOperand(0).getMBB()))
+        Last.eraseFromParent();
       return true;
+    }
 
   MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
   if (I == MBB.end() || !isUnpredicatedTerminator(*I))
