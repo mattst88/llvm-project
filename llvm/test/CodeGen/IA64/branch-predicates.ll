@@ -21,26 +21,26 @@ define void @chain(ptr %p) {
 ; CHECK:       cmp.eq p6, p7 = 0, [[C]]
 ; CHECK-NEXT:  cmp.eq p8, p9 = 44, [[C]]
 ; CHECK-NEXT:  cmp.eq p10, p11 = 46, [[C]]
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB0_{{[0-9]+}}{{$}}
 ; CHECK-NEXT:  // %bb.1:
-; CHECK-NEXT:  (p8) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
+; CHECK-NEXT:  (p8) br.cond.dpnt.many .LBB0_{{[0-9]+}}{{$}}
 ; CHECK-NEXT:  // %bb.2:
-; CHECK-NEXT:  (p10) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
+; CHECK-NEXT:  (p10) br.cond.dpnt.many .LBB0_{{[0-9]+}}{{$}}
 ;
 ; DEPTH1-LABEL: chain:
 ; DEPTH1:       cmp.eq p6, p7 = 0, [[C:r[0-9]+]]
 ; DEPTH1-NEXT:  cmp.eq p8, p9 = 44, [[C]]
-; DEPTH1-NEXT:  (p6) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
+; DEPTH1-NEXT:  (p6) br.cond.dpnt.many .LBB0_{{[0-9]+}}{{$}}
 ; DEPTH1-NEXT:  // %bb.1:
 ; DEPTH1-NEXT:  cmp.eq p10, p11 = 46, [[C]]
-; DEPTH1-NEXT:  (p8) br.cond.dpnt.few .LBB0_{{[0-9]+}}{{$}}
+; DEPTH1-NEXT:  (p8) br.cond.dpnt.many .LBB0_{{[0-9]+}}{{$}}
 ;
 ; SAME-LABEL:  chain:
 ; SAME:        cmp.eq p6, p7 = 0, [[C:r[0-9]+]]
-; SAME-NEXT:   (p6) br.cond.dpnt.few .LBB0_{{[0-9]+}} ;;
+; SAME-NEXT:   (p6) br.cond.dpnt.many .LBB0_{{[0-9]+}} ;;
 ; SAME-NEXT:   // %bb.1:
 ; SAME-NEXT:   cmp.eq p6, p7 = 44, [[C]]
-; SAME-NEXT:   (p6) br.cond.dpnt.few .LBB0_{{[0-9]+}} ;;
+; SAME-NEXT:   (p6) br.cond.dpnt.many .LBB0_{{[0-9]+}} ;;
 ; SAME-NEXT:   // %bb.2:
 ; SAME-NEXT:   cmp.eq p6, p7 = 46, [[C]]
 entry:

@@ -8,7 +8,7 @@
 ; CHECK:       .LBB0_1:
 ; CHECK:       mov r15 = ar.itc
 ; CHECK:       ld8 r15 = [r15]
-; CHECK:       br.cond.dptk.few .LBB0_1
+; CHECK:       br.cond.dptk.many .LBB0_1
 define i64 @f(i64 %n) {
 entry:
   br label %loop

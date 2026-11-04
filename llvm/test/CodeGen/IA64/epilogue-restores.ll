@@ -43,7 +43,7 @@ exit:
 ; move up among the instructions before them.
 define i64 @copied(ptr %p, ptr %q, i64 %c) {
 ; CHECK-LABEL: copied:
-; CHECK:       (p6) br.cond.dpnt.few .LBB1_2{{$}}
+; CHECK:       (p6) br.cond.dpnt.many .LBB1_2{{$}}
 ; CHECK-NEXT:  // %b
 ; CHECK-NEXT:  .mmi
 ; CHECK-NEXT:  ld8 r14 = [r33]

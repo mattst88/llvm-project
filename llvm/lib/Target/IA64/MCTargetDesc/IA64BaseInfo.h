@@ -64,6 +64,12 @@ enum BranchWhether : unsigned {
   WhetherDPNT,
 };
 
+/// How many lines at a branch's target the front end should prefetch.
+enum BranchPrefetch : unsigned {
+  PrefetchFew,
+  PrefetchMany,
+};
+
 /// The completer for a branch prediction hint.
 inline const char *getBranchWhetherName(uint64_t Whether) {
   switch (Whether) {

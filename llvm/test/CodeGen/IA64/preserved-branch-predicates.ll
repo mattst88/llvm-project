@@ -13,10 +13,10 @@
 ; CHECK:         cmp.eq p8, p9 = 4, r33
 ; CHECK:         cmp.eq p10, p11 = 5, r34
 ; CHECK:         cmp.eq p12, p13 = 6, r35
-; CHECK:         (p6) br.cond.dpnt.few
-; CHECK:         (p8) br.cond.dpnt.few
-; CHECK:         (p10) br.cond.dpnt.few
-; CHECK:         (p12) br.cond.dpnt.few
+; CHECK:         (p6) br.cond.dpnt.many
+; CHECK:         (p8) br.cond.dpnt.many
+; CHECK:         (p10) br.cond.dpnt.many
+; CHECK:         (p12) br.cond.dpnt.many
 ; CHECK-NOT:     {{= pr|pr =}}
 ; CHECK:         .endp five
 define i64 @five(i64 %a0, i64 %a1, i64 %a2, i64 %a3, i64 %a4) {
@@ -51,7 +51,7 @@ none:
 ; CHECK-LABEL: seven:
 ; CHECK-NOT:     {{= pr|pr =}}
 ; CHECK:         cmp.eq p14, p15 = 7, r36
-; CHECK:         (p6) br.cond.dpnt.few
+; CHECK:         (p6) br.cond.dpnt.many
 ; CHECK-NOT:     {{p1[6-9]|p2[0-9]|p3[01]|= pr|pr =}}
 ; CHECK:         .endp seven
 define i64 @seven(i64 %a0, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6) {
@@ -109,14 +109,14 @@ none:
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = {{[^;]+$}}
-; CHECK-NEXT:    (p6) br.cond.dptk.few .LBB2_2
+; CHECK-NEXT:    (p6) br.cond.dptk.many .LBB2_2
 ; CHECK-NEXT:  // %bb.3:
 ; CHECK-NEXT:    cmp.eq p9, p8 = r{{[0-9]+}}, r14
 ; CHECK:       .LBB2_6:
 ; CHECK:         tnat.z p7, p6 =
 ; CHECK:         cmp.eq p16, p17 = 0,
-; CHECK:         (p6) br.cond.dpnt.few
-; CHECK:         (p16) br.cond.dpnt.few
+; CHECK:         (p6) br.cond.dpnt.many
+; CHECK:         (p16) br.cond.dpnt.many
 ; CHECK:         mov pr = [[PR]], 65598
 ; CHECK-NEXT:    br.ret.sptk.many b0
 define ptr @find(ptr %list, i16 %key) {

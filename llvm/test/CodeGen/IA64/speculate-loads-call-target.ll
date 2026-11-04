@@ -23,7 +23,7 @@
 ; CHECK: br.ret
 ; CHECK: br.call.sptk.many b0 = b6
 ; CHECK-NEXT: ld8.sa [[ENTRY]] = [[[FN]]]
-; CHECK: br.cond.sptk.few .LBB0_[[JOIN]]
+; CHECK: br.cond.sptk.many .LBB0_[[JOIN]]
 define void @dealloc(ptr %op) {
 entry:
   %ob_type = getelementptr inbounds nuw i8, ptr %op, i64 8

@@ -67,7 +67,7 @@ define i64 @sub(ptr %p) {
 ; CHECK-NEXT:    cmpxchg4.acq r8 = [r32], r14, ar.ccv ;;
 ; CHECK-NEXT:    addp4 r14 = r8, r0 ;;
 ; CHECK-NEXT:    cmp.eq p7, p6 = r14, r15
-; CHECK-NEXT:    (p6) br.cond.dptk.few .LBB5_1{{$}}
+; CHECK-NEXT:    (p6) br.cond.dptk.many .LBB5_1{{$}}
 ; CHECK:         br.ret.sptk.many b0 ;;
 define i32 @or(ptr %p, i32 %x) {
   %r = atomicrmw or ptr %p, i32 %x monotonic

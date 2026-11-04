@@ -15,18 +15,18 @@ declare void @g()
 define i64 @forward(i64 %a) {
 ; CHECK-LABEL: forward:
 ; CHECK:       cmp.eq p7, p6 = 0, r32
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_1{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB0_1{{$}}
 ; CHECK-NEXT:  // %bb.{{[0-9]+}}:
-; CHECK-NEXT:  brl.cond.sptk.few .LBB0_2 ;;
+; CHECK-NEXT:  brl.cond.sptk.many .LBB0_2 ;;
 ; CHECK-NEXT:  .LBB0_1:
 ; CHECK:       .zero 20000000
-; CHECK:       br.cond.sptk.few .LBB0_3 ;;
+; CHECK:       br.cond.sptk.many .LBB0_3 ;;
 ; CHECK-NEXT:  .LBB0_2:
 ; CHECK-NEXT:  mov r8 = 1{{$}}
 ; CHECK-NEXT:  .LBB0_3:
 ;
 ; OBJ-LABEL: <forward>:
-; OBJ:       brl.cond.sptk.few 0x1312d70 ;;
+; OBJ:       brl.cond.sptk.many 0x1312d70 ;;
 entry:
   %c = icmp eq i64 %a, 0
   br i1 %c, label %far, label %near
@@ -46,14 +46,14 @@ define void @backward(i64 %a) {
 ; CHECK:       .LBB1_1:
 ; CHECK:       .zero 20000000
 ; CHECK:       cmp.ltu p7, p6 = r34, r32
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB1_2{{$}}
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB1_2{{$}}
 ; CHECK-NEXT:  // %bb.{{[0-9]+}}:
 ; CHECK-NEXT:  // in Loop
-; CHECK-NEXT:  brl.cond.sptk.few .LBB1_1 ;;
+; CHECK-NEXT:  brl.cond.sptk.many .LBB1_1 ;;
 ; CHECK-NEXT:  .LBB1_2:
 ;
 ; OBJ-LABEL: <backward>:
-; OBJ:       brl.cond.sptk.few 0x[[#%x,LOOP:]] ;;
+; OBJ:       brl.cond.sptk.many 0x[[#%x,LOOP:]] ;;
 entry:
   br label %loop
 
@@ -72,7 +72,7 @@ out:
 ; Sixteen million bytes are within reach.
 define void @near(i64 %a) {
 ; CHECK-LABEL: near:
-; CHECK:       (p6) br.cond.dptk.few .LBB2_2{{$}}
+; CHECK:       (p6) br.cond.dptk.many .LBB2_2{{$}}
 ; CHECK-NOT:   brl
 ; CHECK:       .zero 16000000
 ; CHECK:       .LBB2_2:

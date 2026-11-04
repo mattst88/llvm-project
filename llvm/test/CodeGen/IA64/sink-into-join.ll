@@ -7,7 +7,7 @@
 ; CHECK:       sxt4 r14 = r36
 ; CHECK-NEXT:  shladd r37 = r14, 3, r33
 ; CHECK-NEXT:  frsqrta
-; CHECK:       (p6) br.cond.dpnt.few .LBB0_3
+; CHECK:       (p6) br.cond.dpnt.many .LBB0_3
 ; CHECK-NEXT:  // %bb.2: // %join
 ; CHECK-NEXT:  // in Loop: Header=BB0_1 Depth=1
 ; CHECK-NEXT:  add r36 = r36, r34

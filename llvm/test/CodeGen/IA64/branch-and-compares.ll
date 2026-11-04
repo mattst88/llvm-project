@@ -18,7 +18,7 @@
 ; CHECK-NEXT:    cmp.eq.and p6, p0 = 4, r33
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = 0, r32
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = r{{[0-9]+}}, r33
-; CHECK-NEXT:    (p6) br.cond.dptk.few
+; CHECK-NEXT:    (p6) br.cond.dptk.many
 ; CHECK-NOT:     tnat
 ; CHECK:         .endp all
 define i64 @all(i64 %a, i64 %b, ptr %c, i64 %d) {
@@ -56,7 +56,7 @@ yes:
 ; CHECK:         cmp.eq p6, p7 = r0, r0
 ; CHECK:         cmp.ne.and p6, p0 = 0, r{{[0-9]+}}
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = 0, r{{[0-9]+}}
-; CHECK-NEXT:    (p6) br.cond.dptk.few
+; CHECK-NEXT:    (p6) br.cond.dptk.many
 define i64 @loads(ptr %p, ptr %q) {
 entry:
   %a = load i64, ptr %p
@@ -78,7 +78,7 @@ yes:
 ; CHECK-LABEL: plain:
 ; CHECK:         cmp.ltu p6, p7 = r32, r33 ;;
 ; CHECK-NEXT:    cmp.ne.and p6, p0 = 0, r34
-; CHECK-NEXT:    (p6) br.cond.dptk.few
+; CHECK-NEXT:    (p6) br.cond.dptk.many
 define i64 @plain(i64 %a, i64 %b, i64 %c) {
 entry:
   %c0 = icmp ult i64 %a, %b
@@ -98,7 +98,7 @@ yes:
 ; CHECK-LABEL: two_plain:
 ; CHECK:         cmp.ltu p6, p7 = r32, r33 ;;
 ; CHECK-NEXT:    (p6) cmp.ltu p6, p7 = r34, r35
-; CHECK-NEXT:    (p6) br.cond.dptk.few
+; CHECK-NEXT:    (p6) br.cond.dptk.many
 define i64 @two_plain(i64 %a, i64 %b, i64 %c, i64 %d) {
 entry:
   %c0 = icmp ult i64 %a, %b

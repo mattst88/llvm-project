@@ -119,7 +119,7 @@ define i64 @add_other(ptr %p) {
 ; CHECK-NEXT:  mov r14 = r8 ;;
 ; CHECK-NEXT:  cmpxchg8.acq r8 = [r32], r15, ar.ccv ;;
 ; CHECK-NEXT:  cmp.eq p7, p6 = r8, r14
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB
   %o = atomicrmw add ptr %p, i64 3 seq_cst
   ret i64 %o
 }

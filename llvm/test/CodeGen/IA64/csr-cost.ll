@@ -6,7 +6,7 @@
 ; rather than taking preserved ones that cost a spill and fill on every call.
 ; CHECK-LABEL: f:
 ; CHECK-NOT:   stf.spill
-; CHECK:       (p6) br.cond.dpnt.few .LBB0_2
+; CHECK:       (p6) br.cond.dpnt.many .LBB0_2
 ; CHECK-NOT:   ldf.fill
 ; CHECK:       br.ret.sptk.many b0
 ; CHECK:       .LBB0_2:
@@ -15,7 +15,7 @@
 ; CHECK:       ldf.fill
 ; CSR-LABEL:   f:
 ; CSR:         stf.spill
-; CSR:         (p6) br.cond.dpnt.few .LBB0_2
+; CSR:         (p6) br.cond.dpnt.many .LBB0_2
 
 define double @f(double %a, double %b, double %c, double %x) {
 entry:

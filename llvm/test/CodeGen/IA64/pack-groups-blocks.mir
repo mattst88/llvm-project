@@ -80,7 +80,7 @@ body: |
 # OBJ:       mov r8 = -4 ;;
 # OBJ-NEXT:  cmp4.lt p6, p7 = r14, r15{{ *(//.*)?$}}
 # OBJ-NOT:   ;;
-# OBJ:       (p6) br.cond.dpnt.few
+# OBJ:       (p6) br.cond.dpnt.many
 name: open_end
 tracksRegLiveness: true
 body: |
@@ -115,7 +115,7 @@ body: |
 # It moves into the group of the call, and bb.0's group ends at its branch
 # instead.
 # CHECK-LABEL: open_empties:
-# CHECK:       (p6) br.cond.dptk.few .LBB3_2 ;;
+# CHECK:       (p6) br.cond.dptk.many .LBB3_2 ;;
 # CHECK:       mov r33 = r1{{$}}
 # CHECK-NEXT:  br.call.sptk.many b0 = f ;;
 name: open_empties
@@ -151,7 +151,7 @@ body: |
 # OBJ-NEXT:  st4 [r14] = r19, 4
 # OBJ-NEXT:  cmp.eq p7, p6 = 0, r18
 # OBJ-NEXT:  nop.m 0 // [MBB]
-# OBJ-NEXT:  (p6) br.cond.dptk.few
+# OBJ-NEXT:  (p6) br.cond.dptk.many
 # OBJ-NEXT:  br.ret.sptk.many b0 ;;
 name: open_next
 tracksRegLiveness: true

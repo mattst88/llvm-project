@@ -12,7 +12,7 @@
 # CHECK:       .mmi
 # CHECK-NEXT:  pmpy2.r r14 = r32, r32
 # CHECK-NEXT:  tbit.z p7, p6 = r33, 0
-# CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2
+# CHECK-NEXT:  (p6) br.cond.dptk.many .LBB0_2
 # CHECK-NEXT:  // %bb.1:
 # CHECK-NEXT:  mov r8 = r34
 # CHECK-NEXT:  br.ret.sptk.many b0 ;;

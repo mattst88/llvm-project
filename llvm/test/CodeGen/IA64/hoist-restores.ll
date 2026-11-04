@@ -17,7 +17,7 @@ define i64 @after_call(i64 %a) {
 ; CHECK-NEXT:  mov b0 = r35
 ; CHECK-NEXT:  mov ar.pfs = r34
 ; CHECK-NEXT:  cmp.eq p6, p7 = 0, r8
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB0_2{{$}}
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB0_2{{$}}
 ; CHECK:       .LBB0_2:
 ; CHECK-NEXT:  mov r8 = r0
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
@@ -46,7 +46,7 @@ define i64 @early(i64 %a, i64 %b) {
 ; CHECK:       mov r36 = b0
 ; CHECK-NEXT:  .body
 ; CHECK:       cmp.eq p6, p7 = 0, r32
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB1_2 ;;
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB1_2 ;;
 ; CHECK:       .LBB1_2:
 ; CHECK-NEXT:  mov r8 = 7
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
@@ -171,9 +171,9 @@ define i64 @chain(i64 %a, i64 %b) {
 ; CHECK-NEXT:  mov ar.pfs = r35
 ; CHECK-NEXT:  cmp.eq p7, p6 = 5, r8
 ; CHECK-NEXT:  cmp.eq p8, p9 = 0, r33
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB5_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB5_3{{$}}
 ; CHECK-NEXT:  // %bb.1:
-; CHECK-NEXT:  (p8) br.cond.dpnt.few .LBB5_4{{$}}
+; CHECK-NEXT:  (p8) br.cond.dpnt.many .LBB5_4{{$}}
 ; CHECK-NEXT:  // %bb.2:
 ; CHECK-NEXT:  mov r8 = r0
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;

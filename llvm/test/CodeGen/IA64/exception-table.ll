@@ -36,7 +36,7 @@ define i32 @catch_int() personality ptr @__gxx_personality_v0 {
 ; CHECK-NEXT:    mov r36 = r15
 ; CHECK-NEXT:    mov r1 = r33
 ; CHECK-NEXT:    cmp4.eq p7, p6 = 1, r16
-; CHECK-NEXT:    (p6) br.cond.dpnt.few .LBB0_4{{$}}
+; CHECK-NEXT:    (p6) br.cond.dpnt.many .LBB0_4{{$}}
 ; CHECK-NEXT:  // %bb.3: // %catch
 ; CHECK-NEXT:    br.call.sptk.many b0 = __cxa_begin_catch ;;
 ; CHECK:       .LBB0_4: // %resume

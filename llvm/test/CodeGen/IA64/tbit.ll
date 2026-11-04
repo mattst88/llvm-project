@@ -12,7 +12,7 @@ define void @branch_clear(i64 %x) {
 ; CHECK-LABEL: branch_clear:
 ; CHECK-NOT:   and
 ; CHECK:       tbit.z p7, p6 = r32, 3
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2 ;;
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB0_2 ;;
 ; CHECK-NEXT:  // %bb.1:
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = f
@@ -29,7 +29,7 @@ e:
 define void @branch_set(i64 %x) {
 ; CHECK-LABEL: branch_set:
 ; CHECK:       tbit.z p6, p7 = r32, 3
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_2 ;;
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB1_2 ;;
 ; CHECK-NEXT:  // %bb.1:
 ; CHECK-NEXT:  mov r33 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = f
@@ -114,7 +114,7 @@ define void @branch_chain(i64 %x, i64 %y) {
 ; CHECK:       mov r34 = r1
 ; CHECK:       tbit.z p7, p6 = r32, 3 ;;
 ; CHECK-NEXT:  tbit.z.or.andcm p6, p7 = r33, 4
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB7_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB7_3{{$}}
   %a = and i64 %x, 8
   %c = icmp ne i64 %a, 0
   br i1 %c, label %t, label %n, !prof !0

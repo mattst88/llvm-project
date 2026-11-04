@@ -8,7 +8,7 @@
 ; CHECK-NOT:   zxt1
 ; CHECK:       adds {{r[0-9]+}} = -48, [[C]]
 ; CHECK-NOT:   zxt1
-; CHECK:       br.cond.dptk.few .LBB0_1
+; CHECK:       br.cond.dptk.many .LBB0_1
 define i32 @count_digits(ptr %p) {
 entry:
   %first = load i8, ptr %p

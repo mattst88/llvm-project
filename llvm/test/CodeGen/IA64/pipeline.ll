@@ -17,7 +17,7 @@ define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-NEXT:  adds [[REM:r[0-9]+]] = -1, [[LC]]
 ; CHECK-NEXT:  mov ar.lc = [[LC]]
 ; CHECK-NEXT:  cmp.ltu p9, p8 = 0, [[LC]]
-; CHECK-NEXT:  (p8) br.cond.dptk.few .LBB0_[[REST:[0-9]+]]{{$}}
+; CHECK-NEXT:  (p8) br.cond.dptk.many .LBB0_[[REST:[0-9]+]]{{$}}
 ; CHECK:       ld8 [[V:r[0-9]+]] = [r32], 8 ;;
 ; CHECK-NEXT:  .LBB0_[[KERNEL:[0-9]+]]:
 ; CHECK:       mov [[LEFT:r[0-9]+]] = [[REM]]
@@ -25,12 +25,12 @@ define i64 @sum(ptr %a, i64 %n) {
 ; CHECK-NEXT:  adds [[REM]] = -1, [[REM]]
 ; CHECK-NEXT:  ld8 [[V]] = [r32], 8 ;;
 ; CHECK-NEXT:  cmp.ltu p6, p7 = 0, [[LEFT]]
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_[[KERNEL]]{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB0_[[KERNEL]]{{$}}
 ; CHECK:       adds [[LC2:r[0-9]+]] = -1, [[LEFT]]
 ; CHECK-NEXT:  add [[S]] = [[S]], [[V]] ;;
 ; CHECK-NEXT:  mov ar.lc = [[LC2]]
 ; CHECK-NEXT:  cmp.eq p8, p9 = 0, [[LEFT]]
-; CHECK-NEXT:  (p8) br.cond.dptk.few .LBB0_[[EXIT:[0-9]+]] ;;
+; CHECK-NEXT:  (p8) br.cond.dptk.many .LBB0_[[EXIT:[0-9]+]] ;;
 ; CHECK-NEXT:  .p2align 5
 ; CHECK-NEXT:  .LBB0_[[REST]]:
 ; CHECK:       ld8
@@ -45,7 +45,7 @@ define i64 @sum(ptr %a, i64 %n) {
 ; COPY:        mov ar.lc = r{{[0-9]+}}
 ; COPY:        ld8 [[V:r[0-9]+]] = [r32], 8{{$}}
 ; COPY-NEXT:   br.cloop.sptk.few .LBB0_[[KERNEL:[0-9]+]]
-; COPY-NEXT:   br.cond.sptk.few .LBB0_[[EPILOGUE:[0-9]+]] ;;
+; COPY-NEXT:   br.cond.sptk.many .LBB0_[[EPILOGUE:[0-9]+]] ;;
 ; COPY-NEXT:   .p2align 5
 ; COPY-NEXT:   .LBB0_[[KERNEL]]:
 ; COPY:        add [[S:r[0-9]+]] = [[S]], [[V]]

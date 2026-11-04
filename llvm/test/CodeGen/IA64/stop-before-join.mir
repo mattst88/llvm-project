@@ -8,14 +8,14 @@
 # reads r14 would end it there, in every iteration. A stop before the loop
 # ends it instead, and the iteration takes one group fewer.
 # CHECK-LABEL: loop:
-# CHECK:       (p6) br.cond.dpnt.few .LBB0_2 ;;
+# CHECK:       (p6) br.cond.dpnt.many .LBB0_2 ;;
 # CHECK-NEXT:  .LBB0_1:
 # CHECK-NEXT:  ld8 r16 = [r15]
 # CHECK-NEXT:  adds r15 = 8, r15
 # CHECK-NEXT:  add r17 = r14, r33 ;;
 # CHECK-NEXT:  add r18 = r16, r17 ;;
 # OFF-LABEL:   loop:
-# OFF:         (p6) br.cond.dpnt.few .LBB0_2{{$}}
+# OFF:         (p6) br.cond.dpnt.many .LBB0_2{{$}}
 # OFF-NEXT:    .LBB0_1:
 # OFF-NEXT:    ld8 r16 = [r15]
 # OFF-NEXT:    adds r15 = 8, r15 ;;

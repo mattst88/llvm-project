@@ -10,7 +10,7 @@
 define i64 @branch_eq(i64 %a, i64 %b, ptr %p) {
 ; CHECK-LABEL: branch_eq:
 ; CHECK:       cmp.eq p7, p6 = r32, r33
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_2{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB0_2{{$}}
 ; CHECK-NEXT:  // %bb.1:
 ; CHECK-NEXT:  mov r8 = 1
 ; CHECK-NEXT:  st8 [r34] = r32
@@ -30,7 +30,7 @@ else:
 define i64 @branch_constant(i64 %a, ptr %p) {
 ; CHECK-LABEL: branch_constant:
 ; CHECK:       cmp.lt p6, p7 = 9, r32
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_2{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB1_2{{$}}
 ; CHECK-NEXT:  // %bb.1:
   %c = icmp slt i64 %a, 10
   br i1 %c, label %then, label %else
@@ -46,7 +46,7 @@ else:
 define i64 @branch_value(i1 %c, ptr %p) {
 ; CHECK-LABEL: branch_value:
 ; CHECK:       tbit.z p6, p7 = r32, 0
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB2_2{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB2_2{{$}}
 ; CHECK-NEXT:  // %bb.1:
   br i1 %c, label %then, label %else
 then:
@@ -63,7 +63,7 @@ define i64 @loop(i64 %n, ptr %p) {
 ; CHECK:       .LBB3_1:
 ; CHECK:       st8 [r33] = [[I:r[0-9]+]]
 ; CHECK:       cmp.eq p7, p6 = r32, [[I]]
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB3_1{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB3_1{{$}}
 ; CHECK-NEXT:  // %bb.2:
 ; CHECK-NEXT:  br.ret.sptk.many b0 ;;
 entry:
@@ -81,7 +81,7 @@ exit:
 define void @unlikely(i64 %a, ptr %p) {
 ; CHECK-LABEL: unlikely:
 ; CHECK:       cmp.eq p7, p6 = 0, r32
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB4_2 ;;
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB4_2 ;;
 ; CHECK-NEXT:  // %bb.1:
   %c = icmp eq i64 %a, 0
   br i1 %c, label %then, label %else, !prof !0
@@ -98,7 +98,7 @@ define void @forever(ptr %p) {
 ; CHECK-LABEL: forever:
 ; CHECK:       .LBB5_1:
 ; CHECK:       st8 [r32] = r0
-; CHECK-NEXT:  br.cond.sptk.few .LBB5_1 ;;
+; CHECK-NEXT:  br.cond.sptk.many .LBB5_1 ;;
 entry:
   br label %body
 body:

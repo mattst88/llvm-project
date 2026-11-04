@@ -22,7 +22,7 @@ define i32 @both(i64 %a, i64 %b) {
 ; CHECK:       mov r8 = r0
 ; CHECK:       cmp.eq p7, p6 = 5, r32 ;;
 ; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 0, r33
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB0_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB0_3{{$}}
 ; CHECK:       br.call.sptk.many b0 = g ;;
 ; O0-LABEL: both:
 ; O0-NOT:      or.andcm
@@ -50,7 +50,7 @@ define i32 @either(i64 %a, i64 %b) {
 ; CHECK:       mov r34 = r1
 ; CHECK:       cmp.lt p7, p6 = -1, r32 ;;
 ; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 7, r33
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB1_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB1_3{{$}}
 ; CHECK:       br.call.sptk.many b0 = h ;;
 ; OBJ-LABEL: <either>:
 ; OBJ:         cmp.eq.or.andcm p6, p7 = 7, r33
@@ -81,7 +81,7 @@ define i32 @order(i64 %a, i64 %b, i64 %c) {
 ; CHECK:       mov r8 = 1
 ; CHECK:       cmp.lt p7, p6 = r32, r33 ;;
 ; CHECK-NEXT:  cmp.gt.or.andcm p6, p7 = r0, r34
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB2_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB2_3{{$}}
 ; OBJ-LABEL: <order>:
 ; OBJ:         cmp.gt.or.andcm p6, p7 = r0, r34
 entry:
@@ -106,7 +106,7 @@ define i32 @three(i64 %a, i64 %b, i64 %c) {
 ; CHECK:       cmp.eq p6, p7 = 1, r32 ;;
 ; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 2, r33
 ; CHECK-NEXT:  cmp.eq.or.andcm p6, p7 = 3, r34
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB3_4{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB3_4{{$}}
 ; CHECK:       br.call.sptk.many b0 = h ;;
 entry:
   %cmp = icmp eq i64 %a, 1
@@ -134,8 +134,8 @@ define i32 @unsigned(i64 %a, i64 %b) {
 ; CHECK-LABEL: unsigned:
 ; CHECK:       cmp.ltu p7, p6 = r32, r33
 ; CHECK-NEXT:  cmp.ltu p8, p9 = 99, r33
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB4_3{{$}}
-; CHECK:       (p8) br.cond.dpnt.few .LBB4_3 ;;
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB4_3{{$}}
+; CHECK:       (p8) br.cond.dpnt.many .LBB4_3 ;;
 entry:
   %cmp = icmp ult i64 %a, %b
   %cmp1 = icmp ult i64 %b, 100
@@ -157,7 +157,7 @@ define i32 @float(double %x, i64 %b) {
 ; CHECK-LABEL: float:
 ; CHECK:       fcmp.lt p7, p6 = f8, f1 ;;
 ; CHECK-NEXT:  cmp.ne.or.andcm p6, p7 = 0, r33
-; CHECK-NEXT:  (p6) br.cond.dptk.few .LBB5_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dptk.many .LBB5_3{{$}}
 entry:
   %cmp = fcmp olt double %x, 1.000000e+00
   %cmp1 = icmp eq i64 %b, 0
@@ -203,7 +203,7 @@ define void @target(i64 %a, i64 %b, i64 %c, i64 %d, ptr %p) {
 ; CHECK:       cmp.eq p7, p6 = r32, r33 ;;
 ; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = 0, r32
 ; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = r34, r35
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB7_4{{$}}
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB7_4{{$}}
 ; CHECK:       st8 [r36] = r14
 entry:
   %cmp = icmp eq i64 %a, %b
@@ -229,7 +229,7 @@ define void @target_both(i64 %a, i64 %b) {
 ; CHECK-LABEL: target_both:
 ; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
 ; CHECK-NEXT:  cmp.eq.or.andcm p7, p6 = 0, r33
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB8_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB8_3{{$}}
 ; CHECK:       .LBB8_3:
 ; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;
@@ -254,7 +254,7 @@ define void @target_opposite(i64 %a, i64 %b) {
 ; CHECK-LABEL: target_opposite:
 ; CHECK:       cmp.eq p6, p7 = 5, r32 ;;
 ; CHECK-NEXT:  cmp.ne.or.andcm p7, p6 = 0, r33
-; CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB9_3{{$}}
+; CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB9_3{{$}}
 ; CHECK:       .LBB9_3:
 ; CHECK-NEXT:  mov r34 = r1
 ; CHECK-NEXT:  br.call.sptk.many b0 = g ;;

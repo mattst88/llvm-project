@@ -105,7 +105,7 @@ define double @libm_sqrt(double %a) {
 ; CHECK:         frsqrta
 ; CHECK:         (p8) fma.d f8 =
 ; CHECK:         fcmp.unord p6, p7 = f8, f8 ;;
-; CHECK-NEXT:    (p6) br.cond.dpnt.few .LBB2_2
+; CHECK-NEXT:    (p6) br.cond.dpnt.many .LBB2_2
 ; CHECK:         br.call.sptk.many b0 = sqrt ;;
   %r = call double @sqrt(double %a)
   ret double %r

@@ -198,12 +198,12 @@ body: |
 # CHECK-LABEL: branch_read:
 # CHECK:       mov r14 = r32
 # CHECK-NEXT:  cmp.eq p6, p7 = 0, r33{{$}}
-# CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB{{[0-9]+}}_2 ;;
+# CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB{{[0-9]+}}_2 ;;
 # CHECK-NEXT:  // %bb.1:
 # CHECK-NEXT:  mov r8 = r14
 # CHECK-LABEL: branch_independent:
 # CHECK:       cmp.eq p6, p7 = 0, r33{{$}}
-# CHECK-NEXT:  (p6) br.cond.dpnt.few .LBB{{[0-9]+}}_2{{$}}
+# CHECK-NEXT:  (p6) br.cond.dpnt.many .LBB{{[0-9]+}}_2{{$}}
 # CHECK-NEXT:  // %bb.1:
 # CHECK-NEXT:  mov r8 = r32
 name: branch_read
@@ -246,7 +246,7 @@ body: |
 # A taken branch ends the group, so the block after an unconditional one
 # starts a new group, and so does one that the group cannot continue into.
 # CHECK-LABEL: after_jump:
-# CHECK:       br.cond.sptk.few .LBB{{[0-9]+}}_2 ;;
+# CHECK:       br.cond.sptk.many .LBB{{[0-9]+}}_2 ;;
 # CHECK:       mov r8 = r14
 name: after_jump
 body: |

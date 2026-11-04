@@ -10,7 +10,7 @@ define i64 @column(ptr %a) {
 ; CHECK-LABEL: column:
 ; CHECK:       .LBB0_[[LOOP:[0-9]+]]:
 ; CHECK:         lfetch [r{{[0-9]+}}]
-; CHECK:         br.cond.dptk.few .LBB0_[[LOOP]]
+; CHECK:         br.cond.dptk.many .LBB0_[[LOOP]]
 ; OFF-LABEL:   column:
 ; OFF-NOT:       lfetch
 ; OFF:           br.ret
