@@ -33,6 +33,8 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
+#include <functional>
 
 using namespace llvm;
 
@@ -100,6 +102,7 @@ public:
   void emitFunctionBodyStart() override;
   void emitFunctionBodyEnd() override;
   void emitBasicBlockStart(const MachineBasicBlock &MBB) override;
+  void emitBasicBlockEnd(const MachineBasicBlock &MBB) override;
   void emitDebugInstrLabel(MCSymbol *Sym) override;
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        const char *ExtraCode, raw_ostream &OS) override;
@@ -121,6 +124,8 @@ private:
 
   MCOperand lowerOperand(const MachineOperand &MO) const;
   void emitUnwindDirectives(const MachineInstr &MI);
+  void emitPrologueDirective(std::function<void(IA64TargetStreamer &)> Emit,
+                             unsigned Nops = 0);
   void emitProfilerCall();
 
   // The physical register that r120, the first output register as codegen
@@ -135,6 +140,11 @@ private:
   // .copy_state it back because an epilogue undid it.
   unsigned StateLabel = 0;
   bool CopyState = false;
+  // The unwind directives of the entry prologue, which a procedure for
+  // another section of the function repeats, each with the number of
+  // instructions it describes.
+  SmallVector<std::pair<std::function<void(IA64TargetStreamer &)>, unsigned>, 8>
+      PrologueDirectives;
   // Whether the last instruction emitted was a call followed by a stop, so
   // that a new bundle starts here.
   bool AfterCall = false;
@@ -324,7 +334,7 @@ void IA64AsmPrinter::emitFunctionBodyEnd() {
       }
   if (hasHandlerData(*MF))
     OutStreamer->emitValueToAlignment(Align(16));
-  else
+  else if (!MF->hasBBSections())
     getTargetStreamer().emitEndp();
 }
 
@@ -405,13 +415,16 @@ void IA64AsmPrinter::emitFunctionBodyStart() {
   StateLabel = 0;
   CopyState = false;
   AfterCall = false;
+  PrologueDirectives.clear();
   for (const MachineInstr &MI : MF->front())
     if (MI.getFlag(MachineInstr::FrameSetup) && !MI.isMetaInstruction())
       ++PrologueLeft;
   emitProfilerCall();
   getTargetStreamer().emitPrologue();
   if (unsigned Gap = MF->getInfo<IA64MachineFunctionInfo>()->getSpillAreaGap())
-    getTargetStreamer().emitSpillBase(Gap - IA64FrameLowering::ScratchAreaSize);
+    emitPrologueDirective([=](IA64TargetStreamer &TS) {
+      TS.emitSpillBase(Gap - IA64FrameLowering::ScratchAreaSize);
+    });
   if (!PrologueLeft)
     getTargetStreamer().emitBody();
 }
@@ -428,24 +441,73 @@ void IA64AsmPrinter::emitDebugInstrLabel(MCSymbol *Sym) {
 // An epilogue undoes the frame only for the rest of its region, so the code
 // after it is a new body region that copies the state from before the
 // epilogue.
+//
+// A section of the function other than the entry's is a procedure of its
+// own, entered with the frame the entry prologue made. Its prologue region
+// repeats the entry prologue's directives over no code, except that a
+// register spilled to memory needs an instruction to be spilled by, so it
+// gets a nop.
 void IA64AsmPrinter::emitBasicBlockStart(const MachineBasicBlock &MBB) {
+  IA64TargetStreamer &TS = getTargetStreamer();
+  bool NewProc = MBB.isBeginSection() && !MBB.isEntryBlock();
+  // GNU as defines the procedure's symbol at .proc, so it comes before the
+  // block's label, in the block's section.
+  if (NewProc) {
+    OutStreamer->switchSection(
+        getObjFileLowering().getSectionForMachineBasicBlock(MF->getFunction(),
+                                                            MBB, TM));
+    TS.emitProc(MBB.getSymbol());
+  }
   AsmPrinter::emitBasicBlockStart(MBB);
+  if (NewProc) {
+    TS.emitPrologue();
+    for (auto &[Emit, Nops] : PrologueDirectives) {
+      Emit(TS);
+      for (unsigned I = 0; I != Nops; ++I)
+        EmitToStreamer(*OutStreamer,
+                       MF->getSubtarget().getInstrInfo()->getNop());
+    }
+    TS.emitBody();
+    CopyState = false;
+    return;
+  }
   if (!CopyState)
     return;
-  getTargetStreamer().emitBody();
-  getTargetStreamer().emitCopyState(StateLabel);
+  TS.emitBody();
+  TS.emitCopyState(StateLabel);
   CopyState = false;
 }
 
-// Whether any real instruction follows a block. The following blocks may be
-// empty, and the assembler does not describe an empty region.
+// Each section of a split function ends its procedure. GNU as cannot nest
+// procedures, so this is where the section ends, not at the function's end.
+void IA64AsmPrinter::emitBasicBlockEnd(const MachineBasicBlock &MBB) {
+  AsmPrinter::emitBasicBlockEnd(MBB);
+  if (MF->hasBBSections() && (MBB.isEndSection() || &MBB == &MF->back()))
+    getTargetStreamer().emitEndp();
+}
+
+// Whether any real instruction follows a block in its procedure. The
+// following blocks may be empty, and the assembler does not describe an
+// empty region.
 static bool isFollowedByCode(const MachineBasicBlock &MBB) {
   for (const MachineBasicBlock &Next :
-       make_range(std::next(MBB.getIterator()), MBB.getParent()->end()))
+       make_range(std::next(MBB.getIterator()), MBB.getParent()->end())) {
+    if (!Next.sameSection(&MBB))
+      break;
     for (const MachineInstr &MI : Next)
       if (!MI.isMetaInstruction())
         return true;
+  }
   return false;
+}
+
+// Emit a directive of the entry prologue, and keep it for the procedures of
+// the function's other sections.
+void IA64AsmPrinter::emitPrologueDirective(
+    std::function<void(IA64TargetStreamer &)> Emit, unsigned Nops) {
+  Emit(getTargetStreamer());
+  if (MF->hasBBSections())
+    PrologueDirectives.emplace_back(std::move(Emit), Nops);
 }
 
 // Emit unwind directives for a prologue or epilogue instruction.
@@ -476,44 +538,64 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
     return;
   switch (MI.getOpcode()) {
   case IA64::ALLOC:
-    TS.emitSave(IA64TargetStreamer::UR_PFS,
-                MI.getOperand(0).getReg() - IA64::R0);
+    emitPrologueDirective(
+        [GR = MI.getOperand(0).getReg() - IA64::R0](IA64TargetStreamer &TS) {
+          TS.emitSave(IA64TargetStreamer::UR_PFS, GR);
+        });
     break;
   case IA64::MOV_FROM_BR:
     if (MI.getOperand(1).getReg() == IA64::B0)
-      TS.emitSave(IA64TargetStreamer::UR_RP,
-                  MI.getOperand(0).getReg() - IA64::R0);
+      emitPrologueDirective(
+          [GR = MI.getOperand(0).getReg() - IA64::R0](IA64TargetStreamer &TS) {
+            TS.emitSave(IA64TargetStreamer::UR_RP, GR);
+          });
     else
       // .save.b with a GR also marks the BR as spilled in the memory spill
       // order, and an unwinder that follows that order would find no memory
       // slot for it. Use .spillreg instead.
-      TS.emitSpillReg(IA64TargetStreamer::SR_BR +
-                          (MI.getOperand(1).getReg() - IA64::B0),
-                      MI.getOperand(0).getReg());
+      emitPrologueDirective(
+          [BR = MI.getOperand(1).getReg() - IA64::B0,
+           TReg = MI.getOperand(0).getReg()](IA64TargetStreamer &TS) {
+            TS.emitSpillReg(IA64TargetStreamer::SR_BR + BR, TReg);
+          });
     break;
   case IA64::MOV_FROM_AR:
     if (MI.getOperand(1).getReg() == IA64::AR36)
-      TS.emitSave(IA64TargetStreamer::UR_UNAT,
-                  MI.getOperand(0).getReg() - IA64::R0);
+      emitPrologueDirective(
+          [GR = MI.getOperand(0).getReg() - IA64::R0](IA64TargetStreamer &TS) {
+            TS.emitSave(IA64TargetStreamer::UR_UNAT, GR);
+          });
     else if (MI.getOperand(1).getReg() == IA64::AR65)
-      TS.emitSave(IA64TargetStreamer::UR_LC,
-                  MI.getOperand(0).getReg() - IA64::R0);
+      emitPrologueDirective(
+          [GR = MI.getOperand(0).getReg() - IA64::R0](IA64TargetStreamer &TS) {
+            TS.emitSave(IA64TargetStreamer::UR_LC, GR);
+          });
     break;
   case IA64::MOV_FROM_PR:
-    TS.emitSave(IA64TargetStreamer::UR_PR,
-                MI.getOperand(0).getReg() - IA64::R0);
+    emitPrologueDirective(
+        [GR = MI.getOperand(0).getReg() - IA64::R0](IA64TargetStreamer &TS) {
+          TS.emitSave(IA64TargetStreamer::UR_PR, GR);
+        });
     break;
   // Callee-saved registers spilled to memory are at the location the
   // unwinder expects, so only the mask is recorded.
   case IA64::ST8_SPILL:
-    TS.emitSaveG(1u << (MI.getOperand(1).getReg() - IA64::R4));
+    emitPrologueDirective([Mask = 1u << (MI.getOperand(1).getReg() - IA64::R4)](
+                              IA64TargetStreamer &TS) { TS.emitSaveG(Mask); },
+                          1);
     break;
   case IA64::STF_SPILL: {
     MCRegister Reg = MI.getOperand(1).getReg();
     if (Reg <= IA64::F5)
-      TS.emitSaveF(1u << (Reg - IA64::F2));
+      emitPrologueDirective([Mask = 1u << (Reg - IA64::F2)](
+                                IA64TargetStreamer &TS) { TS.emitSaveF(Mask); },
+                            1);
     else
-      TS.emitSaveGF(0, 1u << (Reg - IA64::F16 + 4));
+      emitPrologueDirective(
+          [Mask = 1u << (Reg - IA64::F16 + 4)](IA64TargetStreamer &TS) {
+            TS.emitSaveGF(0, Mask);
+          },
+          1);
     break;
   }
   case IA64::ADDS:
@@ -522,7 +604,9 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
       if (!HasVFrame && MI.getOperand(1).isImm() &&
           MI.getOperand(1).getImm() == 0 && MI.getOperand(2).isReg() &&
           MI.getOperand(2).getReg() == IA64::R12) {
-        TS.emitVFrame(MI.getOperand(0).getReg() - IA64::R0);
+        emitPrologueDirective(
+            [GR = MI.getOperand(0).getReg() -
+                  IA64::R0](IA64TargetStreamer &TS) { TS.emitVFrame(GR); });
         HasVFrame = true;
       }
       break;
@@ -530,7 +614,10 @@ void IA64AsmPrinter::emitUnwindDirectives(const MachineInstr &MI) {
     [[fallthrough]];
   case IA64::ADD:
     if (!HasVFrame && MI.modifiesRegister(IA64::R12, /*TRI=*/nullptr))
-      TS.emitFFrame(MF->getFrameInfo().getStackSize());
+      emitPrologueDirective(
+          [Size = MF->getFrameInfo().getStackSize()](IA64TargetStreamer &TS) {
+            TS.emitFFrame(Size);
+          });
     break;
   default:
     break;

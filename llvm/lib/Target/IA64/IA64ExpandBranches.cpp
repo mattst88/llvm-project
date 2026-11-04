@@ -259,7 +259,13 @@ static bool mergeBranches(MachineBasicBlock &MBB,
     SmallVector<MachineBasicBlock *, 4> Path;
     MachineBasicBlock *Next =
         followOnlyPath(&MBB, Fallthrough ? NotTaken : Taken, Path);
-    if (!Next || Next == &MBB || !Chains.count(Next))
+    // A branch into another section is not merged with that section's
+    // blocks: the branch would stand for blocks that are elsewhere.
+    if (!Next || Next == &MBB || !Chains.count(Next) ||
+        !Next->sameSection(&MBB) ||
+        any_of(Path, [&](const MachineBasicBlock *P) {
+          return !P->sameSection(&MBB);
+        }))
       continue;
     MachineInstr *NextBr = getConditionalBranch(*Next);
     if (!NextBr || NextBr != &*Next->getFirstNonDebugInstr())
@@ -822,19 +828,29 @@ bool IA64ExpandBranches::runOnMachineFunction(MachineFunction &MF) {
     Changed = true;
   }
 
+  // A merge may have removed the block that began or ended a section.
+  if (MF.hasBBSections())
+    MF.assignBeginEndSections();
+
+  // Each section is a procedure of its own, which a call at its end would
+  // return out of.
+  MachineBasicBlock *SectionEnd = nullptr;
   for (MachineBasicBlock &MBB : reverse(MF)) {
+    if (MBB.isEndSection() || &MBB == &MF.back())
+      SectionEnd = &MBB;
     auto Last = MBB.getLastNonDebugInstr();
     while (Last != MBB.end() && Last->isMetaInstruction())
       Last = Last == MBB.begin() ? MBB.end() : prev_nodbg(Last, MBB.begin());
-    if (Last == MBB.end())
+    if (Last == MBB.end() || !SectionEnd)
       continue;
     if (Last->isCall() && !Last->isReturn()) {
-      BuildMI(MF.back(), MF.back().end(), DebugLoc(), TII.get(IA64::BREAK_F))
+      BuildMI(*SectionEnd, SectionEnd->end(), DebugLoc(),
+              TII.get(IA64::BREAK_F))
           .addImm(0)
           .addReg(IA64::P0);
       Changed = true;
     }
-    break;
+    SectionEnd = nullptr;
   }
   return Changed;
 }

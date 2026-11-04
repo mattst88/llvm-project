@@ -649,6 +649,15 @@ MCInst IA64InstrInfo::getNop() const {
   return MCInstBuilder(IA64::NOP).addImm(0).addReg(IA64::P0);
 }
 
+// The procedure of a cold section has unwind info of its own, but none for
+// exception handling, and its own procedure would need its own copy of the
+// language-specific data.
+bool IA64InstrInfo::isFunctionSafeToSplit(const MachineFunction &MF) const {
+  if (MF.getFunction().hasPersonalityFn() || !MF.getLandingPads().empty())
+    return false;
+  return TargetInstrInfo::isFunctionSafeToSplit(MF);
+}
+
 // Make the instruction before Call that defines GP, whose value Call reads
 // for the last time, define r1 instead, so that an indirect call needs no
 // copy to r1. The copy has to wait for GP's load, and the call cannot issue

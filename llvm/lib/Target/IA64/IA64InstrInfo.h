@@ -156,6 +156,7 @@ public:
   const MachineOperand &getCalleeOperand(const MachineInstr &MI) const override;
 
   MCInst getNop() const override;
+  bool isFunctionSafeToSplit(const MachineFunction &MF) const override;
 
   // An operand's target flags are a single relocation specifier, never a
   // bitmask.
