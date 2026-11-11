@@ -1160,6 +1160,15 @@ public:
   /// Don't restrict interleaved unrolling to small loops.
   LLVM_ABI bool enableAggressiveInterleaving(bool LoopHasReductions) const;
 
+  /// Whether the loop vectorizer may interleave \p L, a loop it does not
+  /// vectorize.
+  LLVM_ABI bool enableScalarInterleaving(const Loop *L) const;
+
+  /// Whether the loop vectorizer may interleave a loop it does not vectorize
+  /// when that needs runtime pointer checks, rather than leave the loop to the
+  /// unroller.
+  LLVM_ABI bool enableScalarInterleavingWithRuntimeChecks() const;
+
   /// Returns options for expansion of memcmp. IsZeroCmp is
   // true if this is the expansion of memcmp(p1, p2, s) == 0.
   struct MemCmpExpansionOptions {

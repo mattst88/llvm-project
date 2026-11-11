@@ -3705,6 +3705,9 @@ LoopVectorizationPlanner::selectInterleaveCount(VPlan &Plan, ElementCount VF,
   if (Plan.hasEarlyExit())
     return 1;
 
+  if (VF.isScalar() && !TTI.enableScalarInterleaving(OrigLoop))
+    return 1;
+
   const bool HasReductions =
       any_of(Plan.getVectorLoopRegion()->getEntryBasicBlock()->phis(),
              IsaPred<VPReductionPHIRecipe>);
@@ -3877,15 +3880,16 @@ LoopVectorizationPlanner::selectInterleaveCount(VPlan &Plan, ElementCount VF,
   }
 
   // For any scalar loop that either requires runtime checks or tail-folding we
-  // are better off leaving this to the unroller. Note that if we've already
-  // vectorized the loop we will have done the runtime check and so interleaving
-  // won't require further checks.
+  // are better off leaving this to the unroller, unless the target asks
+  // otherwise. Note that if we've already vectorized the loop we will have done
+  // the runtime check and so interleaving won't require further checks.
   bool ScalarInterleavingRequiresPredication =
       (VF.isScalar() && any_of(OrigLoop->blocks(), [this](BasicBlock *BB) {
          return Legal->blockNeedsPredication(BB);
        }));
   bool ScalarInterleavingRequiresRuntimePointerCheck =
-      (VF.isScalar() && Legal->getRuntimePointerChecking()->Need);
+      (VF.isScalar() && Legal->getRuntimePointerChecking()->Need &&
+       !TTI.enableScalarInterleavingWithRuntimeChecks());
 
   // We want to interleave small loops in order to reduce the loop overhead and
   // potentially expose ILP opportunities.

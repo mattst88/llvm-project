@@ -536,6 +536,12 @@ public:
     return false;
   }
 
+  virtual bool enableScalarInterleaving(const Loop *L) const { return true; }
+
+  virtual bool enableScalarInterleavingWithRuntimeChecks() const {
+    return false;
+  }
+
   virtual TTI::MemCmpExpansionOptions
   enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const {
     return {};

@@ -723,6 +723,14 @@ bool TargetTransformInfo::enableAggressiveInterleaving(
   return TTIImpl->enableAggressiveInterleaving(LoopHasReductions);
 }
 
+bool TargetTransformInfo::enableScalarInterleaving(const Loop *L) const {
+  return TTIImpl->enableScalarInterleaving(L);
+}
+
+bool TargetTransformInfo::enableScalarInterleavingWithRuntimeChecks() const {
+  return TTIImpl->enableScalarInterleavingWithRuntimeChecks();
+}
+
 TargetTransformInfo::MemCmpExpansionOptions
 TargetTransformInfo::enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const {
   return TTIImpl->enableMemCmpExpansion(OptSize, IsZeroCmp);
