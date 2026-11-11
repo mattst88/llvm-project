@@ -126,6 +126,40 @@ public:
   // 100 instructions ahead, enough to hide a hit in L3; farther ahead was
   // slower in bzip2. Prefetching a line in every iteration of a loop that
   // steps less than one cost more than it saved.
+  // On a Madison, interleave loops that store a floating-point value by two,
+  // behind run-time checks where the arrays may overlap.  linpack takes 7%
+  // fewer cycles there.  Loops that store no floating-point value did not
+  // help, and four copies cost gemm 12% and fdtd2d 15% in the model.  On an
+  // Itanium 9340 the same two copies made cholesky 7.6%, gemm 4.8% and
+  // linpack 3.5% slower.
+  unsigned getMaxInterleaveFactor(ElementCount VF,
+                                  bool HasUnorderedReductions) const override {
+    return VF.isScalar() && ST->isMadison()
+               ? 2
+               : BaseT::getMaxInterleaveFactor(VF, HasUnorderedReductions);
+  }
+  bool enableScalarInterleaving(const Loop *L) const override;
+  bool enableScalarInterleavingWithRuntimeChecks() const override {
+    return true;
+  }
+  // Floating-point values have a register file of their own.  The integer
+  // class stays at the default: a real count there cost sqlite 0.8% and
+  // tramp3d 2.4% once loops interleaved.
+  enum { FPRC = 2 };
+  unsigned getRegisterClassForType(bool Vector,
+                                   Type *Ty = nullptr) const override {
+    if (!Vector && Ty && Ty->getScalarType()->isFloatingPointTy())
+      return FPRC;
+    return BaseT::getRegisterClassForType(Vector, Ty);
+  }
+  const char *getRegisterClassName(unsigned ClassID) const override {
+    return ClassID == FPRC ? "IA64::FPRC"
+                           : BaseT::getRegisterClassName(ClassID);
+  }
+  unsigned getNumberOfRegisters(unsigned ClassID) const override {
+    return ClassID == FPRC ? 96 : BaseT::getNumberOfRegisters(ClassID);
+  }
+
   unsigned getCacheLineSize() const override { return 64; }
   unsigned getPrefetchDistance() const override { return 100; }
   unsigned getMinPrefetchStride(unsigned NumMemAccesses,

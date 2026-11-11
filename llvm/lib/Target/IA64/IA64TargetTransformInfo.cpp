@@ -382,6 +382,17 @@ static cl::opt<unsigned> FullUnrollMaxTrip(
     "ia64-full-unroll-max-trip", cl::Hidden, cl::init(20),
     cl::desc("The longest loop the full unroll threshold applies to"));
 
+bool IA64TTIImpl::enableScalarInterleaving(const Loop *L) const {
+  if (!ST->isMadison())
+    return false;
+  return any_of(L->blocks(), [](const BasicBlock *BB) {
+    return any_of(*BB, [](const Instruction &I) {
+      return isa<StoreInst>(I) &&
+             I.getOperand(0)->getType()->isFloatingPointTy();
+    });
+  });
+}
+
 void IA64TTIImpl::getUnrollingPreferences(
     Loop *L, ScalarEvolution &SE, TTI::UnrollingPreferences &UP,
     OptimizationRemarkEmitter *ORE) const {
