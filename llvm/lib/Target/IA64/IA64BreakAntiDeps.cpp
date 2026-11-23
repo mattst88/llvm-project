@@ -231,7 +231,7 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
     // Debug values of the value follow it.
     for (MachineInstr &MI : make_range(std::next(Def.getIterator()),
                                        std::next(Instrs[Last]->getIterator())))
-      if (MI.isDebugInstr())
+      if (MI.isDebugValueLike())
         for (MachineOperand &Op : MI.debug_operands())
           if (Op.isReg() && Op.getReg() == Reg)
             Op.setReg(New);
