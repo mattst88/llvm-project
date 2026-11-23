@@ -679,6 +679,10 @@ PreservedAnalyses IA64SpeculateChasesPass::run(Function &F,
     auto &AC = AM.getResult<AssumptionAnalysis>(F);
     auto &TTI = AM.getResult<TargetIRAnalysis>(F);
     for (const Pipeline &P : Pipelines) {
+      // Unrolling a pipelined loop simplifies the loop around it without
+      // preserving LCSSA, which can split off a dedicated exit of a sibling
+      // still to be pipelined and leave its exit phi past it.
+      formLCSSA(*P.L, DT, &LI, &SE);
       pipeline(P, ChaseCopies, LI, DT, SE, AC, TTI);
       ++NumPipelined;
     }

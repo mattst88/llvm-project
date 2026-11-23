@@ -523,3 +523,112 @@ return:
   %r = phi ptr [ null, %entry ], [ %l, %loop ], [ null, %body ]
   ret ptr %r
 }
+
+; Two pipelined loops back to back in an outer loop, the second's exit value
+; feeding an LCSSA phi. Unrolling the first simplifies the outer loop, which
+; gives the second a dedicated exit block and leaves the phi past it; the
+; second is put back into LCSSA form before it is pipelined.
+define void @siblings(ptr %p, ptr %q) {
+; CHECK-LABEL: @siblings(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[OUTER:%.*]]
+; CHECK:       outer:
+; CHECK-NEXT:    [[A_INIT:%.*]] = phi ptr [ [[P:%.*]], [[ENTRY:%.*]] ], [ [[B_LCSSA:%.*]], [[LATCH:%.*]] ]
+; CHECK-NEXT:    [[A_NEXT_S1:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[A_INIT]])
+; CHECK-NEXT:    br label [[FIRST:%.*]]
+; CHECK:       first:
+; CHECK-NEXT:    [[A_NEXT_S:%.*]] = phi i64 [ [[A_NEXT_S1]], [[OUTER]] ], [ [[DOTS_1:%.*]], [[FIRST_SPLIT_1:%.*]] ]
+; CHECK-NEXT:    [[A:%.*]] = phi ptr [ [[A_INIT]], [[OUTER]] ], [ [[A_NEXT_1:%.*]], [[FIRST_SPLIT_1]] ]
+; CHECK-NEXT:    [[A_NEXT2:%.*]] = inttoptr i64 [[A_NEXT_S]] to ptr
+; CHECK-NEXT:    [[TMP0:%.*]] = call i64 @llvm.ia64.tnat(i64 [[A_NEXT_S]])
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp ne i64 [[TMP0]], 0
+; CHECK-NEXT:    br i1 [[TMP1]], label [[FIRST_NAT:%.*]], label [[FIRST_SPLIT:%.*]], !prof [[PROF2]]
+; CHECK:       first.nat:
+; CHECK-NEXT:    [[A_NEXT3:%.*]] = load ptr, ptr [[A]], align 8
+; CHECK-NEXT:    br label [[FIRST_SPLIT]]
+; CHECK:       first.split:
+; CHECK-NEXT:    [[A_NEXT:%.*]] = phi ptr [ [[A_NEXT2]], [[FIRST]] ], [ [[A_NEXT3]], [[FIRST_NAT]] ]
+; CHECK-NEXT:    [[A_END:%.*]] = icmp eq ptr [[A_NEXT]], null
+; CHECK-NEXT:    [[DOTS:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[A_NEXT]])
+; CHECK-NEXT:    br i1 [[A_END]], label [[BETWEEN:%.*]], label [[FIRST_1:%.*]]
+; CHECK:       first.1:
+; CHECK-NEXT:    [[A_NEXT2_1:%.*]] = inttoptr i64 [[DOTS]] to ptr
+; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @llvm.ia64.tnat(i64 [[DOTS]])
+; CHECK-NEXT:    [[TMP3:%.*]] = icmp ne i64 [[TMP2]], 0
+; CHECK-NEXT:    br i1 [[TMP3]], label [[FIRST_NAT_1:%.*]], label [[FIRST_SPLIT_1]], !prof [[PROF2]]
+; CHECK:       first.nat.1:
+; CHECK-NEXT:    [[A_NEXT3_1:%.*]] = load ptr, ptr [[A_NEXT]], align 8
+; CHECK-NEXT:    br label [[FIRST_SPLIT_1]]
+; CHECK:       first.split.1:
+; CHECK-NEXT:    [[A_NEXT_1]] = phi ptr [ [[A_NEXT2_1]], [[FIRST_1]] ], [ [[A_NEXT3_1]], [[FIRST_NAT_1]] ]
+; CHECK-NEXT:    [[A_END_1:%.*]] = icmp eq ptr [[A_NEXT_1]], null
+; CHECK-NEXT:    [[DOTS_1]] = call i64 @llvm.ia64.ld8.s(ptr [[A_NEXT_1]])
+; CHECK-NEXT:    br i1 [[A_END_1]], label [[BETWEEN]], label [[FIRST]]
+; CHECK:       between:
+; CHECK-NEXT:    [[SKIP:%.*]] = icmp eq ptr [[Q:%.*]], null
+; CHECK-NEXT:    br i1 [[SKIP]], label [[LATCH]], label [[SECOND_PREHEADER:%.*]]
+; CHECK:       second.preheader:
+; CHECK-NEXT:    [[B_NEXT_S5:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[Q]])
+; CHECK-NEXT:    br label [[SECOND:%.*]]
+; CHECK:       second:
+; CHECK-NEXT:    [[B_NEXT_S:%.*]] = phi i64 [ [[B_NEXT_S5]], [[SECOND_PREHEADER]] ], [ [[DOTS8_1:%.*]], [[SECOND_SPLIT_1:%.*]] ]
+; CHECK-NEXT:    [[B:%.*]] = phi ptr [ [[Q]], [[SECOND_PREHEADER]] ], [ [[B_NEXT_1:%.*]], [[SECOND_SPLIT_1]] ]
+; CHECK-NEXT:    [[B_NEXT6:%.*]] = inttoptr i64 [[B_NEXT_S]] to ptr
+; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @llvm.ia64.tnat(i64 [[B_NEXT_S]])
+; CHECK-NEXT:    [[TMP5:%.*]] = icmp ne i64 [[TMP4]], 0
+; CHECK-NEXT:    br i1 [[TMP5]], label [[SECOND_NAT:%.*]], label [[SECOND_SPLIT:%.*]], !prof [[PROF2]]
+; CHECK:       second.nat:
+; CHECK-NEXT:    [[B_NEXT7:%.*]] = load ptr, ptr [[B]], align 8
+; CHECK-NEXT:    br label [[SECOND_SPLIT]]
+; CHECK:       second.split:
+; CHECK-NEXT:    [[B_NEXT:%.*]] = phi ptr [ [[B_NEXT6]], [[SECOND]] ], [ [[B_NEXT7]], [[SECOND_NAT]] ]
+; CHECK-NEXT:    [[B_END:%.*]] = icmp eq ptr [[B_NEXT]], null
+; CHECK-NEXT:    [[DOTS8:%.*]] = call i64 @llvm.ia64.ld8.s(ptr [[B_NEXT]])
+; CHECK-NEXT:    br i1 [[B_END]], label [[LATCH_LOOPEXIT:%.*]], label [[SECOND_1:%.*]]
+; CHECK:       second.1:
+; CHECK-NEXT:    [[B_NEXT6_1:%.*]] = inttoptr i64 [[DOTS8]] to ptr
+; CHECK-NEXT:    [[TMP6:%.*]] = call i64 @llvm.ia64.tnat(i64 [[DOTS8]])
+; CHECK-NEXT:    [[TMP7:%.*]] = icmp ne i64 [[TMP6]], 0
+; CHECK-NEXT:    br i1 [[TMP7]], label [[SECOND_NAT_1:%.*]], label [[SECOND_SPLIT_1]], !prof [[PROF2]]
+; CHECK:       second.nat.1:
+; CHECK-NEXT:    [[B_NEXT7_1:%.*]] = load ptr, ptr [[B_NEXT]], align 8
+; CHECK-NEXT:    br label [[SECOND_SPLIT_1]]
+; CHECK:       second.split.1:
+; CHECK-NEXT:    [[B_NEXT_1]] = phi ptr [ [[B_NEXT6_1]], [[SECOND_1]] ], [ [[B_NEXT7_1]], [[SECOND_NAT_1]] ]
+; CHECK-NEXT:    [[B_END_1:%.*]] = icmp eq ptr [[B_NEXT_1]], null
+; CHECK-NEXT:    [[DOTS8_1]] = call i64 @llvm.ia64.ld8.s(ptr [[B_NEXT_1]])
+; CHECK-NEXT:    br i1 [[B_END_1]], label [[LATCH_LOOPEXIT]], label [[SECOND]]
+; CHECK:       latch.loopexit:
+; CHECK-NEXT:    [[B_LCSSA4:%.*]] = phi ptr [ [[B]], [[SECOND_SPLIT]] ], [ [[B_NEXT]], [[SECOND_SPLIT_1]] ]
+; CHECK-NEXT:    br label [[LATCH]]
+; CHECK:       latch:
+; CHECK-NEXT:    [[B_LCSSA]] = phi ptr [ [[P]], [[BETWEEN]] ], [ [[B_LCSSA4]], [[LATCH_LOOPEXIT]] ]
+; CHECK-NEXT:    br label [[OUTER]]
+;
+entry:
+  br label %outer
+
+outer:
+  %a.init = phi ptr [ %p, %entry ], [ %b.lcssa, %latch ]
+  br label %first
+
+first:
+  %a = phi ptr [ %a.next, %first ], [ %a.init, %outer ]
+  %a.next = load ptr, ptr %a, align 8
+  %a.end = icmp eq ptr %a.next, null
+  br i1 %a.end, label %between, label %first
+
+between:
+  %skip = icmp eq ptr %q, null
+  br i1 %skip, label %latch, label %second
+
+second:
+  %b = phi ptr [ %b.next, %second ], [ %q, %between ]
+  %b.next = load ptr, ptr %b, align 8
+  %b.end = icmp eq ptr %b.next, null
+  br i1 %b.end, label %latch, label %second
+
+latch:
+  %b.lcssa = phi ptr [ %b, %second ], [ %p, %between ]
+  br label %outer
+}
