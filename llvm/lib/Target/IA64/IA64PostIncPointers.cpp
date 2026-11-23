@@ -148,15 +148,17 @@ static bool isUnpredicated(const MachineInstr &MI) {
   return QP.isReg() && QP.getReg() == IA64::P0;
 }
 
-// The amount a load or store adds to its address register after the access,
-// which follows the address of a load and the value of a store.
-static std::optional<int64_t> getPostIncrement(const MachineInstr &MI,
-                                               Register Base) {
+// The amount a load or store adds to its address register Base after the
+// access to give Stepped, which follows the address of a load and the value
+// of a store. A load also defines the value it loads, which is not Stepped.
+static std::optional<int64_t>
+getPostIncrement(const MachineInstr &MI, Register Base, Register Stepped) {
   if (!MI.mayLoadOrStore() || !MI.hasOneMemOperand())
     return std::nullopt;
   unsigned Idx = MI.getNumExplicitDefs();
   const MachineOperand &BaseOp = MI.getOperand(Idx);
-  if (!BaseOp.isReg() || BaseOp.getReg() != Base || !BaseOp.isTied())
+  if (!BaseOp.isReg() || BaseOp.getReg() != Base || !BaseOp.isTied() ||
+      MI.getOperand(MI.findTiedOperandIdx(Idx)).getReg() != Stepped)
     return std::nullopt;
   const MachineOperand &Inc = MI.getOperand(Idx + (MI.mayStore() ? 2 : 1));
   if (!Inc.isImm())
@@ -270,7 +272,8 @@ bool IA64PostIncPointers::runOnLoop(MachineBasicBlock &MBB,
       if (!isUnpredicated(*Step) || Step->getOperand(2).getReg() != Ptr)
         continue;
       Stride = Step->getOperand(1).getImm();
-    } else if (std::optional<int64_t> Inc = getPostIncrement(*Step, Ptr)) {
+    } else if (std::optional<int64_t> Inc =
+                   getPostIncrement(*Step, Ptr, Next)) {
       Stride = *Inc;
     } else {
       continue;
