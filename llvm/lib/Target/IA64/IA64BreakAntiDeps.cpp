@@ -162,7 +162,9 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
       ArrayRef<MCPhysReg>(Scratch).take_front(RenameFP ? Scratch.size() : NumGR);
 
   // Live[I] has bit S set where Names[S] is live after Instrs[I], and
-  // Refs[S] lists the instructions that refer to it.
+  // Refs[S] lists the instructions that refer to it. A predicated write may
+  // not take place, so the value the register held before can still be read
+  // after it: unlike LivePhysRegs, it does not end the register's liveness.
   const MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
   LivePhysRegs LiveOut(*TRI);
   LiveOut.addLiveOuts(MBB);
@@ -177,7 +179,14 @@ bool IA64BreakAntiDeps::runOnBlock(MachineBasicBlock &MBB) {
       if (refersTo(*Instrs[I], Reg))
         Refs[S].push_back(I);
     }
+    SmallVector<MCPhysReg, 2> KeepLive;
+    if (predicateOf(*Instrs[I]) != IA64::P0)
+      for (const MachineOperand &MO : Instrs[I]->all_defs())
+        if (MO.getReg() && !LPR.available(MRI, MO.getReg()))
+          KeepLive.push_back(MO.getReg());
     LPR.stepBackward(*Instrs[I]);
+    for (MCPhysReg Reg : KeepLive)
+      LPR.addReg(Reg);
   }
   ScratchSet LiveIn;
   for (auto [S, Reg] : enumerate(Names))
